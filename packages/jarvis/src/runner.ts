@@ -49,6 +49,9 @@ export class TurnRunner {
   async claimNext(): Promise<TurnRow | null> {
     const now = this.kernel.clock.now();
     return this.kernel.db.transaction(async (tx) => {
+      // Claims take turns: otherwise two workers could each see "nothing running" for the same
+      // conversation before either commits, and answer it twice at once.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('jarvis_claim'))`);
       const [next] = await tx
         .select()
         .from(jarvisTurn)

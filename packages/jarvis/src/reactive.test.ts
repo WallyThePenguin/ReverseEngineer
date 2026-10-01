@@ -177,4 +177,16 @@ describe("Jarvis reacts", () => {
     const [pending] = await h.tdb.db.select().from(approval).where(eq(approval.status, "pending"));
     expect(pending).toMatchObject({ action: "entity.trash", origin: "untrusted" });
   });
+
+  it("never runs two turns of one conversation at once, even when claimed together", async () => {
+    const { conversationId } = await ok<{ conversationId: string }>("chat.send", { text: "one" });
+    for (const text of ["two", "three", "four"]) await ok("chat.send", { conversationId, text });
+    await h.engine.processAvailable();
+    expect((await turns()).filter((t) => t.status === "queued")).toHaveLength(4);
+
+    // Open every pooled connection first, so the claims really do overlap.
+    await Promise.all(Array.from({ length: 5 }, () => h.tdb.pool.query("SELECT 1")));
+    const claimed = await Promise.all(Array.from({ length: 4 }, () => h.runner.claimNext()));
+    expect(claimed.filter(Boolean)).toHaveLength(1);
+  });
 });
