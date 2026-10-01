@@ -45,6 +45,18 @@ describe("tasks", () => {
     expect((await ok<TaskView>("task.get", { key: "t-1" })).title).toBe("File taxes");
   });
 
+  it("lists a task's subtasks, open and closed", async () => {
+    const parent = await ok<TaskView>("task.create", { title: "Move apartments" });
+    const a = await ok<TaskView>("task.create", { title: "Book movers", parentId: parent.id });
+    await ok("task.create", { title: "Unrelated" });
+    await ok("task.update", { id: a.id, status: "completed" });
+    await ok("task.create", { title: "Pack books", parentId: parent.id });
+    const subs = await ok<TaskView[]>("task.list", { parentId: parent.id, includeClosed: true });
+    expect(subs.map((s) => s.title).sort()).toEqual(["Book movers", "Pack books"]);
+    const open = await ok<TaskView[]>("task.list", { parentId: parent.id });
+    expect(open.map((s) => s.title)).toEqual(["Pack books"]);
+  });
+
   it("starts work when a task is assigned to Jarvis", async () => {
     const task = await ok<TaskView>("task.create", { title: "Find a plumber", assignee: "jarvis" });
     const event = (await t.events("task.assigned")).find((e) => e.entityId === task.id)!;

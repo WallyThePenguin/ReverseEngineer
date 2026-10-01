@@ -12,5 +12,6 @@
     "cron-parser": "^5.10.1",
     "date-fns": "^4.4.0",
     "zod": "^4.6.5"
-  }
+  },
+  "sideEffects": false
 }

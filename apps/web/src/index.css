@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+/* Hearth's palette: warm neutrals with an ember accent. Everything reads from these tokens. */
+@theme {
+  --color-bg: #faf8f5;
+  --color-panel: #ffffff;
+  --color-sunk: #f2efe9;
+  --color-line: #e6e1d8;
+  --color-ink: #1f1b16;
+  --color-muted: #6f675c;
+  --color-faint: #a39a8d;
+  --color-accent: #c2410c;
+  --color-accent-soft: #fdeee4;
+  --color-ok: #15803d;
+  --color-warn: #b45309;
+  --color-bad: #b91c1c;
+  --color-jarvis: #4338ca;
+  --color-jarvis-soft: #eef0ff;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #15130f;
+    --color-panel: #1c1a16;
+    --color-sunk: #24211c;
+    --color-line: #34302a;
+    --color-ink: #ece7df;
+    --color-muted: #a39a8d;
+    --color-faint: #6f675c;
+    --color-accent: #f97316;
+    --color-accent-soft: #3a2416;
+    --color-ok: #4ade80;
+    --color-warn: #fbbf24;
+    --color-bad: #f87171;
+    --color-jarvis: #a5b4fc;
+    --color-jarvis-soft: #23234a;
+  }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* The row the keyboard is on. */
+[data-active="true"] {
+  background: var(--color-accent-soft);
+}
+
+.mention {
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+  border-radius: 4px;
+  padding: 0 3px;
+  cursor: pointer;
+}
+
+.mention[data-type="agent"] {
+  color: var(--color-jarvis);
+  background: var(--color-jarvis-soft);
+}

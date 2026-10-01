@@ -180,11 +180,12 @@ export const getTask = defineAction({
 export const listTasks = defineAction({
   name: "task.list",
   description:
-    "List tasks. By default only open ones (not completed or canceled). Filter by status, assignee, project, or due before a time.",
+    "List tasks. By default only open ones (not completed or canceled). Filter by status, assignee, project, parent task (parentId lists its subtasks), or due before a time.",
   input: z.object({
     status: z.array(z.enum(TASK_STATUSES)).optional(),
     assignee: z.enum(["owner", "jarvis", "nobody"]).optional(),
     projectId: id.optional(),
+    parentId: id.optional(),
     dueBefore: isoDateTime.optional(),
     includeClosed: z.boolean().default(false),
     limit: z.number().int().min(1).max(200).default(50),
@@ -208,6 +209,7 @@ export const listTasks = defineAction({
               ? eq(task.assignee, i.assignee)
               : undefined,
           i.projectId ? eq(task.projectId, i.projectId) : undefined,
+          i.parentId ? eq(entity.parentId, i.parentId) : undefined,
           i.dueBefore ? lte(task.dueAt, new Date(i.dueBefore)) : undefined,
         ),
       )

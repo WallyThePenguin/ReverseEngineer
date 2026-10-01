@@ -1,0 +1,197 @@
+// A conversation with Jarvis: messages, the tools it used, approvals it's waiting on, and the
+// reply streaming in as it's written. Live and reloaded views come from the same fold.
+
+import { type ConversationItem, foldConversation, fromEditForm } from "@hearth/core";
+import { createEffect, createSignal, For, Match, on, Show, Switch } from "solid-js";
+import { Body } from "../components/Body.tsx";
+import { MentionEditor } from "../components/MentionEditor.tsx";
+import { Button, PaneHeader } from "../components/ui.tsx";
+import { live } from "../lib/live.ts";
+import { act, useAction } from "../lib/query.ts";
+import type { LogRecord } from "../lib/types.ts";
+import { decide } from "../views/Inbox.tsx";
+
+interface ConversationData {
+  conversation: { id: string; title: string };
+  log: LogRecord[];
+}
+
+function ToolLine(props: { item: Extract<ConversationItem, { type: "tool" }> }) {
+  const [open, setOpen] = createSignal(false);
+  const name = () => props.item.name.replace(/^mcp__hearth__/, "").replaceAll("_", " ");
+  return (
+    <div class="text-xs text-muted">
+      <button type="button" class="hover:text-ink" onClick={() => setOpen(!open())}>
+        {props.item.status === "running" ? "Using" : "Used"} {name()}
+        {props.item.isError ? " (failed)" : ""}
+      </button>
+      <Show when={props.item.status === "pending_approval" && props.item.approvalId}>
+        <div class="mt-1 flex items-center gap-2 rounded-md bg-accent-soft px-2 py-1.5 text-ink">
+          <span class="flex-1">Waiting for your yes.</span>
+          <Button kind="primary" small onClick={() => decide(props.item.approvalId!, "approve")}>
+            Approve
+          </Button>
+          <Button kind="danger" small onClick={() => decide(props.item.approvalId!, "deny")}>
+            Deny
+          </Button>
+        </div>
+      </Show>
+      <Show when={open()}>
+        <pre class="mt-1 max-h-48 overflow-auto rounded bg-sunk p-2 font-mono text-[11px] whitespace-pre-wrap">
+          {JSON.stringify(props.item.input, null, 2)}
+          {props.item.output ? `\n→ ${props.item.output}` : ""}
+        </pre>
+      </Show>
+    </div>
+  );
+}
+
+export function Conversation(props: {
+  id: string | null;
+  onCreated?: (id: string) => void;
+  compact?: boolean;
+}) {
+  const data = useAction<ConversationData>(
+    "conversation.get",
+    () => ({ id: props.id }),
+    () => !!props.id,
+  );
+  const view = () => foldConversation(data.data?.log ?? []);
+  const streaming = () =>
+    Object.entries(live.streams())
+      .filter(([turnId, s]) => s.conversationId === props.id && view().activeTurns.includes(turnId))
+      .map(([, s]) => s.text);
+  const [draft, setDraft] = createSignal("");
+  const [sending, setSending] = createSignal(false);
+  let scroller!: HTMLDivElement;
+
+  createEffect(
+    on([() => view().items.length, () => streaming().join("").length], () =>
+      queueMicrotask(() => scroller?.scrollTo({ top: scroller.scrollHeight })),
+    ),
+  );
+
+  const send = async () => {
+    const text = fromEditForm(draft().trim());
+    if (!text || sending()) return;
+    setSending(true);
+    const r = await act<{ conversationId: string }>("chat.send", {
+      text,
+      ...(props.id ? { conversationId: props.id } : {}),
+    });
+    setSending(false);
+    if (!r) return;
+    setDraft("");
+    if (!props.id) props.onCreated?.(r.conversationId);
+  };
+
+  return (
+    <div class="flex h-full flex-col">
+      <div ref={scroller} class="flex-1 space-y-3 overflow-auto px-4 py-3">
+        <Show when={props.id} fallback={<Starter onPick={(t) => setDraft(t)} />}>
+          <For each={view().items}>
+            {(item) => (
+              <Switch>
+                <Match when={item.type === "message" && item}>
+                  {(m) => (
+                    <div class={m().role === "you" ? "ml-8 rounded-lg bg-sunk px-3 py-2" : "mr-2"}>
+                      <Show when={m().role === "jarvis"}>
+                        <p class="mb-0.5 text-xs font-medium text-jarvis">Jarvis</p>
+                      </Show>
+                      <Body text={m().text} />
+                    </div>
+                  )}
+                </Match>
+                <Match when={item.type === "tool" && item}>{(t) => <ToolLine item={t()} />}</Match>
+                <Match when={item.type === "notice" && item}>
+                  {(n) => (
+                    <p class={`text-xs ${n().tone === "error" ? "text-bad" : "text-muted"}`}>
+                      {n().text}
+                    </p>
+                  )}
+                </Match>
+              </Switch>
+            )}
+          </For>
+          <For each={streaming()}>
+            {(text) => (
+              <div class="mr-2">
+                <p class="mb-0.5 text-xs font-medium text-jarvis">Jarvis</p>
+                <Body text={text} />
+              </div>
+            )}
+          </For>
+          <Show when={view().activeTurns.length > 0 && streaming().length === 0}>
+            <p class="flex items-center gap-2 text-sm text-jarvis">
+              <span class="inline-block size-2 animate-pulse rounded-full bg-jarvis" /> Thinking…
+            </p>
+          </Show>
+        </Show>
+      </div>
+      <div class="border-t border-line p-3">
+        <MentionEditor
+          value={draft()}
+          onInput={setDraft}
+          onSubmit={send}
+          rows={props.compact ? 2 : 3}
+          autofocus={!props.compact}
+          placeholder="Ask Jarvis anything, or @ a task or note (Ctrl+Enter to send)"
+        />
+        <div class="mt-2 flex justify-end">
+          <Button
+            kind="jarvis"
+            small
+            disabled={!draft().trim() || sending()}
+            onClick={() => void send()}
+          >
+            Send
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const STARTERS = [
+  "What's on my plate today?",
+  "What did you do for me since yesterday?",
+  "Make me a task to call the dentist tomorrow at 10 a.m.",
+  "Watch for any task due this week that I haven't started, and tell me.",
+];
+
+function Starter(props: { onPick: (text: string) => void }) {
+  return (
+    <div class="space-y-3 py-6">
+      <p class="text-muted">
+        Ask for anything in Hearth. Jarvis can read and change your tasks, notes and people, search
+        the web, and set up watches. Anything other people would see waits for your yes.
+      </p>
+      <div class="space-y-1">
+        <For each={STARTERS}>
+          {(s) => (
+            <button
+              type="button"
+              class="block w-full rounded-md border border-line px-3 py-2 text-left text-sm hover:bg-sunk"
+              onClick={() => props.onPick(s)}
+            >
+              {s}
+            </button>
+          )}
+        </For>
+      </div>
+    </div>
+  );
+}
+
+/** A conversation opened in its own pane. */
+export function ChatView(props: { id: string }) {
+  const data = useAction<ConversationData>("conversation.get", () => ({ id: props.id }));
+  return (
+    <div class="flex h-full flex-col">
+      <PaneHeader title={data.data?.conversation.title || "Conversation"} sub="With Jarvis" />
+      <div class="min-h-0 flex-1">
+        <Conversation id={props.id} />
+      </div>
+    </div>
+  );
+}

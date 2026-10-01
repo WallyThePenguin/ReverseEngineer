@@ -2,7 +2,11 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    include: ["packages/*/src/**/*.test.ts", "apps/{server,worker,jarvis,cli}/src/**/*.test.ts"],
+    include: [
+      "packages/*/src/**/*.test.ts",
+      "apps/{server,worker,jarvis,cli}/src/**/*.test.ts",
+      "apps/web/src/lib/**/*.test.ts",
+    ],
     globalSetup: ["packages/db/src/testing/global-setup.ts"],
     testTimeout: 20_000,
     hookTimeout: 60_000,

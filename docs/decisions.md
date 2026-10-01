@@ -76,7 +76,7 @@ hotkeys and speech models need it, and Handy already provides that code.
 ## D7. PostgreSQL as the only store (2026-10-01)
 
 **Decision:** PostgreSQL 17 with pgvector holds records, links, full-text search, embeddings, the
-event log and the job queue (pg-boss).
+event log and the job queue (pg-boss at first; see D23).
 
 **Alternatives:** SQLite (simplest single file, but weaker for concurrent workers and
 vector search); Postgres plus Redis plus OpenSearch (Macro's shape, which is too much for one user).
@@ -243,3 +243,32 @@ support to each module after the module ships.
 Hearth. If each module adds Jarvis support afterwards, coverage drifts and some modules end up
 with none. Putting the spine first means every later module plugs into it from its first commit.
 About a week of work moves from M1 to M0; the total doesn't change.
+
+## D22. A lean shell for M0; Macro's editor and canvas still to be lifted (2026-10-01)
+
+**Decision:** M0's web shell (split panes, hotkeys, Cmd+K) is written fresh, about 600 lines.
+Macro's split-router and hotkey engine are not lifted for now. Its doc editor (M4) and canvas (M6)
+are still to be lifted as planned (D17, D20). Kobalte is left out until a screen needs its
+primitives.
+
+**Alternatives:** Lift Macro's `lib/split-router` (about 5,000 lines) and `lib/core/hotkey`
+(about 2,700) as they are.
+
+**Why:** Both are written for Macro's app. They depend on its telemetry, focus signals and
+persisted storage, and several files break the 400-line limit. For three panes encoded in the
+URL, a small engine is easier to own and test. Moving to Macro's router later is still possible,
+because views only touch `layout.open/show/close`.
+
+## D23. A small scheduler on the event log instead of pg-boss (2026-10-01)
+
+**Decision:** Schedules (routines, reminders, debounced checks) live in a `schedule` table. The
+worker advances them and writes a `clock.fired` event in the same transaction. Jarvis's turn
+queue is the `jarvis_turn` table. Hearth doesn't use pg-boss.
+
+**Alternatives:** pg-boss for cron and queues, as planned in draft 1.
+
+**Why:** Every reaction already flows through the event log and its cursors. Firing schedules as
+events keeps that one path, makes each firing exactly-once with the state change, and lets a stale
+missed firing be skipped (Macro's rule). The queue Jarvis needs is "one turn at a time per
+conversation, reactive first", which a table with `FOR UPDATE SKIP LOCKED` handles in a few lines.
+

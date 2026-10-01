@@ -150,9 +150,9 @@ inspired by the Remote-phone repo's `phone doctor`) reports what's up and what's
 | Server | Node 24 LTS, Hono | Small, fast, and runs fine on Windows. |
 | Database | PostgreSQL 17 with pgvector and pg_trgm, native Windows install | One store for records, links, full-text search, embeddings, the event log and the job queue. |
 | Data access | Drizzle ORM and drizzle-kit migrations | Typed SQL with plain migration files. |
-| Jobs and schedules | pg-boss | A queue and cron in Postgres, so no Redis. |
+| Jobs and schedules | A `schedule` table fired as events, and a `jarvis_turn` queue ([D23](docs/decisions.md)) | Cron and queues in Postgres, so no Redis, and every firing goes through the event log. |
 | API contract | One **action registry** (section 5.4), using Zod schemas | One definition per action produces the UI API, the MCP tool and the approval policy. |
-| Web UI | SolidJS, Vite, Tailwind v4, Kobalte primitives, TanStack Solid Query | Lets Hearth lift Macro's split-pane router, hotkey engine and Cmd+K, UI kit and token theming, doc editor and canvas as they are ([D17](docs/decisions.md)). |
+| Web UI | SolidJS, Vite, Tailwind v4, TanStack Solid Query | Lets Hearth lift Macro's doc editor and canvas as they are ([D17](docs/decisions.md)). M0's shell (split panes, hotkeys, Cmd+K) is a lean rewrite ([D22](docs/decisions.md)). |
 | Docs editor and sync | Lexical with the Loro CRDT, using Macro's `lexical-core`, `collaboration` and `loro-mirror` packages; a sync room in `hearth-server` speaking Macro's protocol | Offline editing, live sync across devices, history and Jarvis as a co-editor, already proven in production ([D18](docs/decisions.md)). |
 | Canvas | Macro's canvas (`block-canvas`, SolidJS), which already embeds @linked records | Same framework; one-user last-write-wins saving is acceptable ([D20](docs/decisions.md)). |
 | Search | Postgres full-text plus trigram plus pgvector, fused with reciprocal-rank fusion; embeddings from a small local model (nomic-embed-text class) run by the worker | Keyword and meaning search, free and local. |
