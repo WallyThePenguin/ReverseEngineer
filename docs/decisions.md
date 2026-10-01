@@ -1,0 +1,131 @@
+# Decisions
+
+Each entry records a choice, what else was considered, and why. Newest at the bottom. Change a
+decision by adding a new entry that supersedes the old one, so the history stays readable.
+
+## D1. Build for one person on one PC (2026-10-01)
+
+**Decision:** The workspace serves exactly one user (you) and runs on your always-on Windows PC,
+reached over Tailscale.
+
+**Why:** Your answer: "Just me." This removes teams, sharing permissions, tenancy, billing and
+hosted infrastructure, which make up much of Macro's size. The PC already runs Jarvis and has the
+hardware for local speech models (Ryzen 7 9700X, 61 GB RAM, RTX 2060 SUPER).
+
+## D2. Lean rebuild instead of forking Macro (2026-10-01)
+
+**Decision:** Write a new, small codebase. Borrow Macro's ideas and selected packages.
+
+**Alternatives:**
+- *Fork Macro and strip it.* Rejected. Macro is about 1.1M lines of Rust and 1.3M of TypeScript
+  across ~50 services and 221 crates, built for AWS (Lambda, SQS, SNS, S3, SES), Kafka,
+  OpenSearch, FusionAuth, Doppler, Datadog and Cloudflare Durable Objects, with multi-tenant
+  permissions throughout and Gmail-only email. Its team merges dozens of PRs a day. Stripping it
+  down to one user on one PC means rewriting the infrastructure layer of nearly every service,
+  and the fork would drift away from upstream immediately.
+- *Twenty as the backbone.* Rejected; see D3.
+- *Grow the existing Jarvis into the workspace.* Rejected. It has no data model (about a dozen
+  loose state files), several 2,000-line modules, and you've judged its core flawed.
+
+**Why:** A focused codebase one person can understand and change, built for D1 from the start.
+
+## D3. Don't run Twenty; borrow from it (2026-10-01)
+
+**Decision:** Twenty is a design and code reference, not a dependency.
+
+**Why:** Twenty is a strong CRM, but as the workspace backbone it lacks:
+- bidirectional links (its mentions are display-only)
+- an email inbox (it is sync-to-timeline only, drops attachments and filters newsletters)
+- room for custom docs, canvas or chat UI (front components are beta, with a partial DOM)
+
+Running it only as the CRM would mean two systems of record for the same people and a 2–3 GB
+stack for a small part of the product. Its MIT packages, AGPL sync drivers and design patterns
+are borrowed instead. See [research/twenty.md](research/twenty.md).
+
+## D4. Rebuild Jarvis as the workspace's native agent (2026-10-01)
+
+**Decision:** Jarvis is rewritten as part of the workspace. Its memory, briefs, prep and watches
+become workspace records; its tools are the workspace's own actions. The old code is a reference
+only.
+
+**Why:** You want Jarvis "heavily integrated" and "up to standard", you aren't using the current
+version, and you've cleared a full overhaul. Keeping the old Jarvis alive in parallel would mean
+maintaining two data stores and two permission systems.
+
+## D5. Keep the Claude Max subscription, no API key (2026-10-01)
+
+**Decision:** The agent runs on the Claude Agent SDK, logged in through your `claude` CLI, as
+Jarvis does today.
+
+**Notes:** Anthropic's Agent SDK docs say third-party developers may not offer claude.ai login or
+rate limits in their products without approval. A personal tool on your own login is not that
+case, but the workspace must stay personal while it uses this login. The agent's credentials sit
+behind one config value so it can switch to an API key.
+
+## D6. TypeScript plus Rust, no Python (2026-10-01)
+
+**Decision:** TypeScript for the server, worker, agent and web UI; Rust for the desktop app and
+voice service.
+
+**Alternatives:** Python for the agent (as Jarvis is today); Rust for the server (as Macro is).
+
+**Why:** One language for everything you'll touch most, shared types between the UI, the API and
+the agent tools, and the Agent SDK has a TypeScript version. Rust is only where native audio,
+hotkeys and speech models need it, and Handy already provides that code.
+
+## D7. PostgreSQL as the only store (2026-10-01)
+
+**Decision:** PostgreSQL 17 with pgvector holds records, links, full-text search, embeddings, the
+event log and the job queue (pg-boss).
+
+**Alternatives:** SQLite (simplest single file, but weaker for concurrent workers and
+vector search); Postgres plus Redis plus OpenSearch (Macro's shape, which is too much for one user).
+
+**Why:** One service to install, back up and reason about, with enough headroom never to need
+a second one.
+
+## D8. Run natively on Windows, no containers (2026-10-01)
+
+**Decision:** Each process is a Windows service with automatic restart. Postgres is the native
+Windows install.
+
+**Why:** Your standing rule that Jarvis is never containerized, plus simpler GPU access for the
+speech engines and simpler access to the `claude` CLI login.
+
+## D9. React for the web UI (2026-10-01)
+
+**Decision:** React 19 with Vite.
+
+**Alternatives:** SolidJS (Macro's choice, which would allow lifting Macro UI code); vanilla JS
+(the old Jarvis page).
+
+**Why:**
+- The largest ecosystem for the pieces we need (rich-text editors, Excalidraw, virtualized lists,
+  accessible primitives).
+- The same stack as Handy, so the desktop app and the workspace can share components.
+- What Claude Code writes most reliably.
+
+Macro's SolidJS components can't be reused directly anyway, because they depend on its backend APIs.
+
+## D10. Fork Handy for the desktop app and dictation (2026-10-01)
+
+**Decision:** Start the desktop app from [Handy](https://github.com/cjpais/Handy) (MIT, Tauri 2,
+React).
+
+**Why:** It already does the hard native parts of a Wispr Flow on Windows:
+- a global hold-to-talk and toggle hotkey
+- microphone capture with Silero voice activity detection
+- local Whisper (GPU) and Parakeet engines
+- paste-into-any-app with clipboard restore
+- dictation history
+
+We add the workspace connection, cleanup, dictionary, snippets, styles, command mode and meeting
+capture.
+
+## D11. Choose the speech engine by measurement (2026-10-01)
+
+**Decision:** Before building on any engine, run a bake-off on your own recorded speech and
+vocabulary. Only local engines take part, unless you allow a cloud fallback.
+
+**Why:** You're not satisfied with Jarvis's faster-whisper setup, and Jarvis's own rule was
+"measure before deciding". The harness stays in the repo, so new models can be compared later.

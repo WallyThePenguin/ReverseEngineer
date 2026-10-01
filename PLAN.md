@@ -1,0 +1,447 @@
+# Plan: a personal Macro, with Jarvis built in
+
+Status: draft 1, 2026-10-01. Research behind it: [Macro](docs/research/macro.md),
+[Twenty](docs/research/twenty.md), [Jarvis](docs/research/jarvis.md). Decisions and the
+alternatives we rejected: [docs/decisions.md](docs/decisions.md).
+
+## 1. Summary
+
+We're building a **personal workspace**: one place for your email, calendar, tasks, docs,
+people, meetings, notes and conversations, where everything links to everything. It's modeled
+on [Macro](https://macro.com) but built for one person, running on your always-on Windows PC
+and reachable from your phone over Tailscale.
+
+**Jarvis is rebuilt as the workspace's own agent**, not bolted on. Its memory, briefs, prep and
+watches become real records in the workspace. Its tools are the same actions you take in the UI,
+and anything it does in your name waits for your approval.
+
+**Voice is built in**, with its own engine:
+- dictation into any app on your PC (a personal Wispr Flow)
+- meeting notes (a personal Granola)
+- hands-free conversation with Jarvis
+
+**How we get there: a lean rebuild, not a fork.** Macro is 2.4M lines across ~50 services
+built for multi-tenant AWS hosting. We borrow its ideas and a few of its packages, borrow from
+Twenty, Handy and Excalidraw, and keep the codebase small enough for one person working with
+Claude Code to own.
+
+**First milestone (M0):** a workspace shell where you can create a note and a task, @link them,
+see the link from both sides, and have Claude Code do the same through MCP.
+
+## 2. Goals and non-goals
+
+From your answers on 2026-10-01:
+
+| | |
+|---|---|
+| Who it's for | Just you. Personal life and work, day to day. |
+| Modules in the first usable version | Chat and tasks, email and CRM, docs and canvas, AI agents and memory. Plus Jarvis, dictation, and meeting notes. |
+| Must be better than Macro at | Easy self-hosting, more integrations (Outlook/Microsoft 365 and IMAP), a simpler and more focused UI, and better AI. |
+| Approach | Recommend one. (Recommendation: lean rebuild; see section 3.) |
+
+**Non-goals for now:** other users, teams, sharing permissions, billing, a hosted service, an
+Android app, and a paid Apple developer account. The data model doesn't block guests later, but
+nothing is built for them.
+
+## 3. The approach: lean rebuild
+
+Four options were scored against your goals. Details in [docs/decisions.md](docs/decisions.md).
+
+| Option | Verdict | Why |
+|---|---|---|
+| Fork Macro and strip it | No | 1.1M lines of Rust and 1.3M of TypeScript, ~50 services, AWS Lambda/SQS/SNS/S3, Kafka, OpenSearch, FusionAuth, Cloudflare Durable Objects for docs, multi-tenant permissions everywhere, Gmail-only email, and a 15-person team pushing daily. One person can't keep a stripped fork alive, and stripping it is most of the work of a rebuild anyway. |
+| Twenty as the backbone | No | A great CRM, but it has no inbox, no bidirectional links, and no room for custom docs, canvas or chat UI. You'd live inside a CRM's data model. |
+| Grow the current Jarvis | No | Loose files with no data model, 2,000-line modules, and you've judged its core flawed. |
+| **Lean rebuild, borrowing from all three** | **Yes** | Small enough to own. Built for one user on one PC from day one. Takes Macro's product ideas, Twenty's integration know-how and Jarvis's behaviors without their weight. |
+
+**License note.** Macro is AGPLv3, and parts of Twenty are too. AGPL only obliges you to share
+source with people who use the software over a network. For a workspace only you use, borrowing
+AGPL code costs nothing. If you ever let others use it, the borrowed parts would make the whole
+workspace AGPL. To keep that choice open, borrowed AGPL code lives in clearly marked packages
+under `vendor/agpl/`, so it can be swapped out later.
+
+## 4. What the product looks like
+
+**One graph.** Every item is a node: an email thread, a message, a task, a doc, a person, a
+company, a calendar event, a meeting, a file, a memory note, a Jarvis conversation. @mention
+anything from anywhere, and the link shows on both sides. This is Macro's core idea, and it's
+what makes the workspace more than a set of separate apps.
+
+**One inbox.** New email, Jarvis results, approvals waiting on you, task due dates, Slack
+mentions and follow-ups land in one keyboard-driven list, split into *Signal* and *Noise*:
+- `j`/`k` to move
+- `e` to done
+- `s` to snooze
+- `cmd+k` to jump to anything
+
+**Split panes.** Macro's window manager idea: draft an email next to the thread you're answering
+and the doc it refers to.
+
+**Jarvis everywhere.**
+- a chat pane on every screen
+- the morning brief at the top of the inbox
+- an approval inbox for anything sent in your name
+- prep packets attached to calendar events
+- voice from the desktop and the phone
+
+**Calm by default.** Your interrupt budget carries over: at most 8 interrupts a day, quiet hours
+from 10 p.m. to 8 a.m., and a deadline within 24 hours always breaks through.
+
+## 5. Architecture
+
+### 5.1 What runs where
+
+Everything runs natively on your Windows PC. Nothing is containerized (your rule), and nothing
+is exposed to the public internet.
+
+```
+ Phone (PWA, later the iOS shell)        Laptop / any browser
+          │                                     │
+          └───────────── Tailscale HTTPS ───────┘
+                              │
+ ┌─────────────── Windows PC (always on) ────────────────────────────┐
+ │                                                                   │
+ │  workspace-server (Node, TypeScript)                              │
+ │    HTTP API · SSE event stream · WebSocket doc sync · MCP server  │
+ │    action registry · approvals · auth                             │
+ │                                                                   │
+ │  workspace-worker (Node)              jarvis (Node, Agent SDK)     │
+ │    email/calendar sync, indexing,       chat turns, brief, prep,   │
+ │    scheduled jobs (pg-boss)             heartbeat, journal         │
+ │                                                                   │
+ │  voice-service (Rust)                 desktop app (Tauri, Rust)    │
+ │    speech-to-text for phone and         dictation hotkey, meeting  │
+ │    web voice, meeting transcripts       capture, tray, wraps UI    │
+ │                                                                   │
+ │  PostgreSQL 17 (+ pgvector)           file store (local disk)      │
+ └───────────────────────────────────────────────────────────────────┘
+          │ outbound only
+          ├── Gmail / Google Calendar APIs, Microsoft Graph, IMAP/SMTP, CalDAV
+          ├── Slack (read), GitHub
+          └── Claude (through your claude CLI login)
+```
+
+Each process is a Windows service (via WinSW) that restarts on failure. One command (`ws doctor`,
+inspired by the Remote-phone repo's `phone doctor`) reports what's up and what's down.
+
+### 5.2 Stack
+
+| Layer | Choice | Why |
+|---|---|---|
+| Language | TypeScript for the server, worker, agent and web UI. Rust only for the desktop app and voice service. No Python. | One language across everything you'll touch most. Rust is where native audio, hotkeys and speech models live. |
+| Server | Node 24 LTS, Hono | Small, fast, and runs fine on Windows. |
+| Database | PostgreSQL 17 with pgvector and pg_trgm, native Windows install | One store for records, links, full-text search, embeddings, the event log and the job queue. |
+| Data access | Drizzle ORM and drizzle-kit migrations | Typed SQL with plain migration files. |
+| Jobs and schedules | pg-boss | A queue and cron in Postgres, so no Redis. |
+| API contract | One **action registry** (section 5.4), using Zod schemas | One definition per action produces the UI API, the MCP tool and the approval policy. |
+| Web UI | React 19, Vite, TanStack Router and Query, Radix primitives, Tailwind with your design tokens | Largest ecosystem for editors and canvases, the same stack as Handy, and what Claude Code writes best. |
+| Docs editor and sync | *Decided after the Macro docs research (section 8.5).* | |
+| Canvas | Excalidraw (MIT) with custom @link elements | |
+| Desktop | Tauri 2, starting from a fork of [Handy](https://github.com/cjpais/Handy) (MIT) | Handy already has a global push-to-talk hotkey, local Whisper and Parakeet, voice activity detection, and paste-into-any-app on Windows. |
+| Speech | `transcribe-rs` and whisper.cpp engines (the ones Handy uses), behind one engine interface | Swappable; picked by a bake-off on your own voice (section 7.1). |
+| Agent | Claude Agent SDK (TypeScript) | The same harness Jarvis uses today, with hooks for the approval gate. |
+| Remote access | Tailscale Serve (HTTPS on your tailnet) | Already how you reach the PC. |
+
+### 5.3 Data model
+
+Five core tables carry the whole product; each module adds its own tables.
+
+- **`entity`**: one row per node. Fields: `id`, `type`, `title`, timestamps, `created_by` (you,
+  Jarvis, an integration, an MCP client), soft delete, a full-text vector and an optional
+  embedding. Module tables (`email_message`, `task`, `doc`, `person`, ...) hang off `entity.id`.
+- **`link`**: `from_id`, `to_id`, `kind` (mention, reference, derived-from, attachment,
+  participant), an `anchor` (where in the source the mention sits), and who made it. Backlinks are
+  a query on `to_id`. This is the graph.
+- **`property`** and **`property_def`**: typed custom fields on any entity type (status, priority,
+  due date, stage, tags), which also power saved views.
+- **`event`**: an append-only log of everything that happens, with a global `seq`. It drives live
+  updates to the UI, Jarvis's "what changed" deltas, the audit trail and undo. The envelope comes
+  from Jarvis's bridge protocol: `seq`, `kind`, `entity`, `actor`, `payload`.
+- **`inbox_item`**: what needs your attention, with its bucket (Signal or Noise), state and
+  snooze time.
+
+### 5.4 The action registry
+
+Every operation in the workspace is declared once:
+
+```ts
+defineAction({
+  name: "email.send",
+  input: z.object({ draftId: z.string() }),
+  risk: "outward",            // read | internal | self-external | outward | destructive | secret
+  handler: async (input, ctx) => { ... },
+})
+```
+
+From that one definition the workspace generates:
+- the typed API the web UI calls
+- an MCP tool for Jarvis and for outside agents like Claude Code. It inherits Macro's
+  "near-100% of the UI available to agents" by construction.
+- the approval rule, so `outward`, `destructive` and `secret` actions from any agent pause in
+  your approval inbox
+- an audit row and an `event` for every call
+
+### 5.5 Security
+
+- **Login:** a passkey (WebAuthn) for you; per-device sessions; reachable only on your tailnet.
+- **Principals:** you, Jarvis, each integration and each external MCP client get their own
+  identity and scoped token. Every write records who did it.
+- **Approvals:** sending email, posting as you, inviting others, deleting and touching
+  credentials all wait for a yes, unless you've written a standing rule (for example "Jarvis may
+  reply to calendar scheduling emails from people in my contacts"). Your own calendar is
+  `self-external`: Jarvis writes it directly, per your rule.
+- **Caller tiers:** a request that arrives through Slack or email is never treated as you. Other
+  people get a read-only tier, and Jarvis answers them as itself. This closes today's biggest
+  Jarvis hole.
+- **Untrusted content:** text from email, Slack, web pages and files is marked as data in every
+  tool result and can never raise an action's permissions.
+- **Secrets:** OAuth tokens are encrypted at rest with a key held in Windows DPAPI. They are never
+  printed or logged.
+
+### 5.6 Backups
+
+A nightly `pg_dump` plus the file store, sent with restic to an external drive and an encrypted
+offsite bucket (your choice of provider). A monthly restore test runs automatically and reports
+in the brief. This is the main fix for "everything lives on one PC".
+
+## 6. Jarvis, rebuilt as the workspace's agent
+
+Jarvis keeps its name, its mandate and your rules ([docs/research/jarvis.md](docs/research/jarvis.md)).
+Everything else is new.
+
+**Runtime.** A Node service on the Claude Agent SDK, logged in through your `claude` CLI (Max
+subscription, no API key). Per Anthropic's Agent SDK docs, that login can't be offered to other
+users in a product, so this stays strictly personal. Switching to an API key is one config line
+if that ever changes.
+
+**Conversations** are workspace entities. Every turn streams through the event log, so the web
+UI, the phone and voice all show the same live conversation and full history, searchable and
+never capped at two days.
+
+**Tools** are the action registry, served to the SDK as an in-process MCP server, plus a few of
+Jarvis's own:
+- `observe`: record an observation. It returns a fixed acknowledgement, so findings can't leak
+  into replies.
+- `remember`: write a memory note, with a revision.
+- `show`: put a card, a record or a live component into a pane mid-answer. This is the "dynamic
+  screens" piece the old Jarvis specified but never built.
+- `escalate`: hand a question from the fast lane to the deep lane.
+
+**Memory** becomes records:
+- `memory_note`: identity, how you work, your preferences, and project briefs, each with a
+  revision history in place of git commits.
+- `observation`: kind, TTL, supersedes, linked to what it's about.
+- `fact`: durable facts with a source link.
+
+Retrieval is in tiers: always-on notes, then project notes picked by deterministic routing, then
+a `memory.search` tool using full-text plus embeddings. A nightly consolidation pass (Macro's
+"team memory" job, scoped to you) merges the day's observations into notes, with every change
+reviewable.
+
+**The proactive loop runs on the workspace scheduler:**
+- Watching is free. The worker turns sync activity into events, and a `watch` record is just a
+  saved filter over them. No model turn is spent until something matches.
+- **Prep (6 a.m.):** for each commitment in the next 48 hours, build a `prep_packet` linked to the
+  event: last meeting's notes, the thread, the doc, the open tasks.
+- **Brief (8:15 a.m.):** a `day_brief` record in the order *handled, prepared, needs a yes*,
+  pinned at the top of the inbox and readable aloud.
+- **Heartbeat (every 25 minutes, 8 a.m. to 7 p.m.):** one turn only when events, due decisions or
+  imminent meetings call for it.
+- **Journal (7:30 p.m.):** the day's write-up as a memory note.
+- **Time-blocking:** big tasks become real calendar blocks, inside working hours, never over a
+  commitment, and never in your evening.
+
+**Lanes.** A warm fast lane for quick questions and a deep lane for heavier work, both on the top
+model, as you prefer. Model work shares your Max rate limit, so the scheduler keeps a daily turn
+budget and reports usage in the brief.
+
+**"Up to standard" for Jarvis means:**
+- No source file over 400 lines. Transport, policy, memory and orchestration are separate modules.
+- Every action Jarvis can take goes through the registry, so there are no side doors.
+- An eval suite with recorded fixtures covering brief, prep, routing, approvals and
+  prompt-injection attempts runs in CI and blocks a merge if scores drop.
+- Latency is tracked per lane: time to first token and time to the first spoken sentence.
+- Every turn leaves an audit row, and every memory change can be reviewed and reverted.
+
+## 7. Voice
+
+All voice work shares one engine layer with three uses. The engine is a swappable interface,
+so the model can change without touching anything else.
+
+### 7.1 First, an engine bake-off
+
+You're not satisfied with Jarvis's current Whisper setup, so the first voice task is measurement,
+not building.
+- Record about 50 real dictation samples and 5 meeting clips, with reference transcripts.
+- Run every candidate engine on the RTX 2060 SUPER and the CPU: Whisper large-v3-turbo,
+  NVIDIA Parakeet TDT v3, Moonshine, and others.
+- Score each on word error rate, accuracy on your vocabulary (product names, people, code terms),
+  latency from key release to text (median and worst 5%), and GPU memory.
+- The winner becomes the default. The harness stays in the repo, so a new model is a re-run.
+
+Your rule says audio never leaves the machine, so only local engines are in the bake-off. If you
+want a cloud engine considered as a fallback, say so and it gets one row in the comparison.
+
+### 7.2 Dictation: a personal Wispr Flow
+
+Built on the Handy fork. Target: Wispr Flow's core features, private and free.
+
+| Feature | Plan |
+|---|---|
+| Global hotkey, hold to talk or tap to toggle | Already in Handy |
+| Text appears in any app | Already in Handy (paste with clipboard restore on Windows) |
+| Removes "um", "uh", false starts and "scratch that" | A fast rules pass, then a small local language model on the GPU. This needs to finish in well under a second, which a full Claude turn can't. |
+| Your vocabulary spelled right | A personal dictionary in the workspace that biases the engine and the cleanup. It learns when you fix a word in the dictation history. |
+| Snippets ("my calendar link") | Snippet records in the workspace, expanded by voice trigger |
+| Tone per app (casual in Slack, formal in email) | Style profiles keyed by the focused app and window title |
+| Command mode ("make this more formal") | Select text, hold the command hotkey, speak. Goes to Jarvis's fast lane; a couple of seconds is acceptable here. |
+| History | Every dictation is a workspace record: searchable, linkable, and re-insertable |
+| Phone | First the PWA (push-to-talk into any workspace field). Later an iOS keyboard that hands off to the app to record, as Wispr Flow does. |
+
+### 7.3 Meeting notes: a personal Granola
+
+The desktop app records your microphone and the system audio (WASAPI loopback) as two separate
+channels. Because you're on one channel and everyone else is on the other, it knows who spoke
+without any diarization model. Then:
+- A live transcript shows next to your own notes.
+- After the call, Jarvis writes the summary using your template.
+- The result is a `meeting` record linked to the calendar event and the attendees' person
+  records. Action items become tasks.
+- Tomorrow's prep packet picks it up automatically.
+
+Recording laws vary by state, so the app shows a reminder to tell participants.
+
+### 7.4 Talking to Jarvis
+
+Push-to-talk or hands-free from the desktop or the phone. Audio streams to the voice service, the
+transcript goes to Jarvis, and answers come back as text plus local text-to-speech, one sentence
+at a time. The old Jarvis's chunked-upload protocol and streaming partials are a proven design to
+reuse.
+
+## 8. Modules
+
+Each module ships with its actions in the registry, its views in the UI, its records in the graph,
+and its Jarvis skills.
+
+### 8.1 Email (better than Macro's)
+- **Accounts:** both of your Gmail accounts through the Gmail API (incremental history sync),
+  Microsoft 365 through Graph, and anything else through IMAP/SMTP. Macro supports Gmail only.
+- **One triage inbox** across all accounts, keyboard-first, plus a view per account.
+- **HTML mail** rendered safely in a sandboxed frame. Attachments are kept, text-extracted and
+  searchable.
+- **Sending** creates a draft; you send it, or approve Jarvis's draft from the approval inbox.
+- **People and companies** are built from your mail automatically. Free-mail and group addresses
+  are handled with heuristics borrowed from Twenty.
+
+### 8.2 Calendar
+Google, Microsoft and CalDAV with full read and write (create, edit, delete, RSVP); Twenty only
+creates. This is what Jarvis's prep and time-blocking stand on.
+
+### 8.3 Chat
+For one person, "chat" means three things:
+- **Conversations with Jarvis**, any number of them, shared across devices.
+- **Notes-to-self channels**, places to think out loud, with @links.
+- **Slack ingest:** team Slack is read in, and your mentions land in the inbox. Jarvis watches
+  for concerns and bugs and posts only as itself.
+
+Inviting other people into chat is out of scope for now.
+
+### 8.4 Tasks
+Linear-light: status, due date, priority, project and custom properties, with list, board and
+calendar views. Create a task from anywhere:
+- `c t` anywhere in the app
+- `/task` in a doc
+- highlighting a `- [ ]` line
+- "task" on an email
+- by asking Jarvis
+
+Every task links back to where it came from. Watches and time blocks are task-adjacent records.
+
+### 8.5 Docs
+Markdown-native docs with real-time sync across your devices, @links, version history you can
+scrub, offline editing, and Jarvis editing as a peer.
+
+*Editor and sync engine: pending the Macro docs research.* The choice is between Macro's own
+Lexical-plus-Loro packages (AGPL, proven in production) and TipTap plus Yjs (MIT, larger
+ecosystem).
+
+### 8.6 Canvas
+Excalidraw boards where @linked records appear as live cards.
+
+### 8.7 People (personal CRM)
+People and organizations built automatically from email, calendar and Slack. Each person page
+shows every linked item: threads, meetings, tasks, docs and notes. It also covers relationship
+notes, follow-up reminders ("haven't talked to X in 60 days") and custom fields. No outside data
+enrichment unless you turn it on.
+
+### 8.8 Files and search
+- **Files:** attachments, uploads and recordings live on local disk, content-addressed, with text
+  extracted for search.
+- **Search:** one query across everything, combining full-text (Postgres) and meaning
+  (embeddings computed locally), with filters by type, person, date and link.
+
+## 9. What we borrow
+
+| From | What | License | How |
+|---|---|---|---|
+| Macro | The ideas: bidirectional links, the unified Signal/Noise inbox, split panes, keyboard model, create-a-task-from-anywhere, nightly memory, near-total MCP coverage, agents as doc peers | n/a | Design reference |
+| Macro | *Specific packages, pending the Macro research* | AGPL | `vendor/agpl/` |
+| Twenty | Field-type and view models, rich-text-to-markdown converters, message ingestion schema, importer apps | MIT | Copy |
+| Twenty | IMAP and CalDAV sync drivers, quoted-reply stripping, contact heuristics, push-webhook renewal | AGPL | `vendor/agpl/` or rewrite |
+| Twenty | Lazy MCP tool surface, pausing tools for human approval, signed webhooks | n/a | Design reference |
+| Jarvis | Mandate, rules, interrupt budget, observation pattern, event-log envelope, chunked-audio protocol, iOS shell and no-Mac build pipeline | Yours | Port |
+| Handy | Tauri desktop app: hotkeys, audio capture, local engines, paste on Windows | MIT | Fork |
+| Excalidraw | Canvas | MIT | Dependency |
+
+## 10. Roadmap
+
+Each milestone ends with something you use every day. Rough effort assumes you direct and
+review while Claude Code writes most of the code; treat the estimates as order-of-magnitude.
+
+| # | Milestone | Done means | Rough effort |
+|---|---|---|---|
+| M0 | **Foundations**: monorepo, Postgres, the five core tables, action registry, passkey login, web shell (command palette, split panes, keyboard navigation), event stream, MCP server, Windows services, backups, CI | Create a note and a task, @link them, and see the link from both sides. Claude Code does the same over MCP. A backup restores cleanly in a test. | 2–3 weeks |
+| M1 | **Jarvis core, tasks and calendar**: agent runtime, chat pane, approval inbox, memory records, scheduler with prep, brief, heartbeat and journal, Google Calendar two-way sync, tasks with time-blocking | A full workday runs on it: the brief arrives at 8:15 a.m., big tasks get calendar blocks, and nothing goes out in your name without a yes. The eval suite passes in CI. | 3–5 weeks |
+| M2 | **Email**: Gmail (both accounts), IMAP, Microsoft Graph, triage inbox, HTML rendering, attachments, drafts and send, people built from mail | One week of inbox zero on both Gmail accounts without opening Gmail. | 4–6 weeks |
+| M3 | **Voice I**: engine bake-off, Handy fork with dictation, cleanup, dictionary, snippets and history, plus voice chat with Jarvis | The bake-off picks an engine that measurably beats today's setup on your vocabulary. Median release-to-text under 1 second. A week of daily dictation. | 3–4 weeks; can run alongside M1 or M2 |
+| M4 | **Docs**: editor, real-time sync, @links, history, Jarvis as a peer editor; memory notes shown as docs | Your project notes live here, and Jarvis's edits show up live. | 4–6 weeks |
+| M5 | **People and meetings**: person and organization pages, follow-ups, the meeting recorder, summaries linked to events and people | Tomorrow's prep packet includes notes from the last meeting with the same people, without you doing anything. | 3–4 weeks |
+| M6 | **Phone**: polished PWA, then the iOS shell with widgets, Live Activity, share sheet and push-to-talk | You run your day from the phone when away from the PC. | 2–3 weeks |
+| M7 | **Canvas, Slack ingest, GitHub, Notion import**, dictation command mode and styles, iOS keyboard | Ongoing | Ongoing |
+
+## 11. Engineering standards ("up to standard")
+
+These apply to the whole workspace, Jarvis included, and are enforced in CI:
+- TypeScript strict mode and Rust clippy at deny-warnings.
+- No source file over 400 lines; split by responsibility.
+- Every action has a schema, a risk class and a test. Every migration is reversible.
+- Unit tests for domain logic; integration tests against a real Postgres; Playwright tests for
+  key UI flows (triage, @link, approve).
+- Agent evals with recorded fixtures, which can block a merge.
+- Logs and traces through OpenTelemetry to a local viewer, so `ws doctor` can say why something
+  is slow.
+- Work happens on branches, you merge, and only you push, as Jarvis's rule already says.
+
+## 12. Risks
+
+| Risk | Mitigation |
+|---|---|
+| Scope: this is several products | Ship by milestone. Each one is useful alone. Don't start M4 until M0–M2 are in daily use. |
+| One PC holds everything | Nightly offsite backups with automatic restore tests. Services restart themselves. `ws doctor`. |
+| Max rate limit shared with your own Claude Code use | Free watching, a daily turn budget, a small local model for dictation cleanup, and usage in the brief. |
+| Google OAuth for personal apps | An unverified "Testing" app gets refresh tokens that expire after 7 days. Publish your OAuth app "In production" (unverified, used only by you) so tokens persist; you'll see a one-time warning screen. |
+| GPU contention (8 GB VRAM) between speech and the cleanup model | Measured in the bake-off. The cleanup model can drop to CPU or a smaller size. |
+| Free Apple account: 7-day app signing | The PWA is the main phone surface. The iOS shell is re-signed weekly, as Remote-phone already does. |
+| Borrowed AGPL code | Isolated under `vendor/agpl/` with a list of what came from where. |
+
+## 13. Questions for you
+
+1. **Cloud speech fallback:** keep the "audio never leaves the machine" rule absolute, or allow
+   one cloud engine in the bake-off for comparison?
+2. **Old Jarvis rules that don't fit the workspace** (listed in
+   [docs/research/jarvis.md](docs/research/jarvis.md#rules-that-dont-fit-the-new-workspace)):
+   OK to drop them?
+3. **Email accounts:** which accounts besides your two Gmail accounts (Outlook, school, other IMAP)?
+4. **Offsite backup:** which storage provider do you already pay for, if any?
+5. **Name:** the workspace needs a name. Keep "Jarvis" for the agent and pick something for the
+   workspace, or call the whole thing Jarvis?
