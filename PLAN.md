@@ -1,6 +1,6 @@
 # Plan: Hearth, a personal Macro with Jarvis built in
 
-Status: draft 3, 2026-10-01. Research behind it: [Macro](docs/research/macro.md),
+Status: draft 4, 2026-10-01. M0 is under way. Research behind it: [Macro](docs/research/macro.md),
 [Twenty](docs/research/twenty.md), [Jarvis](docs/research/jarvis.md). Decisions and the
 alternatives we rejected: [docs/decisions.md](docs/decisions.md).
 
@@ -38,7 +38,9 @@ It also takes ideas and drivers from Twenty and the desktop dictation app from H
 codebase small enough for one person working with Claude Code to own.
 
 **First milestone (M0):** a workspace shell where you can create a note and a task, @link them,
-see the link from both sides, and have Claude Code do the same through MCP.
+see the link from both sides, and have Claude Code do the same through MCP. Jarvis's spine lands
+in the same milestone, so it answers when you @mention it and acts on its own when something
+needs attention, from the first day (section 6.1).
 
 ## 2. Goals and non-goals
 
@@ -248,6 +250,72 @@ already pay for:
 
 Jarvis keeps its name, its mandate and your rules ([docs/research/jarvis.md](docs/research/jarvis.md)).
 Everything else is new.
+
+### 6.1 Reactive and proactive, across everything
+
+Your ask (2026-10-01): Jarvis should both respond and take initiative, for everything connected to
+Hearth. That's part of the foundations, not added feature by feature ([D21](docs/decisions.md)).
+
+**The Jarvis contract.** Every module and every integration provides four things, and a test
+fails if any is missing:
+- **Senses:** typed events for everything that happens in it (a mail arrived, a task slipped, a
+  meeting ended, a sync failed).
+- **Hands:** its actions in the registry, each with a risk class, so Jarvis can do anything you
+  can do in the UI.
+- **Knowledge:** a text description of each of its records, with links, so Jarvis can read and
+  cite them.
+- **Reflexes:** rules for what Jarvis should notice in its events and what to do about them.
+
+**Reactive.** Jarvis responds when:
+- you talk to it: the chat pane, "Ask Jarvis" in Cmd+K, voice, or the phone
+- you @mention it anywhere: a note, a task, a comment, a doc. It answers in that thread.
+- you assign it a task. It works the task, posts progress there, and moves it to In Review.
+- you answer something it asked: an approval or a question
+- something it was asked to watch changes
+
+**Proactive.** Jarvis acts on its own when:
+- a routine comes due: prep, the brief, the heartbeat, the journal, the nightly memory update, the
+  weekly review
+- an event matches a reflex: a deadline is close, a follow-up went quiet, a meeting ended, a sync
+  broke, a backup failed
+- time passes: tasks go overdue, you haven't talked to someone in a while, a login is about to
+  expire
+
+**Cheap first.** Every event goes through the same ladder, and a model turn is the last step:
+1. Rules match the event against reflexes and watches, with no model call. Most events stop here.
+2. Duplicates merge, small items are batched for the next heartbeat, quiet hours apply, and the
+   daily turn budget is checked.
+3. Only then does Jarvis get a turn, with the event, the linked records and its memory.
+4. A turn ends in one of five outcomes:
+   - *act*, within its permissions
+   - *ask*, as an approval in your inbox
+   - *tell*, as a notification, within the interrupt budget
+   - *note*, an observation saved for the brief
+   - *nothing*
+
+**What it covers:**
+
+| Area | Reactive | Proactive |
+|---|---|---|
+| Tasks | Creates, updates and plans tasks; works tasks assigned to it | Warns before deadlines, sweeps overdue tasks into the brief, time-blocks big tasks, nudges stalled ones |
+| Notes and docs | Answers @Jarvis in place, edits as a co-editor, summarizes, turns checklists into tasks | Spots unchecked action items and offers them as tasks |
+| Inbox and approvals | "What needs me?", triage on request | Puts the brief at the top, summarizes waiting approvals, learns Signal and Noise from your choices |
+| Email (M2) | Drafts replies, finds and summarizes threads | Flags mail that needs a reply, follows up on threads that went quiet, links mail to people and tasks |
+| Calendar (M1) | Schedules, moves and RSVPs, writing your calendar directly | Prep packets, conflict warnings, time blocks, buffers between meetings |
+| People (M5) | "What's going on with X?" | "You haven't talked to X in 60 days," keeps person notes current from mail and meetings |
+| Meetings (M5) | Summarizes, pulls out action items | Prep before, summary and tasks after, follow-up drafts |
+| Voice (M3) | Command mode, hands-free chat | Reads the brief aloud |
+| Slack and GitHub (M7) | Answers as itself when @mentioned; others get the read-only tier | Flags concerns, links PRs to tasks, moves tasks on merge |
+| Hearth itself | "Is everything working?" (`hearth doctor`) | Reports failed syncs, expiring logins, failed backups, restore tests, and its own turn usage |
+
+**Guardrails**, gathered in one place:
+- risk classes and approvals (section 5.5)
+- caller tiers: an event from outside never acts as you
+- the interrupt budget and the daily turn budget
+- a pause switch that stops all proactive work at once
+- an activity feed of everything Jarvis did and why, with undo where the action allows it
+
+### 6.2 How it's built
 
 **Runtime.** A Node service on the Claude Agent SDK, logged in through your `claude` CLI (Max
 subscription, no API key). Per Anthropic's Agent SDK docs, that login can't be offered to other
@@ -547,8 +615,8 @@ review while Claude Code writes most of the code; treat the estimates as order-o
 
 | # | Milestone | Done means | Rough effort |
 |---|---|---|---|
-| M0 | **Foundations**: monorepo, Postgres, the five core tables with server-side mention sync, action registry, passkey login, the web shell built from Macro's split-pane router, hotkey engine, Cmd+K and UI kit, event stream, MCP server, Windows services, backups, CI | Create a note and a task, @link them, and see the link from both sides. Claude Code does the same over MCP. A backup restores cleanly in a test. | 2–3 weeks |
-| M1 | **Jarvis core, tasks and calendar**: agent runtime, chat pane, approval inbox, memory records, scheduler with prep, brief, heartbeat and journal, Google Calendar two-way sync, tasks with time-blocking | A full workday runs on it: the brief arrives at 8:15 a.m., big tasks get calendar blocks, and nothing goes out in your name without a yes. The eval suite passes in CI. | 3–5 weeks |
+| M0 | **Foundations and Jarvis's spine**: monorepo, Postgres, the five core tables with server-side mention sync, action registry, passkey login, the web shell built from Macro's split-pane router, hotkey engine, Cmd+K and UI kit, event stream, MCP server, Windows services, backups, CI. Plus the spine of section 6.1: event cursors, the reflex engine, the scheduler, approvals, the agent runtime, chat, @Jarvis replies, tasks assigned to Jarvis, and reflexes for notes and tasks | Create a note and a task, @link them, and see the link from both sides. Claude Code does the same over MCP. @Jarvis in a note gets an answer there, a task assigned to Jarvis gets worked, a task due tomorrow gets a warning. A backup restores cleanly in a test. | 3–4 weeks |
+| M1 | **Jarvis's day, tasks and calendar**: memory records, prep, brief, heartbeat and journal on the scheduler, Google Calendar two-way sync, tasks with time-blocking | A full workday runs on it: the brief arrives at 8:15 a.m., big tasks get calendar blocks, and nothing goes out in your name without a yes. The eval suite passes in CI. | 3–4 weeks |
 | M2 | **Email**: the `MailProvider` interface with a Gmail adapter (both accounts), triage inbox, HTML rendering, attachments, drafts and send, people built from mail | One week of inbox zero on both Gmail accounts without opening Gmail. | 4–5 weeks |
 | M3 | **Voice I**: Parakeet bake-off, Handy fork with dictation, cleanup, dictionary, snippets and history, plus voice chat with Jarvis | Parakeet (or whatever wins) measurably beats today's Whisper setup on your vocabulary. Median release-to-text under 1 second. A week of daily dictation. | 3–4 weeks; can run alongside M1 or M2 |
 | M4 | **Docs**: Macro's Lexical and Loro packages, the sync room in `hearth-server`, @links, history, Jarvis as a co-editor; memory notes shown as docs | Your project notes live here, and Jarvis's edits show up live. | 4–6 weeks |
@@ -556,7 +624,8 @@ review while Claude Code writes most of the code; treat the estimates as order-o
 | M6 | **Phone**: polished PWA, then the iOS shell with widgets, Live Activity, share sheet and push-to-talk | You run your day from the phone when away from the PC. | 2–3 weeks |
 | M7 | **Canvas (Macro's), Slack ingest, GitHub loop, Notion import**, spreadsheets, dictation command mode and styles, iOS keyboard, and Microsoft 365 or IMAP mail adapters when you add such an account | Ongoing | Ongoing |
 
-M0 through M6 add up to roughly 21–30 weeks of steady work. The Macro mappers' independent
+M0 through M6 add up to roughly 21–30 weeks of steady work. Moving Jarvis's spine into M0 shifts
+about a week from M1 to M0 without changing the total. The Macro mappers' independent
 estimates for the same scope, using the borrowed packages, land in the same range. That's a long
 road, which is why every milestone is useful on its own and M0–M2 come first.
 
@@ -594,6 +663,7 @@ These apply to the whole workspace, Jarvis included, and are enforced in CI:
 | More email accounts? | Not now, but other providers must be easy to add later. | Section 8.1, [D15](docs/decisions.md) |
 | Offsite backup? | Use the Google One storage you already pay for. | Section 5.6, [D16](docs/decisions.md) |
 | Name? | "Jarvis" stays the agent's name; the workspace gets a new one. | "Hearth", [D12](docs/decisions.md) |
+| Jarvis's role? | Both reactive and proactive, for everything connected to Hearth. | Section 6.1, M0 in section 10, [D21](docs/decisions.md) |
 
 Nothing is blocking M0. Decisions made since your answers, all from the Macro research:
 - SolidJS instead of React, to reuse Macro's shell and editor ([D17](docs/decisions.md))

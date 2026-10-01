@@ -227,3 +227,19 @@ closed-source, the Macro-derived parts would need replacing or a commercial lice
 **Why:** It's SolidJS (Excalidraw is React), already embeds @linked records as cards, and only 5
 files outside it import it, so it lifts cleanly. Its whole-board last-write-wins saving is a real
 weakness for teams but acceptable for one person; moving it onto Loro is a later option.
+
+## D21. Jarvis's spine lands in M0, and every module meets the Jarvis contract (2026-10-01)
+
+**Decision:** The pieces that make Jarvis reactive and proactive are built in M0, before any
+feature module: the event log with per-consumer cursors, the reflex engine, the scheduler,
+approvals, the agent runtime, chat, @Jarvis replies and tasks assigned to Jarvis. Every module and
+integration must provide events, actions, record descriptions and reflexes (the "Jarvis
+contract"), and a test fails when one is missing.
+
+**Alternatives:** Build Jarvis in M1 after the foundations (the previous roadmap); add Jarvis
+support to each module after the module ships.
+
+**Why:** You asked for Jarvis to be both reactive and proactive across everything connected to
+Hearth. If each module adds Jarvis support afterwards, coverage drifts and some modules end up
+with none. Putting the spine first means every later module plugs into it from its first commit.
+About a week of work moves from M1 to M0; the total doesn't change.
