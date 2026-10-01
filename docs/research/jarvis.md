@@ -64,16 +64,17 @@ The new workspace and agent should keep these unless you say otherwise.
 - No code changes without your approval: work happens on branches, you merge, and only you push.
 - Downloads of models and large packages wait for your explicit yes.
 - No API key; everything runs on the Max subscription.
-- No cloud speech of any kind: audio never leaves the machine.
+- No cloud speech of any kind: audio never leaves the machine. Reconfirmed on 2026-10-01 as
+  "keep cost at or near zero", with NVIDIA Parakeet preferred over the current Whisper setup.
 - Design comes from Mobbin references, never from taste. Custom dark-blue dark theme. No
   bubble or avatar on Jarvis's text, no Claude or ChatGPT copy or motifs, no second accent
   color, no borders, shadows or blur, no light theme, no spinners.
 - No iMessage.
 
-### Rules that don't fit the new workspace
+### Rules dropped for the new workspace
 
-These were constraints on the old phone page and bridge. The plan deliberately drops them.
-Confirm or push back.
+These were constraints on the old phone page and bridge. You confirmed dropping them on
+2026-10-01.
 
 - "No JS framework, build step or CDN libraries in the page." A workspace with real-time
   docs, an email client and a canvas needs a framework and a build step. CDN loading stays

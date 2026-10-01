@@ -129,3 +129,47 @@ vocabulary. Only local engines take part, unless you allow a cloud fallback.
 
 **Why:** You're not satisfied with Jarvis's faster-whisper setup, and Jarvis's own rule was
 "measure before deciding". The harness stays in the repo, so new models can be compared later.
+
+## D12. Name the workspace "Hearth" (2026-10-01)
+
+**Decision:** The workspace is called Hearth. "Jarvis" stays the agent's name only.
+
+**Why:** You asked for Jarvis to name the agent only and left the workspace name to me. A hearth
+is the center of a home, where everything gathers, and it's where Jarvis lives. It's short, works
+as a command (`hearth doctor`), and isn't a well-known software brand. Rename freely.
+
+## D13. Local speech only, NVIDIA Parakeet favored (2026-10-01)
+
+**Decision:** No cloud speech engines. NVIDIA Parakeet TDT 0.6B v3 is the expected default for
+dictation, meetings and voice chat, confirmed by a short bake-off against today's Whisper
+large-v3-turbo setup on your own recordings. Refines D11.
+
+**Why:** You want running costs at or near zero, and Jarvis's rule was that audio never leaves
+the machine. Parakeet is fast on the CPU, small on the GPU, openly licensed (CC-BY-4.0) and
+already built into Handy. It can't take a vocabulary prompt the way Whisper can, so the personal
+dictionary is applied in the cleanup pass.
+
+## D14. Drop the old Jarvis page and bridge constraints (2026-10-01)
+
+**Decision:** The workspace uses a JS framework with a build step, WebSockets for doc sync, and
+separate processes for voice and the agent. Loading code from CDNs stays banned: everything is
+bundled and served locally.
+
+**Why:** You confirmed it. Those rules fit a single phone page, not a workspace with real-time
+docs, an email client and a canvas.
+
+## D15. Gmail first, behind a provider interface (2026-10-01)
+
+**Decision:** M2 ships only a Gmail adapter (your two accounts). Everything above sync talks to a
+`MailProvider` interface, so Microsoft 365 (Graph) and IMAP/SMTP are each one more adapter later.
+
+**Why:** You have no other accounts today but want other providers to be easy to add. Building
+the interface now costs little; building the extra adapters now would be unused work.
+
+## D16. Offsite backups to Google Drive (Google One) (2026-10-01)
+
+**Decision:** Nightly encrypted backups with restic, stored in your Google Drive through restic's
+rclone backend, using the `drive.file` scope. A monthly automatic restore test reports in the brief.
+
+**Why:** You already pay for Google One, so offsite backup costs nothing extra. Restic encrypts
+before upload, so Google holds only ciphertext.

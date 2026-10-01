@@ -1,15 +1,20 @@
-# Plan: a personal Macro, with Jarvis built in
+# Plan: Hearth, a personal Macro with Jarvis built in
 
-Status: draft 1, 2026-10-01. Research behind it: [Macro](docs/research/macro.md),
+Status: draft 2, 2026-10-01. Research behind it: [Macro](docs/research/macro.md),
 [Twenty](docs/research/twenty.md), [Jarvis](docs/research/jarvis.md). Decisions and the
 alternatives we rejected: [docs/decisions.md](docs/decisions.md).
 
 ## 1. Summary
 
-We're building a **personal workspace**: one place for your email, calendar, tasks, docs,
+We're building **Hearth**, a personal workspace: one place for your email, calendar, tasks, docs,
 people, meetings, notes and conversations, where everything links to everything. It's modeled
 on [Macro](https://macro.com) but built for one person, running on your always-on Windows PC
-and reachable from your phone over Tailscale.
+and reachable from your phone over Tailscale. The name is a placeholder you can change: a hearth
+is the center of a home, where everything gathers, and it's where Jarvis lives.
+
+**It costs nothing to run** beyond what you already pay for: your Claude Max subscription, your
+Google One storage, and electricity. Speech runs on your own hardware, there are no API keys and
+no paid services, and every dependency is open source.
 
 **Jarvis is rebuilt as the workspace's own agent**, not bolted on. Its memory, briefs, prep and
 watches become real records in the workspace. Its tools are the same actions you take in the UI,
@@ -36,8 +41,10 @@ From your answers on 2026-10-01:
 |---|---|
 | Who it's for | Just you. Personal life and work, day to day. |
 | Modules in the first usable version | Chat and tasks, email and CRM, docs and canvas, AI agents and memory. Plus Jarvis, dictation, and meeting notes. |
-| Must be better than Macro at | Easy self-hosting, more integrations (Outlook/Microsoft 365 and IMAP), a simpler and more focused UI, and better AI. |
+| Must be better than Macro at | Easy self-hosting, more integrations, a simpler and more focused UI, and better AI. |
 | Approach | Recommend one. (Recommendation: lean rebuild; see section 3.) |
+| Running cost | As close to zero as possible: local speech (NVIDIA Parakeet favored), no cloud services, backups to your existing Google One storage. |
+| Email | Your two Gmail accounts now. Other providers (Outlook/Microsoft 365, any IMAP server) must be easy to add later. |
 
 **Non-goals for now:** other users, teams, sharing permissions, billing, a hosted service, an
 Android app, and a paid Apple developer account. The data model doesn't block guests later, but
@@ -101,11 +108,11 @@ is exposed to the public internet.
                               │
  ┌─────────────── Windows PC (always on) ────────────────────────────┐
  │                                                                   │
- │  workspace-server (Node, TypeScript)                              │
+ │  hearth-server (Node, TypeScript)                                 │
  │    HTTP API · SSE event stream · WebSocket doc sync · MCP server  │
  │    action registry · approvals · auth                             │
  │                                                                   │
- │  workspace-worker (Node)              jarvis (Node, Agent SDK)     │
+ │  hearth-worker (Node)                 jarvis (Node, Agent SDK)     │
  │    email/calendar sync, indexing,       chat turns, brief, prep,   │
  │    scheduled jobs (pg-boss)             heartbeat, journal         │
  │                                                                   │
@@ -121,7 +128,7 @@ is exposed to the public internet.
           └── Claude (through your claude CLI login)
 ```
 
-Each process is a Windows service (via WinSW) that restarts on failure. One command (`ws doctor`,
+Each process is a Windows service (via WinSW) that restarts on failure. One command (`hearth doctor`,
 inspired by the Remote-phone repo's `phone doctor`) reports what's up and what's down.
 
 ### 5.2 Stack
@@ -200,9 +207,20 @@ From that one definition the workspace generates:
 
 ### 5.6 Backups
 
-A nightly `pg_dump` plus the file store, sent with restic to an external drive and an encrypted
-offsite bucket (your choice of provider). A monthly restore test runs automatically and reports
-in the brief. This is the main fix for "everything lives on one PC".
+This is the main fix for "everything lives on one PC", and it uses the Google One storage you
+already pay for:
+- **Nightly:** a `pg_dump` plus the file store, backed up with [restic](https://restic.net)
+  (deduplicated, versioned) to Google Drive through restic's [rclone](https://rclone.org) backend.
+- **Private:** restic encrypts everything on the PC before upload, so Google stores only
+  ciphertext. The restic password lives in Windows Credential Manager, with a printed copy
+  somewhere safe; without it, backups can't be restored.
+- **Least access:** rclone uses the same personal Google Cloud OAuth app as Gmail, with the
+  `drive.file` scope, so it can only see the files it created.
+- **Retention:** 7 daily, 4 weekly and 12 monthly snapshots. Restic's deduplication keeps this
+  small; expect a few GB for the first year, mostly email attachments and meeting audio.
+- **Restore test:** a monthly automatic restore into a scratch database, with the result reported
+  in the brief.
+- **Optional second copy:** an external USB drive.
 
 ## 6. Jarvis, rebuilt as the workspace's agent
 
@@ -268,19 +286,26 @@ budget and reports usage in the brief.
 All voice work shares one engine layer with three uses. The engine is a swappable interface,
 so the model can change without touching anything else.
 
-### 7.1 First, an engine bake-off
+### 7.1 The engine: NVIDIA Parakeet, confirmed by a quick bake-off
 
-You're not satisfied with Jarvis's current Whisper setup, so the first voice task is measurement,
-not building.
+All speech runs locally and costs nothing. No cloud engines.
+
+**Expected default: NVIDIA Parakeet TDT 0.6B v3.**
+- Fast enough on the CPU, faster on the GPU.
+- Small enough to share the 8 GB GPU with a cleanup model.
+- Openly licensed (CC-BY-4.0).
+- Already built into Handy, so it's available on day one of M3.
+
+**One known gap:** unlike Whisper, Parakeet can't be primed with a vocabulary prompt. Your
+dictionary is applied in the cleanup pass instead (section 7.2).
+
+Before building on it, a short bake-off confirms the choice on your own voice:
 - Record about 50 real dictation samples and 5 meeting clips, with reference transcripts.
-- Run every candidate engine on the RTX 2060 SUPER and the CPU: Whisper large-v3-turbo,
-  NVIDIA Parakeet TDT v3, Moonshine, and others.
-- Score each on word error rate, accuracy on your vocabulary (product names, people, code terms),
+- Run Parakeet v3 against today's Whisper large-v3-turbo setup, on GPU and CPU.
+- Score word error rate, accuracy on your vocabulary (product names, people, code terms),
   latency from key release to text (median and worst 5%), and GPU memory.
-- The winner becomes the default. The harness stays in the repo, so a new model is a re-run.
-
-Your rule says audio never leaves the machine, so only local engines are in the bake-off. If you
-want a cloud engine considered as a fallback, say so and it gets one row in the comparison.
+- Parakeet stays the default if it wins. The harness stays in the repo, so any future free model
+  is a re-run away.
 
 ### 7.2 Dictation: a personal Wispr Flow
 
@@ -291,7 +316,7 @@ Built on the Handy fork. Target: Wispr Flow's core features, private and free.
 | Global hotkey, hold to talk or tap to toggle | Already in Handy |
 | Text appears in any app | Already in Handy (paste with clipboard restore on Windows) |
 | Removes "um", "uh", false starts and "scratch that" | A fast rules pass, then a small local language model on the GPU. This needs to finish in well under a second, which a full Claude turn can't. |
-| Your vocabulary spelled right | A personal dictionary in the workspace that biases the engine and the cleanup. It learns when you fix a word in the dictation history. |
+| Your vocabulary spelled right | A personal dictionary in the workspace: exact replacements ("auto pair" to "OtoPair") plus a list of terms the cleanup model is told to prefer. It learns when you fix a word in the dictation history. |
 | Snippets ("my calendar link") | Snippet records in the workspace, expanded by voice trigger |
 | Tone per app (casual in Slack, formal in email) | Style profiles keyed by the focused app and window title |
 | Command mode ("make this more formal") | Select text, hold the command hotkey, speak. Goes to Jarvis's fast lane; a couple of seconds is acceptable here. |
@@ -324,8 +349,12 @@ Each module ships with its actions in the registry, its views in the UI, its rec
 and its Jarvis skills.
 
 ### 8.1 Email (better than Macro's)
-- **Accounts:** both of your Gmail accounts through the Gmail API (incremental history sync),
-  Microsoft 365 through Graph, and anything else through IMAP/SMTP. Macro supports Gmail only.
+- **Accounts:** your two Gmail accounts first, through the Gmail API (incremental history sync).
+- **Other providers later, without rework:** everything above the sync layer (threads, triage,
+  search, people, Jarvis) talks to a `MailProvider` interface: list changes since a cursor, fetch
+  a message, apply labels and flags, send. Gmail is the first adapter. Microsoft 365 (Graph) and
+  generic IMAP/SMTP are each one more adapter when you need them, and Twenty's IMAP driver is a
+  ready reference. Macro supports Gmail only.
 - **One triage inbox** across all accounts, keyboard-first, plus a view per account.
 - **HTML mail** rendered safely in a sandboxed frame. Attachments are kept, text-extracted and
   searchable.
@@ -402,12 +431,12 @@ review while Claude Code writes most of the code; treat the estimates as order-o
 |---|---|---|---|
 | M0 | **Foundations**: monorepo, Postgres, the five core tables, action registry, passkey login, web shell (command palette, split panes, keyboard navigation), event stream, MCP server, Windows services, backups, CI | Create a note and a task, @link them, and see the link from both sides. Claude Code does the same over MCP. A backup restores cleanly in a test. | 2–3 weeks |
 | M1 | **Jarvis core, tasks and calendar**: agent runtime, chat pane, approval inbox, memory records, scheduler with prep, brief, heartbeat and journal, Google Calendar two-way sync, tasks with time-blocking | A full workday runs on it: the brief arrives at 8:15 a.m., big tasks get calendar blocks, and nothing goes out in your name without a yes. The eval suite passes in CI. | 3–5 weeks |
-| M2 | **Email**: Gmail (both accounts), IMAP, Microsoft Graph, triage inbox, HTML rendering, attachments, drafts and send, people built from mail | One week of inbox zero on both Gmail accounts without opening Gmail. | 4–6 weeks |
+| M2 | **Email**: the `MailProvider` interface with a Gmail adapter (both accounts), triage inbox, HTML rendering, attachments, drafts and send, people built from mail | One week of inbox zero on both Gmail accounts without opening Gmail. | 4–5 weeks |
 | M3 | **Voice I**: engine bake-off, Handy fork with dictation, cleanup, dictionary, snippets and history, plus voice chat with Jarvis | The bake-off picks an engine that measurably beats today's setup on your vocabulary. Median release-to-text under 1 second. A week of daily dictation. | 3–4 weeks; can run alongside M1 or M2 |
 | M4 | **Docs**: editor, real-time sync, @links, history, Jarvis as a peer editor; memory notes shown as docs | Your project notes live here, and Jarvis's edits show up live. | 4–6 weeks |
 | M5 | **People and meetings**: person and organization pages, follow-ups, the meeting recorder, summaries linked to events and people | Tomorrow's prep packet includes notes from the last meeting with the same people, without you doing anything. | 3–4 weeks |
 | M6 | **Phone**: polished PWA, then the iOS shell with widgets, Live Activity, share sheet and push-to-talk | You run your day from the phone when away from the PC. | 2–3 weeks |
-| M7 | **Canvas, Slack ingest, GitHub, Notion import**, dictation command mode and styles, iOS keyboard | Ongoing | Ongoing |
+| M7 | **Canvas, Slack ingest, GitHub, Notion import**, dictation command mode and styles, iOS keyboard, and Microsoft 365 or IMAP mail adapters when you add such an account | Ongoing | Ongoing |
 
 ## 11. Engineering standards ("up to standard")
 
@@ -418,7 +447,7 @@ These apply to the whole workspace, Jarvis included, and are enforced in CI:
 - Unit tests for domain logic; integration tests against a real Postgres; Playwright tests for
   key UI flows (triage, @link, approve).
 - Agent evals with recorded fixtures, which can block a merge.
-- Logs and traces through OpenTelemetry to a local viewer, so `ws doctor` can say why something
+- Logs and traces through OpenTelemetry to a local viewer, so `hearth doctor` can say why something
   is slow.
 - Work happens on branches, you merge, and only you push, as Jarvis's rule already says.
 
@@ -427,21 +456,22 @@ These apply to the whole workspace, Jarvis included, and are enforced in CI:
 | Risk | Mitigation |
 |---|---|
 | Scope: this is several products | Ship by milestone. Each one is useful alone. Don't start M4 until M0–M2 are in daily use. |
-| One PC holds everything | Nightly offsite backups with automatic restore tests. Services restart themselves. `ws doctor`. |
+| One PC holds everything | Nightly offsite backups with automatic restore tests. Services restart themselves. `hearth doctor`. |
 | Max rate limit shared with your own Claude Code use | Free watching, a daily turn budget, a small local model for dictation cleanup, and usage in the brief. |
 | Google OAuth for personal apps | An unverified "Testing" app gets refresh tokens that expire after 7 days. Publish your OAuth app "In production" (unverified, used only by you) so tokens persist; you'll see a one-time warning screen. |
-| GPU contention (8 GB VRAM) between speech and the cleanup model | Measured in the bake-off. The cleanup model can drop to CPU or a smaller size. |
+| GPU contention (8 GB VRAM) between speech and the cleanup model | Parakeet is small (0.6B parameters) and runs well on the CPU, so it can move off the GPU if the cleanup model needs the room. Measured in the bake-off. |
 | Free Apple account: 7-day app signing | The PWA is the main phone surface. The iOS shell is re-signed weekly, as Remote-phone already does. |
 | Borrowed AGPL code | Isolated under `vendor/agpl/` with a list of what came from where. |
 
-## 13. Questions for you
+## 13. Your answers (2026-10-01)
 
-1. **Cloud speech fallback:** keep the "audio never leaves the machine" rule absolute, or allow
-   one cloud engine in the bake-off for comparison?
-2. **Old Jarvis rules that don't fit the workspace** (listed in
-   [docs/research/jarvis.md](docs/research/jarvis.md#rules-that-dont-fit-the-new-workspace)):
-   OK to drop them?
-3. **Email accounts:** which accounts besides your two Gmail accounts (Outlook, school, other IMAP)?
-4. **Offsite backup:** which storage provider do you already pay for, if any?
-5. **Name:** the workspace needs a name. Keep "Jarvis" for the agent and pick something for the
-   workspace, or call the whole thing Jarvis?
+| Question | Answer | Where it landed |
+|---|---|---|
+| Cloud speech? | Keep cost at or near zero; prefer NVIDIA Parakeet. | Section 7.1, [D13](docs/decisions.md) |
+| Drop the old Jarvis rules that don't fit? | Yes. | [research/jarvis.md](docs/research/jarvis.md#rules-dropped-for-the-new-workspace), [D14](docs/decisions.md) |
+| More email accounts? | Not now, but other providers must be easy to add later. | Section 8.1, [D15](docs/decisions.md) |
+| Offsite backup? | Use the Google One storage you already pay for. | Section 5.6, [D16](docs/decisions.md) |
+| Name? | "Jarvis" stays the agent's name; the workspace gets a new one. | "Hearth", [D12](docs/decisions.md) |
+
+Still open, and my call unless you object: the docs editor and sync engine (section 8.5), decided
+once the Macro research finishes.
