@@ -1,6 +1,6 @@
 # Plan: Hearth, a personal Macro with Jarvis built in
 
-Status: draft 2, 2026-10-01. Research behind it: [Macro](docs/research/macro.md),
+Status: draft 3, 2026-10-01. Research behind it: [Macro](docs/research/macro.md),
 [Twenty](docs/research/twenty.md), [Jarvis](docs/research/jarvis.md). Decisions and the
 alternatives we rejected: [docs/decisions.md](docs/decisions.md).
 
@@ -26,9 +26,16 @@ and anything it does in your name waits for your approval.
 - hands-free conversation with Jarvis
 
 **How we get there: a lean rebuild, not a fork.** Macro is 2.4M lines across ~50 services
-built for multi-tenant AWS hosting. We borrow its ideas and a few of its packages, borrow from
-Twenty, Handy and Excalidraw, and keep the codebase small enough for one person working with
-Claude Code to own.
+built for multi-tenant AWS hosting. Hearth keeps its own core small and lifts Macro's
+self-contained pieces as they are:
+- the split-pane shell, hotkeys and Cmd+K
+- the UI kit
+- the doc editor and sync packages
+- the canvas
+- the email renderer
+
+It also takes ideas and drivers from Twenty and the desktop dictation app from Handy. The goal is a
+codebase small enough for one person working with Claude Code to own.
 
 **First milestone (M0):** a workspace shell where you can create a note and a task, @link them,
 see the link from both sides, and have Claude Code do the same through MCP.
@@ -61,11 +68,13 @@ Four options were scored against your goals. Details in [docs/decisions.md](docs
 | Grow the current Jarvis | No | Loose files with no data model, 2,000-line modules, and you've judged its core flawed. |
 | **Lean rebuild, borrowing from all three** | **Yes** | Small enough to own. Built for one user on one PC from day one. Takes Macro's product ideas, Twenty's integration know-how and Jarvis's behaviors without their weight. |
 
-**License note.** Macro is AGPLv3, and parts of Twenty are too. AGPL only obliges you to share
-source with people who use the software over a network. For a workspace only you use, borrowing
-AGPL code costs nothing. If you ever let others use it, the borrowed parts would make the whole
-workspace AGPL. To keep that choice open, borrowed AGPL code lives in clearly marked packages
-under `vendor/agpl/`, so it can be swapped out later.
+**License: Hearth is AGPLv3.** Hearth lifts real code from Macro: the split-pane router, hotkey
+engine, UI kit, doc editor and sync packages, canvas and email renderer. All of it is AGPLv3, so
+Hearth is AGPLv3 too. AGPL only obliges you to share source with people who use the software over
+a network, and only you use Hearth, so in practice it costs nothing. If you ever wanted to sell
+it closed-source, the Macro-derived parts would need replacing or a license from Macro
+(licensing@macro.com). Every borrowed file keeps its notice, and `NOTICE.md` (created in M0) will list
+what came from where ([D19](docs/decisions.md)).
 
 ## 4. What the product looks like
 
@@ -113,8 +122,8 @@ is exposed to the public internet.
  │    action registry · approvals · auth                             │
  │                                                                   │
  │  hearth-worker (Node)                 jarvis (Node, Agent SDK)     │
- │    email/calendar sync, indexing,       chat turns, brief, prep,   │
- │    scheduled jobs (pg-boss)             heartbeat, journal         │
+ │    email/calendar sync, search index,   chat turns, brief, prep,   │
+ │    local embeddings, scheduled jobs     heartbeat, journal         │
  │                                                                   │
  │  voice-service (Rust)                 desktop app (Tauri, Rust)    │
  │    speech-to-text for phone and         dictation hotkey, meeting  │
@@ -141,10 +150,11 @@ inspired by the Remote-phone repo's `phone doctor`) reports what's up and what's
 | Data access | Drizzle ORM and drizzle-kit migrations | Typed SQL with plain migration files. |
 | Jobs and schedules | pg-boss | A queue and cron in Postgres, so no Redis. |
 | API contract | One **action registry** (section 5.4), using Zod schemas | One definition per action produces the UI API, the MCP tool and the approval policy. |
-| Web UI | React 19, Vite, TanStack Router and Query, Radix primitives, Tailwind with your design tokens | Largest ecosystem for editors and canvases, the same stack as Handy, and what Claude Code writes best. |
-| Docs editor and sync | *Decided after the Macro docs research (section 8.5).* | |
-| Canvas | Excalidraw (MIT) with custom @link elements | |
-| Desktop | Tauri 2, starting from a fork of [Handy](https://github.com/cjpais/Handy) (MIT) | Handy already has a global push-to-talk hotkey, local Whisper and Parakeet, voice activity detection, and paste-into-any-app on Windows. |
+| Web UI | SolidJS, Vite, Tailwind v4, Kobalte primitives, TanStack Solid Query | Lets Hearth lift Macro's split-pane router, hotkey engine and Cmd+K, UI kit and token theming, doc editor and canvas as they are ([D17](docs/decisions.md)). |
+| Docs editor and sync | Lexical with the Loro CRDT, using Macro's `lexical-core`, `collaboration` and `loro-mirror` packages; a sync room in `hearth-server` speaking Macro's protocol | Offline editing, live sync across devices, history and Jarvis as a co-editor, already proven in production ([D18](docs/decisions.md)). |
+| Canvas | Macro's canvas (`block-canvas`, SolidJS), which already embeds @linked records | Same framework; one-user last-write-wins saving is acceptable ([D20](docs/decisions.md)). |
+| Search | Postgres full-text plus trigram plus pgvector, fused with reciprocal-rank fusion; embeddings from a small local model (nomic-embed-text class) run by the worker | Keyword and meaning search, free and local. |
+| Desktop | Tauri 2, starting from a fork of [Handy](https://github.com/cjpais/Handy) (MIT) | Handy already has a global push-to-talk hotkey, local Whisper and Parakeet, voice activity detection, and paste-into-any-app on Windows. Its own small settings and overlay windows stay React; the main window loads Hearth's web UI. |
 | Speech | `transcribe-rs` and whisper.cpp engines (the ones Handy uses), behind one engine interface | Swappable; picked by a bake-off on your own voice (section 7.1). |
 | Agent | Claude Agent SDK (TypeScript) | The same harness Jarvis uses today, with hooks for the approval gate. |
 | Remote access | Tailscale Serve (HTTPS on your tailnet) | Already how you reach the PC. |
@@ -156,16 +166,27 @@ Five core tables carry the whole product; each module adds its own tables.
 - **`entity`**: one row per node. Fields: `id`, `type`, `title`, timestamps, `created_by` (you,
   Jarvis, an integration, an MCP client), soft delete, a full-text vector and an optional
   embedding. Module tables (`email_message`, `task`, `doc`, `person`, ...) hang off `entity.id`.
-- **`link`**: `from_id`, `to_id`, `kind` (mention, reference, derived-from, attachment,
-  participant), an `anchor` (where in the source the mention sits), and who made it. Backlinks are
-  a query on `to_id`. This is the graph.
+- **`link`**: `from_id`, `to_id`, `kind` (mention, attachment, parent, property-ref, reply,
+  derived-from, participant), an `anchor` (where in the source the mention sits), and who made it.
+  Unique on (from, to, kind, anchor) and indexed both ways, so backlinks are one query. This is the
+  graph.
+  - Mentions live inside content as Macro-style tags (`<m-ref type="doc" id="...">label</m-ref>`),
+    so markdown stays portable and Jarvis can write a link by writing text.
+  - On every save, from the UI, Jarvis or an importer, the server re-derives that item's mention
+    links in the same transaction. Macro relies on the web editor to report mentions, and its
+    links drift; ours can't.
 - **`property`** and **`property_def`**: typed custom fields on any entity type (status, priority,
-  due date, stage, tags), which also power saved views.
+  due date, stage, tags), with system properties seeded at fixed IDs, as Macro does. Saved views
+  store a filter in one small filter language (And/Or/Not over typed conditions, ported from
+  Macro's `filter_ast`), which the UI, saved views and Jarvis's tools all share.
 - **`event`**: an append-only log of everything that happens, with a global `seq`. It drives live
   updates to the UI, Jarvis's "what changed" deltas, the audit trail and undo. The envelope comes
   from Jarvis's bridge protocol: `seq`, `kind`, `entity`, `actor`, `payload`.
-- **`inbox_item`**: what needs your attention, with its bucket (Signal or Noise), state and
-  snooze time.
+- **`notification`**: the inbox. Each event that needs you writes a notification with the state
+  unseen, seen or done, plus an optional snooze time. The inbox shows the latest live notification
+  per item (Macro's model). Signal or Noise comes from a cheap flag: Gmail's categories,
+  overridden by your per-sender and per-domain rules, with "mark sender as noise" as a one-key
+  action.
 
 ### 5.4 The action registry
 
@@ -180,7 +201,8 @@ defineAction({
 })
 ```
 
-From that one definition the workspace generates:
+Macro does the same with one tool registry across chat, agents and MCP. From that one
+definition the workspace generates:
 - the typed API the web UI calls
 - an MCP tool for Jarvis and for outside agents like Claude Code. It inherits Macro's
   "near-100% of the UI available to agents" by construction.
@@ -232,9 +254,10 @@ subscription, no API key). Per Anthropic's Agent SDK docs, that login can't be o
 users in a product, so this stays strictly personal. Switching to an API key is one config line
 if that ever changes.
 
-**Conversations** are workspace entities. Every turn streams through the event log, so the web
-UI, the phone and voice all show the same live conversation and full history, searchable and
-never capped at two days.
+**Conversations** are workspace entities. Each one is stored as an append-only log of Agent SDK
+events and rendered by a pure "fold" function, Macro's pattern, so a live stream and a reload look
+identical. Every turn also goes through the event log, so the web UI, the phone and voice show the
+same live conversation, with full history that's searchable and never capped at two days.
 
 **Tools** are the action registry, served to the SDK as an in-process MCP server, plus a few of
 Jarvis's own:
@@ -244,6 +267,12 @@ Jarvis's own:
 - `show`: put a card, a record or a live component into a pane mid-answer. This is the "dynamic
   screens" piece the old Jarvis specified but never built.
 - `escalate`: hand a question from the fast lane to the deep lane.
+- `read_doc` and `apply_doc_ops`: read a doc as markdown with block IDs, and edit it through a
+  small set of deterministic operations as a live co-editor with its own cursor. Ported from
+  Macro's AI editing worker, minus its API-key model chains.
+
+Outbound tools follow Macro's safety rule: an agent's "send email" produces a draft, and sending
+requires your approval. External MCP clients such as Claude Code never see send tools at all.
 
 **Memory** becomes records:
 - `memory_note`: identity, how you work, your preferences, and project briefs, each with a
@@ -251,10 +280,23 @@ Jarvis's own:
 - `observation`: kind, TTL, supersedes, linked to what it's about.
 - `fact`: durable facts with a source link.
 
-Retrieval is in tiers: always-on notes, then project notes picked by deterministic routing, then
-a `memory.search` tool using full-text plus embeddings. A nightly consolidation pass (Macro's
-"team memory" job, scoped to you) merges the day's observations into notes, with every change
-reviewable.
+Retrieval is in tiers:
+- always-on notes
+- project notes picked by deterministic routing
+- a `memory.search` tool using full-text plus embeddings
+
+Memory is injected last, as data, never as instructions.
+
+**Nightly consolidation** borrows Macro's memory loop and fixes its flaws:
+- Jarvis gets a deterministic digest of the last 24 hours (mail sent and received, tasks changed,
+  docs edited, meetings, observations) plus the current notes.
+- It writes updated notes inside `<memory>` tags; a judge pass rejects thin or speculative changes.
+- The result is saved as a new revision. A lock prevents double runs, and a failure backs off
+  instead of retrying on every read, which is the bug in Macro's version.
+
+**Cached widgets ("projections").** The brief, "needs a reply" and similar panels are
+schema-checked agent outputs cached under a prompt hash with a stale time, as in Macro's
+`ai_projections`. Opening the inbox never spends a model turn.
 
 **The proactive loop runs on the workspace scheduler:**
 - Watching is free. The worker turns sync activity into events, and a `watch` record is just a
@@ -334,6 +376,11 @@ without any diarization model. Then:
   records. Action items become tasks.
 - Tomorrow's prep packet picks it up automatically.
 
+Pipeline details come from Macro's call service:
+- deterministic segment IDs, so re-processing never duplicates
+- timestamps anchored to the true audio start, so the transcript and recording stay in sync
+- the summary, title and action items written after the call ends
+
 Recording laws vary by state, so the app shows a reminder to tell participants.
 
 ### 7.4 Talking to Jarvis
@@ -349,78 +396,149 @@ Each module ships with its actions in the registry, its views in the UI, its rec
 and its Jarvis skills.
 
 ### 8.1 Email (better than Macro's)
-- **Accounts:** your two Gmail accounts first, through the Gmail API (incremental history sync).
+- **Accounts:** your two Gmail accounts first, through the Gmail API. The worker polls
+  `history.list` every 30–60 seconds, so nothing on your PC has to accept connections from Google.
 - **Other providers later, without rework:** everything above the sync layer (threads, triage,
-  search, people, Jarvis) talks to a `MailProvider` interface: list changes since a cursor, fetch
-  a message, apply labels and flags, send. Gmail is the first adapter. Microsoft 365 (Graph) and
-  generic IMAP/SMTP are each one more adapter when you need them, and Twenty's IMAP driver is a
-  ready reference. Macro supports Gmail only.
-- **One triage inbox** across all accounts, keyboard-first, plus a view per account.
-- **HTML mail** rendered safely in a sandboxed frame. Attachments are kept, text-extracted and
-  searchable.
+  search, people, Jarvis) talks to a `MailProvider` interface modeled on Macro's ports: list
+  changes since a cursor, fetch a message, apply labels and flags, send.
+  - Gmail is the first adapter.
+  - Microsoft 365 (Graph) and generic IMAP/SMTP are each one more adapter when you need them. Graph
+    fits the interface closely; IMAP needs folder-to-label mapping and local threading, and
+    Twenty's IMAP driver is a ready reference.
+  - Macro supports Gmail only.
+- **Local first:** archiving, labeling and snoozing apply instantly in Hearth, then sync to Gmail
+  in the background, rolling back on a permanent error (Macro's pattern).
+- **Threading** follows RFC headers (Message-ID, In-Reply-To, References), not Gmail's thread IDs,
+  so other providers thread the same way.
+- **Raw messages** are stored on disk, content-addressed, so they can be re-parsed later without
+  refetching.
+- **One triage inbox** across accounts, keyboard-first, with Signal and Noise, plus a view per
+  account.
+- **HTML mail** is rendered with Macro's `email-renderer` in a sandboxed frame, with quote and
+  signature folding. Attachments are kept, text-extracted and searchable.
 - **Sending** creates a draft; you send it, or approve Jarvis's draft from the approval inbox.
-- **People and companies** are built from your mail automatically. Free-mail and group addresses
-  are handled with heuristics borrowed from Twenty.
+- **Calendar invitations** in mail are parsed once and matched to the live event, so you can RSVP
+  from the thread.
 
 ### 8.2 Calendar
-Google, Microsoft and CalDAV with full read and write (create, edit, delete, RSVP); Twenty only
-creates. This is what Jarvis's prep and time-blocking stand on.
+- **Accounts:** Google Calendar first, with full read and write (create, edit, delete, RSVP);
+  Twenty only creates. Microsoft and CalDAV come later through the same adapter pattern as mail.
+- **Model:** Macro's design. One canonical event, its provider source, per-occurrence overrides,
+  and a materialized occurrence table indexed by time range for fast agendas.
+- **Reminders** use a rebuildable schedule plus exactly-once delivery claims, so a moved event
+  fires again but a sent alarm never repeats.
+- This is what Jarvis's prep and time-blocking stand on.
 
 ### 8.3 Chat
 For one person, "chat" means three things:
 - **Conversations with Jarvis**, any number of them, shared across devices.
-- **Notes-to-self channels**, places to think out loud, with @links.
+- **Notes-to-self channels**, places to think out loud, with @links. Messages have a polymorphic
+  parent (Macro's model), so the same thread component also gives comment threads on any doc,
+  task, person or meeting.
 - **Slack ingest:** team Slack is read in, and your mentions land in the inbox. Jarvis watches
   for concerns and bugs and posts only as itself.
 
 Inviting other people into chat is out of scope for now.
 
 ### 8.4 Tasks
-Linear-light: status, due date, priority, project and custom properties, with list, board and
-calendar views. Create a task from anywhere:
-- `c t` anywhere in the app
-- `/task` in a doc
-- highlighting a `- [ ]` line
-- "task" on an email
-- by asking Jarvis
-
-Every task links back to where it came from. Watches and time blocks are task-adjacent records.
+- **Fields:** a task is an entity with a doc body, so it gets the editor, mentions, comments and
+  search for free. Status, priority, due date, parent and project are typed columns; anything else
+  is a custom property.
+- **Vocabulary:** status runs Not Started, In Progress, In Review, Completed, Canceled. Priority
+  runs Low to Urgent.
+- **Views:** list, board and calendar.
+- **Create a task from anywhere.** Each one links back to its source:
+  - `c t` anywhere in the app
+  - `/task` in a doc
+  - highlighting a `- [ ]` line
+  - "task" on an email or message
+  - by asking Jarvis
+- **Short IDs** (T-123) and branch names that embed them (`jarvis/T-123-fix-login`), borrowed from
+  Macro.
+- **GitHub loop:** a PR mentioning T-123 links to the task and moves it forward: In Review when
+  opened, Completed when merged. It never overrides Completed or Canceled automatically.
+- **Handing code work to Jarvis:** Jarvis works in a git worktree using Macro's handoff prompt
+  (task, branch, comment history, conventions), streams progress into the task's thread, and
+  records the run on the task. You merge, and only you push.
+- **One scheduler** for reminders, recurring tasks, watches and Jarvis routines: one-shot or
+  cron plus time zone, idempotent claims, and Macro's rule for skipping a stale missed firing.
+  Macro runs three separate schedulers.
 
 ### 8.5 Docs
 Markdown-native docs with real-time sync across your devices, @links, version history you can
-scrub, offline editing, and Jarvis editing as a peer.
+scrub, offline editing, and Jarvis editing as a co-editor. Built on Macro's own stack
+([D18](docs/decisions.md)):
+- **Editor:** Lexical, with Macro's `lexical-core` nodes (mentions, tags, dates) and markdown
+  transforms.
+- **Sync:** the Loro CRDT through Macro's `collaboration` package. It keeps an offline
+  write-ahead log in the browser, catches up by version vector, and syncs between tabs.
+- **Server:** a sync room in `hearth-server` (TypeScript, Loro's JS engine) speaking Macro's
+  57-line protocol, so the client packages work unchanged.
+  - Each update is persisted to Postgres before it's acknowledged, and ops are compacted into
+    snapshots. Macro's op log is never pruned; ours is.
+  - Mention links are re-derived from the document on every persist.
+- **History:** Loro's built-in time travel (no extra storage), plus restore-in-place and named
+  checkpoints.
+- **Jarvis as a co-editor:** the `read_doc` and `apply_doc_ops` tools edit through the same CRDT
+  with a visible "Jarvis" cursor. For edits made while nobody has the doc open, a
+  revision-checked update fails cleanly if the doc changed underneath.
+- **Markdown** is the import, export and agent view; the CRDT is the stored form.
 
-*Editor and sync engine: pending the Macro docs research.* The choice is between Macro's own
-Lexical-plus-Loro packages (AGPL, proven in production) and TipTap plus Yjs (MIT, larger
-ecosystem).
+The mapper estimated 5–8 weeks for docs, sync, canvas and Jarvis's doc tools with these packages.
+Spreadsheets (Macro's IronCalc-based package) can come later.
 
 ### 8.6 Canvas
-Excalidraw boards where @linked records appear as live cards.
+Macro's canvas, which already shows @linked tasks, files and emails as cards on a 2D board. It
+saves as one document per board, last write wins, which is fine for one person. Moving it onto
+Loro for offline merges is a later option.
 
 ### 8.7 People (personal CRM)
-People and organizations built automatically from email, calendar and Slack. Each person page
-shows every linked item: threads, meetings, tasks, docs and notes. It also covers relationship
-notes, follow-up reminders ("haven't talked to X in 60 days") and custom fields. No outside data
-enrichment unless you turn it on.
+- **Built automatically:** people and companies come from email, calendar and Slack, following
+  Macro's rules:
+  - Mail you send creates a person or company; received mail only updates ones already tracked.
+  - Role accounts (info@, noreply@) and free-mail domains never become companies. Twenty's lists
+    are a ready reference.
+  - Friends on gmail.com still become people; they just don't create a company.
+- **Person page:** every linked item (threads, meetings, tasks, docs, notes), plus relationship
+  notes, follow-up reminders ("you haven't talked to X in 60 days") and custom fields.
+- **Deals** are their own records (company, stage, value, close date) if you want them.
+- **No outside data enrichment** unless you turn it on. Company logos come from the domain's
+  favicon.
 
 ### 8.8 Files and search
-- **Files:** attachments, uploads and recordings live on local disk, content-addressed, with text
-  extracted for search.
-- **Search:** one query across everything, combining full-text (Postgres) and meaning
-  (embeddings computed locally), with filters by type, person, date and link.
+- **Files:** attachments, uploads and recordings live on local disk, content-addressed.
+  - Text is extracted from PDFs with page positions, so Jarvis can cite a page and the UI can
+    highlight it (Macro's citation extractor).
+  - Office files convert through a headless LibreOffice when needed.
+- **Search:** one query across everything. Each item is indexed as a parent with content chunks
+  (a PDF page, a doc block, an email message, a transcript segment), so a hit opens at the exact
+  spot.
+  - Ranking fuses full-text, title trigram and embedding similarity, with recency as a boost, not
+    the only sort. Macro's search is keyword-only.
+  - Embeddings come from a small local model, so search costs nothing and nothing leaves the PC.
+  - Indexing is a projection: any change means "reread and replace", so it can always be rebuilt.
 
 ## 9. What we borrow
 
+Hearth is AGPLv3 ([D19](docs/decisions.md)), so AGPL code can be copied in directly. Every copied
+file keeps its notice and is listed in `NOTICE.md`. Full details are in
+[docs/research/macro.md](docs/research/macro.md) and [docs/research/twenty.md](docs/research/twenty.md).
+
 | From | What | License | How |
 |---|---|---|---|
-| Macro | The ideas: bidirectional links, the unified Signal/Noise inbox, split panes, keyboard model, create-a-task-from-anywhere, nightly memory, near-total MCP coverage, agents as doc peers | n/a | Design reference |
-| Macro | *Specific packages, pending the Macro research* | AGPL | `vendor/agpl/` |
+| Macro | **Frontend shell:** split-pane router (`src/lib/split-router`), hotkey engine (`src/lib/core/hotkey`), `packages/machine`, UI primitives (`src/components/ui`), token theming (`src/index.css`, theme files) | AGPL | Copy, recolor to your palette |
+| Macro | **Docs:** `packages/lexical-core`, `packages/collaboration`, `packages/loro-mirror`, the web editor and its collaboration binding, the sync protocol schema, the deterministic parts of `services/ai-editing-worker` | AGPL (loro-mirror upstream is MIT) | Copy; re-host the sync room in TypeScript |
+| Macro | **Canvas:** `apps/web/src/features/block-canvas` | AGPL | Copy |
+| Macro | **Email:** `packages/email-renderer`, the calendar-invitation parser, the free-mail domain list | AGPL | Copy |
+| Macro | **Small pure pieces:** filter language (`crates/filter_ast`), frecency formula, notification state machine, mention tag format, branch-name rules, task-ID patterns, reminder staleness rule | AGPL | Port to TypeScript |
+| Macro | **Text:** agent prompt sections (`crates/prompt`), memory and judge prompts, system skills, `TOOL_DESIGN.md`, the coding-agent handoff prompt | AGPL | Adapt |
+| Macro | **Schemas as reference:** properties, activity log, calendar events and occurrences, email threads and sender rules | AGPL | Reference |
+| Macro | **Ideas:** one graph, Signal/Noise inbox, local-first email actions, CRM-from-sent-mail rule, AI projections, agent session as log plus fold, search as a projection with jump targets, PDF citations | n/a | Design reference |
 | Twenty | Field-type and view models, rich-text-to-markdown converters, message ingestion schema, importer apps | MIT | Copy |
-| Twenty | IMAP and CalDAV sync drivers, quoted-reply stripping, contact heuristics, push-webhook renewal | AGPL | `vendor/agpl/` or rewrite |
+| Twenty | IMAP and CalDAV sync drivers, quoted-reply stripping, contact heuristics, push-webhook renewal | AGPL | Copy or port when those adapters are built |
 | Twenty | Lazy MCP tool surface, pausing tools for human approval, signed webhooks | n/a | Design reference |
 | Jarvis | Mandate, rules, interrupt budget, observation pattern, event-log envelope, chunked-audio protocol, iOS shell and no-Mac build pipeline | Yours | Port |
-| Handy | Tauri desktop app: hotkeys, audio capture, local engines, paste on Windows | MIT | Fork |
-| Excalidraw | Canvas | MIT | Dependency |
+| Handy | Tauri desktop app: hotkeys, audio capture, local engines (including Parakeet), paste on Windows | MIT | Fork |
 
 ## 10. Roadmap
 
@@ -429,20 +547,24 @@ review while Claude Code writes most of the code; treat the estimates as order-o
 
 | # | Milestone | Done means | Rough effort |
 |---|---|---|---|
-| M0 | **Foundations**: monorepo, Postgres, the five core tables, action registry, passkey login, web shell (command palette, split panes, keyboard navigation), event stream, MCP server, Windows services, backups, CI | Create a note and a task, @link them, and see the link from both sides. Claude Code does the same over MCP. A backup restores cleanly in a test. | 2–3 weeks |
+| M0 | **Foundations**: monorepo, Postgres, the five core tables with server-side mention sync, action registry, passkey login, the web shell built from Macro's split-pane router, hotkey engine, Cmd+K and UI kit, event stream, MCP server, Windows services, backups, CI | Create a note and a task, @link them, and see the link from both sides. Claude Code does the same over MCP. A backup restores cleanly in a test. | 2–3 weeks |
 | M1 | **Jarvis core, tasks and calendar**: agent runtime, chat pane, approval inbox, memory records, scheduler with prep, brief, heartbeat and journal, Google Calendar two-way sync, tasks with time-blocking | A full workday runs on it: the brief arrives at 8:15 a.m., big tasks get calendar blocks, and nothing goes out in your name without a yes. The eval suite passes in CI. | 3–5 weeks |
 | M2 | **Email**: the `MailProvider` interface with a Gmail adapter (both accounts), triage inbox, HTML rendering, attachments, drafts and send, people built from mail | One week of inbox zero on both Gmail accounts without opening Gmail. | 4–5 weeks |
-| M3 | **Voice I**: engine bake-off, Handy fork with dictation, cleanup, dictionary, snippets and history, plus voice chat with Jarvis | The bake-off picks an engine that measurably beats today's setup on your vocabulary. Median release-to-text under 1 second. A week of daily dictation. | 3–4 weeks; can run alongside M1 or M2 |
-| M4 | **Docs**: editor, real-time sync, @links, history, Jarvis as a peer editor; memory notes shown as docs | Your project notes live here, and Jarvis's edits show up live. | 4–6 weeks |
+| M3 | **Voice I**: Parakeet bake-off, Handy fork with dictation, cleanup, dictionary, snippets and history, plus voice chat with Jarvis | Parakeet (or whatever wins) measurably beats today's Whisper setup on your vocabulary. Median release-to-text under 1 second. A week of daily dictation. | 3–4 weeks; can run alongside M1 or M2 |
+| M4 | **Docs**: Macro's Lexical and Loro packages, the sync room in `hearth-server`, @links, history, Jarvis as a co-editor; memory notes shown as docs | Your project notes live here, and Jarvis's edits show up live. | 4–6 weeks |
 | M5 | **People and meetings**: person and organization pages, follow-ups, the meeting recorder, summaries linked to events and people | Tomorrow's prep packet includes notes from the last meeting with the same people, without you doing anything. | 3–4 weeks |
 | M6 | **Phone**: polished PWA, then the iOS shell with widgets, Live Activity, share sheet and push-to-talk | You run your day from the phone when away from the PC. | 2–3 weeks |
-| M7 | **Canvas, Slack ingest, GitHub, Notion import**, dictation command mode and styles, iOS keyboard, and Microsoft 365 or IMAP mail adapters when you add such an account | Ongoing | Ongoing |
+| M7 | **Canvas (Macro's), Slack ingest, GitHub loop, Notion import**, spreadsheets, dictation command mode and styles, iOS keyboard, and Microsoft 365 or IMAP mail adapters when you add such an account | Ongoing | Ongoing |
+
+M0 through M6 add up to roughly 21–30 weeks of steady work. The Macro mappers' independent
+estimates for the same scope, using the borrowed packages, land in the same range. That's a long
+road, which is why every milestone is useful on its own and M0–M2 come first.
 
 ## 11. Engineering standards ("up to standard")
 
 These apply to the whole workspace, Jarvis included, and are enforced in CI:
 - TypeScript strict mode and Rust clippy at deny-warnings.
-- No source file over 400 lines; split by responsibility.
+- No source file over 400 lines, split by responsibility. Code copied from Macro is exempt until it is changed.
 - Every action has a schema, a risk class and a test. Every migration is reversible.
 - Unit tests for domain logic; integration tests against a real Postgres; Playwright tests for
   key UI flows (triage, @link, approve).
@@ -461,7 +583,7 @@ These apply to the whole workspace, Jarvis included, and are enforced in CI:
 | Google OAuth for personal apps | An unverified "Testing" app gets refresh tokens that expire after 7 days. Publish your OAuth app "In production" (unverified, used only by you) so tokens persist; you'll see a one-time warning screen. |
 | GPU contention (8 GB VRAM) between speech and the cleanup model | Parakeet is small (0.6B parameters) and runs well on the CPU, so it can move off the GPU if the cleanup model needs the room. Measured in the bake-off. |
 | Free Apple account: 7-day app signing | The PWA is the main phone surface. The iOS shell is re-signed weekly, as Remote-phone already does. |
-| Borrowed AGPL code | Isolated under `vendor/agpl/` with a list of what came from where. |
+| Borrowed AGPL code | Hearth is AGPLv3 itself (D19), every borrowed file keeps its notice, and `NOTICE.md` lists what came from where. Only matters if Hearth is ever shared or sold. |
 
 ## 13. Your answers (2026-10-01)
 
@@ -473,5 +595,8 @@ These apply to the whole workspace, Jarvis included, and are enforced in CI:
 | Offsite backup? | Use the Google One storage you already pay for. | Section 5.6, [D16](docs/decisions.md) |
 | Name? | "Jarvis" stays the agent's name; the workspace gets a new one. | "Hearth", [D12](docs/decisions.md) |
 
-Still open, and my call unless you object: the docs editor and sync engine (section 8.5), decided
-once the Macro research finishes.
+Nothing is blocking M0. Decisions made since your answers, all from the Macro research:
+- SolidJS instead of React, to reuse Macro's shell and editor ([D17](docs/decisions.md))
+- Lexical and Loro for docs ([D18](docs/decisions.md))
+- Hearth licensed AGPLv3 ([D19](docs/decisions.md))
+- Macro's canvas instead of Excalidraw ([D20](docs/decisions.md))

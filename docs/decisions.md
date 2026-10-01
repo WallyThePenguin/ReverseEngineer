@@ -92,7 +92,7 @@ Windows install.
 **Why:** Your standing rule that Jarvis is never containerized, plus simpler GPU access for the
 speech engines and simpler access to the `claude` CLI login.
 
-## D9. React for the web UI (2026-10-01)
+## D9. React for the web UI (2026-10-01, superseded by D17)
 
 **Decision:** React 19 with Vite.
 
@@ -173,3 +173,57 @@ rclone backend, using the `drive.file` scope. A monthly automatic restore test r
 
 **Why:** You already pay for Google One, so offsite backup costs nothing extra. Restic encrypts
 before upload, so Google holds only ciphertext.
+
+## D17. SolidJS for the web UI, replacing React (2026-10-01)
+
+**Decision:** Hearth's web UI uses SolidJS, Vite, Tailwind v4 and Kobalte. Supersedes D9.
+
+**Why:** The Macro research showed that its best frontend pieces lift out almost unchanged, but
+only into a SolidJS app:
+- the split-pane router (4.7K lines, no app imports)
+- the hotkey engine behind shortcuts and Cmd+K
+- the UI kit and color-token theming
+- the Lexical editor and its collaboration binding
+- the canvas
+
+Taking them saves weeks and gives Hearth Macro's feel from M0. The doc-sync and email-renderer
+packages are framework-free and would work either way. React's larger ecosystem mattered mainly
+for an editor and a canvas, and Macro now supplies both.
+
+**Trade-off:** The Handy-based desktop app keeps its small React settings and overlay windows.
+Its main window loads Hearth's SolidJS UI, so the two codebases don't share components.
+
+## D18. Docs on Lexical and Loro, using Macro's packages (2026-10-01)
+
+**Decision:** Docs use Lexical with the Loro CRDT through Macro's `lexical-core`,
+`collaboration` and `loro-mirror` packages. A sync room in `hearth-server` (TypeScript, Loro's JS
+engine) speaks Macro's protocol and persists to Postgres.
+
+**Alternatives:** TipTap with Yjs (MIT, bigger ecosystem, but every piece Macro already built
+would have to be rebuilt); porting Macro's Rust sync service to a standalone Rust process (fine,
+but adds a second server language); running Macro's Cloudflare worker locally under `wrangler`
+(zero code, but not a supported production runtime).
+
+**Why:** Macro's stack already does what we want: offline editing, catch-up by version vector,
+history from Loro time-travel, block IDs for citations, and an AI co-editor with a cursor. Only
+the room server is Cloudflare-specific, and its portable core is small. Two of Macro's flaws get
+fixed on the way: mention links are derived on the server, and the op log is compacted.
+
+## D19. Hearth is licensed AGPLv3 (2026-10-01)
+
+**Decision:** Hearth's own code is AGPLv3. Supersedes the `vendor/agpl/` isolation idea in
+plan draft 1.
+
+**Why:** Hearth copies a lot of Macro code (shell, editor, sync, canvas, renderer), so isolating it
+would be busywork. AGPL's obligation is to share source with people who use the software over a
+network. Only you use Hearth, so it costs nothing in practice. If you ever wanted to sell Hearth
+closed-source, the Macro-derived parts would need replacing or a commercial license from Macro.
+`NOTICE.md` will list every borrowed file and its origin.
+
+## D20. Use Macro's canvas, not Excalidraw (2026-10-01)
+
+**Decision:** The canvas is Macro's `block-canvas`. Supersedes the Excalidraw choice in plan draft 1.
+
+**Why:** It's SolidJS (Excalidraw is React), already embeds @linked records as cards, and only 5
+files outside it import it, so it lifts cleanly. Its whole-board last-write-wins saving is a real
+weakness for teams but acceptable for one person; moving it onto Loro is a later option.
