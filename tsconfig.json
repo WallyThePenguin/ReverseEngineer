@@ -6,6 +6,7 @@
     "apps/worker/src/**/*.ts",
     "apps/jarvis/src/**/*.ts",
     "apps/cli/src/**/*.ts",
+    "apps/web/e2e/**/*.ts",
     "scripts/**/*.ts",
     "vitest.config.ts"
   ]

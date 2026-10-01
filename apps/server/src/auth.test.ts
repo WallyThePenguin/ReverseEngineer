@@ -74,6 +74,30 @@ describe("passkey login", () => {
     expect(res.status).toBe(200);
   });
 
+  it("lets you add a second passkey once signed in, and sign in with either", async () => {
+    await registerFirstPasskey(new SoftAuthenticator(TEST_ORIGIN));
+    const phone = new SoftAuthenticator(TEST_ORIGIN);
+    const options = (await (
+      await t.browser("/api/auth/register/options", { method: "POST", json: {} })
+    ).json()) as Options;
+    const added = await t.browser("/api/auth/register/verify", {
+      method: "POST",
+      json: { response: phone.register(options), label: "Phone" },
+    });
+    expect(added.status).toBe(200);
+
+    await t.browser("/api/auth/logout", { method: "POST" });
+    const login = (await (
+      await t.browser("/api/auth/login/options", { method: "POST" })
+    ).json()) as Options;
+    const res = await t.browser("/api/auth/login/verify", {
+      method: "POST",
+      json: { response: phone.login(login) },
+    });
+    expect(res.status).toBe(200);
+    expect(await (await t.browser("/api/auth/me")).json()).toMatchObject({ signedIn: true });
+  });
+
   it("rejects a passkey it hasn't seen and a replayed challenge", async () => {
     await registerFirstPasskey(new SoftAuthenticator(TEST_ORIGIN));
     await t.browser("/api/auth/logout", { method: "POST" });

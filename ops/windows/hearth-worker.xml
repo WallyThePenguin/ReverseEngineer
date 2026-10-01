@@ -1,0 +1,24 @@
+<!-- WinSW v2 service definition. install.ps1 fills in {{NODE}} and {{ROOT}}. -->
+<service>
+  <id>hearth-worker</id>
+  <name>Hearth worker</name>
+  <description>Hearth's schedules, reminders and health checks.</description>
+  <executable>{{NODE}}</executable>
+  <arguments>--env-file-if-exists="{{ROOT}}\.env" "{{ROOT}}\apps\cli\src\main.ts" worker</arguments>
+  <workingdirectory>{{ROOT}}</workingdirectory>
+  <startmode>Automatic</startmode>
+  <delayedAutoStart/>
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="30 sec"/>
+  <onfailure action="restart" delay="2 min"/>
+  <resetfailure>1 hour</resetfailure>
+  <stoptimeout>20sec</stoptimeout>
+  <serviceaccount>
+    <domain>NT AUTHORITY</domain>
+    <user>LocalService</user>
+  </serviceaccount>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>5</keepFiles>
+  </log>
+</service>

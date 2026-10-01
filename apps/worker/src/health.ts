@@ -57,7 +57,8 @@ export async function checkHealth(kernel: Kernel, opts: HealthOptions): Promise<
   const backup = await lastReport(kernel, "backup");
   const staleHours = opts.backupStaleHours ?? 36;
   if (
-    backup?.status === "ok" &&
+    backup &&
+    backup.status !== "failing" &&
     now.getTime() - new Date(backup.at).getTime() > staleHours * 3_600_000
   ) {
     reports.push({

@@ -1,8 +1,10 @@
 // Settings: pause Jarvis's initiative, see Hearth's health, and manage what Jarvis may do
 // without asking.
 
+import { startRegistration } from "@simplewebauthn/browser";
 import { For, Show } from "solid-js";
 import { Badge, Button, PaneHeader } from "../components/ui.tsx";
+import { authPost } from "../lib/api.ts";
 import { ago } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
 import { act, useAction } from "../lib/query.ts";
@@ -19,6 +21,23 @@ export async function setPaused(paused: boolean) {
 }
 
 const TONE = { ok: "ok", degraded: "warn", failing: "bad" } as const;
+
+/** Adds another passkey (your phone, a security key) while you're signed in. */
+async function addPasskey() {
+  try {
+    const options =
+      await authPost<Parameters<typeof startRegistration>[0]["optionsJSON"]>("register/options");
+    const response = await startRegistration({ optionsJSON: options });
+    await authPost("register/verify", { response, label: navigator.platform || "Passkey" });
+    toast.show("Passkey added.");
+  } catch (err) {
+    const e = err as Error;
+    toast.show(
+      e.name === "NotAllowedError" ? "The passkey prompt was closed." : e.message,
+      "error",
+    );
+  }
+}
 
 export function Settings() {
   const status = useAction<SystemStatus>("system.status");
@@ -81,6 +100,16 @@ export function Settings() {
               </For>
             </ul>
           </Show>
+        </section>
+
+        <section class="space-y-2">
+          <h2 class="font-semibold">Sign-in</h2>
+          <div class="flex items-center gap-3">
+            <p class="flex-1 text-sm text-muted">
+              Add a passkey on another device, like your phone, so you can sign in there too.
+            </p>
+            <Button onClick={() => void addPasskey()}>Add a passkey</Button>
+          </div>
         </section>
 
         <section class="space-y-2">

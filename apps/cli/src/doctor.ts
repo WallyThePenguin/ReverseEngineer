@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { credential, type Database, loadMigrations, setting } from "@hearth/db";
 import { like } from "drizzle-orm";
+import { type Runner, runProgram } from "./backup.ts";
 
 export type Mark = "ok" | "warn" | "fail";
 
@@ -67,6 +68,53 @@ export function checkOrigin(env: NodeJS.ProcessEnv = process.env): Check {
     };
   }
   return { name: "Address", mark: "ok", detail: origin };
+}
+
+/** pg_dump always; restic and rclone once off-site backups are configured. */
+export async function checkBackupTools(
+  env: NodeJS.ProcessEnv = process.env,
+  run: Runner = runProgram,
+): Promise<Check[]> {
+  const has = async (cmd: string) => (await run(cmd, ["--version"])).code === 0;
+  const checks: Check[] = [];
+  checks.push(
+    (await has("pg_dump"))
+      ? { name: "pg_dump", mark: "ok", detail: "Found" }
+      : {
+          name: "pg_dump",
+          mark: "fail",
+          detail: "Not on PATH. Add PostgreSQL's bin folder to PATH.",
+        },
+  );
+  const repo = env.HEARTH_BACKUP_REPOSITORY;
+  if (!repo) {
+    checks.push({
+      name: "Off-site",
+      mark: "warn",
+      detail: "Backups stay on this PC. Set HEARTH_BACKUP_REPOSITORY to use Google Drive.",
+    });
+    return checks;
+  }
+  const WINGET: Record<string, string> = { restic: "restic.restic", rclone: "Rclone.Rclone" };
+  for (const tool of repo.startsWith("rclone:") ? ["restic", "rclone"] : ["restic"]) {
+    checks.push(
+      (await has(tool))
+        ? { name: tool, mark: "ok", detail: "Found" }
+        : {
+            name: tool,
+            mark: "fail",
+            detail: `Not on PATH, so backups can't upload. Install it (winget install ${WINGET[tool]}).`,
+          },
+    );
+  }
+  if (!env.RESTIC_PASSWORD_FILE && !env.RESTIC_PASSWORD) {
+    checks.push({
+      name: "restic key",
+      mark: "fail",
+      detail: "Set RESTIC_PASSWORD_FILE to the file holding your backup password.",
+    });
+  }
+  return checks;
 }
 
 export async function checkDatabase(database: Database): Promise<Check[]> {

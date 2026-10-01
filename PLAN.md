@@ -1,6 +1,6 @@
 # Plan: Hearth, a personal Macro with Jarvis built in
 
-Status: draft 4, 2026-10-01. M0 is under way. Research behind it: [Macro](docs/research/macro.md),
+Status: draft 4, 2026-10-01. M0 (the spine) is built; M1 (Jarvis's day and the calendar) is next. Research behind it: [Macro](docs/research/macro.md),
 [Twenty](docs/research/twenty.md), [Jarvis](docs/research/jarvis.md). Decisions and the
 alternatives we rejected: [docs/decisions.md](docs/decisions.md).
 
@@ -615,7 +615,7 @@ review while Claude Code writes most of the code; treat the estimates as order-o
 
 | # | Milestone | Done means | Rough effort |
 |---|---|---|---|
-| M0 | **Foundations and Jarvis's spine**: monorepo, Postgres, the five core tables with server-side mention sync, action registry, passkey login, the web shell built from Macro's split-pane router, hotkey engine, Cmd+K and UI kit, event stream, MCP server, Windows services, backups, CI. Plus the spine of section 6.1: event cursors, the reflex engine, the scheduler, approvals, the agent runtime, chat, @Jarvis replies, tasks assigned to Jarvis, and reflexes for notes and tasks | Create a note and a task, @link them, and see the link from both sides. Claude Code does the same over MCP. @Jarvis in a note gets an answer there, a task assigned to Jarvis gets worked, a task due tomorrow gets a warning. A backup restores cleanly in a test. | 3–4 weeks |
+| M0 | **Foundations and Jarvis's spine**: monorepo, Postgres, the five core tables with server-side mention sync, action registry, passkey login, the web shell (split panes, hotkeys, Cmd+K and a UI kit; written fresh for M0, see D22), event stream, MCP server, Windows services, backups, CI. Plus the spine of section 6.1: event cursors, the reflex engine, the scheduler, approvals, the agent runtime, chat, @Jarvis replies, tasks assigned to Jarvis, and reflexes for notes and tasks | Create a note and a task, @link them, and see the link from both sides. Claude Code does the same over MCP. @Jarvis in a note gets an answer there, a task assigned to Jarvis gets worked, a task due tomorrow gets a warning. A backup restores cleanly in a test. | 3–4 weeks |
 | M1 | **Jarvis's day, tasks and calendar**: memory records, prep, brief, heartbeat and journal on the scheduler, Google Calendar two-way sync, tasks with time-blocking | A full workday runs on it: the brief arrives at 8:15 a.m., big tasks get calendar blocks, and nothing goes out in your name without a yes. The eval suite passes in CI. | 3–4 weeks |
 | M2 | **Email**: the `MailProvider` interface with a Gmail adapter (both accounts), triage inbox, HTML rendering, attachments, drafts and send, people built from mail | One week of inbox zero on both Gmail accounts without opening Gmail. | 4–5 weeks |
 | M3 | **Voice I**: Parakeet bake-off, Handy fork with dictation, cleanup, dictionary, snippets and history, plus voice chat with Jarvis | Parakeet (or whatever wins) measurably beats today's Whisper setup on your vocabulary. Median release-to-text under 1 second. A week of daily dictation. | 3–4 weeks; can run alongside M1 or M2 |

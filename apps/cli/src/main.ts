@@ -1,10 +1,20 @@
 // The `hearth` command. Run `hearth help` for the list.
+
+import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { connect, databaseUrl, migrateDown, migrateUp } from "@hearth/db";
-import { Kernel, ownerCaller, Registry } from "@hearth/kernel";
+import { Kernel, ownerCaller, Registry, systemCaller } from "@hearth/kernel";
 import { ALL_MODULES } from "@hearth/modules";
 import { createApiToken, createSetupCode, listApiTokens, revokeApiTokens } from "@hearth/server";
-import { checkClaudeLogin, checkDatabase, checkNode, checkOrigin, formatChecks } from "./doctor.ts";
+import { runBackup } from "./backup.ts";
+import {
+  checkBackupTools,
+  checkClaudeLogin,
+  checkDatabase,
+  checkNode,
+  checkOrigin,
+  formatChecks,
+} from "./doctor.ts";
 
 const HELP = `hearth: your personal workspace, with Jarvis.
 
@@ -14,6 +24,7 @@ const HELP = `hearth: your personal workspace, with Jarvis.
   hearth worker             Run schedules and health checks
   hearth jarvis             Run Jarvis
   hearth dev [--no-jarvis]  Run all three in one process
+  hearth backup             Back up now (dump, upload with restic, prune, test a restore)
   hearth doctor             Check that everything is set up
   hearth status             Show health, routines and whether Jarvis is paused
   hearth pause | resume     Pause or resume Jarvis's own initiative (it still answers you)
@@ -87,8 +98,36 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
 
+    case "backup":
+      return withDatabase(async (database) => {
+        const dataDir = process.env.HEARTH_DATA_DIR ?? process.cwd();
+        const result = await runBackup({
+          databaseUrl: databaseUrl(),
+          dir: process.env.HEARTH_BACKUP_DIR ?? join(dataDir, "backups"),
+          repository: process.env.HEARTH_BACKUP_REPOSITORY || null,
+          restoreDatabase: "hearth_restore_check",
+        });
+        const kernel = kernelFor(database);
+        const { offsite, ...report } = result;
+        await kernel.execute("system.backup_finished", report, systemCaller());
+        if (result.ok && !offsite) {
+          await kernel.execute(
+            "system.report",
+            { component: "backup", status: "degraded", detail: result.detail },
+            systemCaller(),
+          );
+        }
+        console.log(result.detail);
+        return result.ok ? 0 : 1;
+      });
+
     case "doctor": {
-      const checks = [checkNode(), checkOrigin(), checkClaudeLogin()];
+      const checks = [
+        checkNode(),
+        checkOrigin(),
+        checkClaudeLogin(),
+        ...(await checkBackupTools()),
+      ];
       checks.push(...(await withDatabase(checkDatabase)));
       console.log(formatChecks(checks));
       return checks.some((c) => c.mark === "fail") ? 1 : 0;

@@ -8,8 +8,8 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "dev": "node apps/cli/src/main.ts dev",
-    "hearth": "node apps/cli/src/main.ts",
+    "dev": "node --env-file-if-exists=.env apps/cli/src/main.ts dev",
+    "hearth": "node --env-file-if-exists=.env apps/cli/src/main.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json && pnpm --filter @hearth/web typecheck",

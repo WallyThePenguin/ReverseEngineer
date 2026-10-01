@@ -48,6 +48,13 @@ describe("health checks", () => {
     expect(stale?.detail).toContain("No backup since 2026-10-01");
   });
 
+  it("also notices when local-only backups stop running", async () => {
+    await report("backup", "degraded");
+    t.clock.advance(40 * 3_600_000);
+    const stale = (await checkHealth(t.kernel, opts)).find((r) => r.component === "backup");
+    expect(stale).toMatchObject({ status: "failing" });
+  });
+
   it("checks free disk space", async () => {
     const disk = await checkDisk(process.cwd());
     expect(["ok", "degraded", "failing"]).toContain(disk.status);

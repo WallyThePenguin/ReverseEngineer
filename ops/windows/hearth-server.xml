@@ -1,0 +1,23 @@
+<!-- WinSW v2 service definition. install.ps1 fills in {{NODE}} and {{ROOT}}. -->
+<service>
+  <id>hearth-server</id>
+  <name>Hearth server</name>
+  <description>Hearth's web app, API and MCP endpoint.</description>
+  <executable>{{NODE}}</executable>
+  <arguments>--env-file-if-exists="{{ROOT}}\.env" "{{ROOT}}\apps\cli\src\main.ts" serve</arguments>
+  <workingdirectory>{{ROOT}}</workingdirectory>
+  <startmode>Automatic</startmode>
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="30 sec"/>
+  <onfailure action="restart" delay="2 min"/>
+  <resetfailure>1 hour</resetfailure>
+  <stoptimeout>20sec</stoptimeout>
+  <serviceaccount>
+    <domain>NT AUTHORITY</domain>
+    <user>LocalService</user>
+  </serviceaccount>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>5</keepFiles>
+  </log>
+</service>
