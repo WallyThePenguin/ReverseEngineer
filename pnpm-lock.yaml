@@ -185,9 +185,15 @@ importers:
       '@hearth/db':
         specifier: workspace:*
         version: link:../db
+      '@types/pg':
+        specifier: ^8.23.1
+        version: 8.23.1
       drizzle-orm:
         specifier: ^0.45.3
         version: 0.45.3(@types/pg@8.23.1)(pg@8.23.1)
+      pg:
+        specifier: ^8.23.1
+        version: 8.23.1
       uuidv7:
         specifier: ^1.2.1
         version: 1.2.1
