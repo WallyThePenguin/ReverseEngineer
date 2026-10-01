@@ -1,0 +1,48 @@
+// Risk classes, caller identities and trust levels (PLAN.md sections 5.4 and 5.5).
+
+/**
+ * How much an action can affect the world outside Hearth.
+ * - read: looks only.
+ * - internal: changes Hearth records only (a task, a note, a link).
+ * - self_external: changes your own outside accounts in ways only you see (your calendar).
+ * - outward: other people see it (send an email, post in Slack, invite someone).
+ * - destructive: hard to undo (delete for good, empty trash).
+ * - secret: touches credentials or tokens.
+ */
+export const RISKS = [
+  "read",
+  "internal",
+  "self_external",
+  "outward",
+  "destructive",
+  "secret",
+] as const;
+export type Risk = (typeof RISKS)[number];
+
+/** What kind of identity is calling. */
+export const PRINCIPAL_KINDS = ["owner", "agent", "mcp_client", "integration", "system"] as const;
+export type PrincipalKind = (typeof PRINCIPAL_KINDS)[number];
+
+/**
+ * Where the request ultimately came from. A turn Jarvis takes because an email arrived is
+ * "untrusted" even though Jarvis is the caller: outside text can never raise permissions.
+ */
+export const ORIGINS = ["owner", "agent", "untrusted", "system"] as const;
+export type Origin = (typeof ORIGINS)[number];
+
+/** The surface a call came through. */
+export const VIAS = ["ui", "cli", "mcp", "jarvis", "integration", "system"] as const;
+export type Via = (typeof VIAS)[number];
+
+/** The weaker of two origins. Trust only ever goes down along a chain of causes. */
+export function weakerOrigin(a: Origin, b: Origin): Origin {
+  const rank: Record<Origin, number> = { owner: 3, system: 2, agent: 1, untrusted: 0 };
+  return rank[a] <= rank[b] ? a : b;
+}
+
+/** Wraps outside text so a model reads it as data, never as instructions. */
+export function asUntrusted(text: string, source: string): string {
+  const safeSource = source.replace(/["<>]/g, "");
+  const body = text.replaceAll("</untrusted", "&lt;/untrusted");
+  return `<untrusted source="${safeSource}">\n${body}\n</untrusted>`;
+}

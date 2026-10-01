@@ -1,0 +1,21 @@
+{
+  "name": "@hearth/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@hearth/core": "workspace:*",
+    "@hearth/db": "workspace:*",
+    "@hearth/jarvis": "workspace:*",
+    "@hearth/jarvis-service": "workspace:*",
+    "@hearth/kernel": "workspace:*",
+    "@hearth/modules": "workspace:*",
+    "@hearth/server": "workspace:*",
+    "@hearth/worker": "workspace:*",
+    "drizzle-orm": "^0.45.3"
+  }
+}

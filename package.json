@@ -1,0 +1,28 @@
+{
+  "name": "hearth",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "dev": "node apps/cli/src/main.ts dev",
+    "hearth": "node apps/cli/src/main.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json && pnpm --filter @hearth/web typecheck",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "check:size": "node scripts/check-file-size.ts",
+    "check": "pnpm lint && pnpm typecheck && pnpm check:size && pnpm test",
+    "build:web": "pnpm --filter @hearth/web build"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@types/node": "^24.0.0",
+    "typescript": "6.0.3",
+    "vitest": "^5.0.3"
+  }
+}

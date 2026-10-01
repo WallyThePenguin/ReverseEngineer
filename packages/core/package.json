@@ -1,0 +1,16 @@
+{
+  "name": "@hearth/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@date-fns/tz": "^1.5.0",
+    "cron-parser": "^5.10.1",
+    "date-fns": "^4.4.0",
+    "zod": "^4.6.5"
+  }
+}
