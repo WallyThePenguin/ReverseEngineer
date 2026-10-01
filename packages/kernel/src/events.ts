@@ -96,12 +96,13 @@ export async function setCursor(db: DbOrTx, consumer: string, seq: number): Prom
 }
 
 /**
- * Calls `onEvent` with the newest seq whenever events are committed. Reconnects on failure.
+ * Calls `onNotify` for every notification on the given channels. Reconnects on failure.
  * Returns a stop function.
  */
-export function listenForEvents(
+export function listenChannels(
   pool: pg.Pool,
-  onEvent: (seq: number) => void,
+  channels: string[],
+  onNotify: (channel: string, payload: string) => void,
 ): () => Promise<void> {
   let stopped = false;
   let client: pg.PoolClient | null = null;
@@ -110,15 +111,24 @@ export function listenForEvents(
   const connect = async () => {
     if (stopped) return;
     try {
-      client = await pool.connect();
-      client.on("notification", (msg) => {
-        if (msg.channel === "hearth_event") onEvent(Number(msg.payload));
+      const c = await pool.connect();
+      client = c;
+      c.on("notification", (msg) => {
+        if (channels.includes(msg.channel)) onNotify(msg.channel, msg.payload ?? "");
       });
-      client.on("error", () => reconnect());
-      await client.query("LISTEN hearth_event");
+      c.on("error", () => reconnect());
+      for (const ch of channels) await c.query(`LISTEN ${ch}`);
+      if (stopped) await release();
     } catch {
       reconnect();
     }
+  };
+  const release = async () => {
+    const c = client;
+    client = null;
+    if (!c) return;
+    await c.query("UNLISTEN *").catch(() => {});
+    c.release();
   };
   const reconnect = () => {
     const c = client;
@@ -136,11 +146,14 @@ export function listenForEvents(
   return async () => {
     stopped = true;
     if (retry) clearTimeout(retry);
-    const c = client;
-    client = null;
-    if (c) {
-      await c.query("UNLISTEN hearth_event").catch(() => {});
-      c.release();
-    }
+    await release();
   };
+}
+
+/** Calls `onEvent` with the newest seq whenever events are committed. Returns a stop function. */
+export function listenForEvents(
+  pool: pg.Pool,
+  onEvent: (seq: number) => void,
+): () => Promise<void> {
+  return listenChannels(pool, ["hearth_event"], (_ch, payload) => onEvent(Number(payload)));
 }

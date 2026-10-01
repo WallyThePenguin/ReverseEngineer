@@ -4,6 +4,7 @@ import {
   getSetting,
   type Kernel,
   listenForEvents,
+  systemCaller,
   upsertSchedule,
 } from "@hearth/kernel";
 import type pg from "pg";
@@ -43,9 +44,26 @@ export async function registerRoutines(kernel: Kernel): Promise<void> {
 
 export async function startJarvis(opts: JarvisServiceOptions) {
   const log = opts.log ?? ((m: string, e?: unknown) => console.error(`[jarvis] ${m}`, e ?? ""));
-  const runner = new TurnRunner({ kernel: opts.kernel, brain: opts.brain, pool: opts.pool, log });
+  const { kernel } = opts;
+  const runner = new TurnRunner({ kernel, brain: opts.brain, pool: opts.pool, log });
+  const pollMs = opts.pollMs ?? 2000;
   let stopped = false;
-  let wake: () => void = () => {};
+  // Idle workers wait here until a turn is queued or the poll interval passes.
+  const waiters = new Set<() => void>();
+  const wakeOne = () => {
+    const [first] = waiters;
+    first?.();
+  };
+  const idle = () =>
+    new Promise<void>((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        waiters.delete(done);
+        resolve();
+      };
+      const timer = setTimeout(done, pollMs);
+      waiters.add(done);
+    });
 
   const workers = Array.from({ length: opts.concurrency ?? 2 }, async () => {
     while (!stopped) {
@@ -53,32 +71,33 @@ export async function startJarvis(opts: JarvisServiceOptions) {
         log("claiming a turn failed", err);
         return null;
       });
-      if (turn) {
-        await runner.run(turn);
-        continue;
-      }
-      await new Promise<void>((resolve) => {
-        const t = setTimeout(resolve, opts.pollMs ?? 2000);
-        const prev = wake;
-        wake = () => {
-          clearTimeout(t);
-          wake = prev;
-          resolve();
-        };
-      });
+      if (turn) await runner.run(turn);
+      else await idle();
     }
   });
 
-  const engine = new ReflexEngine({ kernel: opts.kernel, log, onTurnQueued: () => wake() });
-  await registerRoutines(opts.kernel);
+  const engine = new ReflexEngine({ kernel, log, onTurnQueued: wakeOne });
+  await registerRoutines(kernel);
   const interrupted = await runner.recoverInterrupted();
   if (interrupted) log(`${interrupted} turn(s) were interrupted by the last restart`);
 
   const kick = () =>
     void engine.processAvailable().catch((err) => log("reflex engine failed", err));
   const unlisten = listenForEvents(opts.pool, kick);
-  const poll = setInterval(kick, opts.pollMs ?? 2000);
+  const poll = setInterval(kick, pollMs);
   kick();
+
+  // Tell the worker Jarvis is alive; if this stops, it alerts you.
+  const checkIn = () =>
+    void kernel
+      .execute(
+        "system.report",
+        { component: "jarvis", status: "ok", detail: "Running" },
+        systemCaller(),
+      )
+      .catch((err) => log("health check-in failed", err));
+  const heartbeat = setInterval(checkIn, 60_000);
+  checkIn();
 
   return {
     engine,
@@ -86,8 +105,9 @@ export async function startJarvis(opts: JarvisServiceOptions) {
     async stop() {
       stopped = true;
       clearInterval(poll);
+      clearInterval(heartbeat);
       await unlisten();
-      wake();
+      for (const w of [...waiters]) w();
       await Promise.allSettled(workers);
     },
   };

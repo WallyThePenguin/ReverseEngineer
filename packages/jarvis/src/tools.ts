@@ -2,7 +2,7 @@
 // doors. Every call runs through the kernel as Jarvis, with the turn's trust level.
 import { asUntrusted, formatDateTime, type Origin, type Risk } from "@hearth/core";
 import { entity } from "@hearth/db";
-import { isVisibleTo, jarvisCaller, type Kernel, newId } from "@hearth/kernel";
+import { type Caller, isVisibleTo, jarvisCaller, type Kernel, newId } from "@hearth/kernel";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { BrainTool } from "./brain.ts";
@@ -130,7 +130,11 @@ export function buildTools(kernel: Kernel, state: TurnState, log: LogFn): BrainT
 }
 
 /** A record as Jarvis reads it: its module's description, plus links both ways. */
-export async function describeRecord(kernel: Kernel, id: string): Promise<string | null> {
+export async function describeRecord(
+  kernel: Kernel,
+  id: string,
+  caller: Caller = jarvisCaller("agent"),
+): Promise<string | null> {
   const [row] = await kernel.db.select().from(entity).where(eq(entity.id, id));
   if (!row) return null;
   const ctx = { db: kernel.db, now: kernel.clock.now() };
@@ -140,7 +144,7 @@ export async function describeRecord(kernel: Kernel, id: string): Promise<string
   const links = await kernel.execute<{
     outgoing: { otherId: string; otherType: string; otherTitle: string }[];
     incoming: { otherId: string; otherType: string; otherTitle: string }[];
-  }>("entity.links", { id }, jarvisCaller("agent"));
+  }>("entity.links", { id }, caller);
   if (links.status === "ok") {
     const fmt = (l: { otherId: string; otherType: string; otherTitle: string }) =>
       `- ${l.otherType} "${l.otherTitle}" (${l.otherId})`;
