@@ -317,6 +317,17 @@ CREATE TABLE observation (
 );
 CREATE INDEX observation_open ON observation (created_at) WHERE surfaced_at IS NULL;
 
+-- Small things reflexes set aside for the next heartbeat, so many minor events cost one turn.
+CREATE TABLE heartbeat_item (
+  id uuid PRIMARY KEY,
+  text text NOT NULL,
+  about_id uuid REFERENCES entity (id) ON DELETE SET NULL,
+  source_event_seq bigint,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  taken_at timestamptz
+);
+CREATE INDEX heartbeat_item_open ON heartbeat_item (created_at) WHERE taken_at IS NULL;
+
 -- One scheduler for routines, reminders and watch expiry. A firing appends a clock.fired event
 -- in the same transaction that advances next_run_at, so each firing happens exactly once.
 CREATE TABLE schedule (

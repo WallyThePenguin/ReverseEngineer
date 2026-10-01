@@ -88,6 +88,15 @@ export const observation = pgTable("observation", {
   createdAt: ts("created_at").notNull().defaultNow(),
 });
 
+export const heartbeatItem = pgTable("heartbeat_item", {
+  id: uuid("id").primaryKey(),
+  text: text("text").notNull(),
+  aboutId: uuid("about_id"),
+  sourceEventSeq: bigint("source_event_seq", { mode: "number" }),
+  createdAt: ts("created_at").notNull().defaultNow(),
+  takenAt: ts("taken_at"),
+});
+
 export const schedule = pgTable("schedule", {
   id: text("id").primaryKey(),
   kind: text("kind").$type<"routine" | "reminder" | "check">().notNull(),

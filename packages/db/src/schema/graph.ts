@@ -86,7 +86,7 @@ export const property = pgTable(
 
 export const task = pgTable("task", {
   entityId: uuid("entity_id").primaryKey(),
-  number: integer("number").notNull(),
+  number: integer("number").notNull().default(sql`nextval('task_number_seq')`),
   status: text("status")
     .$type<"not_started" | "in_progress" | "in_review" | "completed" | "canceled">()
     .notNull()

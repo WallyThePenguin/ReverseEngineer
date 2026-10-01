@@ -110,14 +110,27 @@ export type ReflexOutcome =
       dedupeKey?: string;
       context?: Record<string, unknown>;
       notBefore?: Date;
+      /** What to do instead when the turn can't be spent (Jarvis paused or over budget). */
+      fallback?: ReflexOutcome[];
     }
   | { kind: "tell"; notification: NewNotification }
   | { kind: "note"; observation: NewObservation }
   | { kind: "act"; action: string; input: unknown }
   | { kind: "batch"; text: string; aboutId?: string | null }
-  | { kind: "check_later"; id: string; at: Date; payload: Record<string, unknown> };
+  /**
+   * Look again later. Calling this again with the same key moves the check, which debounces:
+   * a note edited ten times gets one check, ten minutes after the last edit.
+   */
+  | { kind: "check_later"; key: string; at: Date; payload: Record<string, unknown> };
 
-export type ReflexMode = "reactive" | "proactive";
+/**
+ * - reactive: answers you (chat, @mentions, assignments, approvals, watches you set up).
+ * - proactive: Jarvis's own initiative. Stops while Jarvis is paused and counts against the
+ *   daily turn budget.
+ * - always: deterministic reminders and alerts (a deadline, a failed backup). Never paused and
+ *   never spends a model turn.
+ */
+export type ReflexMode = "reactive" | "proactive" | "always";
 
 export interface ReflexDef {
   name: string;
@@ -125,10 +138,35 @@ export interface ReflexDef {
   description: string;
   /** Reactive reflexes answer you and keep working while Jarvis is paused; proactive ones stop. */
   mode: ReflexMode;
+  /** Event kinds to react to; "*" means every event. */
   on: string[];
   /** Jarvis's own events are skipped unless this is set, so it can't loop on itself. */
   includeJarvisEvents?: boolean;
   run(event: HearthEvent, ctx: ReadContext): Promise<ReflexOutcome[]> | ReflexOutcome[];
+  /** Runs when a check this reflex asked for (check_later) comes due. */
+  onCheck?(
+    payload: Record<string, unknown>,
+    ctx: ReadContext & { event: HearthEvent },
+  ): Promise<ReflexOutcome[]>;
+}
+
+/** One module's contribution to the brief, sorted into the brief's order. */
+export interface DigestItem {
+  bucket: "handled" | "prepared" | "needs_yes" | "today" | "fyi";
+  text: string;
+  entityId?: string | null;
+}
+
+export interface DigestSection {
+  module: string;
+  items: DigestItem[];
+}
+
+export interface RoutineFiring {
+  scheduledFor: Date;
+  event: HearthEvent;
+  /** Every module's digest since a time, gathered by the engine. */
+  digest(since: Date): Promise<DigestSection[]>;
 }
 
 /** Work that runs on a schedule (the brief, prep, sweeps). Fired by the scheduler as clock.fired. */
@@ -138,10 +176,7 @@ export interface RoutineDef {
   cron: string;
   /** Skip a missed firing older than this, instead of running it late. */
   staleAfterSeconds: number | null;
-  run(
-    firing: { scheduledFor: Date; event: HearthEvent },
-    ctx: ReadContext,
-  ): Promise<ReflexOutcome[]>;
+  run(firing: RoutineFiring, ctx: ReadContext): Promise<ReflexOutcome[]>;
 }
 
 export interface HearthModule {
@@ -149,11 +184,15 @@ export interface HearthModule {
   description: string;
   entityTypes: string[];
   events: EventDef[];
+  /** Kernel events this module's actions produce (entity.*, link.*, notification.*...). */
+  kernelEvents?: string[];
   // Method-style members are bivariant, so actions with specific schemas fit here.
   actions: ActionDef[];
   knowledge: Record<string, Describe>;
   reflexes: ReflexDef[];
   routines?: RoutineDef[];
+  /** What's notable in this module for the brief, the heartbeat and the journal. */
+  digest?(ctx: ReadContext & { since: Date }): Promise<DigestItem[]>;
   /** If a module has nothing for Jarvis to react to yet, it must say why. */
   noReflexesBecause?: string;
 }

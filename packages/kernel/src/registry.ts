@@ -43,7 +43,11 @@ export class Registry {
       if (this.routines.has(name)) throw new Error(`Routine ${name} declared twice`);
       this.routines.set(name, r);
     }
-    this.reflexList.push(...module.reflexes);
+    for (const r of module.reflexes) {
+      if (this.reflexList.some((x) => x.name === r.name))
+        throw new Error(`Reflex ${r.name} declared twice`);
+      this.reflexList.push(r);
+    }
     this.modules.push(module);
   }
 
@@ -72,12 +76,16 @@ export class Registry {
   }
 
   reflexesFor(kind: string): ReflexDef[] {
-    return this.reflexList.filter((r) => r.on.includes(kind));
+    return this.reflexList.filter((r) => r.on.includes(kind) || r.on.includes("*"));
   }
 
   /** Routines keyed "module.name". */
   allRoutines(): Map<string, RoutineDef> {
     return this.routines;
+  }
+
+  reflex(name: string): ReflexDef | undefined {
+    return this.reflexList.find((r) => r.name === name);
   }
 }
 
@@ -93,8 +101,13 @@ export function checkJarvisContract(registry: Registry): string[] {
         problems.push(`${m.name}: no knowledge function for entity type "${type}"`);
     }
     const writes = m.actions.filter((a) => a.risk !== "read");
-    if (writes.length > 0 && m.events.length === 0 && m.entityTypes.length === 0) {
+    const senses = m.events.length + (m.kernelEvents?.length ?? 0) + m.entityTypes.length;
+    if (writes.length > 0 && senses === 0) {
       problems.push(`${m.name}: has write actions but declares no events`);
+    }
+    for (const kind of m.kernelEvents ?? []) {
+      if (!KERNEL_EVENTS.some((e) => e.kind === kind))
+        problems.push(`${m.name}: "${kind}" is not a kernel event`);
     }
     if (m.actions.length === 0) problems.push(`${m.name}: declares no actions`);
     for (const a of m.actions) {
@@ -109,7 +122,7 @@ export function checkJarvisContract(registry: Registry): string[] {
     }
     for (const r of m.reflexes) {
       for (const kind of r.on) {
-        if (!registry.hasEvent(kind))
+        if (kind !== "*" && !registry.hasEvent(kind))
           problems.push(`${m.name}: reflex "${r.name}" listens to undeclared "${kind}"`);
       }
     }
