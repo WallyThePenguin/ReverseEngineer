@@ -170,9 +170,15 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.31.0
         version: 1.31.0(zod@4.6.5)
+      '@types/pg':
+        specifier: ^8.23.1
+        version: 8.23.1
       drizzle-orm:
         specifier: ^0.45.3
         version: 0.45.3(@types/pg@8.23.1)(pg@8.23.1)
+      pg:
+        specifier: ^8.23.1
+        version: 8.23.1
       zod:
         specifier: ^4.6.5
         version: 4.6.5

@@ -5,7 +5,8 @@
   "type": "module",
   "license": "AGPL-3.0-only",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./testing": "./src/testing.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.287",
@@ -16,6 +17,8 @@
     "@hearth/kernel": "workspace:*",
     "@hearth/modules": "workspace:*",
     "drizzle-orm": "^0.45.3",
-    "zod": "^4.6.5"
+    "zod": "^4.6.5",
+    "pg": "^8.23.1",
+    "@types/pg": "^8.23.1"
   }
 }
