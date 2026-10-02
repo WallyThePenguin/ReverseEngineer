@@ -16,6 +16,8 @@ export function instantLoads(): void {
 
 export class FakeBrowser implements BrowserClient {
   connected = true;
+  /** When set, protocol commands fail with this message, as on a page that won't load. */
+  cdpError: string | null = null;
   tabs: TabInfo[] = [];
   readonly calls: { method: string; params: Record<string, unknown> }[] = [];
   readonly pages: Record<string, FakePage>;
@@ -86,6 +88,7 @@ export class FakeBrowser implements BrowserClient {
   }
 
   private cdp(tab: TabInfo, method: string, params: Record<string, unknown> = {}): unknown {
+    if (this.cdpError) throw new Error(this.cdpError);
     switch (method) {
       case "Page.navigate":
         tab.url = String(params.url);
@@ -104,6 +107,7 @@ export class FakeBrowser implements BrowserClient {
           text: page.text.slice(0, max),
           links: page.links ?? [],
           truncated: page.text.length > max,
+          missing: false,
         };
         return { result: { type: "object", value } };
       }

@@ -2,7 +2,7 @@ import { renderMention } from "@hearth/core";
 import { describe, expect, it } from "vitest";
 import { type BrowserTab, defaultTab, modifiers, toPage } from "./browser.ts";
 import { decodePath, encodePath, routeFor } from "./routes.ts";
-import { mentionQuery, splitInline, toggleLine } from "./text.ts";
+import { lineDiff, mentionQuery, splitInline, toggleLine } from "./text.ts";
 
 const ID = "01a0f976-b334-7462-a9ca-bd9b458c8a2c";
 
@@ -88,5 +88,20 @@ describe("the live browser view", () => {
 
   it("opens the browser pane from the URL", () => {
     expect(decodePath("/browser+inbox")).toEqual([{ view: "browser" }, { view: "inbox" }]);
+  });
+});
+
+describe("page watch changes", () => {
+  it("shows which lines were added and removed", () => {
+    expect(lineDiff("Kettle\n$40\nIn stock", "Kettle\n$35\nIn stock")).toEqual([
+      { kind: "same", text: "Kettle" },
+      { kind: "removed", text: "$40" },
+      { kind: "added", text: "$35" },
+      { kind: "same", text: "In stock" },
+    ]);
+    expect(lineDiff("", "New")).toEqual([
+      { kind: "removed", text: "" },
+      { kind: "added", text: "New" },
+    ]);
   });
 });

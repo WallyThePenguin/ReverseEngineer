@@ -6,8 +6,9 @@
 // so it must stay one self-contained function with no imports.
 
 /**
- * @param {{ maxChars: number }} opts
- * @returns {{ url: string, title: string, text: string, links: string[], truncated: boolean }}
+ * @param {{ maxChars: number, selector?: string }} opts
+ * @returns {{ url: string, title: string, text: string, links: string[], truncated: boolean,
+ *   missing: boolean }}
  */
 // biome-ignore lint/correctness/noUnusedVariables: sent to the page as source text.
 function pageSnapshot(opts) {
@@ -189,7 +190,11 @@ function pageSnapshot(opts) {
     if (block) breakLine();
   }
 
-  walk(document.body ?? document.documentElement, false);
+  // A selector narrows the reading to one part of the page, like a price.
+  const root = opts.selector
+    ? document.querySelector(opts.selector)
+    : (document.body ?? document.documentElement);
+  if (root) walk(root, false);
   const text = parts
     .join("")
     .split("\n")
@@ -202,5 +207,6 @@ function pageSnapshot(opts) {
     text,
     links,
     truncated: full,
+    missing: root === null,
   };
 }

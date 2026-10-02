@@ -5,6 +5,7 @@ import { createEffect, createSignal, For, on, onCleanup, onMount, Show } from "s
 import { Button, Empty, PaneHeader } from "../components/ui.tsx";
 import { createLiveBrowser, type LiveBrowser, modifiers, toPage } from "../lib/browser.ts";
 import { layout } from "../lib/panes.ts";
+import { watchPage } from "./PageWatch.tsx";
 
 const BUTTONS = ["left", "middle", "right"] as const;
 
@@ -197,6 +198,18 @@ export function Browser() {
           <Button small onClick={() => go(true)} title="Open in a new tab in Jarvis's window">
             New tab
           </Button>
+          <Show when={b.current()?.url.startsWith("http")}>
+            <Button
+              small
+              title="Get a notice when this page changes"
+              onClick={() => {
+                const t = b.current();
+                if (t) void watchPage(t.url, t.title);
+              }}
+            >
+              Watch
+            </Button>
+          </Show>
           <Show when={b.current() && !b.current()?.handed}>
             <Button small kind="danger" onClick={() => b.send({ type: "close" })} title="Close">
               Close

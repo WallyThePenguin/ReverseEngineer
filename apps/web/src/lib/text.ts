@@ -40,3 +40,50 @@ export function toggleLine(body: string, line: number): string {
   lines[line] = /\[( )\]/.test(l) ? l.replace("[ ]", "[x]") : l.replace(/\[(x|X)\]/, "[ ]");
   return lines.join("\n");
 }
+
+export type DiffLine = { kind: "same" | "added" | "removed"; text: string };
+
+/** What changed between two versions of a page, line by line (longest common subsequence). */
+export function lineDiff(before: string, now: string): DiffLine[] {
+  const a = before.split("\n");
+  const b = now.split("\n");
+  // Very long pages fall back to "was in it / is in it", which is cheap and still useful.
+  if (a.length * b.length > 1_000_000) {
+    const had = new Set(a);
+    const has = new Set(b);
+    return [
+      ...a.filter((l) => !has.has(l)).map((text) => ({ kind: "removed" as const, text })),
+      ...b.map((text) => ({ kind: had.has(text) ? ("same" as const) : ("added" as const), text })),
+    ];
+  }
+  const n = a.length;
+  const m = b.length;
+  const lcs = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      const row = lcs[i] as Uint32Array;
+      const below = lcs[i + 1] as Uint32Array;
+      row[j] =
+        a[i] === b[j]
+          ? (below[j + 1] as number) + 1
+          : Math.max(below[j] as number, row[j + 1] as number);
+    }
+  }
+  const out: DiffLine[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      out.push({ kind: "same", text: a[i] as string });
+      i++;
+      j++;
+    } else if ((lcs[i + 1]?.[j] ?? 0) >= (lcs[i]?.[j + 1] ?? 0)) {
+      out.push({ kind: "removed", text: a[i++] as string });
+    } else {
+      out.push({ kind: "added", text: b[j++] as string });
+    }
+  }
+  while (i < n) out.push({ kind: "removed", text: a[i++] as string });
+  while (j < m) out.push({ kind: "added", text: b[j++] as string });
+  return out;
+}

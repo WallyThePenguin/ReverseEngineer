@@ -71,6 +71,11 @@ export class Registry {
     return this.knowledge.get(type);
   }
 
+  /** Records of this type hold content from outside Hearth, like a watched page's text. */
+  isOutsideType(type: string): boolean {
+    return this.modules.some((m) => m.outsideTypes?.includes(type));
+  }
+
   reflexes(): ReflexDef[] {
     return this.reflexList;
   }

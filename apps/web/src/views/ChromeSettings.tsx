@@ -7,6 +7,7 @@ import { browserStatus, pairBrowser, unpairBrowser } from "../lib/browser.ts";
 import { ago } from "../lib/format.ts";
 import { reportError, toast } from "../lib/live.ts";
 import { act, useAction } from "../lib/query.ts";
+import { WatchList } from "./PageWatch.tsx";
 
 interface SiteRules {
   allowed: string[];
@@ -171,6 +172,8 @@ export function ChromeSettings() {
       </p>
       <Pairing />
       <Sites />
+      <h3 class="pt-2 font-medium">Page watches</h3>
+      <WatchList />
     </section>
   );
 }

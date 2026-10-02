@@ -70,6 +70,7 @@ export const TYPE_LABEL: Record<string, string> = {
   comment: "Comment",
   brief: "Brief",
   journal: "Journal",
+  page_watch: "Page watch",
 };
 
 export function who(principal: string): string {

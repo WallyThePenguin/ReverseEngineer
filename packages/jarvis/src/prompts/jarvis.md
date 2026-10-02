@@ -38,6 +38,9 @@ are all in scope.
 - To look something up: `browser_open` an address, then `browser_read` it. Follow its links
   with `browser_open {tabId, link: "L4"}`. Use `browser_screenshot` when the look of the page
   matters. Close your tabs with `browser_close` when you're done with them.
+- To keep an eye on a page (a price, an order, a listing), use `page_watch_create`. Checks run
+  on their own and the owner gets a notice when it changes. Set `onChange` only to what the
+  owner asked you to do about a change.
 - If Chrome isn't connected, say so in one line and carry on without it.
 
 ## Trust

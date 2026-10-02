@@ -16,13 +16,13 @@ afterAll(async () => {
   await browser?.close();
 });
 
-async function read(html: string, maxChars = 10_000): Promise<PageSnapshot> {
+async function read(html: string, maxChars = 10_000, selector?: string): Promise<PageSnapshot> {
   const page = await browser.newPage();
   await page.route("https://shop.example/**", (route) =>
     route.fulfill({ contentType: "text/html; charset=utf-8", body: html }),
   );
   await page.goto("https://shop.example/");
-  const snap = (await page.evaluate(snapshotExpression(maxChars))) as PageSnapshot;
+  const snap = (await page.evaluate(snapshotExpression(maxChars, selector))) as PageSnapshot;
   await page.close();
   return snap;
 }
@@ -67,6 +67,12 @@ describe.skipIf(!hasChromium)("reading a page as text", () => {
       <p>Zero​width and tag\u{E0041}\u{E0042} smuggling.</p>
       <script>document.write("")</script><style>p{}</style>`);
     expect(snap.text).toBe("Visible.\nZerowidth and tag smuggling.");
+  });
+
+  it("reads just the part a selector picks, and says when it's gone", async () => {
+    const html = `<h1>Kettle</h1><p class="price">$40</p><p>Reviews</p>`;
+    expect((await read(html, 1000, ".price")).text).toBe("$40");
+    expect(await read(html, 1000, ".sold-out")).toMatchObject({ text: "", missing: true });
   });
 
   it("stops at the size it was asked for and says so", async () => {

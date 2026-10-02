@@ -14,11 +14,13 @@ export interface PageSnapshot {
   /** Link addresses; "L1" is links[0]. */
   links: string[];
   truncated: boolean;
+  /** A selector was given and nothing on the page matched it. */
+  missing: boolean;
 }
 
 /** The page-side reader as an expression, for Runtime.evaluate (and tests in a real browser). */
-export function snapshotExpression(maxChars: number): string {
-  return `(${SNAPSHOT})(${JSON.stringify({ maxChars })})`;
+export function snapshotExpression(maxChars: number, selector?: string): string {
+  return `(${SNAPSHOT})(${JSON.stringify({ maxChars, ...(selector ? { selector } : {}) })})`;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -87,8 +89,9 @@ export function readPage(
   client: BrowserClient,
   tabId: number,
   maxChars: number,
+  selector?: string,
 ): Promise<PageSnapshot> {
-  return evaluate<PageSnapshot>(client, tabId, snapshotExpression(maxChars));
+  return evaluate<PageSnapshot>(client, tabId, snapshotExpression(maxChars, selector));
 }
 
 // The links of the last page read in each tab. Kept in this process only, which is the one

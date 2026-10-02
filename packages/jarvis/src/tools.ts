@@ -206,6 +206,9 @@ export async function readRecord(
     if (links.result.incoming.length)
       text += `\n\n## Linked from\n${links.result.incoming.map(fmt).join("\n")}`;
   }
-  const fromOutside = row.createdBy.startsWith("integration:") || row.createdBy.startsWith("mcp:");
-  return { text: fromOutside ? asUntrusted(text, row.createdBy) : text, fromOutside };
+  const outsideType = kernel.registry.isOutsideType(row.type);
+  const fromOutside =
+    outsideType || row.createdBy.startsWith("integration:") || row.createdBy.startsWith("mcp:");
+  const source = outsideType ? row.type : row.createdBy;
+  return { text: fromOutside ? asUntrusted(text, source) : text, fromOutside };
 }

@@ -176,3 +176,21 @@ export interface StandingRule {
   note: string;
   createdAt: string;
 }
+
+export interface PageWatch {
+  id: string;
+  title: string;
+  url: string;
+  mode: "browser" | "fetch";
+  selector: string | null;
+  everyMinutes: number;
+  onChange: string | null;
+  active: boolean;
+  status: "new" | "ok" | "waiting" | "failing";
+  lastCheckedAt: string | null;
+  lastChangedAt: string | null;
+  lastError: string | null;
+  /** Only from page_watch.get. */
+  lastText?: string | null;
+  previousText?: string | null;
+}

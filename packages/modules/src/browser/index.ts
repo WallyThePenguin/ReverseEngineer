@@ -2,10 +2,7 @@
 // and close them again. It works in Jarvis's own window and in tabs you hand it. Pages are
 // outside content, so reading one makes the rest of a turn untrusted. Sites on your blocked list
 // are off limits to everyone but you.
-import type { PrincipalKind } from "@hearth/core";
-import { normalizeUrl, onSiteList } from "@hearth/core";
 import {
-  type ActionContext,
   ActionError,
   defineAction,
   defineModule,
@@ -14,32 +11,13 @@ import {
   setSetting,
 } from "@hearth/kernel";
 import { z } from "zod";
-import { BROWSER_SERVICE, type BrowserClient, type TabInfo } from "./client.ts";
+import { assertAllowed, browser, CALLERS } from "./access.ts";
+import type { TabInfo } from "./client.ts";
 import { findTab, forgetLinks, linkUrl, readPage, rememberLinks, waitForLoad } from "./page.ts";
+import { describeWatch, watchActions, watchFollowUp } from "./watches.ts";
 
-/** Your Chrome is yours: outside agents and integrations never get it. */
-const CALLERS: PrincipalKind[] = ["owner", "agent", "system"];
+/** The most of a page read at once; longer pages are cut off there. */
 const MAX_READ = 300_000;
-
-function browser(ctx: ActionContext): BrowserClient {
-  return ctx.service<BrowserClient>(BROWSER_SERVICE);
-}
-
-/**
- * Refuses blocked sites to anyone but you, whatever turn or job is asking. Returns the address
- * to open, #fragment and all, since apps like Gmail route by it.
- */
-async function assertAllowed(ctx: ActionContext, raw: string): Promise<string> {
-  if (!normalizeUrl(raw))
-    throw new ActionError("invalid_input", `${raw} isn't an http or https address.`);
-  const url = new URL(raw.trim()).href;
-  if (ctx.caller.kind === "owner") return url;
-  const sites = await getSetting(ctx.tx, "browser.sites");
-  const host = new URL(url).hostname;
-  if (onSiteList(host, sites.blocked))
-    throw new ActionError("forbidden", `${host} is on your list of sites Jarvis never opens.`);
-  return url;
-}
 
 /** A site as written in the lists: a host name like "bank.example", subdomains included. */
 const SITE = z
@@ -72,7 +50,9 @@ export const browserModule = defineModule({
   name: "browser",
   description:
     "Your own Chrome, through the Hearth extension: Jarvis's window and the tabs you hand it.",
-  entityTypes: [],
+  entityTypes: ["page_watch"],
+  // A watch keeps the page's text, which came from the web.
+  outsideTypes: ["page_watch"],
   events: [
     { kind: "browser.opened", description: "Jarvis opened a page. Payload: tabId, url." },
     {
@@ -80,15 +60,23 @@ export const browserModule = defineModule({
       description: "Jarvis closed its tab, or gave yours back. Payload: tabId, handedBack.",
     },
     {
+      kind: "page_watch.changed",
+      description:
+        "A watched page changed. Payload: url, title, followUp (whether the watch says what to do).",
+    },
+    {
+      kind: "page_watch.failing",
+      description: "A watched page couldn't be checked several times in a row. Payload: url.",
+    },
+    {
       kind: "browser.sites_changed",
       description: "You changed the sites Jarvis may open freely or never opens. Payload: sites.",
     },
   ],
-  knowledge: {},
-  reflexes: [],
-  noReflexesBecause:
-    "Opening and reading pages happens when asked; page watches will add the browser's reflexes.",
+  knowledge: { page_watch: describeWatch },
+  reflexes: [watchFollowUp],
   actions: [
+    ...watchActions,
     defineAction({
       name: "browser.tabs",
       description:

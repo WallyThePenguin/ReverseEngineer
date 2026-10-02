@@ -207,6 +207,11 @@ export interface HearthModule {
   name: string;
   description: string;
   entityTypes: string[];
+  /**
+   * Entity types whose records hold content from outside Hearth (a watched web page). Reading
+   * one makes the rest of Jarvis's turn untrusted (D25).
+   */
+  outsideTypes?: string[];
   events: EventDef[];
   /** Kernel events this module's actions produce (entity.*, link.*, notification.*...). */
   kernelEvents?: string[];

@@ -10,6 +10,7 @@ import { ago, TYPE_LABEL, who } from "../lib/format.ts";
 import { layout, routeFor } from "../lib/panes.ts";
 import { useAction } from "../lib/query.ts";
 import type { Entity } from "../lib/types.ts";
+import { PageWatchPanel } from "./PageWatch.tsx";
 
 export function RecordView(props: { id: string; pane: number }) {
   const rec = useAction<Entity>("entity.get", () => ({ id: props.id }));
@@ -30,6 +31,9 @@ export function RecordView(props: { id: string; pane: number }) {
             sub={`${TYPE_LABEL[r().type] ?? r().type} · ${who(r().createdBy)} · ${ago(r().updatedAt)}`}
           />
           <div class="flex-1 space-y-5 overflow-auto px-5 py-4">
+            <Show when={r().type === "page_watch"}>
+              <PageWatchPanel id={r().id} />
+            </Show>
             <Body text={r().body} />
             <Show when={r().type !== "comment"}>
               <Comments parentId={r().id} />
