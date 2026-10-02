@@ -1,4 +1,6 @@
 // Runs the Hearth server: `hearth serve`, or `node apps/server/src/main.ts`.
+
+import type { Server } from "node:http";
 import { connect, databaseUrl } from "@hearth/db";
 import { Kernel, Registry } from "@hearth/kernel";
 import { ALL_MODULES } from "@hearth/modules";
@@ -13,6 +15,7 @@ export async function runServer(): Promise<() => Promise<void>> {
   const server = createApp({ kernel, pool: database.pool, config });
   server.start();
   const http = serve({ fetch: server.app.fetch, hostname: config.host, port: config.port });
+  server.attach(http as Server);
   console.log(
     `Hearth is listening on http://${config.host}:${config.port} (open ${config.origin})`,
   );

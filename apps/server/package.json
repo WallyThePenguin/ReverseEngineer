@@ -10,6 +10,7 @@
   "dependencies": {
     "@hearth/core": "workspace:*",
     "@hearth/db": "workspace:*",
+    "@hearth/jarvis": "workspace:*",
     "@hearth/kernel": "workspace:*",
     "@hearth/modules": "workspace:*",
     "@hono/node-server": "^2.1.3",
@@ -17,11 +18,12 @@
     "@simplewebauthn/server": "^14.0.3",
     "drizzle-orm": "^0.45.3",
     "hono": "^4.13.12",
-    "zod": "^4.6.5",
-    "@hearth/jarvis": "workspace:*",
-    "pg": "^8.23.1"
+    "pg": "^8.23.1",
+    "ws": "^8.22.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@types/pg": "^8.23.1"
+    "@types/pg": "^8.23.1",
+    "@types/ws": "^8.18.2"
   }
 }

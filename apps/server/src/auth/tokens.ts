@@ -1,17 +1,11 @@
 // Bearer tokens for browser sessions and API clients. Only a hash is stored; the token itself
 // is shown once, when it's made.
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { timingSafeEqual } from "node:crypto";
 import type { PrincipalKind } from "@hearth/core";
-import { type DbOrTx, principal, session } from "@hearth/db";
+import { createSession, type DbOrTx, hashToken, newToken, principal, session } from "@hearth/db";
 import { and, eq, gt, isNull, or } from "drizzle-orm";
 
-export function newToken(): string {
-  return randomBytes(32).toString("base64url");
-}
-
-export function hashToken(token: string): string {
-  return createHash("sha256").update(token).digest("hex");
-}
+export { createSession, hashToken, newToken };
 
 export function safeEqual(a: string, b: string): boolean {
   const x = Buffer.from(a);
@@ -23,23 +17,6 @@ export interface SessionPrincipal {
   principal: string;
   kind: PrincipalKind;
   sessionKind: "browser" | "api";
-}
-
-export async function createSession(
-  db: DbOrTx,
-  input: { principal: string; kind: "browser" | "api"; label?: string; ttlDays?: number | null },
-  now = new Date(),
-): Promise<string> {
-  const token = newToken();
-  await db.insert(session).values({
-    tokenHash: hashToken(token),
-    principal: input.principal,
-    kind: input.kind,
-    label: input.label ?? "",
-    createdAt: now,
-    expiresAt: input.ttlDays ? new Date(now.getTime() + input.ttlDays * 86_400_000) : null,
-  });
-  return token;
 }
 
 export async function resolveToken(

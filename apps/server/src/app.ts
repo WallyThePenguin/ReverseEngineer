@@ -1,11 +1,18 @@
-// The HTTP server: the action API, the live event feed, passkey login, /mcp and the web UI.
+// The HTTP server: the action API, the live event feed, passkey login, /mcp, the browser bridge
+// and the web UI.
 import { existsSync, readFileSync } from "node:fs";
+import type { Server } from "node:http";
 import { join } from "node:path";
 import type { Kernel } from "@hearth/kernel";
+import { BROWSER_SERVICE } from "@hearth/modules";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import type pg from "pg";
 import { authenticate, sameOriginWrites } from "./auth/middleware.ts";
+import { BrowserBridge } from "./browser/bridge.ts";
+import { LiveView } from "./browser/live.ts";
+import { browserRoutes } from "./browser/routes.ts";
+import { attachBrowserSockets } from "./browser/sockets.ts";
 import type { ServerConfig } from "./config.ts";
 import type { AppEnv, ServerDeps } from "./env.ts";
 import { EventHub } from "./hub.ts";
@@ -32,10 +39,15 @@ export interface AppOptions {
   /** The pool used to LISTEN for events. Optional in tests, which call hub.publish instead. */
   pool?: pg.Pool | null;
   config: ServerConfig;
+  /** The extension's link. The kernel's browser service is set to it if it has none. */
+  bridge?: BrowserBridge;
 }
 
 export function createApp(opts: AppOptions) {
   const hub = new EventHub(opts.pool ?? null);
+  const bridge = opts.bridge ?? new BrowserBridge();
+  opts.kernel.services[BROWSER_SERVICE] ??= bridge;
+  const live = new LiveView(bridge);
   const deps: ServerDeps = {
     kernel: opts.kernel,
     pool: opts.pool as pg.Pool,
@@ -58,6 +70,7 @@ export function createApp(opts: AppOptions) {
   app.use("/api/*", sameOriginWrites());
   app.route("/api/auth", authRoutes());
   app.route("/api/events", eventRoutes());
+  app.route("/api/browser", browserRoutes(bridge));
   app.route("/api", actionRoutes());
   app.route("/mcp", mcpRoutes());
   app.all("/api/*", (c) => c.json({ error: "Not found." }, 404));
@@ -74,10 +87,25 @@ export function createApp(opts: AppOptions) {
     );
   }
 
+  let detachSockets: (() => void) | null = null;
   return {
     app,
     hub,
+    bridge,
     start: () => hub.start(),
-    stop: () => hub.stop(),
+    /** Adds the WebSockets (the extension's link and the live view) to the HTTP server. */
+    attach(server: Server) {
+      detachSockets = attachBrowserSockets(server, {
+        kernel: opts.kernel,
+        config: opts.config,
+        bridge,
+        live,
+      });
+    },
+    async stop() {
+      detachSockets?.();
+      bridge.close();
+      await hub.stop();
+    },
   };
 }

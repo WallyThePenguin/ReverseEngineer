@@ -1,13 +1,19 @@
 // Runs Jarvis: `hearth jarvis`, or `node apps/jarvis/src/main.ts`. Uses your Claude Code login
 // (Claude Max), so turns cost nothing extra.
+import { PRINCIPAL } from "@hearth/core";
 import { connect, databaseUrl } from "@hearth/db";
 import { ClaudeBrain, startJarvis } from "@hearth/jarvis";
 import { Kernel, Registry } from "@hearth/kernel";
-import { ALL_MODULES } from "@hearth/modules";
+import { ALL_MODULES, BROWSER_SERVICE, internalBrowserClient } from "@hearth/modules";
 
 export async function runJarvis(): Promise<() => Promise<void>> {
   const database = connect(databaseUrl(), { max: 6 });
-  const kernel = new Kernel({ db: database.db, registry: new Registry(ALL_MODULES) });
+  const kernel = new Kernel({
+    db: database.db,
+    registry: new Registry(ALL_MODULES),
+    // Chrome is reached through the server, which holds the extension's connection.
+    services: { [BROWSER_SERVICE]: internalBrowserClient(database.db, PRINCIPAL.jarvis) },
+  });
   const model = process.env.HEARTH_JARVIS_MODEL;
   const brain = new ClaudeBrain({
     ...(model

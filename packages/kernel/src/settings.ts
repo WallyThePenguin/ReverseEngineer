@@ -14,6 +14,8 @@ export interface Settings {
   "tasks.dueSoonHours": number;
   /** Where Jarvis's browser may and may not go (D25). */
   "browser.sites": SiteRules;
+  /** The Hearth extension's pairing code, hashed. Null until you connect Chrome. */
+  "browser.pairing": { hash: string; createdAt: string } | null;
 }
 
 export const SETTING_DEFAULTS: Settings = {
@@ -23,6 +25,7 @@ export const SETTING_DEFAULTS: Settings = {
   "owner.maxInterruptsPerDay": 8,
   "tasks.dueSoonHours": 24,
   "browser.sites": DEFAULT_SITE_RULES,
+  "browser.pairing": null,
 };
 
 export async function getSetting<K extends keyof Settings>(

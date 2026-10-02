@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Hearth",
+  "version": "0.1.0",
+  "description": "Lets Jarvis use this Chrome for you, from your own Hearth.",
+  "minimum_chrome_version": "120",
+  "permissions": ["debugger", "tabs", "tabGroups", "storage", "alarms"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_title": "Hearth", "default_popup": "popup.html" },
+  "options_ui": { "page": "options.html", "open_in_tab": true }
+}

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="ui.css" />
+    <style>body { width: 280px; }</style>
+  </head>
+  <body>
+    <h1>Hearth</h1>
+    <p><span id="status" class="status">Checking…</span></p>
+    <p id="error"></p>
+    <div class="row">
+      <button type="button" id="hand" hidden>Let Jarvis use this tab</button>
+      <button type="button" id="take" class="quiet" hidden>Take this tab back</button>
+    </div>
+    <div class="row"><button type="button" id="options" class="quiet">Settings</button></div>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

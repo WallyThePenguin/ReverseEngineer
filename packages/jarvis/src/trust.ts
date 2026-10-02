@@ -1,9 +1,9 @@
 // What a turn may open once it has read outside content (D25). An untrusted turn can follow exact
 // addresses that appeared in what it read, or open sites you allowed. Anything else could be a
 // page smuggling your data out in a URL, so it needs your yes (or, for a web fetch, is refused).
-import type { Origin, SiteRules } from "@hearth/core";
+import { normalizeUrl, type Origin, onSiteList, type SiteRules } from "@hearth/core";
 
-export type { SiteRules };
+export { normalizeUrl, onSiteList, type SiteRules };
 
 export interface TrustState {
   origin: Origin;
@@ -15,27 +15,6 @@ export type OpenVerdict =
   | { kind: "ok" }
   | { kind: "blocked"; reason: string }
   | { kind: "ask"; reason: string };
-
-/** An http(s) address without its #fragment, or null if it isn't one. */
-export function normalizeUrl(raw: string): string | null {
-  try {
-    const u = new URL(raw.trim());
-    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
-    u.hash = "";
-    return u.href;
-  } catch {
-    return null;
-  }
-}
-
-/** True when the host is one of the sites, or a subdomain of one. */
-export function onSiteList(host: string, sites: string[]): boolean {
-  const h = host.toLowerCase().replace(/\.$/, "");
-  return sites.some((s) => {
-    const site = s.trim().toLowerCase().replace(/^\*\./, "");
-    return site !== "" && (h === site || h.endsWith(`.${site}`));
-  });
-}
 
 const URL_PATTERN = /https?:\/\/[^\s"'<>`\\{}|^[\]]+/g;
 

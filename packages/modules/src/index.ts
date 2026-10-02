@@ -24,6 +24,16 @@ export const ALL_MODULES: HearthModule[] = [
 ];
 
 export { renderBrief, renderDigest } from "./assistant/brief.ts";
+export {
+  BROWSER_SERVICE,
+  type BrowserClient,
+  type BrowserStatus,
+  HttpBrowserClient,
+  internalBrowserClient,
+  OFFLINE_MESSAGE,
+  serverUrl,
+  type TabInfo,
+} from "./browser/client.ts";
 export { appendLog, type LogEntry, type LogKind, routeLane } from "./chat/index.ts";
 export { parseChecklist } from "./notes/checklist.ts";
 export { loadTask, type TaskView } from "./tasks/index.ts";

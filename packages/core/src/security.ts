@@ -60,6 +60,27 @@ export const DEFAULT_SITE_RULES: SiteRules = {
   ],
 };
 
+/** An http(s) address without its #fragment, or null if it isn't one. */
+export function normalizeUrl(raw: string): string | null {
+  try {
+    const u = new URL(raw.trim());
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    u.hash = "";
+    return u.href;
+  } catch {
+    return null;
+  }
+}
+
+/** True when the host is one of the sites, or a subdomain of one. */
+export function onSiteList(host: string, sites: string[]): boolean {
+  const h = host.toLowerCase().replace(/\.$/, "");
+  return sites.some((s) => {
+    const site = s.trim().toLowerCase().replace(/^\*\./, "");
+    return site !== "" && (h === site || h.endsWith(`.${site}`));
+  });
+}
+
 /** Wraps outside text so a model reads it as data, never as instructions. */
 export function asUntrusted(text: string, source: string): string {
   const safeSource = source.replace(/["<>]/g, "");

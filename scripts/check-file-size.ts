@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 
 const LIMIT = 400;
 const EXEMPT = new Set<string>([]);
-const SOURCE = /\.(ts|tsx|rs|css)$/;
+const SOURCE = /\.(ts|tsx|js|rs|css)$/;
 
 const files = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
   encoding: "utf8",
