@@ -63,6 +63,13 @@ jobs:
           pnpm -s hearth serve > server.log 2>&1 &
           for i in $(seq 1 30); do curl -sf localhost:4400/api/health > /dev/null && break; sleep 1; done
           HEARTH_E2E_URL=http://localhost:4400 HEARTH_E2E_SETUP_CODE="$CODE" pnpm --filter @hearth/web e2e
+      - name: Browser extension end-to-end
+        run: |
+          export HEARTH_WEB_DIST="$PWD/apps/web/dist"
+          HEARTH_DEV_AUTH=1 HEARTH_PORT=4401 HEARTH_ORIGIN=http://localhost:4401 \
+            pnpm -s hearth serve > server-dev.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf localhost:4401/api/health > /dev/null && break; sleep 1; done
+          HEARTH_E2E_URL=http://localhost:4401 pnpm --filter @hearth/web e2e:browser
       - name: Server log
         if: failure()
-        run: cat server.log || true
+        run: cat server.log server-dev.log || true

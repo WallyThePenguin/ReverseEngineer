@@ -170,7 +170,7 @@ export function Browser() {
         }
       >
         <form
-          class="flex items-center gap-1 border-b border-line px-3 py-1.5"
+          class="flex flex-wrap items-center gap-1 border-b border-line px-3 py-1.5"
           onSubmit={(e) => {
             e.preventDefault();
             go(false);
@@ -186,7 +186,7 @@ export function Browser() {
             ⟳
           </Button>
           <input
-            class="min-w-0 flex-1 rounded-md border border-line bg-panel px-2 py-1 font-mono text-xs"
+            class="min-w-40 flex-1 rounded-md border border-line bg-panel px-2 py-1 font-mono text-xs"
             value={address()}
             placeholder="Type an address"
             aria-label="Address"
