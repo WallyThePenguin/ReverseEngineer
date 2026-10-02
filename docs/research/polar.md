@@ -214,12 +214,78 @@ What to borrow:
   mode (navigate, snapshot, extract), and keep every click that changes something as its own gated
   action.
 
-**Recommendation: start with Playwright MCP's tools, wrapped as Hearth actions, on a dedicated Chrome
-profile.** It's TypeScript, it runs on Windows, it needs no API key, and it leaves planning to
-Jarvis: one brain, one budget, one policy. Its extension mode later gives a "do this in my own tab"
-option. Browser Use's plain MCP tools are the backup, run as a Python sidecar with telemetry off and
+**Recommendation: build a Hearth browser module in the style of Playwright MCP, on a dedicated
+Chrome profile.** Use its approach (accessibility snapshots with element refs, one tool per step),
+and drive Chrome through Patchright instead of stock Playwright (see "Not getting blocked" below).
+Since every step has to be a Hearth action anyway, the module calls the library directly and doesn't
+need Playwright MCP's server. It's TypeScript, it runs on Windows, it needs no API key, and it leaves
+planning to Jarvis: one brain, one budget, one policy. Playwright MCP's extension mode can later give
+a "do this in my own tab" option. Browser Use's plain MCP tools are the backup, run as a Python sidecar with telemetry off and
 its LLM features unused. ego lite is worth a look as a tool for you in Claude Code on a Mac, not as
 Jarvis's engine.
+
+## Not getting blocked
+
+You asked how to keep Jarvis's browser from being blocked, and whether Scrapling's methods would
+help. [Scrapling](https://github.com/D4Vinci/Scrapling) (BSD-3, about 85k stars, v0.4.15) is a
+Python scraping framework built to get past anti-bot systems. Its methods, read from the code:
+
+| Method | How it works |
+|---|---|
+| Patched browser driver | Its stealth browser runs on [Patchright](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright), a patched Playwright that hides the usual automation giveaways. It also drops flags like `--enable-automation`. |
+| Fingerprint spoofing | Generated fingerprints (`browserforge`, Apify's data), canvas noise, and locale and timezone overrides |
+| Cloudflare solver | `solve_cloudflare` finds the Turnstile checkbox and clicks it at its screen position, retrying until the page clears |
+| HTTP that looks like Chrome | The plain `Fetcher` uses `curl_cffi` to copy Chrome's TLS fingerprint and headers, with no browser at all |
+| AutoThrottle | Learns a delay for each site, doubles it (or honors `Retry-After`) when the site starts refusing, and speeds back up later |
+| Proxy rotation | Rotates through proxy pools, which is why the README is full of proxy sponsors |
+| Adaptive selectors | Remembers an element and finds it again after the site's layout changes |
+| Page sanitizer (MCP) | Before the AI sees a page, strips elements hidden by inline styles, `aria-hidden` content, `<template>` tags, comments and zero-width characters (`_sanitize_for_ai` in `scrapling/core/shell.py`) |
+
+Most of these are made for anonymous scraping at scale: many requests, no login, from data-center
+machines. Jarvis's situation is the reverse. It works slowly, logged in as you, from your home
+connection, in a real browser. Sites block on three things, and that setup already covers most of
+them:
+
+1. **Where the traffic comes from.** A home IP is the most trusted kind, and this is where Polar
+   says cloud agents fail. Keep Jarvis on the PC. Never put it behind proxies, because a logged-in
+   account jumping between IPs looks like a hijack.
+2. **Whether the browser looks automated.** Use real Google Chrome, visible (not headless), with a
+   long-lived dedicated profile, driven through **Patchright's Node package** (`patchright` on npm,
+   1.63.0, Apache-2.0, a drop-in for Playwright). That's the one stealth method worth taking.
+3. **How it behaves.** Most account bans come from this, not from fingerprints: LinkedIn and others
+   flag volume and speed regardless of stealth. Borrow AutoThrottle as a per-site pace limit in the
+   browser module, with daily caps for sensitive sites, and no parallel sessions on one account.
+
+What to take from Scrapling:
+- Patchright, as above.
+- AutoThrottle's back-off rules.
+- Adaptive selectors, for page watches, so a price watch survives a redesign.
+- The sanitizer idea, ported into `browser.read`. It's only a first filter: it misses text hidden by
+  CSS classes or moved off-screen, and visible injected text. The untrusted-turn rule is still the
+  real defense.
+- The Chrome-like HTTP fetch, for watches on public pages that don't need a browser. That needs a
+  small Python sidecar, so it's optional.
+
+What not to take, for the logged-in profile:
+- **Fingerprint spoofing and canvas noise.** Sites tie your login to how your device looks. A
+  fingerprint that changes makes a logged-in session look stolen, which brings more 2FA prompts and
+  security locks, not fewer. When you're logged in, consistency beats stealth.
+- **Its default launch flags** `--disable-cookie-encryption` and `--password-store=basic`. They leave
+  cookies and saved passwords unencrypted on disk. That's fine for a throwaway scraper, not for a
+  profile signed into your accounts.
+- **Automatic CAPTCHA solving.** A real visible Chrome on a home connection passes most Turnstile
+  checks without any clicking. If a real challenge appears, the site already distrusts the session,
+  and forcing past it risks the account. Jarvis should pause and ping you, as planned.
+- **Proxy rotation,** for the reason in point 1.
+
+**The most likely "block" on this PC is a logout, not bot detection.** Chrome encrypts saved logins
+with Windows DPAPI. On this PC, some boots (after a power loss or an update restart that signs in
+automatically) give DPAPI the wrong key, and Chrome's logins vanish. Jarvis's profile would lose its
+logins the same way. So:
+- After each boot, the browser module checks each allowlisted site for a logged-in marker. That's a
+  page load, not a model turn.
+- The brief lists any site that needs you to sign in again.
+- The root-cause fixes still apply: a UPS, and turning off automatic sign-in after updates.
 
 ## What this means for Hearth
 
@@ -277,6 +343,10 @@ None of this is in `PLAN.md` yet. It's waiting for your go-ahead.
   [microsoft/playwright-mcp](https://github.com/microsoft/playwright-mcp),
   [browserbase/stagehand](https://github.com/browserbase/stagehand),
   [browser-use/browser-harness](https://github.com/browser-use/browser-harness)
+- Not getting blocked: [D4Vinci/Scrapling](https://github.com/D4Vinci/Scrapling)
+  (`scrapling/engines/_browsers/_stealth.py`, `scrapling/engines/constants.py`,
+  `scrapling/core/shell.py`), [Patchright](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright),
+  [patchright-nodejs](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright-nodejs)
 - ego lite: [citrolabs/ego-lite](https://github.com/citrolabs/ego-lite) (README,
   `docs/native-bindings-api.md`, `package/ego-browser/README.md`), [lite.ego.app](https://lite.ego.app)
 - Benchmarks: [Odysseys paper (arXiv 2604.24964)](https://arxiv.org/html/2604.24964),
