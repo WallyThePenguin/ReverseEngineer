@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Runner } from "./backup.ts";
-import { checkChrome } from "./doctor.ts";
+import { checkBackupTools, checkChrome } from "./doctor.ts";
 
 const schtasks =
   (code: number, stdout = ""): Runner =>
@@ -33,5 +33,23 @@ describe("hearth doctor", () => {
     expect(off).toMatchObject({ mark: "ok" });
     const node = { HEARTH_CHROME_PATH: process.execPath };
     expect(await checkChrome(node, "linux")).toMatchObject({ mark: "ok" });
+  });
+
+  it("asks restic for its version the way restic understands", async () => {
+    // Real restic exits non-zero on --version; everything else accepts it.
+    const run: Runner = async (cmd, args) => ({
+      code: cmd === "restic" && args[0] !== "version" ? 1 : 0,
+      stdout: "",
+      stderr: "",
+    });
+    const checks = await checkBackupTools(
+      { HEARTH_BACKUP_REPOSITORY: "rclone:gdrive:hearth", RESTIC_PASSWORD: "x" },
+      run,
+    );
+    expect(checks.map((c) => [c.name, c.mark])).toEqual([
+      ["pg_dump", "ok"],
+      ["restic", "ok"],
+      ["rclone", "ok"],
+    ]);
   });
 });

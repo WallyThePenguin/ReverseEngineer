@@ -15,6 +15,9 @@ describe("migrations", () => {
     await admin.connect();
     await admin.query(`CREATE DATABASE ${name}`);
     const pool = new pg.Pool({ connectionString: withDatabase(name) });
+    // DROP ... WITH (FORCE) below can kill a backend whose client is still closing after
+    // pool.end(); without a listener its FATAL message escapes as an uncaught error.
+    pool.on("connect", (client) => client.on("error", () => {}));
     try {
       const all = loadMigrations().map((m) => m.name);
       expect(await migrateUp(pool)).toEqual(all);
