@@ -23,7 +23,14 @@ const context = await browser.newContext({ viewport: { width: 1440, height: 900 
 const page = await context.newPage();
 const problems: string[] = [];
 page.on("pageerror", (e) => problems.push(`page error: ${e.message}`));
+// Requests sent while the test is signed out are expected to get 401, so they aren't problems.
+let signedOut = false;
+const whileSignedOut = new WeakSet<object>();
+page.on("request", (req) => {
+  if (signedOut) whileSignedOut.add(req);
+});
 page.on("response", async (r) => {
+  if (r.status() === 401 && whileSignedOut.has(r.request())) return;
   if (r.status() >= 400 && r.url().includes("/api/actions/")) {
     problems.push(
       `${r.status()} ${r.url()} ${r.request().postData() ?? ""} -> ${(await r.text().catch(() => "")).slice(0, 200)}`,
@@ -123,9 +130,11 @@ try {
   });
 
   await step("sign out and back in with the passkey", async (p) => {
+    signedOut = true;
     await p.getByRole("button", { name: "Sign out" }).click();
     await p.getByRole("button", { name: "Sign in with your passkey" }).click();
     await p.getByRole("button", { name: "Sign out" }).waitFor();
+    signedOut = false;
   });
 
   await step("pause and resume Jarvis", async (p) => {
