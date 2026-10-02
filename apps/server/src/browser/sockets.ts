@@ -70,7 +70,10 @@ function greet(ws: WebSocket, deps: SocketDeps): void {
       pairing !== null &&
       safeEqual(pairing.hash, hashToken(hello.token));
     if (!ok) {
-      deps.bridge.turnedAway();
+      // Only an earlier pairing code counts as an old one; anything can knock with a wrong code.
+      const old = await getSetting(deps.kernel.db, "browser.oldPairings");
+      const hash = typeof hello.token === "string" ? hashToken(hello.token) : "";
+      if (hash && old.some((h) => safeEqual(h, hash))) deps.bridge.turnedAway();
       ws.send(
         JSON.stringify({
           type: "rejected",

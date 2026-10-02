@@ -3,6 +3,7 @@ import { REQUEST_TIMEOUT_MS } from "@hearth/modules";
 import { describe, expect, it } from "vitest";
 import { CALL_TIMEOUT_MS } from "./browser/bridge.ts";
 import {
+  asWindowsService,
   createLauncher,
   DEFAULT_TASK,
   directArgs,
@@ -25,6 +26,11 @@ describe("how Hearth opens Chrome", () => {
     // A service whose settings are from before HEARTH_AS_SERVICE: its account gives it away.
     expect(loadLaunchConfig({}, "win32", "LOCAL SERVICE").mode).toBe("task");
     expect(loadLaunchConfig({}, "linux", "LOCAL SERVICE").mode).toBe("direct");
+    const german = "C:\\Windows\\ServiceProfiles\\LocalService";
+    expect(asWindowsService({}, "win32", "LOKALER DIENST", german)).toBe(true);
+    const system = "C:\\Windows\\system32\\config\\systemprofile";
+    expect(asWindowsService({}, "win32", "SYSTEM", system)).toBe(true);
+    expect(asWindowsService({}, "win32", "ana", "C:\\Users\\ana")).toBe(false);
     expect(loadLaunchConfig({}, "linux").mode).toBe("direct");
     const off = loadLaunchConfig({ HEARTH_CHROME_LAUNCH: "off", HEARTH_AS_SERVICE: "1" }, "win32");
     expect(off.mode).toBe("off");

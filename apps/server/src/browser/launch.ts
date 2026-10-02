@@ -8,7 +8,7 @@
 // background, so it stays up with no windows open.
 import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { userInfo } from "node:os";
+import { homedir, userInfo } from "node:os";
 import { join } from "node:path";
 import { ActionError } from "@hearth/kernel";
 
@@ -48,16 +48,19 @@ function whoAmI(): string {
 /**
  * Whether Hearth runs as a Windows service, which can't show anything on your desktop. The
  * services' settings say so, and so does running as a service account, in case those settings
- * are from before they did.
+ * are from before they did. Account names are translated on some Windows; their folders aren't.
  */
 export function asWindowsService(
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
   user: string = whoAmI(),
+  home: string = homedir(),
 ): boolean {
   if (platform !== "win32") return false;
   return (
-    env.HEARTH_AS_SERVICE === "1" || /^(local service|network service|system)$|\$$/i.test(user)
+    env.HEARTH_AS_SERVICE === "1" ||
+    /^(local service|network service|system)$|\$$/i.test(user) ||
+    /\\(ServiceProfiles|system32\\config\\systemprofile)(\\|$)/i.test(home)
   );
 }
 

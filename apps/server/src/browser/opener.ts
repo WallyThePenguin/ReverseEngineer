@@ -20,8 +20,8 @@ export interface OpenTiming {
    */
   quitMs: number;
   /**
-   * After a hello with an old pairing code, how long a paired extension still gets to connect.
-   * Anything can knock with a wrong code, so one alone doesn't end the wait.
+   * After a hello with an earlier pairing code, how long a paired extension still gets to connect:
+   * the old code may be in another Chrome profile, not the one Hearth opened.
    */
   oldCodeMs: number;
 }
@@ -92,6 +92,12 @@ export class ChromeOpener {
     const now = Date.now();
     this.droppedAt = now;
     if (this.launchedAt && now - this.launchedAt < this.timing.quitMs) this.fail(CLOSED_AT_ONCE);
+    this.launchedAt = 0;
+  }
+
+  /** Pairing changed, so earlier failures no longer say anything; Hearth may try again at once. */
+  pairingChanged(): void {
+    this.failure = null;
     this.launchedAt = 0;
   }
 

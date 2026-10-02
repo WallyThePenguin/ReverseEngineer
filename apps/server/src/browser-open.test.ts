@@ -133,32 +133,52 @@ describe("opening Chrome when it's closed", () => {
     expect(launcher.opened).toBe(0);
   });
 
-  it("says so at once when the extension has an old pairing code", async () => {
-    const launcher = {
-      opened: 0,
+  /** A launcher whose Chrome knocks with `code`, and whose paired extension connects after `ms`. */
+  function knocking(code: () => string, ms?: number) {
+    return {
       hint: "",
       async open() {
-        launcher.opened++;
-        setTimeout(() => void fakeExtension(base, "an-old-code", {}), 50);
+        setTimeout(() => void fakeExtension(base, code(), {}), 20);
+        if (ms !== undefined) setTimeout(() => void chrome(), ms);
       },
     };
-    await start(launcher, { connectMs: 10_000, oldCodeMs: 300 });
+  }
+
+  /** Pairs again, so the code the test started with is an old one. */
+  async function pairAgain() {
+    const old = token;
+    const res = await t.browser("/api/browser/pair", { method: "POST" });
+    token = ((await res.json()) as { token: string }).token;
+    return old;
+  }
+
+  it("says so soon when the extension has an old pairing code", async () => {
+    let old = "";
+    await start(
+      knocking(() => old),
+      { connectMs: 10_000, oldCodeMs: 300 },
+    );
+    old = await pairAgain();
     const began = Date.now();
     expect((await rpc("tabs.open", { url: "https://a.example/" })).body.error).toBe(OLD_CODE);
     expect(Date.now() - began).toBeLessThan(5000);
   });
 
-  it("isn't put off by something else knocking with a wrong code", async () => {
-    const launcher = {
-      opened: 0,
-      hint: "",
-      async open() {
-        launcher.opened++;
-        setTimeout(() => void fakeExtension(base, "a-wrong-code", {}), 20);
-        setTimeout(() => void chrome(), 200);
-      },
-    };
-    await start(launcher, { connectMs: 10_000, oldCodeMs: 2000 });
+  it("still waits for a paired extension after an old code knocks", async () => {
+    let old = "";
+    await start(
+      knocking(() => old, 200),
+      { connectMs: 10_000, oldCodeMs: 2000 },
+    );
+    old = await pairAgain();
+    expect((await rpc("tabs.open", { url: "https://a.example/" })).body).toEqual({ result: TAB });
+  });
+
+  it("isn't put off by something knocking with a code that was never Hearth's", async () => {
+    await start(
+      knocking(() => "a-wrong-code", 800),
+      { connectMs: 10_000, oldCodeMs: 100 },
+    );
     expect((await rpc("tabs.open", { url: "https://a.example/" })).body).toEqual({ result: TAB });
   });
 
@@ -220,5 +240,23 @@ describe("opening Chrome when it's closed", () => {
     for (let i = 0; i < 3; i++) states.push(await viewer.next("state"));
     expect(states.map((s) => [s.opening, s.connected])).toContainEqual([true, false]);
     expect(states.at(-1)).toMatchObject({ connected: true, opening: false });
+  });
+
+  it("lets you skip the wait while Jarvis's try waits, and tells the pane when you unpair", async () => {
+    const launcher = fakeLauncher();
+    await start(launcher, { startGraceMs: 60_000 });
+    const viewer = socket(base, "/api/browser/live", TEST_ORIGIN);
+    await viewer.opened;
+    expect(await viewer.next("state")).toMatchObject({ connected: false, paired: true });
+    const waiting = rpc("tabs.open", { url: "https://a.example/" });
+    await until(async () => t.server.bridge.snapshot().opening === true);
+    expect(launcher.opened).toBe(0);
+    expect((await t.browser("/api/browser/open", { method: "POST" })).status).toBe(200);
+    expect((await waiting).body).toEqual({ result: TAB });
+    expect(launcher.opened).toBe(1);
+
+    await t.browser("/api/browser/pair", { method: "DELETE" });
+    for (;;) if ((await viewer.next("state")).paired === false) break;
+    expect((await rpc("tabs.open", { url: "https://a.example/" })).body.error).toBe(NOT_PAIRED);
   });
 });

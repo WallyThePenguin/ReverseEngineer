@@ -16,6 +16,8 @@ export interface Settings {
   "browser.sites": SiteRules;
   /** The Hearth extension's pairing code, hashed. Null until you connect Chrome. */
   "browser.pairing": { hash: string; createdAt: string } | null;
+  /** Earlier pairing codes, hashed, newest first: an extension with one needs pairing again. */
+  "browser.oldPairings": string[];
 }
 
 export const SETTING_DEFAULTS: Settings = {
@@ -26,6 +28,7 @@ export const SETTING_DEFAULTS: Settings = {
   "tasks.dueSoonHours": 24,
   "browser.sites": DEFAULT_SITE_RULES,
   "browser.pairing": null,
+  "browser.oldPairings": [],
 };
 
 export async function getSetting<K extends keyof Settings>(

@@ -147,7 +147,8 @@ export async function checkChrome(
       .exec(query.stdout.replaceAll("\0", ""))?.[1]
       ?.replaceAll("&amp;", "&")
       .trim();
-    if (command && !existsSync(command))
+    // A name Windows wrote in another encoding can't be checked (U+FFFD where it didn't decode).
+    if (command && !command.includes("\uFFFD") && !existsSync(command))
       return {
         name: "Chrome",
         mark: "warn",

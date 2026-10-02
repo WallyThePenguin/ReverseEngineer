@@ -124,7 +124,7 @@ function ChromeClosed(props: { b: LiveBrowser }) {
   return (
     <div class="space-y-3 px-4 py-10 text-center text-sm text-muted">
       <Show
-        when={o().canOpen}
+        when={o().canOpen && o().paired}
         fallback={
           <p>
             Open Chrome on your PC with the Hearth extension installed and paired. It connects by
@@ -137,7 +137,7 @@ function ChromeClosed(props: { b: LiveBrowser }) {
             ? "Opening Chrome on your PC…"
             : "Chrome is closed. Hearth opens it on your PC when Jarvis needs it."}
         </p>
-        <Button kind="primary" onClick={() => void open()} disabled={o().opening || asked()}>
+        <Button kind="primary" onClick={() => void open()} disabled={asked()}>
           Open Chrome
         </Button>
         <Show when={o().openError && !o().opening}>

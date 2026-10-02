@@ -101,6 +101,7 @@ export function createLiveBrowser() {
     canOpen: false,
     opening: false,
     openError: null as string | null,
+    paired: true,
   });
   let ws: WebSocket | null = null;
   let stopped = false;
@@ -126,6 +127,7 @@ export function createLiveBrowser() {
           canOpen: Boolean(msg.canOpen),
           opening: Boolean(msg.opening),
           openError: typeof msg.openError === "string" ? msg.openError : null,
+          paired: msg.paired !== false,
         });
         setTabs(list);
         const current = tabId();

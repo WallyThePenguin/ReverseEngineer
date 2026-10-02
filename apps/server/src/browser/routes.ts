@@ -1,7 +1,8 @@
 // /api/browser: pair the extension, see whether Chrome is connected, open it, and the request
 // endpoint Jarvis and the worker use to reach it. Only you and Hearth's own processes get in.
 import { PRINCIPAL } from "@hearth/core";
-import { ActionError, type Caller, getSetting, setSetting } from "@hearth/kernel";
+import type { DbOrTx } from "@hearth/db";
+import { ActionError, type Caller, getSetting, type Settings, setSetting } from "@hearth/kernel";
 import { Hono } from "hono";
 import { z } from "zod";
 import { requireCaller } from "../auth/middleware.ts";
@@ -23,6 +24,19 @@ function isInternal(caller: Caller): boolean {
   );
 }
 
+/** How many earlier pairing codes Hearth remembers, to tell an old one from a wrong one. */
+const OLD_PAIRINGS = 5;
+
+/** Sets the pairing code, remembering the one it replaces. */
+async function setPairing(db: DbOrTx, next: Settings["browser.pairing"]) {
+  const current = await getSetting(db, "browser.pairing");
+  if (current) {
+    const old = await getSetting(db, "browser.oldPairings");
+    await setSetting(db, "browser.oldPairings", [current.hash, ...old].slice(0, OLD_PAIRINGS));
+  }
+  await setSetting(db, "browser.pairing", next);
+}
+
 export function browserRoutes(bridge: BrowserBridge) {
   const app = new Hono<AppEnv>();
   app.use("*", requireCaller());
@@ -40,11 +54,11 @@ export function browserRoutes(bridge: BrowserBridge) {
   // A new pairing code, shown once. Pairing again disconnects the old extension.
   app.post("/pair", requireCaller(["owner"]), async (c) => {
     const token = newToken();
-    await setSetting(c.get("deps").kernel.db, "browser.pairing", {
+    await setPairing(c.get("deps").kernel.db, {
       hash: hashToken(token),
       createdAt: new Date().toISOString(),
     });
-    bridge.disconnect();
+    bridge.pairingChanged(true);
     return c.json({ token });
   });
 
@@ -59,8 +73,8 @@ export function browserRoutes(bridge: BrowserBridge) {
   });
 
   app.delete("/pair", requireCaller(["owner"]), async (c) => {
-    await setSetting(c.get("deps").kernel.db, "browser.pairing", null);
-    bridge.disconnect();
+    await setPairing(c.get("deps").kernel.db, null);
+    bridge.pairingChanged(false);
     return c.json({ ok: true });
   });
 

@@ -32,6 +32,8 @@ export interface BrowserStatus {
   opening?: boolean;
   /** Why the last try to open Chrome failed, until it connects. */
   openError?: string | null;
+  /** Whether an extension is paired, once the server knows. */
+  paired?: boolean;
 }
 
 /** One request to the extension: tabs.list, tabs.open, tabs.close, tabs.release, tabs.show, cdp. */

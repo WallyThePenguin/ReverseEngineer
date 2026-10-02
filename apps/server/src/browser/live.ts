@@ -32,8 +32,8 @@ type ViewerMessage = {
 
 /** What the Browser pane shows: Chrome's connection, whether it's being opened, and the tabs. */
 function state(s: BrowserStatus) {
-  const { connected, canOpen, opening, openError, tabs } = s;
-  return { type: "state", connected, canOpen, opening, openError, tabs };
+  const { connected, canOpen, opening, openError, paired, tabs } = s;
+  return { type: "state", connected, canOpen, opening, openError, paired, tabs };
 }
 
 function send(ws: WebSocket, msg: unknown): void {

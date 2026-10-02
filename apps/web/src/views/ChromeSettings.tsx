@@ -85,7 +85,7 @@ function Pairing() {
           </Show>
         </div>
         <Show when={status()?.paired && !status()?.connected && status()?.canOpen}>
-          <Button disabled={opening() || status()?.opening} onClick={() => void open()}>
+          <Button disabled={opening()} onClick={() => void open()}>
             Open Chrome
           </Button>
         </Show>

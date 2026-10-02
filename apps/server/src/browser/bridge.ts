@@ -46,15 +46,26 @@ export class BrowserBridge implements BrowserClient {
   private readonly eventListeners = new Set<(e: CdpEvent) => void>();
   private readonly stateListeners = new Set<(status: BrowserStatus) => void>();
   private readonly opener: ChromeOpener;
+  /** Whether an extension is paired, as last seen. Null until known. */
+  private paired: boolean | null = null;
 
   constructor(opts: BridgeOptions = {}) {
+    const isPaired = opts.isPaired ?? (async () => true);
+    const check = async () => {
+      this.paired = await isPaired();
+      return this.paired;
+    };
     this.opener = new ChromeOpener({
       launcher: opts.launcher ?? null,
       timing: opts.timing,
-      isPaired: opts.isPaired ?? (async () => true),
+      isPaired: check,
       isConnected: () => this.socket !== null,
       changed: () => this.notify(),
     });
+    void check().then(
+      () => this.notify(),
+      () => {},
+    );
   }
 
   /** A paired extension connected. It replaces any earlier connection (Chrome restarted). */
@@ -72,6 +83,7 @@ export class BrowserBridge implements BrowserClient {
     if (this.ping) clearInterval(this.ping);
     this.ping = setInterval(() => ws.send(JSON.stringify({ type: "ping" })), 20_000);
     ws.send(JSON.stringify({ type: "welcome" }));
+    this.paired = true;
     this.opener.connected();
     this.notify();
   }
@@ -92,6 +104,7 @@ export class BrowserBridge implements BrowserClient {
       since: this.since?.toISOString() ?? null,
       tabs: this.tabs,
       ...this.opener.state(),
+      ...(this.paired === null ? {} : { paired: this.paired }),
     };
   }
 
@@ -135,10 +148,13 @@ export class BrowserBridge implements BrowserClient {
     return () => this.stateListeners.delete(listener);
   }
 
-  /** Drops the extension's link, as when pairing changes. It connects again by itself. */
-  disconnect(): void {
+  /** Pairing changed: drops the extension's link. A paired one connects again by itself. */
+  pairingChanged(paired: boolean): void {
+    this.paired = paired;
     this.socket?.close(1001, "Pairing changed");
     this.drop();
+    this.opener.pairingChanged();
+    this.notify();
   }
 
   /** Hearth is stopping: drop the link and stop waiting for Chrome. */
