@@ -9,7 +9,7 @@ and an agent that both answers you and acts on its own.
 - [docs/setup-windows.md](docs/setup-windows.md): install it on your PC
 - [PLAN.md](PLAN.md): the plan
 - [docs/decisions.md](docs/decisions.md): decisions and the alternatives considered
-- [docs/research/](docs/research/): what we learned from Macro, Twenty and the old Jarvis
+- [docs/research/](docs/research/): what we learned from Macro, Twenty, the old Jarvis and Polar
 
 ## Develop
 
