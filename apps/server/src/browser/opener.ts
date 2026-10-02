@@ -19,6 +19,11 @@ export interface OpenTiming {
    * by itself because background apps are off. Either way, Hearth leaves it closed for a while.
    */
   quitMs: number;
+  /**
+   * After a hello with an old pairing code, how long a paired extension still gets to connect.
+   * Anything can knock with a wrong code, so one alone doesn't end the wait.
+   */
+  oldCodeMs: number;
 }
 
 export const OPEN_TIMING: OpenTiming = {
@@ -27,6 +32,7 @@ export const OPEN_TIMING: OpenTiming = {
   connectMs: 45_000,
   retryMs: 5 * 60_000,
   quitMs: 10_000,
+  oldCodeMs: 5_000,
 };
 
 export const NOT_PAIRED = "Chrome isn't paired with Hearth yet. Pair it in Settings → Chrome.";
@@ -143,7 +149,10 @@ export class ChromeOpener {
     const launched = Date.now();
     this.launchedAt = launched;
     this.turnedAway = false;
+    const deadline = launched + this.timing.connectMs;
     await this.waitFor(this.timing.connectMs, () => this.turnedAway);
+    if (this.turnedAway && !this.deps.isConnected() && !this.stopped)
+      await this.waitFor(Math.min(this.timing.oldCodeMs, deadline - Date.now()), () => false);
     if (this.deps.isConnected()) return;
     if (this.stopped) throw new ActionError("unavailable", STOPPING);
     this.launchedAt = 0;

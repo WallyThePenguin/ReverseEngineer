@@ -142,10 +142,24 @@ describe("opening Chrome when it's closed", () => {
         setTimeout(() => void fakeExtension(base, "an-old-code", {}), 50);
       },
     };
-    await start(launcher, { connectMs: 10_000 });
+    await start(launcher, { connectMs: 10_000, oldCodeMs: 300 });
     const began = Date.now();
     expect((await rpc("tabs.open", { url: "https://a.example/" })).body.error).toBe(OLD_CODE);
     expect(Date.now() - began).toBeLessThan(5000);
+  });
+
+  it("isn't put off by something else knocking with a wrong code", async () => {
+    const launcher = {
+      opened: 0,
+      hint: "",
+      async open() {
+        launcher.opened++;
+        setTimeout(() => void fakeExtension(base, "a-wrong-code", {}), 20);
+        setTimeout(() => void chrome(), 200);
+      },
+    };
+    await start(launcher, { connectMs: 10_000, oldCodeMs: 2000 });
+    expect((await rpc("tabs.open", { url: "https://a.example/" })).body).toEqual({ result: TAB });
   });
 
   it("leaves Chrome closed for a while when it closes right after opening", async () => {

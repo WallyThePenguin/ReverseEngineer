@@ -8,6 +8,7 @@
 // background, so it stays up with no windows open.
 import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { userInfo } from "node:os";
 import { join } from "node:path";
 import { ActionError } from "@hearth/kernel";
 
@@ -35,16 +36,41 @@ export interface ChromeLauncher {
 export const DEFAULT_TASK = "Hearth Chrome";
 const SWITCHES = ["--no-startup-window"];
 
+/** The account Hearth runs as, or "" when Windows won't say. */
+function whoAmI(): string {
+  try {
+    return userInfo().username;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Whether Hearth runs as a Windows service, which can't show anything on your desktop. The
+ * services' settings say so, and so does running as a service account, in case those settings
+ * are from before they did.
+ */
+export function asWindowsService(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+  user: string = whoAmI(),
+): boolean {
+  if (platform !== "win32") return false;
+  return (
+    env.HEARTH_AS_SERVICE === "1" || /^(local service|network service|system)$|\$$/i.test(user)
+  );
+}
+
 export function loadLaunchConfig(
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
+  user?: string,
 ): LaunchConfig {
-  const asService = env.HEARTH_AS_SERVICE === "1";
   const asked = env.HEARTH_CHROME_LAUNCH;
   const mode: LaunchMode =
     asked === "task" || asked === "direct" || asked === "off"
       ? asked
-      : platform === "win32" && asService
+      : asWindowsService(env, platform, user)
         ? "task"
         : "direct";
   return {
@@ -93,7 +119,10 @@ export function findChrome(
 export function directArgs(config: Pick<LaunchConfig, "profile" | "args">): string[] {
   return [
     ...SWITCHES,
-    ...(config.profile ? [`--profile-directory=${config.profile}`] : []),
+    // A profile folder that's gone opens the last one used, not a new, empty profile.
+    ...(config.profile
+      ? [`--profile-directory=${config.profile}`, "--ignore-profile-directory-if-not-exists"]
+      : []),
     ...config.args,
   ];
 }
@@ -178,11 +207,12 @@ export function createLauncher(
   config: LaunchConfig,
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
+  user?: string,
 ): ChromeLauncher | null {
   if (config.mode === "off") return null;
   if (config.mode === "task") return taskLauncher(config.task);
   // A Windows service starting Chrome would put it where nobody can see it, holding your profile.
-  if (platform === "win32" && env.HEARTH_AS_SERVICE === "1") {
+  if (asWindowsService(env, platform, user)) {
     console.warn(
       `HEARTH_CHROME_LAUNCH=direct doesn't work from a Windows service; using the "${config.task}" task.`,
     );

@@ -144,4 +144,15 @@ describe("live events", () => {
     expect(seen).toMatch(/id: \d+/);
     await reader.cancel();
   });
+
+  it("ends when Hearth stops, so it doesn't hold up the stop", async () => {
+    const res = await t.browser("/api/events");
+    const reader = res.body!.getReader();
+    await reader.read();
+    await t.server.hub.stop();
+    for (;;) if ((await reader.read()).done) break;
+    // Feeds that arrive during the stop end too.
+    const late = await t.browser("/api/events");
+    expect(typeof (await late.text())).toBe("string");
+  });
 });

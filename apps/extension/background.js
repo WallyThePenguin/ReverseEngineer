@@ -103,6 +103,8 @@ async function onMessage(msg) {
 async function connect() {
   if (socket && socket.readyState <= WebSocket.OPEN) return;
   const { hearthUrl, token } = await config();
+  // Chrome starting runs this twice at once; the first one to get here makes the link.
+  if (socket && socket.readyState <= WebSocket.OPEN) return;
   if (!token) {
     lastError = "Not paired yet. Open the extension's options and paste the code from Hearth.";
     return badge();

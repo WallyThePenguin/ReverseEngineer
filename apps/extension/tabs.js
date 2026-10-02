@@ -75,9 +75,10 @@ async function jarvisWindow() {
   return win ? windowId : null;
 }
 
-/** @param {number} tabId @param {number} windowId */
-async function addToGroup(tabId, windowId) {
-  const [group] = await chrome.tabGroups.query({ windowId, title: GROUP_TITLE });
+/** @param {number} tabId @param {number} windowId @param {boolean} fresh a window Jarvis just made */
+async function addToGroup(tabId, windowId, fresh = false) {
+  // In a window Jarvis just made, a "Jarvis" group already there came back with your last session.
+  const [group] = fresh ? [] : await chrome.tabGroups.query({ windowId, title: GROUP_TITLE });
   if (group) {
     await chrome.tabs.group({ groupId: group.id, tabIds: [tabId] });
     return;
@@ -117,8 +118,11 @@ async function leaveRestored() {
   const { windowId, own } = await tabState();
   if (windowId === null || windowId !== restoring.windowId) return;
   const tabs = await chrome.tabs.query({ windowId });
-  const mine = tabs.flatMap((t) => (t.id !== undefined && own.includes(t.id) ? [t.id] : []));
-  if (mine.length === tabs.length) return;
+  const isOwn = (/** @type {chrome.tabs.Tab} */ t) => t.id !== undefined && own.includes(t.id);
+  const mine = tabs.flatMap((t) => (t.id !== undefined && isOwn(t) ? [t.id] : []));
+  // Tabs opened from Jarvis's tabs join its group; restored ones don't.
+  const groups = new Set(tabs.flatMap((t) => (isOwn(t) && t.groupId !== -1 ? [t.groupId] : [])));
+  if (tabs.every((t) => isOwn(t) || groups.has(t.groupId))) return;
   restoring = { windowId: -1, until: 0 };
   const [first, ...rest] = mine;
   if (first === undefined) return save({ windowId: null });
@@ -129,11 +133,12 @@ async function leaveRestored() {
   for (const id of mine) await addToGroup(id, win.id);
 }
 
-/** Opens a page in Jarvis's window, making the window (behind yours) if it's gone. */
+/** Opens a page in Jarvis's window, making the window (without focus) if it's gone. */
 export function openTab(/** @type {string} */ url, show = true) {
   assertWebUrl(url);
   return inTurn(async () => {
     let windowId = await jarvisWindow();
+    const made = windowId === null;
     let tab;
     if (windowId === null) {
       const yours = await chrome.windows.getAll({ windowTypes: ["normal"] });
@@ -147,7 +152,7 @@ export function openTab(/** @type {string} */ url, show = true) {
       tab = await chrome.tabs.create({ windowId, url, active: show });
     }
     if (tab.id === undefined) throw new Error("Chrome didn't open a tab.");
-    await addToGroup(tab.id, windowId);
+    await addToGroup(tab.id, windowId, made);
     const { own } = await tabState();
     await save({ own: [...own, tab.id] });
     await leaveRestored();

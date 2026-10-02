@@ -163,15 +163,17 @@ or on your phone.
    `http://127.0.0.1:4400` as the address (the extension talks to Hearth on this PC, not over
    Tailscale), paste the code, and save. It says **Connected**.
 
-`install.ps1` (step 6) also set up a task, **Hearth Chrome**, that opens Chrome as you. It uses
-the Chrome profile you used last. If the Hearth extension is in another profile, find its folder
-name on `chrome://version` (the end of **Profile Path**, like `Profile 1`) and run
-`.\ops\windows\install.ps1 -ChromeProfile "Profile 1"` again. If you installed Hearth before this
-task existed, run `install.ps1` again to add it.
+`install.ps1` (step 6) also set up a task, **Hearth Chrome**, that opens Chrome as you, in the
+profile the Hearth extension is loaded in. Before the extension was loaded, that's the profile you
+used last; if you loaded it into a different one, run `.\ops\windows\install.ps1` again and it
+finds it. To choose one yourself, find its folder name on `chrome://version` (the end of
+**Profile Path**, like `Profile 1`) and run `.\ops\windows\install.ps1 -ChromeProfile "Profile 1"`.
+If you installed Hearth before this task existed, run `install.ps1` again to add it.
 
 What to expect:
 
-- Jarvis works in its own Chrome window, behind yours, in a purple **Jarvis** tab group. To let
+- Jarvis works in its own Chrome window, in a purple **Jarvis** tab group. The window opens
+  without taking your keyboard, though it can show up on top of what you're doing. To let
   it use one of your tabs, click the Hearth button on that tab and choose **Let Jarvis use this
   tab**; **Take this tab back** returns it.
 - While Jarvis is using a tab, Chrome shows a bar saying Hearth is debugging the browser. That's
@@ -191,7 +193,9 @@ What to expect:
   stays in the system tray (Windows mentions a "new background app" once). To quit Chrome
   completely, right-click that icon and choose **Exit**; Hearth opens it again the next time
   Jarvis needs it. This needs Chrome's **Continue running background apps when Google Chrome is
-  closed** setting, which is on unless you turned it off (`chrome://settings/system`).
+  closed** setting, which is on unless you turned it off (`chrome://settings/system`). If you
+  have Chrome clear cookies and site data when you close all windows, that now happens when you
+  choose **Exit**.
 - Windows only opens Chrome for Hearth while you're signed in on the PC. When you're signed
   out, Jarvis and page watches wait, and the Browser pane says why.
 - If Chrome is set to continue where you left off, your last tabs come back the first time
@@ -199,7 +203,9 @@ What to expect:
   from Jarvis's.
 - Task Scheduler shows **Hearth Chrome** as running while a Chrome it opened is open. Ending
   the task there closes Chrome.
-- If Jarvis's window is minimized, the live view drops to about one picture a second.
+- If Jarvis's window is minimized or covered, or the PC is locked or its screen is off, Chrome
+  stops drawing it and the live view drops to about one picture a second. Jarvis can still read
+  and watch pages.
 
 ## Using Hearth
 
@@ -222,7 +228,9 @@ What to expect:
 - Service logs are in `C:\ProgramData\Hearth\services\` (one set per service).
 - Restart a service: `Restart-Service hearth-jarvis` (or `hearth-server`, `hearth-worker`).
 - To update Hearth: `git pull`, `pnpm install`, `pnpm build:web`, `pnpm hearth migrate`, then
-  restart the three services.
+  restart the three services. If you set Hearth up before it could open Chrome by itself, run
+  `.\ops\windows\install.ps1` again once instead (as administrator), to add the **Hearth
+  Chrome** task and the services' newer settings.
 
 ### Restoring from a backup
 

@@ -134,14 +134,26 @@ export async function checkChrome(
       detail: "You open Chrome yourself (HEARTH_CHROME_LAUNCH=off)",
     };
   if (config.mode === "task") {
-    const found = (await run("schtasks", ["/Query", "/TN", config.task])).code === 0;
-    return found
-      ? { name: "Chrome", mark: "ok", detail: `Hearth opens it with the "${config.task}" task` }
-      : {
-          name: "Chrome",
-          mark: "warn",
-          detail: `No "${config.task}" task, so Hearth can't open Chrome by itself. Run ops\\windows\\install.ps1 again.`,
-        };
+    const again = "Run ops\\windows\\install.ps1 again as administrator.";
+    const query = await run("schtasks", ["/Query", "/TN", config.task, "/XML", "ONE"]);
+    if (query.code !== 0)
+      return {
+        name: "Chrome",
+        mark: "warn",
+        detail: `No "${config.task}" task, so Hearth can't open Chrome by itself. ${again}`,
+      };
+    // Windows says the task ran even when the Chrome it points at is gone (reinstalled elsewhere).
+    const command = /<Command>([^<]*)<\/Command>/
+      .exec(query.stdout.replaceAll("\0", ""))?.[1]
+      ?.replaceAll("&amp;", "&")
+      .trim();
+    if (command && !existsSync(command))
+      return {
+        name: "Chrome",
+        mark: "warn",
+        detail: `The "${config.task}" task opens ${command}, which isn't there anymore. ${again}`,
+      };
+    return { name: "Chrome", mark: "ok", detail: `Hearth opens it with the "${config.task}" task` };
   }
   const chrome = config.chromePath ?? findChrome(env, platform);
   return chrome && existsSync(chrome)

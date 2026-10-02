@@ -9,12 +9,15 @@ export interface HubListener {
   onEvents(seq: number): void;
   /** Jarvis is typing: a chunk of reply text that isn't stored yet. */
   onStream(payload: string): void;
+  /** Hearth is stopping. */
+  onStop?(): void;
 }
 
 export class EventHub {
   private readonly listeners = new Set<HubListener>();
   private stopListening: (() => Promise<void>) | null = null;
   private readonly pool: pg.Pool | null;
+  private stopped = false;
 
   constructor(pool: pg.Pool | null) {
     this.pool = pool;
@@ -34,6 +37,10 @@ export class EventHub {
   }
 
   subscribe(listener: HubListener): () => void {
+    if (this.stopped) {
+      queueMicrotask(() => listener.onStop?.());
+      return () => {};
+    }
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
@@ -43,8 +50,10 @@ export class EventHub {
   }
 
   async stop(): Promise<void> {
+    this.stopped = true;
     await this.stopListening?.();
     this.stopListening = null;
+    for (const l of [...this.listeners]) l.onStop?.();
     this.listeners.clear();
   }
 }

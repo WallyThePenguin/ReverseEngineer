@@ -51,6 +51,7 @@ export function eventRoutes() {
         },
         onStream: (payload) =>
           void stream.writeSSE({ event: "stream", data: payload }).catch(() => {}),
+        onStop: () => stream.abort(),
       });
       const keepAlive = setInterval(
         () => void stream.write(": keep-alive\n\n").catch(() => {}),

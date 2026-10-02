@@ -20,7 +20,8 @@ param(
   [string]$BackupTime = "02:30",
   [switch]$SkipBackupTask,
   # Chrome's profile folder with the Hearth extension, like "Default" or "Profile 1". Chrome shows
-  # it on chrome://version as the last part of "Profile Path". Defaults to the last one you used.
+  # it on chrome://version as the last part of "Profile Path". Defaults to the profile the Hearth
+  # extension is loaded in, or the last one you used.
   [string]$ChromeProfile = "",
   [switch]$SkipChromeTask
 )
@@ -103,30 +104,52 @@ function Find-Chrome {
   return $null
 }
 
+# The Chrome profile to open: the one the Hearth extension is loaded in, else the last one used.
+function Find-ChromeProfile([string]$UserData, [string]$Extension) {
+  $lastUsed = "Default"
+  try {
+    $state = Get-Content -Raw -LiteralPath "$UserData\Local State" | ConvertFrom-Json
+    if ($state.profile.last_used) { $lastUsed = $state.profile.last_used }
+  } catch {}
+  # Chrome keeps an unpacked extension's folder in the profile's preferences, JSON-escaped.
+  $needle = ($Extension | ConvertTo-Json).Trim('"')
+  $with = @(Get-ChildItem -LiteralPath $UserData -Directory -ErrorAction SilentlyContinue | Where-Object {
+    foreach ($file in "Secure Preferences", "Preferences") {
+      $text = Get-Content -Raw -LiteralPath (Join-Path $_.FullName $file) -ErrorAction SilentlyContinue
+      if ($text -and $text.IndexOf($needle, [StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
+    }
+    $false
+  } | ForEach-Object { $_.Name })
+  if ($with -contains $lastUsed) { return $lastUsed }
+  if ($with.Count -gt 0) { return $with[0] }
+  Write-Warning "The Hearth extension isn't loaded in Chrome yet, so Hearth will open the profile you used last (`"$lastUsed`"). If you load it into another profile (docs\setup-windows.md, section 10), run this again."
+  return $lastUsed
+}
+
 if (-not $SkipChromeTask) {
   $chrome = Find-Chrome
+  $userData = "$env:LOCALAPPDATA\Google\Chrome\User Data"
   if (-not $chrome) {
     Write-Warning "Couldn't find Chrome, so Hearth can't open it by itself. Install Chrome, then run this again."
   } else {
     if (-not $ChromeProfile) {
-      $ChromeProfile = "Default"
-      $localState = "$env:LOCALAPPDATA\Google\Chrome\User Data\Local State"
-      try {
-        $state = Get-Content -Raw -LiteralPath $localState | ConvertFrom-Json
-        if ($state.profile.last_used) { $ChromeProfile = $state.profile.last_used }
-      } catch {}
+      $ChromeProfile = Find-ChromeProfile $userData "$Root\apps\extension"
+    } elseif (-not (Test-Path -LiteralPath (Join-Path $userData $ChromeProfile) -PathType Container)) {
+      throw "Chrome has no profile folder `"$ChromeProfile`" in $userData. Check the end of Profile Path on chrome://version."
     }
     $me = "$env:USERDOMAIN\$env:USERNAME"
     # No window of its own: Chrome waits in the background until Jarvis opens a tab. If Chrome is
-    # already running, this does nothing.
+    # already running, this does nothing. Should the profile folder go, Chrome opens the last one
+    # you used rather than making a new, empty profile.
     $action = New-ScheduledTaskAction -Execute $chrome -WorkingDirectory (Split-Path $chrome) `
-      -Argument "--no-startup-window --profile-directory=`"$ChromeProfile`""
+      -Argument "--no-startup-window --profile-directory=`"$ChromeProfile`" --ignore-profile-directory-if-not-exists"
     $atLogOn = New-ScheduledTaskTrigger -AtLogOn -User $me
     $atLogOn.Delay = "PT20S"
     # The task lasts as long as the Chrome it opened, so: no time limit, keep going on battery,
-    # normal priority (Chrome inherits it), and never a second copy.
+    # and never a second copy. Chrome inherits the task's priority; 4 is the one with normal CPU,
+    # disk and memory priority, like Chrome started from its icon.
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-      -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -Priority 5
+      -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -Priority 4
     # Interactive: only while you're signed in, on your desktop, so you can see it.
     $user = New-ScheduledTaskPrincipal -UserId $me -LogonType Interactive -RunLevel Limited
     Register-ScheduledTask -TaskName "Hearth Chrome" -TaskPath "\" -Action $action -Trigger $atLogOn `
@@ -137,9 +160,11 @@ if (-not $SkipChromeTask) {
     $scheduler.Connect()
     $task = $scheduler.GetFolder("\").GetTask("Hearth Chrome")
     $sddl = $task.GetSecurityDescriptor(7)
-    if ($sddl -notmatch ";;;(LS|S-1-5-19)\)") { $task.SetSecurityDescriptor($sddl + "(A;;GRGX;;;LS)", 0) }
+    if ($sddl -notmatch "\(A;[^;]*;[^;]*GX[^;]*;;;(LS|S-1-5-19)\)") {
+      $task.SetSecurityDescriptor($sddl + "(A;;GRGX;;;LS)", 0)
+    }
     Write-Host "Hearth can open Chrome (profile `"$ChromeProfile`") when Jarvis needs it."
-    Write-Host "If the Hearth extension is in another profile, run this again with -ChromeProfile."
+    Write-Host "If the Hearth extension is in another profile, run this again with -ChromeProfile `"<its folder>`"."
   }
 }
 

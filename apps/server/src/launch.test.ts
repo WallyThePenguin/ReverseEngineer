@@ -21,7 +21,10 @@ describe("how Hearth opens Chrome", () => {
       mode: "task",
       task: DEFAULT_TASK,
     });
-    expect(loadLaunchConfig({}, "win32").mode).toBe("direct");
+    expect(loadLaunchConfig({}, "win32", "ana").mode).toBe("direct");
+    // A service whose settings are from before HEARTH_AS_SERVICE: its account gives it away.
+    expect(loadLaunchConfig({}, "win32", "LOCAL SERVICE").mode).toBe("task");
+    expect(loadLaunchConfig({}, "linux", "LOCAL SERVICE").mode).toBe("direct");
     expect(loadLaunchConfig({}, "linux").mode).toBe("direct");
     const off = loadLaunchConfig({ HEARTH_CHROME_LAUNCH: "off", HEARTH_AS_SERVICE: "1" }, "win32");
     expect(off.mode).toBe("off");
@@ -34,6 +37,7 @@ describe("how Hearth opens Chrome", () => {
       expect(createLauncher(direct, { HEARTH_AS_SERVICE: "1" }, "win32")?.hint).toContain(
         "signed in",
       );
+      expect(createLauncher(direct, {}, "win32", "SYSTEM")?.hint).toContain("signed in");
     } finally {
       console.warn = quiet;
     }
@@ -47,6 +51,7 @@ describe("how Hearth opens Chrome", () => {
     expect(directArgs(config)).toEqual([
       "--no-startup-window",
       "--profile-directory=Profile 1",
+      "--ignore-profile-directory-if-not-exists",
       "--no-sandbox",
       "--x=1",
     ]);
