@@ -30,6 +30,7 @@ function commands(): Item[] {
     go("tasks", "Tasks"),
     go("notes", "Notes"),
     go("people", "People"),
+    go("browser", "the browser (your Chrome, live)"),
     go("activity", "Jarvis's activity"),
     go("settings", "Settings"),
     { id: "new:note", label: "New note", hint: "Create", run: () => newNote(layout.focused()) },

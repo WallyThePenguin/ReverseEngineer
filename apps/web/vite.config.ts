@@ -8,7 +8,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api": { target: "http://127.0.0.1:4400", changeOrigin: false },
+      // ws: the live browser view is a WebSocket.
+      "/api": { target: "http://127.0.0.1:4400", changeOrigin: false, ws: true },
     },
   },
   build: { outDir: "dist", target: "es2022", sourcemap: true },

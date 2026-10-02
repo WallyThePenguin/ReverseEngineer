@@ -135,6 +135,7 @@ export class LiveView {
   private async watch(ws: WebSocket, tabId: number): Promise<void> {
     this.unwatch(ws);
     this.watching.set(ws, tabId);
+    send(ws, { type: "watching", tabId });
     let cast = this.casts.get(tabId);
     if (!cast) {
       cast = {

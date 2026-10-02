@@ -1,5 +1,6 @@
 import { renderMention } from "@hearth/core";
 import { describe, expect, it } from "vitest";
+import { type BrowserTab, defaultTab, modifiers, toPage } from "./browser.ts";
 import { decodePath, encodePath, routeFor } from "./routes.ts";
 import { mentionQuery, splitInline, toggleLine } from "./text.ts";
 
@@ -53,5 +54,39 @@ describe("rendering helpers", () => {
     expect(toggleLine(body, 1)).toBe("# List\n- [x] milk\n- [x] eggs");
     expect(toggleLine(body, 2)).toBe("# List\n- [ ] milk\n- [ ] eggs");
     expect(toggleLine(body, 9)).toBe(body);
+  });
+});
+
+describe("the live browser view", () => {
+  it("scales a click on the picture to the page's own pixels", () => {
+    const shown = { left: 100, top: 50, width: 640, height: 450 };
+    const page = { width: 1280, height: 900 };
+    expect(toPage({ x: 420, y: 275 }, shown, page)).toEqual({ x: 640, y: 450 });
+    expect(toPage({ x: 100, y: 50 }, shown, page)).toEqual({ x: 0, y: 0 });
+  });
+
+  it("sends Chrome's modifier bits", () => {
+    const keys = { altKey: false, ctrlKey: true, metaKey: false, shiftKey: true };
+    expect(modifiers(keys)).toBe(2 | 8);
+  });
+
+  it("shows Jarvis's tab in front first, then any of its tabs, then yours", () => {
+    const tab = (tabId: number, handed: boolean, active: boolean): BrowserTab => ({
+      tabId,
+      windowId: 1,
+      url: "",
+      title: "",
+      active,
+      handed,
+      loading: false,
+    });
+    expect(defaultTab([tab(1, true, true), tab(2, false, false), tab(3, false, true)])).toBe(3);
+    expect(defaultTab([tab(1, true, true), tab(2, false, false)])).toBe(2);
+    expect(defaultTab([tab(1, true, true)])).toBe(1);
+    expect(defaultTab([])).toBeNull();
+  });
+
+  it("opens the browser pane from the URL", () => {
+    expect(decodePath("/browser+inbox")).toEqual([{ view: "browser" }, { view: "inbox" }]);
   });
 });

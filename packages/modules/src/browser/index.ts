@@ -11,6 +11,7 @@ import {
   defineModule,
   getSetting,
   type ModelImage,
+  setSetting,
 } from "@hearth/kernel";
 import { z } from "zod";
 import { BROWSER_SERVICE, type BrowserClient, type TabInfo } from "./client.ts";
@@ -39,6 +40,12 @@ async function assertAllowed(ctx: ActionContext, raw: string): Promise<string> {
     throw new ActionError("forbidden", `${host} is on your list of sites Jarvis never opens.`);
   return url;
 }
+
+/** A site as written in the lists: a host name like "bank.example", subdomains included. */
+const SITE = z
+  .string()
+  .trim()
+  .regex(/^(\*\.)?[a-z0-9-]+(\.[a-z0-9-]+)+$/i, "Write a site as a host name, like bank.example.");
 
 const OpenInput = z.object({
   url: z.string().max(4000).optional().describe("The address to open."),
@@ -71,6 +78,10 @@ export const browserModule = defineModule({
     {
       kind: "browser.closed",
       description: "Jarvis closed its tab, or gave yours back. Payload: tabId, handedBack.",
+    },
+    {
+      kind: "browser.sites_changed",
+      description: "You changed the sites Jarvis may open freely or never opens. Payload: sites.",
     },
   ],
   knowledge: {},
@@ -190,6 +201,33 @@ export const browserModule = defineModule({
         });
         const modelImages: ModelImage[] = [{ mimeType: "image/jpeg", data: shot.data }];
         return { tabId: i.tabId, url: tab.url, modelImages };
+      },
+    }),
+    defineAction({
+      name: "browser.sites",
+      description:
+        "The owner's site lists: sites Jarvis may open even after reading outside content, and sites it never opens.",
+      input: z.object({}),
+      risk: "read",
+      callers: CALLERS,
+      handler: (_i, ctx) => getSetting(ctx.tx, "browser.sites"),
+    }),
+    defineAction({
+      name: "browser.set_sites",
+      description: "Change which sites Jarvis may open freely, and which it never opens.",
+      input: z.object({
+        allowed: z.array(SITE).max(200),
+        blocked: z.array(SITE).max(200),
+      }),
+      risk: "internal",
+      // Only you decide where Jarvis may go.
+      callers: ["owner"],
+      async handler(i, ctx) {
+        const tidy = (list: string[]) => [...new Set(list.map((s) => s.trim().toLowerCase()))];
+        const sites = { allowed: tidy(i.allowed), blocked: tidy(i.blocked) };
+        await setSetting(ctx.tx, "browser.sites", sites);
+        ctx.emit({ kind: "browser.sites_changed", payload: { sites } });
+        return sites;
       },
     }),
     defineAction({

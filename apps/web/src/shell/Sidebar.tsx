@@ -13,6 +13,7 @@ const NAV: { view: ListView; label: string; keys: string }[] = [
   { view: "tasks", label: "Tasks", keys: "g t" },
   { view: "notes", label: "Notes", keys: "g n" },
   { view: "people", label: "People", keys: "g p" },
+  { view: "browser", label: "Browser", keys: "g b" },
   { view: "activity", label: "Jarvis's activity", keys: "g a" },
   { view: "settings", label: "Settings", keys: "g s" },
 ];

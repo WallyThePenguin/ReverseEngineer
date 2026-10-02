@@ -1,13 +1,21 @@
 // Pane routes and how they're written in the URL: /inbox+task/0190...+note/0191...
 
-export type ListView = "inbox" | "tasks" | "notes" | "people" | "activity" | "settings";
+export type ListView = "inbox" | "tasks" | "notes" | "people" | "browser" | "activity" | "settings";
 
 export type PaneRoute =
   | { view: ListView }
   | { view: "task" | "note" | "record" | "chat"; id: string };
 
 export const MAX_PANES = 3;
-const LIST_VIEWS = new Set(["inbox", "tasks", "notes", "people", "activity", "settings"]);
+const LIST_VIEWS = new Set([
+  "inbox",
+  "tasks",
+  "notes",
+  "people",
+  "browser",
+  "activity",
+  "settings",
+]);
 const RECORD_VIEWS = new Set(["task", "note", "record", "chat"]);
 const ID = /^[0-9a-f-]{36}$/i;
 
