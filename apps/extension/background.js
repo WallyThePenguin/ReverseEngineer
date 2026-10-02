@@ -33,9 +33,9 @@ async function config() {
   );
 }
 
-/** @param {unknown} message */
-function send(message) {
-  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
+/** @param {unknown} message @param {WebSocket | null} ws */
+function send(message, ws = socket) {
+  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message));
 }
 
 function badge() {
@@ -76,8 +76,8 @@ const methods = {
   cdp: ({ tabId, method, params }) => cdp(tabId, method, params),
 };
 
-/** @param {any} msg */
-async function onMessage(msg) {
+/** @param {any} msg @param {WebSocket} ws the link it came on, where its answer goes */
+async function onMessage(msg, ws) {
   if (msg.type === "ping") return send({ type: "pong" });
   if (msg.type === "welcome") {
     connected = true;
@@ -94,9 +94,10 @@ async function onMessage(msg) {
   const run = methods[msg.method];
   try {
     if (!run) throw new Error(`Unknown request ${msg.method}`);
-    send({ type: "result", id: msg.id, result: (await run(msg.params ?? {})) ?? null });
+    send({ type: "result", id: msg.id, result: (await run(msg.params ?? {})) ?? null }, ws);
   } catch (err) {
-    send({ type: "result", id: msg.id, error: err instanceof Error ? err.message : String(err) });
+    const error = err instanceof Error ? err.message : String(err);
+    send({ type: "result", id: msg.id, error }, ws);
   }
 }
 
@@ -115,7 +116,7 @@ async function connect() {
   ws.onopen = async () => {
     ws.send(JSON.stringify({ type: "hello", token, version: VERSION }));
   };
-  ws.onmessage = (e) => void onMessage(JSON.parse(String(e.data)));
+  ws.onmessage = (e) => void onMessage(JSON.parse(String(e.data)), ws);
   ws.onclose = (e) => {
     if (socket !== ws) return;
     socket = null;
