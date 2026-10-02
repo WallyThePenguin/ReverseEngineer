@@ -10,6 +10,7 @@ import {
 } from "@hearth/modules";
 import type { WebSocket } from "ws";
 import type { ChromeLauncher } from "./launch.ts";
+import { ChromeOpener, type OpenTiming } from "./opener.ts";
 
 export interface CdpEvent {
   tabId: number;
@@ -23,28 +24,15 @@ interface Pending {
   timer: ReturnType<typeof setTimeout>;
 }
 
-export interface OpenTiming {
-  /** After Hearth starts, how long a running Chrome gets to reconnect before another is opened. */
-  startGraceMs: number;
-  /** After the link drops, how long Chrome gets to come back by itself. */
-  dropGraceMs: number;
-  /** How long Chrome gets to connect once it's been asked to start. */
-  connectMs: number;
-  /** After a try fails, how long before Hearth tries again by itself. You can try any time. */
-  retryMs: number;
-}
-
-export const OPEN_TIMING: OpenTiming = {
-  startGraceMs: 30_000,
-  dropGraceMs: 10_000,
-  connectMs: 30_000,
-  retryMs: 5 * 60_000,
-};
+/** How long Chrome gets to answer one request. */
+export const CALL_TIMEOUT_MS = 45_000;
 
 export interface BridgeOptions {
   /** Opens Chrome when it's closed. Without one, you open Chrome yourself. */
   launcher?: ChromeLauncher | null;
   timing?: Partial<OpenTiming>;
+  /** Whether an extension is paired. Opening Chrome only helps if one is. */
+  isPaired?: () => Promise<boolean>;
 }
 
 export class BrowserBridge implements BrowserClient {
@@ -57,20 +45,16 @@ export class BrowserBridge implements BrowserClient {
   private readonly pending = new Map<number, Pending>();
   private readonly eventListeners = new Set<(e: CdpEvent) => void>();
   private readonly stateListeners = new Set<(status: BrowserStatus) => void>();
-  private readonly launcher: ChromeLauncher | null;
-  private readonly timing: OpenTiming;
-  private readonly startedAt = Date.now();
-  private droppedAt = 0;
-  private opening: Promise<void> | null = null;
-  /** You asked to open Chrome now: skip the wait for a running Chrome to reconnect. */
-  private hurry = false;
-  private failure: { message: string; at: number } | null = null;
-  /** Wakes everything waiting for Chrome: on connect, or when you ask to open it now. */
-  private readonly wakers = new Set<() => void>();
+  private readonly opener: ChromeOpener;
 
   constructor(opts: BridgeOptions = {}) {
-    this.launcher = opts.launcher ?? null;
-    this.timing = { ...OPEN_TIMING, ...opts.timing };
+    this.opener = new ChromeOpener({
+      launcher: opts.launcher ?? null,
+      timing: opts.timing,
+      isPaired: opts.isPaired ?? (async () => true),
+      isConnected: () => this.socket !== null,
+      changed: () => this.notify(),
+    });
   }
 
   /** A paired extension connected. It replaces any earlier connection (Chrome restarted). */
@@ -88,9 +72,13 @@ export class BrowserBridge implements BrowserClient {
     if (this.ping) clearInterval(this.ping);
     this.ping = setInterval(() => ws.send(JSON.stringify({ type: "ping" })), 20_000);
     ws.send(JSON.stringify({ type: "welcome" }));
-    this.failure = null;
-    this.wake();
+    this.opener.connected();
     this.notify();
+  }
+
+  /** An extension's hello was turned away: it has an old pairing code. */
+  turnedAway(): void {
+    this.opener.turnedAwayHello();
   }
 
   async status(): Promise<BrowserStatus> {
@@ -103,95 +91,25 @@ export class BrowserBridge implements BrowserClient {
       version: this.version,
       since: this.since?.toISOString() ?? null,
       tabs: this.tabs,
-      canOpen: this.launcher !== null,
-      opening: this.opening !== null,
-      openError: this.failure?.message ?? null,
+      ...this.opener.state(),
     };
   }
 
   /**
-   * Makes sure Chrome is connected, opening it if it's closed. A running Chrome gets a moment to
-   * reconnect first (Hearth just restarted, say). After a failed try, Hearth waits a few minutes
-   * before trying again by itself; `now` (you pressed Open Chrome) skips both waits.
+   * Makes sure Chrome is connected, opening it if it's closed (D28). `now` means you asked: no
+   * waiting for a running Chrome to reconnect, or out a failed try.
    */
-  async open(opts: { now?: boolean } = {}): Promise<void> {
-    if (this.socket) return;
-    if (!this.launcher) throw new ActionError("unavailable", OFFLINE_MESSAGE);
-    const recent = this.failure && Date.now() - this.failure.at < this.timing.retryMs;
-    if (recent && !opts.now && !this.opening)
-      throw new ActionError("unavailable", this.failure?.message ?? OFFLINE_MESSAGE);
-    if (opts.now) this.hurry = true;
-    if (!this.opening) {
-      this.opening = this.tryOpen(this.launcher).finally(() => {
-        this.opening = null;
-        this.hurry = false;
-        this.notify();
-      });
-      this.notify();
-    } else if (opts.now) this.wake();
-    return this.opening;
-  }
-
-  private async tryOpen(launcher: ChromeLauncher): Promise<void> {
-    const now = Date.now();
-    const grace = Math.max(
-      this.startedAt + this.timing.startGraceMs - now,
-      this.droppedAt + this.timing.dropGraceMs - now,
-    );
-    if (!this.hurry && grace > 0 && (await this.connected(grace))) return;
-    if (this.socket) return;
-    try {
-      await launcher.open();
-    } catch (err) {
-      throw this.fail(err instanceof Error ? err.message : String(err));
-    }
-    if (await this.connected(this.timing.connectMs, true)) return;
-    const seconds = Math.round(this.timing.connectMs / 1000);
-    throw this.fail(
-      [
-        `Hearth started Chrome, but the Hearth extension didn't connect within ${seconds} seconds.`,
-        launcher.hint,
-        "Check that the extension is installed and paired in that Chrome (Settings → Chrome).",
-      ]
-        .filter(Boolean)
-        .join(" "),
-    );
-  }
-
-  private fail(message: string): ActionError {
-    this.failure = { message, at: Date.now() };
-    return new ActionError("unavailable", message);
-  }
-
-  /** Waits up to `ms` for the extension to connect. Asking to open now cuts a grace wait short. */
-  private connected(ms: number, untilConnected = false): Promise<boolean> {
-    if (this.socket) return Promise.resolve(true);
-    return new Promise((resolve) => {
-      const done = () => {
-        if (untilConnected && !this.socket) return;
-        clearTimeout(timer);
-        this.wakers.delete(done);
-        resolve(this.socket !== null);
-      };
-      const timer = setTimeout(() => {
-        this.wakers.delete(done);
-        resolve(this.socket !== null);
-      }, ms);
-      this.wakers.add(done);
-    });
-  }
-
-  private wake(): void {
-    for (const waker of [...this.wakers]) waker();
+  open(opts: { now?: boolean } = {}): Promise<void> {
+    return this.opener.open(opts);
   }
 
   /** Sends a request to Chrome. Opening a tab opens Chrome too, if it's closed. */
   async call<T = unknown>(
     method: string,
     params: Record<string, unknown> = {},
-    timeoutMs = 45_000,
+    timeoutMs = CALL_TIMEOUT_MS,
   ): Promise<T> {
-    if (!this.socket && method === "tabs.open" && this.launcher) await this.open();
+    if (!this.socket && method === "tabs.open" && this.opener.state().canOpen) await this.open();
     const ws = this.socket;
     if (!ws) throw new ActionError("unavailable", OFFLINE_MESSAGE);
     const id = this.nextId++;
@@ -217,7 +135,15 @@ export class BrowserBridge implements BrowserClient {
     return () => this.stateListeners.delete(listener);
   }
 
+  /** Drops the extension's link, as when pairing changes. It connects again by itself. */
+  disconnect(): void {
+    this.socket?.close(1001, "Pairing changed");
+    this.drop();
+  }
+
+  /** Hearth is stopping: drop the link and stop waiting for Chrome. */
   close(): void {
+    this.opener.stop();
     this.socket?.close(1001, "Hearth is stopping");
     this.drop();
   }
@@ -259,7 +185,7 @@ export class BrowserBridge implements BrowserClient {
 
   private drop(): void {
     if (this.ping) clearInterval(this.ping);
-    if (this.socket) this.droppedAt = Date.now();
+    if (this.socket) this.opener.dropped();
     this.ping = null;
     this.socket = null;
     this.tabs = [];

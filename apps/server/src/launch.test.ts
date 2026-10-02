@@ -1,14 +1,19 @@
 import { join } from "node:path";
+import { REQUEST_TIMEOUT_MS } from "@hearth/modules";
 import { describe, expect, it } from "vitest";
+import { CALL_TIMEOUT_MS } from "./browser/bridge.ts";
 import {
   createLauncher,
   DEFAULT_TASK,
   directArgs,
   directLauncher,
   findChrome,
+  LAUNCH_TIMEOUT_MS,
   loadLaunchConfig,
+  splitArgs,
   taskLauncher,
 } from "./browser/launch.ts";
+import { OPEN_TIMING } from "./browser/opener.ts";
 
 describe("how Hearth opens Chrome", () => {
   it("runs the Windows task from a service, and starts Chrome itself otherwise", () => {
@@ -45,6 +50,20 @@ describe("how Hearth opens Chrome", () => {
       "--no-sandbox",
       "--x=1",
     ]);
+  });
+
+  it("keeps quoted switches together", () => {
+    expect(splitArgs(' --a=1  --user-data-dir="C:\\Users\\Ana Lima\\p" "--b c" ')).toEqual([
+      "--a=1",
+      "--user-data-dir=C:\\Users\\Ana Lima\\p",
+      "--b c",
+    ]);
+  });
+
+  it("answers Jarvis before Jarvis gives up, even when Chrome has to be opened first", () => {
+    const worst =
+      OPEN_TIMING.startGraceMs + LAUNCH_TIMEOUT_MS + OPEN_TIMING.connectMs + CALL_TIMEOUT_MS;
+    expect(worst + 10_000).toBeLessThanOrEqual(REQUEST_TIMEOUT_MS);
   });
 
   it("finds Chrome where it's usually installed", () => {

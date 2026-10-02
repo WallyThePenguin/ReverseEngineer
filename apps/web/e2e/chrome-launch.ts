@@ -107,6 +107,7 @@ try {
   check((await status()).canOpen, "Hearth says it can open Chrome");
 
   // Open Chrome, as from the button in Hearth.
+  const openedAt = Date.now();
   const opened = await hearth<Status>("/api/browser/open", { method: "POST" });
   check(
     opened.status === 200 && opened.body.connected,
@@ -124,6 +125,8 @@ try {
   check((await status()).connected, "Chrome keeps running with no windows open");
 
   // Quit Chrome. The next page Jarvis opens starts it again, after giving it a moment to return.
+  // (Closed within ten seconds of opening, Hearth would leave it closed for a few minutes.)
+  await new Promise((r) => setTimeout(r, Math.max(0, openedAt + 12_000 - Date.now())));
   if (started) process.kill(started.pid, "SIGTERM");
   await until("Chrome quits", async () => !(await status()).connected);
   const again = await act<{ tabId: number }>("browser.open", { url: siteUrl });

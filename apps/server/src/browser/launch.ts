@@ -52,8 +52,13 @@ export function loadLaunchConfig(
     task: env.HEARTH_CHROME_TASK || DEFAULT_TASK,
     chromePath: env.HEARTH_CHROME_PATH || null,
     profile: env.HEARTH_CHROME_PROFILE || null,
-    args: (env.HEARTH_CHROME_ARGS ?? "").split(/\s+/).filter(Boolean),
+    args: splitArgs(env.HEARTH_CHROME_ARGS ?? ""),
   };
+}
+
+/** Splits switches on spaces, keeping "quoted parts" together. */
+export function splitArgs(text: string): string[] {
+  return [...text.matchAll(/(?:[^\s"]+|"[^"]*")+/g)].map((m) => m[0].replace(/"/g, ""));
 }
 
 /** Where Chrome usually is, most likely first. */
@@ -95,9 +100,13 @@ export function directArgs(config: Pick<LaunchConfig, "profile" | "args">): stri
 
 export type Runner = (file: string, args: string[]) => Promise<{ code: number; output: string }>;
 
+/** How long asking Windows to run the task may take. */
+export const LAUNCH_TIMEOUT_MS = 10_000;
+
 const runProgram: Runner = (file, args) =>
   new Promise((resolve) => {
-    execFile(file, args, { timeout: 20_000, windowsHide: true }, (err, stdout, stderr) => {
+    const opts = { timeout: LAUNCH_TIMEOUT_MS, windowsHide: true };
+    execFile(file, args, opts, (err, stdout, stderr) => {
       const code = err ? (typeof err.code === "number" ? err.code : 1) : 0;
       resolve({ code, output: `${stderr}\n${stdout}`.trim() });
     });

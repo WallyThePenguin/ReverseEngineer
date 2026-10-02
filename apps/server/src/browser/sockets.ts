@@ -70,6 +70,7 @@ function greet(ws: WebSocket, deps: SocketDeps): void {
       pairing !== null &&
       safeEqual(pairing.hash, hashToken(hello.token));
     if (!ok) {
+      deps.bridge.turnedAway();
       ws.send(
         JSON.stringify({
           type: "rejected",

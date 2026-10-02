@@ -34,6 +34,13 @@ $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
   throw "Run this from an elevated PowerShell (Run as administrator)."
 }
+if (-not $SkipChromeTask) {
+  # The task that opens Chrome runs as whoever runs this script, so that has to be you.
+  $console = (Get-CimInstance Win32_ComputerSystem).UserName
+  if ($console -and $console -ne "$env:USERDOMAIN\$env:USERNAME") {
+    throw "Windows is signed in as $console, but this PowerShell runs as $env:USERDOMAIN\$env:USERNAME. Run it as administrator from $console's own account (or add -SkipChromeTask)."
+  }
+}
 $node = (Get-Command node -ErrorAction Stop).Source
 if (-not (Test-Path "$Root\apps\cli\src\main.ts")) { throw "$Root doesn't look like the Hearth folder." }
 if (-not (Test-Path "$Root\apps\web\dist\index.html")) { throw "Build the web app first: pnpm build:web" }

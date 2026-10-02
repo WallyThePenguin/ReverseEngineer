@@ -33,6 +33,7 @@ export {
   HttpBrowserClient,
   internalBrowserClient,
   OFFLINE_MESSAGE,
+  REQUEST_TIMEOUT_MS,
   serverUrl,
   type TabInfo,
 } from "./browser/client.ts";

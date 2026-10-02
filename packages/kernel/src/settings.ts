@@ -41,6 +41,11 @@ export async function setSetting<K extends keyof Settings>(
   key: K,
   value: Settings[K],
 ): Promise<void> {
+  // Null clears the setting (the column can't hold SQL null), which reads back as its default.
+  if (value === null) {
+    await db.delete(setting).where(eq(setting.key, key));
+    return;
+  }
   await db
     .insert(setting)
     .values({ key, value, updatedAt: new Date() })

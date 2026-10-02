@@ -3,7 +3,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { Server } from "node:http";
 import { join } from "node:path";
-import type { Kernel } from "@hearth/kernel";
+import { getSetting, type Kernel } from "@hearth/kernel";
 import { BROWSER_SERVICE } from "@hearth/modules";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
@@ -46,7 +46,12 @@ export interface AppOptions {
 
 export function createApp(opts: AppOptions) {
   const hub = new EventHub(opts.pool ?? null);
-  const bridge = opts.bridge ?? new BrowserBridge({ launcher: createLauncher(opts.config.chrome) });
+  const bridge =
+    opts.bridge ??
+    new BrowserBridge({
+      launcher: createLauncher(opts.config.chrome),
+      isPaired: async () => (await getSetting(opts.kernel.db, "browser.pairing")) !== null,
+    });
   opts.kernel.services[BROWSER_SERVICE] ??= bridge;
   const live = new LiveView(bridge);
   const deps: ServerDeps = {

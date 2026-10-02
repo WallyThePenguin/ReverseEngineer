@@ -44,7 +44,7 @@ export function browserRoutes(bridge: BrowserBridge) {
       hash: hashToken(token),
       createdAt: new Date().toISOString(),
     });
-    bridge.close();
+    bridge.disconnect();
     return c.json({ token });
   });
 
@@ -60,7 +60,7 @@ export function browserRoutes(bridge: BrowserBridge) {
 
   app.delete("/pair", requireCaller(["owner"]), async (c) => {
     await setSetting(c.get("deps").kernel.db, "browser.pairing", null);
-    bridge.close();
+    bridge.disconnect();
     return c.json({ ok: true });
   });
 

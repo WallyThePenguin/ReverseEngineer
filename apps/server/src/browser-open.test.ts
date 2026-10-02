@@ -1,11 +1,12 @@
 import type { AddressInfo } from "node:net";
 import { PRINCIPAL } from "@hearth/core";
 import { createSession } from "@hearth/db";
-import { ActionError } from "@hearth/kernel";
+import { ActionError, getSetting } from "@hearth/kernel";
 import { type ServerType, serve } from "@hono/node-server";
 import { afterEach, describe, expect, it } from "vitest";
-import { BrowserBridge, type OpenTiming } from "./browser/bridge.ts";
+import { BrowserBridge } from "./browser/bridge.ts";
 import type { ChromeLauncher } from "./browser/launch.ts";
+import { CLOSED_AT_ONCE, NOT_PAIRED, OLD_CODE, type OpenTiming } from "./browser/opener.ts";
 import { fakeExtension, type Msg, socket } from "./testing/extension.ts";
 import { createTestServer, TEST_ORIGIN, type TestServer } from "./testing/server.ts";
 
@@ -44,6 +45,7 @@ const chrome = () => fakeExtension(base, token, { "tabs.open": () => TAB });
 async function start(launcher: ChromeLauncher, timing: Partial<OpenTiming> = {}) {
   const bridge = new BrowserBridge({
     launcher,
+    isPaired: async () => (await getSetting(t.kernel.db, "browser.pairing")) !== null,
     timing: { startGraceMs: 0, dropGraceMs: 0, connectMs: 1000, retryMs: 60_000, ...timing },
   });
   t = await createTestServer({ devAuth: true }, { bridge });
@@ -61,6 +63,10 @@ afterEach(async () => {
   (http as import("node:http").Server).closeAllConnections();
   await new Promise((r) => http.close(r));
 });
+
+async function until(fn: () => Promise<boolean>) {
+  for (let i = 0; i < 100 && !(await fn()); i++) await new Promise((r) => setTimeout(r, 20));
+}
 
 async function rpc(method: string, params: Record<string, unknown> = {}) {
   const jarvis = await createSession(t.kernel.db, { principal: PRINCIPAL.jarvis, kind: "api" });
@@ -103,7 +109,7 @@ describe("opening Chrome when it's closed", () => {
     const first = await rpc("tabs.open", { url: "https://a.example/" });
     expect(first.status).toBe(503);
     expect(first.body.error).toBe(
-      "Hearth started Chrome, but the Hearth extension didn't connect within 2 seconds. Windows only opens it while you're signed in on the PC. Check that the extension is installed and paired in that Chrome (Settings → Chrome).",
+      `Hearth started Chrome, but the Hearth extension didn't connect within 2 seconds. Windows only opens it while you're signed in on the PC. Check that the extension is installed and paired in that Chrome profile, and that Chrome's "Continue running background apps" setting is on.`,
     );
     // The worker's next page check fails at once instead of starting Chrome again.
     expect((await rpc("tabs.open", { url: "https://a.example/" })).body.error).toBe(
@@ -116,6 +122,57 @@ describe("opening Chrome when it's closed", () => {
     // You can still ask for it, and it tries again right away.
     expect((await t.browser("/api/browser/open", { method: "POST" })).status).toBe(503);
     expect(launcher.opened).toBe(2);
+  });
+
+  it("doesn't open Chrome before you've paired it", async () => {
+    const launcher = fakeLauncher();
+    await start(launcher);
+    await t.browser("/api/browser/pair", { method: "DELETE" });
+    const res = await rpc("tabs.open", { url: "https://a.example/" });
+    expect(res).toEqual({ status: 503, body: { error: NOT_PAIRED } });
+    expect(launcher.opened).toBe(0);
+  });
+
+  it("says so at once when the extension has an old pairing code", async () => {
+    const launcher = {
+      opened: 0,
+      hint: "",
+      async open() {
+        launcher.opened++;
+        setTimeout(() => void fakeExtension(base, "an-old-code", {}), 50);
+      },
+    };
+    await start(launcher, { connectMs: 10_000 });
+    const began = Date.now();
+    expect((await rpc("tabs.open", { url: "https://a.example/" })).body.error).toBe(OLD_CODE);
+    expect(Date.now() - began).toBeLessThan(5000);
+  });
+
+  it("leaves Chrome closed for a while when it closes right after opening", async () => {
+    let ext: Awaited<ReturnType<typeof chrome>> | null = null;
+    const launcher = {
+      opened: 0,
+      hint: "",
+      async open() {
+        launcher.opened++;
+        ext = await chrome();
+      },
+    };
+    await start(launcher);
+    expect((await rpc("tabs.open", { url: "https://a.example/" })).status).toBe(200);
+    // Background apps are off: Chrome quits once Jarvis's tab is done.
+    (ext as unknown as { ws: { close(): void } }).ws.close();
+    await until(async () => !(await t.server.bridge.status()).connected);
+    expect((await rpc("tabs.open", { url: "https://a.example/" })).body.error).toBe(CLOSED_AT_ONCE);
+    expect(launcher.opened).toBe(1);
+  });
+
+  it("stops waiting for Chrome when Hearth stops", async () => {
+    await start(fakeLauncher({ connects: false }), { connectMs: 30_000 });
+    const waiting = rpc("tabs.open", { url: "https://a.example/" });
+    await until(async () => (await t.server.bridge.status()).opening === true);
+    t.server.bridge.close();
+    expect(await waiting).toEqual({ status: 503, body: { error: "Hearth is stopping." } });
   });
 
   it("passes on why Chrome couldn't be started", async () => {

@@ -21,6 +21,8 @@ export async function runServer(): Promise<() => Promise<void>> {
   );
   if (config.devAuth) console.log("Development login is on: no passkey needed on this machine.");
   return async () => {
+    // First, so requests waiting for Chrome to open answer now instead of holding up the stop.
+    server.bridge.close();
     await new Promise<void>((resolve) => http.close(() => resolve()));
     await server.stop();
     await database.close();

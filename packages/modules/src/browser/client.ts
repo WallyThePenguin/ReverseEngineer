@@ -44,7 +44,7 @@ export const OFFLINE_MESSAGE =
   "Chrome isn't connected to Hearth. Open Chrome on the PC; the Hearth extension connects by itself.";
 
 /** Long enough for the server to open Chrome and wait for it (D28), then do what was asked. */
-const REQUEST_TIMEOUT_MS = 150_000;
+export const REQUEST_TIMEOUT_MS = 150_000;
 
 /** Reaches the server's browser bridge from Jarvis or the worker, with a short internal token. */
 export class HttpBrowserClient implements BrowserClient {
@@ -89,7 +89,9 @@ export class HttpBrowserClient implements BrowserClient {
           ...(json ? { body: JSON.stringify(json) } : {}),
           signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         });
-      } catch {
+      } catch (err) {
+        if ((err as Error).name === "TimeoutError")
+          throw new ActionError("failed", "Hearth's server took too long to answer about Chrome.");
         throw new ActionError(
           "unavailable",
           "Hearth's server isn't reachable, so neither is Chrome.",
