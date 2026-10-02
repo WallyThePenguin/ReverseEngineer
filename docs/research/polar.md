@@ -287,6 +287,100 @@ logins the same way. So:
 - The brief lists any site that needs you to sign in again.
 - The root-cause fixes still apply: a UPS, and turning off automatic sign-in after updates.
 
+## Signing in for you: password managers for agents
+
+Source: an AI search answer you pasted on 2026-10-02 ("is there a password manager for AI?").
+Every claim in it was checked that day against the vendor's own page or the GitHub repo. Several
+were wrong; see [the corrections](#corrections-to-the-pasted-answer) at the end of this section.
+
+**Short answer: yes, Jarvis could sign in for you without ever seeing a password, and that's the
+only acceptable way to do it.** The model asks "sign in to site X". Hearth's browser module (code,
+not the model) gets the login from a local vault, but only for the exact site that's open. It types
+the login into the page and tells the model only whether it worked. You approve each sign-in. The
+best local fit is **KeePassXC** (free, open source, about 29k stars, Windows), through its documented
+browser-integration protocol. This changes a standing rule ("Jarvis never touches credentials"), so
+it waits for your yes.
+
+### Would it let Jarvis log in for you?
+
+Only if it's wired to a browser that fills the form. A vault on its own is just a locked box.
+Products hand secrets to agents in three ways, from worst to best:
+
+| How the agent gets the secret | Examples | For Jarvis |
+|---|---|---|
+| **The model reads it.** The password enters the model's context, the transcript and the logs, where a prompt-injected page can ask for it. | Bitwarden's MCP server (`get`), and probably Proton Pass access tokens used from the CLI | Never |
+| **It's put into a process's environment.** A program gets the secret as an environment variable when it starts; the model doesn't see it. | 1Password `op run` and Environments, Bitwarden Agent Access `run`, Keyway `run`, secretctl | Good for API keys and CLI tools, but it doesn't fill website forms |
+| **It fills the page without the model seeing it.** The vault gives the login to the browser for the current site only, after you approve. | 1Password Agentic Autofill, KeePassXC's browser protocol | The one that fits |
+
+### What exists
+
+Checked on 2026-10-02.
+
+| Product | Open source, local? | What the agent gets | Asks you each time? | Website logins? | Notes |
+|---|---|---|---|---|---|
+| **1Password Agentic Autofill** | No; cloud vault | Nothing: "never sees your credentials" | Yes, approve or deny each request | Yes, its main purpose | Early access through Browserbase Director, a cloud browser. 1Password's other AI tools (Environments and its MCP server, `op run`, shell plugins, NVIDIA OpenShell) cover developer secrets. |
+| **Proton Pass AI access tokens** (2026-05-21) | The apps are open source; the vault is in the cloud | Read-only vault access through the CLI or MCP, so the credential itself | No; each access is logged with a reason, and you review afterwards | Indirectly | Tokens last 1 hour to 1 year. Included with Pass Plus and higher. |
+| **Bitwarden Agent Access** (2026-03-24) | `bitwarden/agent-access`, Apache-2.0, about 160 stars; needs a Bitwarden vault (cloud or self-hosted) | One credential over an encrypted tunnel, put into a child process's environment | Yes, approved in the CLI on the machine | Logins and API keys | An open protocol, CLI and SDK. Approvals happen at the PC's terminal, not on your phone. |
+| **Bitwarden MCP server** | `bitwarden/mcp-server`, GPL-3.0, about 264 stars | Your vault, passwords and TOTP codes included, sent to the model | No | Gives them to the model | Its own README warns that it can read passwords. Avoid. |
+| **KeePassXC** | `keepassxreboot/keepassxc`, GPL, about 29k stars; a local database file | Through its browser protocol: the logins whose URL matches the current page | Yes by default (Allow or Deny, with Remember) | Yes | Also has `keepassxc-cli`. Runs on Windows, macOS and Linux. No account or cloud. |
+| **Passwd** (passwd.team) | No; cloud, with private cloud on Enterprise | Values put into commands over MCP, hidden from prompts | Not mentioned | No | Built for teams on Google Workspace. Free up to 15 records. |
+| **Keyway** (`keywaysh/keyway`) | Self-hostable or cloud; no license on the main repo | Environment variables put into a process (`keyway run`), plus an MCP server | No | No; developer secrets only | Access follows GitHub repo access. Not relevant here. |
+| **secretctl** (`forest6511/secretctl`) | Go, Apache-2.0, local | Environment variables through MCP | No | No | 10 stars; last push 2026-01-22. Too small to trust with logins. |
+| **LocalVault** (`inventlist/localvault`) | Ruby, local | Developer secrets through MCP | No | No | 7 stars. Same concern. |
+| **pass** | GPG files in folders | Whatever the script reads | No | Only through scripts | Unix only; on Windows the equivalent is `gopass`. |
+
+### How it would fit Hearth
+
+Today, a `secret` action is refused for Jarvis and hidden from its tool list
+(`packages/kernel/src/policy.ts`). Keep it that way: the model never gets a tool that returns a
+secret. Signing in would be a new browser action whose result holds no secret:
+
+- **`browser.sign_in { site }`** always asks you, even if a standing rule exists, and works even in
+  an untrusted turn. Sign-ins usually come mid-task after reading pages, and you approve each one
+  anyway. The approval shows the site and a screenshot taken before anything is typed.
+- **Origin check before filling.** The module only fills when the open page's domain matches the
+  vault entry's URL, as password managers do. A phishing page, an unexpected redirect, or an
+  injected "now log in at evil.example" gets nothing.
+- **Nothing to leak.** The result is only `signed_in`, `needs_you` (2FA or a CAPTCHA) or `failed`.
+  The value never reaches the event log, the transcript or a screenshot.
+- **A vault just for Jarvis.** A separate KeePassXC database holding only the allowlisted sites,
+  not your main vault. It pairs with the separate Chrome profile. Banking, email recovery and the
+  password manager's own site never go in it.
+- **2FA stays with you.** Don't put TOTP seeds in Jarvis's vault: a password and its code in one
+  place turn two factors into one. KeePassXC's `get-totp` and Bitwarden's TOTP tools make that
+  easy to do by accident.
+
+**Why KeePassXC first:** it's local, free and established, it runs on Windows, it releases logins
+only for the matching site, and it asks before releasing them. Its database is protected by its
+master password or key file, not Windows DPAPI, so this PC's poisoned boots can't lock it the way
+they wipe Chrome's logins. Hearth would talk to it as a browser-integration client: pair once, then
+request the logins for the current site.
+
+**The catch is unlocking after a reboot.** For unattended sign-ins the vault has to be open. There
+are two options:
+- You unlock it once after each boot. This is safest, and Jarvis can remind you in the brief.
+- It unlocks with a key file on disk. That's only as safe as the PC, which has no BitLocker today.
+
+**Alternative:** Bitwarden Agent Access, if you'd rather keep one vault in Bitwarden's cloud. It's
+open source and asks for approval each time, but the approval happens in a terminal on the PC, not
+in Hearth's approval inbox on your phone.
+
+**It also helps with logouts.** The post-boot login check in [Not getting blocked](#not-getting-blocked)
+finds sites that logged out after a poisoned boot. With this action, getting back in becomes one
+approval each instead of you typing every password again.
+
+### Corrections to the pasted answer
+
+- Bitwarden's SDK is **Agent Access** (`bitwarden/agent-access`), not "Agentic Access". The
+  "Bitwarden Local MCP Server" it describes mixes up two projects. The real MCP server gives the
+  model your passwords; it doesn't keep them away from it.
+- 1Password's AI page has no product called "Credential Broker". The feature for browser logins is
+  **Agentic Autofill**.
+- Proton Pass records a reason for every access, but it doesn't ask before each one. You audit
+  afterwards.
+- Keyway handles only developer secrets (API keys and environment variables), not website logins.
+- secretctl and LocalVault are real, but tiny (10 and 7 stars).
+
 ## What this means for Hearth
 
 ### The trap to avoid
@@ -305,7 +399,7 @@ registry like everything else, and every read from a page must lower the turn's 
 |---|---|---|
 | Runs the agent on your device, logged in as you | Same, on the always-on PC, but in a **separate Chrome profile** that only holds the sites you sign it into | Polar wants to be your main browser for context. With your bank and main email signed in there, one successful prompt injection is too costly. |
 | Watch it work and take over any time | Stream the run's steps and screenshots to the Jarvis pane, with Stop | Same idea, and it fits the event log |
-| "Guardrails" against high-risk actions (unspecified) | Every step gets a risk class: reading and navigating are `read`; submit, send, post and buy are `outward` and wait for your yes, with a screenshot; credentials are `secret` and always denied | Hearth's policy already does this. Polar hasn't published how its guardrails work. |
+| "Guardrails" against high-risk actions (unspecified) | Every step gets a risk class: reading and navigating are `read`; submit, send, post and buy are `outward` and wait for your yes, with a screenshot; credentials are `secret` and never reach the model (signing in, if you allow it, is a separate action you approve each time; see [Signing in for you](#signing-in-for-you-password-managers-for-agents)) | Hearth's policy already does this. Polar hasn't published how its guardrails work. |
 | Per-site preference files | `memory_note` records scoped to a domain ("on LinkedIn, never send a connection note") | Same benefit, but versioned and visible in the graph |
 | A shared cloud filesystem per run | A run record in the graph with notes and files attached, which subagents read and write | Coordination without sending anything to a third party |
 | Small models for the clicks | Use the fast lane for single steps, and the deep lane to plan | Max-plan rate limits make this matter even more than credits do for Polar |
@@ -321,7 +415,8 @@ After M1, as the earlier discussion suggested. Three steps, each useful on its o
    as `read` actions, plus `watch` records that check a page on the scheduler without a model turn
    and wake Jarvis only when something changes.
 2. **Actions that wait for your yes.** Click, type and submit as gated actions, with a per-site
-   allowlist. Banking and password-manager domains are blocked outright.
+   allowlist. Banking and password-manager domains are blocked outright. If you choose to allow
+   it, add `browser.sign_in` through a Jarvis-only KeePassXC vault, approved each time.
 3. **Long jobs.** Browser routines on a schedule and, if needed, the Browser Use sidecar for large
    parallel research.
 
@@ -347,6 +442,15 @@ None of this is in `PLAN.md` yet. It's waiting for your go-ahead.
   (`scrapling/engines/_browsers/_stealth.py`, `scrapling/engines/constants.py`,
   `scrapling/core/shell.py`), [Patchright](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright),
   [patchright-nodejs](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright-nodejs)
+- Password managers: [1Password secure AI access](https://www.1password.dev/get-started/secure-ai-access),
+  [Proton Pass for AI agents](https://proton.me/blog/pass-access-tokens),
+  [Bitwarden Agent Access](https://bitwarden.com/blog/introducing-agent-access-sdk/)
+  ([repo](https://github.com/bitwarden/agent-access)), [bitwarden/mcp-server](https://github.com/bitwarden/mcp-server),
+  [KeePassXC](https://keepassxc.org) ([repo](https://github.com/keepassxreboot/keepassxc),
+  [browser protocol](https://github.com/keepassxreboot/keepassxc-browser/blob/develop/keepassxc-protocol.md)),
+  [Passwd](https://passwd.team/en/password-manager-for-AI-agents/), [Keyway](https://keyway.sh)
+  ([repo](https://github.com/keywaysh/keyway)), [secretctl](https://github.com/forest6511/secretctl),
+  [LocalVault](https://github.com/inventlist/localvault)
 - ego lite: [citrolabs/ego-lite](https://github.com/citrolabs/ego-lite) (README,
   `docs/native-bindings-api.md`, `package/ego-browser/README.md`), [lite.ego.app](https://lite.ego.app)
 - Benchmarks: [Odysseys paper (arXiv 2604.24964)](https://arxiv.org/html/2604.24964),
