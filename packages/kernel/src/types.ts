@@ -75,6 +75,16 @@ export interface ActionDef<S extends z.ZodType = z.ZodType, R = unknown> {
   handler(input: z.output<S>, ctx: ActionContext): Promise<R>;
 }
 
+/**
+ * A picture for Jarvis to look at, like a screenshot. An action returns these under the
+ * `modelImages` key of its result; Jarvis's tools pass them to the model as images.
+ */
+export interface ModelImage {
+  mimeType: "image/jpeg" | "image/png";
+  /** Base64. */
+  data: string;
+}
+
 export function defineAction<S extends z.ZodType, R>(def: ActionDef<S, R>): ActionDef<S, R> {
   return def;
 }

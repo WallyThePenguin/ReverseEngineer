@@ -12,7 +12,7 @@
     "hearth": "node --env-file-if-exists=.env apps/cli/src/main.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -p tsconfig.json && tsc -p apps/extension && pnpm --filter @hearth/web typecheck",
+    "typecheck": "tsc -p tsconfig.json && tsc -p apps/extension && tsc -p packages/modules/tsconfig.page.json && pnpm --filter @hearth/web typecheck",
     "lint": "biome check .",
     "format": "biome format --write .",
     "check:size": "node scripts/check-file-size.ts",

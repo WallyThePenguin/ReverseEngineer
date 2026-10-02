@@ -8,7 +8,13 @@ import {
   type SDKMessage,
   tool,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { Brain, BrainEvents, BrainRequest, BrainResult } from "../brain.ts";
+import {
+  type Brain,
+  type BrainEvents,
+  type BrainRequest,
+  type BrainResult,
+  replyText,
+} from "../brain.ts";
 
 export interface ClaudeBrainOptions {
   /** Model per lane. Defaults to the top model for both, per your preference. */
@@ -104,9 +110,17 @@ export class ClaudeBrain implements Brain {
       version: "0.1.0",
       alwaysLoad: true,
       tools: req.tools.map((t) =>
-        tool(t.name, t.description, t.input.shape, async (args) => ({
-          content: [{ type: "text" as const, text: await t.run(args) }],
-        })),
+        tool(t.name, t.description, t.input.shape, async (args) => {
+          const reply = await t.run(args);
+          const text = { type: "text" as const, text: replyText(reply) };
+          if (typeof reply === "string") return { content: [text] };
+          const images = reply.images.map((i) => ({
+            type: "image" as const,
+            data: i.data,
+            mimeType: i.mimeType,
+          }));
+          return { content: [text, ...images] };
+        }),
       ),
     });
     const builtIn = this.opts.web ? WEB_TOOLS : [];

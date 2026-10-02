@@ -1,6 +1,12 @@
 // A brain for tests: each turn follows a script of tool calls and replies, so tests can assert
 // exactly what Jarvis did without a model.
-import type { Brain, BrainEvents, BrainRequest, BrainResult } from "../brain.ts";
+import {
+  type Brain,
+  type BrainEvents,
+  type BrainRequest,
+  type BrainResult,
+  replyText,
+} from "../brain.ts";
 
 export type ScriptStep =
   | { say: string }
@@ -51,7 +57,7 @@ export class ScriptedBrain implements Brain {
       } else {
         const tool = req.tools.find((t) => t.name === step.call);
         if (!tool) throw new Error(`Script called unknown tool ${step.call}`);
-        outputs.push(await tool.run(step.input));
+        outputs.push(replyText(await tool.run(step.input)));
       }
     }
     return {

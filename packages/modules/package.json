@@ -5,7 +5,8 @@
   "type": "module",
   "license": "AGPL-3.0-only",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./testing": "./src/browser/testing.ts"
   },
   "dependencies": {
     "@hearth/core": "workspace:*",
@@ -13,5 +14,8 @@
     "@hearth/kernel": "workspace:*",
     "drizzle-orm": "^0.45.3",
     "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0"
   }
 }

@@ -1,5 +1,6 @@
 // The model behind Jarvis, behind one small interface: the Claude Agent SDK in production, a
 // scripted brain in tests.
+import type { ModelImage } from "@hearth/kernel";
 import type { z } from "zod";
 
 export type Lane = "fast" | "deep";
@@ -9,8 +10,15 @@ export interface BrainTool {
   name: string;
   description: string;
   input: z.ZodObject;
-  /** Runs the tool and returns text for the model. Never throws. */
-  run(input: unknown): Promise<string>;
+  /** Runs the tool and returns what the model gets back. Never throws. */
+  run(input: unknown): Promise<ToolReply>;
+}
+
+/** Text for the model, and sometimes pictures to look at (a screenshot of a page). */
+export type ToolReply = string | { text: string; images: ModelImage[] };
+
+export function replyText(reply: ToolReply): string {
+  return typeof reply === "string" ? reply : reply.text;
 }
 
 export interface BrainRequest {

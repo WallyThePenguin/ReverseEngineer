@@ -48,6 +48,8 @@ jobs:
         run: pnpm typecheck
       - name: File size limit
         run: pnpm check:size
+      - name: Chromium (page tests and the browser smoke test)
+        run: pnpm --filter @hearth/web exec playwright install --with-deps chromium
       - name: Tests
         run: pnpm test
       - name: Build the web app
@@ -56,7 +58,6 @@ jobs:
         env:
           HEARTH_ORIGIN: http://localhost:4400
         run: |
-          pnpm --filter @hearth/web exec playwright install --with-deps chromium
           export HEARTH_WEB_DIST="$PWD/apps/web/dist"
           CODE=$(pnpm -s hearth setup | grep -oE '^    [0-9A-F]{10}$' | tr -d ' ')
           pnpm -s hearth serve > server.log 2>&1 &

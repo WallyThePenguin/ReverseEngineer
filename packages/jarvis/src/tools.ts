@@ -2,7 +2,14 @@
 // doors. Every call runs through the kernel as Jarvis, with the turn's trust level.
 import { asUntrusted, formatDateTime, type Origin, type Risk, type SiteRules } from "@hearth/core";
 import { entity } from "@hearth/db";
-import { type Caller, isVisibleTo, jarvisCaller, type Kernel, newId } from "@hearth/kernel";
+import {
+  type Caller,
+  isVisibleTo,
+  jarvisCaller,
+  type Kernel,
+  type ModelImage,
+  newId,
+} from "@hearth/kernel";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { BrainTool } from "./brain.ts";
@@ -46,6 +53,14 @@ export function toModelJson(value: unknown): string {
   };
   const text = JSON.stringify(walk(value), null, 1) ?? "null";
   return text.length > MAX_OUTPUT ? `${text.slice(0, MAX_OUTPUT)}\n…(truncated)` : text;
+}
+
+/** Takes the pictures (modelImages) out of an action's result, so they go to the model as images. */
+function splitImages(value: unknown): { result: unknown; images: ModelImage[] } {
+  if (!value || typeof value !== "object" || !("modelImages" in value))
+    return { result: value, images: [] };
+  const { modelImages, ...result } = value as { modelImages: ModelImage[] };
+  return { result, images: modelImages };
 }
 
 export function toolName(action: string): string {
@@ -111,9 +126,11 @@ export function buildTools(kernel: Kernel, state: TurnState, log: LogFn): BrainT
           });
           return `Waiting for the owner's approval (approval ${res.approvalId}): ${res.summary}. Carry on with anything else; you'll be told when they decide.`;
         }
+        const { result, images } =
+          res.status === "ok" ? splitImages(res.result) : { result: null, images: [] };
         let output =
           res.status === "ok"
-            ? toModelJson(res.result)
+            ? toModelJson(result)
             : res.status === "denied"
               ? `Not allowed: ${res.reason}`
               : `Error (${res.code}): ${res.message}`;
@@ -127,7 +144,7 @@ export function buildTools(kernel: Kernel, state: TurnState, log: LogFn): BrainT
           output: output.slice(0, 4000),
           isError: res.status !== "ok",
         });
-        return output;
+        return images.length > 0 ? { text: output, images } : output;
       },
     });
   }

@@ -3,6 +3,7 @@
 import type { HearthModule } from "@hearth/kernel";
 import { approvalsModule } from "./approvals/index.ts";
 import { assistantModule } from "./assistant/index.ts";
+import { browserModule } from "./browser/index.ts";
 import { chatModule } from "./chat/index.ts";
 import { graphModule } from "./graph/index.ts";
 import { inboxModule } from "./inbox/index.ts";
@@ -21,6 +22,7 @@ export const ALL_MODULES: HearthModule[] = [
   peopleModule,
   systemModule,
   assistantModule,
+  browserModule,
 ];
 
 export { renderBrief, renderDigest } from "./assistant/brief.ts";
@@ -40,6 +42,7 @@ export { loadTask, type TaskView } from "./tasks/index.ts";
 export {
   approvalsModule,
   assistantModule,
+  browserModule,
   chatModule,
   graphModule,
   inboxModule,
