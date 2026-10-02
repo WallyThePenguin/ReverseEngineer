@@ -272,3 +272,55 @@ events keeps that one path, makes each firing exactly-once with the state change
 missed firing be skipped (Macro's rule). The queue Jarvis needs is "one turn at a time per
 conversation, reactive first", which a table with `FOR UPDATE SKIP LOCKED` handles in a few lines.
 
+
+## D24. Jarvis's browser is your own Chrome, through a Hearth extension (2026-10-02)
+
+**Decision:** A small Hearth extension in your everyday Chrome lets Jarvis drive it through
+Chrome's debugging protocol (`chrome.debugger`), signed in as you. Jarvis works in its own
+"Jarvis" window and tab group, plus any tab you hand it. Hearth shows a live picture of Jarvis's
+tab that you can click and type into, on the PC or the phone. The extension connects to the Hearth
+server over a WebSocket with a pairing token; Jarvis and the worker reach it through the server.
+Every browser step is a Hearth action, so the policy, approvals and audit apply.
+
+**Alternatives:** A separate Chrome profile driven by Patchright, as
+[the Polar note](research/polar.md) recommends. Playwright MCP's extension. Claude in Chrome.
+Browser Use as a Python sidecar.
+
+**Why:** You want Jarvis in the browser you use, on the sites you're already signed in to, where
+you can see it. A separate profile means signing in twice and a window you never look at. Driving
+Chrome through our own extension adds no automation flags and no extra runtime, and it keeps the
+browser inside Hearth's policy instead of a side door (the note's warning). Accepted costs: Chrome
+shows a "debugging this browser" bar while Jarvis is attached; the browser works only while Chrome
+is open and you're signed in to Windows; and a successful prompt injection has your real sessions
+in reach, which D25 limits.
+
+## D25. Once a turn has read outside content, it can't send data anywhere nobody vouched for (2026-10-02)
+
+**Decision:** After a turn reads outside content (a web page, a search result, a record created by
+an outside tool), Jarvis may only open exact web addresses that appeared in what it read, or sites
+on your allowed list. Opening anything else in the browser waits for your yes; a web fetch is
+refused. Sites on your blocked list are never opened by Jarvis. Reading a record that an outside
+tool created now lowers the turn's trust, which it didn't before.
+
+**Alternatives:** Rely on the model resisting prompt injection. Stop all browsing once a turn is
+untrusted.
+
+**Why:** With your signed-in Chrome, the danger isn't a page Jarvis reads; it's a page telling
+Jarvis to carry your data elsewhere, for example by opening an address with your email in it.
+Matching exact addresses stops that without stopping normal link-following, because an attacker
+can't know your data in advance. Anthropic's own browser agent still loses about 1% of attacks
+from a determined attacker, so the model alone isn't enough.
+
+## D26. Jarvis may sign in to sites without asking (2026-10-02)
+
+**Decision:** When Jarvis can type (browser step 2), it may sign in to a site without your
+approval. Hearth's code fills the password from a vault; the model never sees it, and it's only
+filled on the exact site it belongs to. Two-factor codes stay with you by default. What Jarvis does
+after signing in follows the usual rules. The vault (KeePassXC or Chrome's own saved passwords) is
+chosen in step 2.
+
+**Alternatives:** Approve every sign-in, as the Polar note recommends.
+
+**Why:** You asked for it, and with the site check the sign-in itself is low risk: a phishing page
+gets nothing, and signing in to the real site sends nothing anywhere. The risk is in what happens
+next, and those actions keep their approvals.

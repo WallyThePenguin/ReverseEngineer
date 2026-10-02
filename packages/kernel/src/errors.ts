@@ -4,6 +4,7 @@ export type ActionErrorCode =
   | "not_found"
   | "conflict"
   | "forbidden"
+  | "unavailable"
   | "failed";
 
 /** An expected failure an action reports to its caller (not a bug). */

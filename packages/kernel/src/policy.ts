@@ -33,6 +33,7 @@ export function decide(
       return allow;
     case "agent": {
       if (risk === "secret") return deny("Jarvis never touches credentials.");
+      if (caller.askFirst) return ask(caller.askFirst);
       const untrusted = caller.origin === "untrusted";
       if (risk === "read" || risk === "internal") return allow;
       if (risk === "self_external") {

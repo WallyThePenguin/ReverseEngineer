@@ -24,18 +24,22 @@ export interface KernelOptions {
   registry: Registry;
   clock?: Clock;
   log?: (msg: string, err?: unknown) => void;
+  /** Process-level services actions can use, like the browser bridge. */
+  services?: Record<string, unknown>;
 }
 
 export class Kernel {
   readonly db: Db;
   readonly registry: Registry;
   readonly clock: Clock;
+  readonly services: Record<string, unknown>;
   private readonly log: (msg: string, err?: unknown) => void;
 
   constructor(opts: KernelOptions) {
     this.db = opts.db;
     this.registry = opts.registry;
     this.clock = opts.clock ?? systemClock;
+    this.services = opts.services ?? {};
     this.log = opts.log ?? ((msg, err) => console.error(msg, err));
   }
 
@@ -164,6 +168,12 @@ export class Kernel {
         if (!this.registry.hasEvent(e.kind))
           throw new Error(`Event kind ${e.kind} is not declared by any module`);
         buffered.push(e);
+      },
+      service: <T>(name: string): T => {
+        const s = this.services[name];
+        if (!s)
+          throw new ActionError("unavailable", `The ${name} isn't available in this process.`);
+        return s as T;
       },
       call: async <T>(name: string, rawInput: unknown): Promise<T> => {
         const def = this.registry.action(name);

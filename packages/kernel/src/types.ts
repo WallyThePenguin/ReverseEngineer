@@ -15,6 +15,11 @@ export interface Caller {
   causationId?: string;
   turnId?: string;
   conversationId?: string;
+  /**
+   * Set by Jarvis's runtime when this particular call needs your yes whatever its risk, e.g.
+   * opening an address an untrusted turn never saw (D25). The text is the approval's reason.
+   */
+  askFirst?: string;
 }
 
 export interface EmitEvent {
@@ -45,6 +50,8 @@ export interface ActionContext {
   emit(event: EmitEvent): void;
   /** Calls another action in the same transaction, as the same caller, under the same policy. */
   call<T = unknown>(name: string, input: unknown): Promise<T>;
+  /** A process-level service, like the browser. Throws "unavailable" if this process has none. */
+  service<T>(name: string): T;
 }
 
 export interface ActionDef<S extends z.ZodType = z.ZodType, R = unknown> {
@@ -56,6 +63,13 @@ export interface ActionDef<S extends z.ZodType = z.ZodType, R = unknown> {
   risk: Risk;
   /** Which kinds of principals may call it at all. Defaults to everyone. */
   callers?: PrincipalKind[];
+  /**
+   * Its result is content from outside Hearth (a web page). Reading it makes the rest of Jarvis's
+   * turn untrusted (D25).
+   */
+  external?: boolean;
+  /** The web address this call would open, so an untrusted turn can be held to D25. */
+  opensUrl?(input: z.output<S>): string | null;
   /** One line for an approval card: "Send email to Ana: Friday's agenda". */
   summarize?(input: z.output<S>): string;
   handler(input: z.output<S>, ctx: ActionContext): Promise<R>;

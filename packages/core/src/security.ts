@@ -40,6 +40,26 @@ export function weakerOrigin(a: Origin, b: Origin): Origin {
   return rank[a] <= rank[b] ? a : b;
 }
 
+/** Sites Jarvis may open freely even after reading outside content, and sites it never opens (D25). */
+export interface SiteRules {
+  allowed: string[];
+  blocked: string[];
+}
+
+/** Password managers, account security and payments. Add your bank in Settings. */
+export const DEFAULT_SITE_RULES: SiteRules = {
+  allowed: [],
+  blocked: [
+    "myaccount.google.com",
+    "passwords.google.com",
+    "1password.com",
+    "bitwarden.com",
+    "lastpass.com",
+    "dashlane.com",
+    "paypal.com",
+  ],
+};
+
 /** Wraps outside text so a model reads it as data, never as instructions. */
 export function asUntrusted(text: string, source: string): string {
   const safeSource = source.replace(/["<>]/g, "");

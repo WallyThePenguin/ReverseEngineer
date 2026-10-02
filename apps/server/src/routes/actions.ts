@@ -14,6 +14,7 @@ const STATUS_FOR_ERROR: Record<string, ContentfulStatusCode> = {
   not_found: 404,
   unknown_action: 404,
   conflict: 409,
+  unavailable: 503,
   failed: 500,
 };
 

@@ -1,5 +1,5 @@
 // Typed settings with defaults. Stored as JSON rows in the setting table.
-import { type DayRules, DEFAULT_DAY_RULES } from "@hearth/core";
+import { type DayRules, DEFAULT_DAY_RULES, DEFAULT_SITE_RULES, type SiteRules } from "@hearth/core";
 import { type DbOrTx, setting } from "@hearth/db";
 import { eq } from "drizzle-orm";
 
@@ -12,6 +12,8 @@ export interface Settings {
   "owner.maxInterruptsPerDay": number;
   /** Warn about a task this many hours before it's due. */
   "tasks.dueSoonHours": number;
+  /** Where Jarvis's browser may and may not go (D25). */
+  "browser.sites": SiteRules;
 }
 
 export const SETTING_DEFAULTS: Settings = {
@@ -20,6 +22,7 @@ export const SETTING_DEFAULTS: Settings = {
   "owner.dayRules": DEFAULT_DAY_RULES,
   "owner.maxInterruptsPerDay": 8,
   "tasks.dueSoonHours": 24,
+  "browser.sites": DEFAULT_SITE_RULES,
 };
 
 export async function getSetting<K extends keyof Settings>(

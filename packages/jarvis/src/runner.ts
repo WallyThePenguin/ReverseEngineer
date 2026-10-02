@@ -8,7 +8,8 @@ import type pg from "pg";
 import type { Brain } from "./brain.ts";
 import { buildSystemPrompt } from "./prompt.ts";
 import { ensureConversation, streamer, writeLog } from "./threads.ts";
-import { buildTools, describeRecord, type ToolCallRecord, type TurnState } from "./tools.ts";
+import { buildTools, readRecord, type ToolCallRecord, type TurnState } from "./tools.ts";
+import { checkOpen, readOutsideContent } from "./trust.ts";
 
 export type TurnRow = typeof jarvisTurn.$inferSelect;
 
@@ -110,6 +111,8 @@ export class TurnRunner {
         causationId: null,
         calls: [],
         postedToSubject: false,
+        seenUrls: new Set(),
+        sites: await getSetting(this.kernel.db, "browser.sites"),
       };
       const cid = conversationId;
       // Log writes are serialized so the log keeps the order things happened in.
@@ -135,12 +138,15 @@ export class TurnRunner {
       await log(opening);
 
       const now = this.kernel.clock.now();
-      const subject = turn.subjectId ? await describeRecord(this.kernel, turn.subjectId) : null;
+      const record = turn.subjectId ? await readRecord(this.kernel, turn.subjectId) : null;
+      // A turn about something an outside tool wrote starts untrusted.
+      if (record?.fromOutside) readOutsideContent(state, record.text);
+      const subject = record?.text ?? null;
       const system = buildSystemPrompt({
         now,
         rules: await getSetting(this.kernel.db, "owner.dayRules"),
         trigger: turn.trigger,
-        origin: turn.origin,
+        origin: state.origin,
         paused: await getSetting(this.kernel.db, "jarvis.paused"),
         subject,
       });
@@ -168,8 +174,13 @@ export class TurnRunner {
             onText: (d) => stream.push(d),
             onMessage: (text) =>
               void log([{ kind: "assistant_message", payload: { text }, turnId: turn.id }]),
-            onExternalContent: () => {
-              state.origin = "untrusted";
+            onExternalContent: (_source, text) => readOutsideContent(state, text ?? ""),
+            mayFetch: (url) => {
+              const verdict = checkOpen(state, url, state.sites);
+              if (verdict.kind === "ok") return null;
+              return verdict.kind === "blocked"
+                ? verdict.reason
+                : `${verdict.reason} A web fetch can't wait for that, so open a link from a page you read, or tell the owner what you need.`;
             },
           },
         )

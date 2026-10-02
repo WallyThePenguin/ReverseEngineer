@@ -2,7 +2,12 @@
 // exactly what Jarvis did without a model.
 import type { Brain, BrainEvents, BrainRequest, BrainResult } from "../brain.ts";
 
-export type ScriptStep = { say: string } | { call: string; input: unknown } | { readWeb: string };
+export type ScriptStep =
+  | { say: string }
+  | { call: string; input: unknown }
+  | { readWeb: string; text?: string }
+  /** A web fetch: refused or read, and the outcome goes into outputs. */
+  | { fetch: string; content?: string };
 
 export type Script = (req: BrainRequest, outputs: string[]) => ScriptStep[] | Promise<ScriptStep[]>;
 
@@ -35,7 +40,14 @@ export class ScriptedBrain implements Brain {
         events.onMessage(step.say);
         said.push(step.say);
       } else if ("readWeb" in step) {
-        events.onExternalContent(step.readWeb);
+        events.onExternalContent(step.readWeb, step.text);
+      } else if ("fetch" in step) {
+        const refused = events.mayFetch?.(step.fetch) ?? null;
+        if (refused) outputs.push(`Refused: ${refused}`);
+        else {
+          events.onExternalContent("WebFetch", step.content ?? "");
+          outputs.push(step.content ?? "");
+        }
       } else {
         const tool = req.tools.find((t) => t.name === step.call);
         if (!tool) throw new Error(`Script called unknown tool ${step.call}`);

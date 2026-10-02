@@ -1,11 +1,12 @@
 // Jarvis's tools are Hearth's actions: the same registry the UI uses, so there are no side
 // doors. Every call runs through the kernel as Jarvis, with the turn's trust level.
-import { asUntrusted, formatDateTime, type Origin, type Risk } from "@hearth/core";
+import { asUntrusted, formatDateTime, type Origin, type Risk, type SiteRules } from "@hearth/core";
 import { entity } from "@hearth/db";
 import { type Caller, isVisibleTo, jarvisCaller, type Kernel, newId } from "@hearth/kernel";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { BrainTool } from "./brain.ts";
+import { checkOpen, readOutsideContent } from "./trust.ts";
 
 const MAX_OUTPUT = 20_000;
 
@@ -24,6 +25,9 @@ export interface TurnState {
   causationId: string | null;
   calls: ToolCallRecord[];
   postedToSubject: boolean;
+  /** Web addresses that appeared in outside content this turn (D25). */
+  seenUrls: Set<string>;
+  sites: SiteRules;
 }
 
 export type LogFn = (
@@ -70,7 +74,23 @@ export function buildTools(kernel: Kernel, state: TurnState, log: LogFn): BrainT
       async run(input) {
         const callId = newId();
         await log("tool_call", { callId, name: def.name, input });
-        const res = await kernel.execute(def.name, input, caller());
+        let askFirst: string | undefined;
+        const url = def.opensUrl?.(input as never);
+        if (url) {
+          const verdict = checkOpen(state, url, state.sites);
+          if (verdict.kind === "blocked") {
+            const output = `Not allowed: ${verdict.reason}`;
+            state.calls.push({ action: def.name, risk: def.risk, status: "denied" });
+            await log("tool_result", { callId, output, isError: true });
+            return output;
+          }
+          if (verdict.kind === "ask") askFirst = verdict.reason;
+        }
+        const res = await kernel.execute(
+          def.name,
+          input,
+          askFirst ? { ...caller(), askFirst } : caller(),
+        );
         state.calls.push({
           action: def.name,
           risk: def.risk,
@@ -91,12 +111,17 @@ export function buildTools(kernel: Kernel, state: TurnState, log: LogFn): BrainT
           });
           return `Waiting for the owner's approval (approval ${res.approvalId}): ${res.summary}. Carry on with anything else; you'll be told when they decide.`;
         }
-        const output =
+        let output =
           res.status === "ok"
             ? toModelJson(res.result)
             : res.status === "denied"
               ? `Not allowed: ${res.reason}`
               : `Error (${res.code}): ${res.message}`;
+        if (res.status === "ok" && def.external) {
+          // Outside content: everything after this in the turn is untrusted (D25).
+          readOutsideContent(state, output);
+          output = asUntrusted(output, def.name);
+        }
         await log("tool_result", {
           callId,
           output: output.slice(0, 4000),
@@ -116,7 +141,9 @@ export function buildTools(kernel: Kernel, state: TurnState, log: LogFn): BrainT
       const { id } = input as { id: string };
       const callId = newId();
       await log("tool_call", { callId, name: "record.read", input });
-      const text = await describeRecord(kernel, id);
+      const record = await readRecord(kernel, id);
+      const text = record?.text ?? null;
+      if (record?.fromOutside) readOutsideContent(state, record.text);
       state.calls.push({ action: "record.read", risk: "read", status: text ? "ok" : "error" });
       await log("tool_result", {
         callId,
@@ -135,6 +162,15 @@ export async function describeRecord(
   id: string,
   caller: Caller = jarvisCaller("agent"),
 ): Promise<string | null> {
+  return (await readRecord(kernel, id, caller))?.text ?? null;
+}
+
+/** Like describeRecord, and says whether an outside tool wrote it (reading it lowers trust). */
+export async function readRecord(
+  kernel: Kernel,
+  id: string,
+  caller: Caller = jarvisCaller("agent"),
+): Promise<{ text: string; fromOutside: boolean } | null> {
   const [row] = await kernel.db.select().from(entity).where(eq(entity.id, id));
   if (!row) return null;
   const ctx = { db: kernel.db, now: kernel.clock.now() };
@@ -154,5 +190,5 @@ export async function describeRecord(
       text += `\n\n## Linked from\n${links.result.incoming.map(fmt).join("\n")}`;
   }
   const fromOutside = row.createdBy.startsWith("integration:") || row.createdBy.startsWith("mcp:");
-  return fromOutside ? asUntrusted(text, row.createdBy) : text;
+  return { text: fromOutside ? asUntrusted(text, row.createdBy) : text, fromOutside };
 }

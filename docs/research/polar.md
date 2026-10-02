@@ -6,6 +6,11 @@ endpoints and the macOS update feed, and the Instagram reel you sent. Press and 
 come from a web search, with links at the end. The installer was not downloaded, installed or
 run, and no Polar account was created.
 
+> **Decided since (2026-10-02):** Jarvis uses your own Chrome through a Hearth extension, with a
+> live view inside Hearth, instead of a separate profile ([D24](../decisions.md)), and it may sign
+> in without asking ([D26](../decisions.md)). The untrusted-content rules are in
+> [D25](../decisions.md). The rest of this note's recommendations stand.
+
 **Verdict: copy the ideas, not the code, and use open tools to build them.** Polar is closed
 source, and its terms forbid reverse engineering, decompiling, probing the service, and using it
 to build a competing AI product (Terms §1.4). So there is nothing to lift. What is worth taking is

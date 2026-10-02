@@ -1,6 +1,6 @@
 # Plan: Hearth, a personal Macro with Jarvis built in
 
-Status: draft 4, 2026-10-01. M0 (the spine) is built; M1 (Jarvis's day and the calendar) is next. Research behind it: [Macro](docs/research/macro.md),
+Status: draft 4, 2026-10-01. M0 (the spine) is built. Jarvis's browser, step 1, is under way; M1 (Jarvis's day and the calendar) follows. Research behind it: [Macro](docs/research/macro.md),
 [Twenty](docs/research/twenty.md), [Jarvis](docs/research/jarvis.md). Decisions and the
 alternatives we rejected: [docs/decisions.md](docs/decisions.md).
 
@@ -616,7 +616,9 @@ review while Claude Code writes most of the code; treat the estimates as order-o
 | # | Milestone | Done means | Rough effort |
 |---|---|---|---|
 | M0 | **Foundations and Jarvis's spine**: monorepo, Postgres, the five core tables with server-side mention sync, action registry, passkey login, the web shell (split panes, hotkeys, Cmd+K and a UI kit; written fresh for M0, see D22), event stream, MCP server, Windows services, backups, CI. Plus the spine of section 6.1: event cursors, the reflex engine, the scheduler, approvals, the agent runtime, chat, @Jarvis replies, tasks assigned to Jarvis, and reflexes for notes and tasks | Create a note and a task, @link them, and see the link from both sides. Claude Code does the same over MCP. @Jarvis in a note gets an answer there, a task assigned to Jarvis gets worked, a task due tomorrow gets a warning. A backup restores cleanly in a test. | 3–4 weeks |
+| B1 | **Jarvis's browser, step 1**: the Hearth extension in your own Chrome, a live view in Hearth you can click and type into, read-only browsing, page watches, and the untrusted-content rules (D24, D25) | Jarvis opens and reads pages in a Jarvis window of your Chrome while you watch from Hearth, a tab you hand it gets summarized, and a price watch tells you when it changes, without a model turn. | 1–2 weeks |
 | M1 | **Jarvis's day, tasks and calendar**: memory records, prep, brief, heartbeat and journal on the scheduler, Google Calendar two-way sync, tasks with time-blocking | A full workday runs on it: the brief arrives at 8:15 a.m., big tasks get calendar blocks, and nothing goes out in your name without a yes. The eval suite passes in CI. | 3–4 weeks |
+| B2 | **Jarvis's browser, steps 2 and 3**: clicking, typing and submitting (each outward step waits for your yes), sign-ins from a vault without asking (D26), per-site memory and pacing, and browser routines on a schedule | Jarvis finishes a multi-site chore in your Chrome, signing in on its own and stopping for your yes before anything goes out. | 2–3 weeks |
 | M2 | **Email**: the `MailProvider` interface with a Gmail adapter (both accounts), triage inbox, HTML rendering, attachments, drafts and send, people built from mail | One week of inbox zero on both Gmail accounts without opening Gmail. | 4–5 weeks |
 | M3 | **Voice I**: Parakeet bake-off, Handy fork with dictation, cleanup, dictionary, snippets and history, plus voice chat with Jarvis | Parakeet (or whatever wins) measurably beats today's Whisper setup on your vocabulary. Median release-to-text under 1 second. A week of daily dictation. | 3–4 weeks; can run alongside M1 or M2 |
 | M4 | **Docs**: Macro's Lexical and Loro packages, the sync room in `hearth-server`, @links, history, Jarvis as a co-editor; memory notes shown as docs | Your project notes live here, and Jarvis's edits show up live. | 4–6 weeks |
@@ -624,7 +626,7 @@ review while Claude Code writes most of the code; treat the estimates as order-o
 | M6 | **Phone**: polished PWA, then the iOS shell with widgets, Live Activity, share sheet and push-to-talk | You run your day from the phone when away from the PC. | 2–3 weeks |
 | M7 | **Canvas (Macro's), Slack ingest, GitHub loop, Notion import**, spreadsheets, dictation command mode and styles, iOS keyboard, and Microsoft 365 or IMAP mail adapters when you add such an account | Ongoing | Ongoing |
 
-M0 through M6 add up to roughly 21–30 weeks of steady work. Moving Jarvis's spine into M0 shifts
+M0 through M6 add up to roughly 21–30 weeks of steady work, plus 3–5 for the browser (B1, B2). Moving Jarvis's spine into M0 shifts
 about a week from M1 to M0 without changing the total. The Macro mappers' independent
 estimates for the same scope, using the borrowed packages, land in the same range. That's a long
 road, which is why every milestone is useful on its own and M0–M2 come first.

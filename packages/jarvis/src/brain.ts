@@ -28,8 +28,13 @@ export interface BrainEvents {
   onText(delta: string): void;
   /** A complete block of reply text. */
   onMessage(text: string): void;
-  /** The model read outside content (the web), so the rest of the turn is untrusted. */
-  onExternalContent(source: string): void;
+  /**
+   * The model read outside content (the web), so the rest of the turn is untrusted. `text` is
+   * what it read, so addresses in it can be followed later (D25).
+   */
+  onExternalContent(source: string, text?: string): void;
+  /** Before a web fetch: null to allow it, or why it's refused (D25). */
+  mayFetch?(url: string): string | null;
 }
 
 export interface BrainResult {
