@@ -2,6 +2,7 @@
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { ALL_MODULES } from "@hearth/modules";
 import { createApp } from "../app.ts";
+import type { BrowserBridge } from "../browser/bridge.ts";
 import type { ServerConfig } from "../config.ts";
 
 export const TEST_ORIGIN = "http://localhost:4400";
@@ -15,16 +16,21 @@ export interface TestServer extends TestKernel {
   cookies: Map<string, string>;
 }
 
-export async function createTestServer(config: Partial<ServerConfig> = {}): Promise<TestServer> {
+export async function createTestServer(
+  config: Partial<ServerConfig> = {},
+  opts: { bridge?: BrowserBridge } = {},
+): Promise<TestServer> {
   const tk = await createTestKernel(ALL_MODULES);
   const server = createApp({
     kernel: tk.kernel,
+    bridge: opts.bridge,
     config: {
       host: "127.0.0.1",
       port: 4400,
       origin: TEST_ORIGIN,
       devAuth: false,
       webDist: null,
+      chrome: { mode: "off", task: "", chromePath: null, profile: null, args: [] },
       ...config,
     },
   });

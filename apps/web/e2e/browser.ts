@@ -9,7 +9,7 @@
 // HEARTH_E2E_CHROME points at a Chromium to use instead of Playwright's own download.
 // HEARTH_E2E_SHOTS saves screenshots of the live view into that folder.
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -38,6 +38,12 @@ await new Promise<void>((r) => site.listen(0, "127.0.0.1", r));
 const siteUrl = `http://127.0.0.1:${(site.address() as AddressInfo).port}/`;
 
 const profile = mkdtempSync(join(tmpdir(), "hearth-e2e-"));
+// "Continue where you left off", the setting that brings your tabs back into the next window.
+mkdirSync(join(profile, "Default"));
+writeFileSync(
+  join(profile, "Default", "Preferences"),
+  JSON.stringify({ session: { restore_on_startup: 1 } }),
+);
 const chrome = await chromium.launchPersistentContext(profile, {
   // Extensions need full Chromium; Playwright's default headless build can't load them.
   ...(process.env.HEARTH_E2E_CHROME
@@ -65,6 +71,26 @@ async function until<T>(what: string, fn: () => Promise<T | null | undefined | f
     if (Date.now() > deadline) throw new Error(`Timed out: ${what}`);
     await new Promise((r) => setTimeout(r, 250));
   }
+}
+
+/** Runs one of Hearth's actions as you, from outside Chrome (development login). */
+async function actHere<T>(name: string, input: unknown): Promise<T> {
+  const res = await fetch(`${base}/api/actions/${name}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: base },
+    body: JSON.stringify(input),
+  });
+  const body = (await res.json()) as { status: string; result: T };
+  if (body.status !== "ok") throw new Error(`${name}: ${JSON.stringify(body)}`);
+  return body.result;
+}
+
+/** The Chrome window a page is in. */
+async function windowOf(page: Page): Promise<number> {
+  const cdp = await chrome.newCDPSession(page);
+  const { windowId } = (await cdp.send("Browser.getWindowForTarget")) as { windowId: number };
+  await cdp.detach();
+  return windowId;
 }
 
 /** Runs one of Hearth's actions as you, from the Hearth page. */
@@ -198,6 +224,35 @@ try {
   await hearth.getByText("What changed").waitFor();
   if (shots) await hearth.screenshot({ path: `${shots}/browser-watch.png` });
   check(true, "the watch shows what changed");
+
+  // With every window closed and "continue where you left off" on, Chrome brings your last tabs
+  // back into the next window, which is Jarvis's. Jarvis leaves that window to you.
+  const yours = await chrome.newPage();
+  await yours.goto(`${siteUrl}second`);
+  shown = undefined;
+  // Closing whole windows, as you would; closing tabs one by one drops them from the session.
+  await worker.evaluate(
+    "(async () => { for (const w of await chrome.windows.getAll()) await chrome.windows.remove(w.id); })()",
+  );
+  await until("every window closes", async () => chrome.pages().length === 0);
+  await actHere("browser.open", { url: siteUrl });
+  const restored = await until("your tabs come back", async () =>
+    chrome.pages().find((p) => p.url() === `${siteUrl}second`),
+  );
+  const jarvisPage = await until("Jarvis's tab", async () =>
+    chrome.pages().find((p) => p.url() === siteUrl),
+  );
+  await until("Jarvis moves to its own window", async () => {
+    const mine = await windowOf(jarvisPage);
+    const others = await Promise.all(
+      chrome
+        .pages()
+        .filter((p) => p !== jarvisPage)
+        .map((p) => windowOf(p)),
+    );
+    return (await windowOf(restored)) !== mine && !others.includes(mine);
+  });
+  check(true, "your restored tabs stay out of Jarvis's window");
   console.log("Browser end-to-end check passed.");
 } catch (err) {
   if (shots) await shown?.screenshot({ path: `${shots}/browser-failed.png` });

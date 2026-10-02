@@ -10,6 +10,7 @@ import { Hono } from "hono";
 import type pg from "pg";
 import { authenticate, sameOriginWrites } from "./auth/middleware.ts";
 import { BrowserBridge } from "./browser/bridge.ts";
+import { createLauncher } from "./browser/launch.ts";
 import { LiveView } from "./browser/live.ts";
 import { browserRoutes } from "./browser/routes.ts";
 import { attachBrowserSockets } from "./browser/sockets.ts";
@@ -45,7 +46,7 @@ export interface AppOptions {
 
 export function createApp(opts: AppOptions) {
   const hub = new EventHub(opts.pool ?? null);
-  const bridge = opts.bridge ?? new BrowserBridge();
+  const bridge = opts.bridge ?? new BrowserBridge({ launcher: createLauncher(opts.config.chrome) });
   opts.kernel.services[BROWSER_SERVICE] ??= bridge;
   const live = new LiveView(bridge);
   const deps: ServerDeps = {

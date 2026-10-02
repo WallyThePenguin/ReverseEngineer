@@ -28,6 +28,11 @@ export interface BrowserStatus {
   version: string | null;
   since: string | null;
   tabs: BrowserTab[];
+  /** Hearth opens Chrome by itself when it's closed. */
+  canOpen?: boolean;
+  opening?: boolean;
+  /** Why the last try to open Chrome failed. */
+  openError?: string | null;
 }
 
 /** Whether Chrome is connected and paired. */
@@ -43,6 +48,14 @@ export async function pairBrowser(): Promise<string> {
   const body = (await res.json().catch(() => ({}))) as { token?: string; error?: string };
   if (!res.ok || !body.token) throw new Error(body.error ?? "Couldn't make a pairing code.");
   return body.token;
+}
+
+/** Opens Chrome on the PC now. Resolves once it's connected; throws saying why it isn't. */
+export async function openChrome(): Promise<void> {
+  const res = await fetch("/api/browser/open", { method: "POST", credentials: "same-origin" });
+  if (res.ok) return;
+  const body = (await res.json().catch(() => ({}))) as { error?: string };
+  throw new Error(body.error ?? "Couldn't open Chrome.");
 }
 
 export async function unpairBrowser(): Promise<void> {
@@ -84,6 +97,11 @@ export function createLiveBrowser() {
   const [tabId, setTabId] = createSignal<number | null>(null);
   const [frame, setFrame] = createSignal<Frame | null>(null);
   const [error, setError] = createSignal<string | null>(null);
+  const [opener, setOpener] = createSignal({
+    canOpen: false,
+    opening: false,
+    openError: null as string | null,
+  });
   let ws: WebSocket | null = null;
   let stopped = false;
   let retry: ReturnType<typeof setTimeout> | undefined;
@@ -104,6 +122,11 @@ export function createLiveBrowser() {
       case "state": {
         const list = msg.tabs as BrowserTab[];
         setConnected(Boolean(msg.connected));
+        setOpener({
+          canOpen: Boolean(msg.canOpen),
+          opening: Boolean(msg.opening),
+          openError: typeof msg.openError === "string" ? msg.openError : null,
+        });
         setTabs(list);
         const current = tabId();
         if (current === null || !list.some((t) => t.tabId === current)) {
@@ -153,6 +176,8 @@ export function createLiveBrowser() {
   return {
     online,
     connected,
+    /** Whether Hearth can open Chrome, is opening it, and why it last couldn't. */
+    opener,
     tabs,
     tabId,
     frame,

@@ -9,5 +9,6 @@ export {
   revokeApiTokens,
   revokeToken,
 } from "./auth/tokens.ts";
+export { DEFAULT_TASK, findChrome, loadLaunchConfig } from "./browser/launch.ts";
 export { loadServerConfig, type ServerConfig } from "./config.ts";
 export { runServer } from "./main.ts";

@@ -3,7 +3,13 @@
 
 import { createEffect, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
 import { Button, Empty, PaneHeader } from "../components/ui.tsx";
-import { createLiveBrowser, type LiveBrowser, modifiers, toPage } from "../lib/browser.ts";
+import {
+  createLiveBrowser,
+  type LiveBrowser,
+  modifiers,
+  openChrome,
+  toPage,
+} from "../lib/browser.ts";
 import { layout } from "../lib/panes.ts";
 import { watchPage } from "./PageWatch.tsx";
 
@@ -101,6 +107,56 @@ function Screen(props: { b: LiveBrowser }) {
   );
 }
 
+/** Chrome isn't connected: open it from here, or pair it in Settings. */
+function ChromeClosed(props: { b: LiveBrowser }) {
+  const [asked, setAsked] = createSignal(false);
+  const open = async () => {
+    setAsked(true);
+    try {
+      await openChrome();
+    } catch {
+      // The reason arrives with the live view's state, below.
+    } finally {
+      setAsked(false);
+    }
+  };
+  const o = () => props.b.opener();
+  return (
+    <div class="space-y-3 px-4 py-10 text-center text-sm text-muted">
+      <Show
+        when={o().canOpen}
+        fallback={
+          <p>
+            Open Chrome on your PC with the Hearth extension installed and paired. It connects by
+            itself.
+          </p>
+        }
+      >
+        <p>
+          {o().opening || asked()
+            ? "Opening Chrome on your PC…"
+            : "Chrome is closed. Hearth opens it on your PC when Jarvis needs it."}
+        </p>
+        <Button kind="primary" onClick={() => void open()} disabled={o().opening || asked()}>
+          Open Chrome
+        </Button>
+        <Show when={o().openError && !o().opening}>
+          <p class="mx-auto max-w-md text-bad">{o().openError}</p>
+        </Show>
+      </Show>
+      <p>
+        <button
+          type="button"
+          class="text-jarvis underline"
+          onClick={() => layout.open({ view: "settings" })}
+        >
+          Pair Chrome in Settings
+        </button>
+      </p>
+    </div>
+  );
+}
+
 export function Browser() {
   const b = createLiveBrowser();
   onCleanup(() => b.stop());
@@ -133,7 +189,9 @@ export function Browser() {
             ? "Reconnecting to Hearth…"
             : b.connected()
               ? "Your Chrome, live. Click into the page to use it."
-              : "Chrome isn't connected."
+              : b.opener().opening
+                ? "Opening Chrome…"
+                : "Chrome isn't connected."
         }
       >
         <Show when={b.tabs().length > 0}>
@@ -154,22 +212,7 @@ export function Browser() {
           </select>
         </Show>
       </PaneHeader>
-      <Show
-        when={b.connected()}
-        fallback={
-          <Empty>
-            Open Chrome on your PC with the Hearth extension installed and paired. It connects by
-            itself. <br />
-            <button
-              type="button"
-              class="mt-2 text-jarvis underline"
-              onClick={() => layout.open({ view: "settings" })}
-            >
-              Pair Chrome in Settings
-            </button>
-          </Empty>
-        }
-      >
+      <Show when={b.connected()} fallback={<ChromeClosed b={b} />}>
         <form
           class="flex flex-wrap items-center gap-1 border-b border-line px-3 py-1.5"
           onSubmit={(e) => {

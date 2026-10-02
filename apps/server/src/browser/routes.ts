@@ -1,5 +1,5 @@
-// /api/browser: pair the extension, see whether Chrome is connected, and the request endpoint
-// Jarvis and the worker use to reach it. Only you and Hearth's own processes get in.
+// /api/browser: pair the extension, see whether Chrome is connected, open it, and the request
+// endpoint Jarvis and the worker use to reach it. Only you and Hearth's own processes get in.
 import { PRINCIPAL } from "@hearth/core";
 import { ActionError, type Caller, getSetting, setSetting } from "@hearth/kernel";
 import { Hono } from "hono";
@@ -46,6 +46,16 @@ export function browserRoutes(bridge: BrowserBridge) {
     });
     bridge.close();
     return c.json({ token });
+  });
+
+  // You pressed Open Chrome: open it now, without waiting out an earlier failed try.
+  app.post("/open", requireCaller(["owner"]), async (c) => {
+    try {
+      await bridge.open({ now: true });
+      return c.json(bridge.snapshot());
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 503);
+    }
   });
 
   app.delete("/pair", requireCaller(["owner"]), async (c) => {

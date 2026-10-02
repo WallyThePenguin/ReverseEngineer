@@ -9,6 +9,7 @@ import { createApiToken, createSetupCode, listApiTokens, revokeApiTokens } from 
 import { runBackup } from "./backup.ts";
 import {
   checkBackupTools,
+  checkChrome,
   checkClaudeLogin,
   checkDatabase,
   checkNode,
@@ -126,6 +127,7 @@ async function main(argv: string[]): Promise<number> {
         checkNode(),
         checkOrigin(),
         checkClaudeLogin(),
+        await checkChrome(),
         ...(await checkBackupTools()),
       ];
       checks.push(...(await withDatabase(checkDatabase)));

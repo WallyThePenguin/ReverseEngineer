@@ -5,7 +5,8 @@ its native agent. One graph of tasks, notes, people and conversations, one inbox
 and an agent that both answers you and acts on its own.
 
 **Status:** M0 (foundations and Jarvis's spine) and step 1 of Jarvis's browser (B1) are built:
-Jarvis browses in your own Chrome while you watch, and take over, inside Hearth. See
+Jarvis browses in your own Chrome while you watch, and take over, inside Hearth, and Hearth
+opens Chrome when Jarvis needs it. See
 [PLAN.md](PLAN.md) for the roadmap.
 
 - [docs/setup-windows.md](docs/setup-windows.md): install it on your PC
@@ -33,6 +34,9 @@ development login on (see the top of `apps/web/e2e/browser.ts`):
 HEARTH_DEV_AUTH=1 HEARTH_WEB_DIST=apps/web/dist pnpm hearth serve
 pnpm --filter @hearth/web e2e:browser
 ```
+
+A second check has the server open Chromium by itself, the way it opens your Chrome (Linux; see
+the top of `apps/web/e2e/chrome-launch.ts`).
 
 Tests need a Postgres role that can create databases; set `HEARTH_TEST_DATABASE_URL` if it isn't
 `postgres://hearth:hearth@localhost:5432/postgres`.

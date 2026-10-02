@@ -1,5 +1,6 @@
 // Server settings from the environment. Hearth listens on loopback by default; Tailscale Serve
 // puts it on your tailnet over HTTPS.
+import { type LaunchConfig, loadLaunchConfig } from "./browser/launch.ts";
 
 export interface ServerConfig {
   host: string;
@@ -10,6 +11,8 @@ export interface ServerConfig {
   devAuth: boolean;
   /** Built web UI to serve, if any. */
   webDist: string | null;
+  /** How Hearth opens your Chrome when Jarvis needs it (D28). */
+  chrome: LaunchConfig;
 }
 
 const LOOPBACK = new Set(["127.0.0.1", "::1", "localhost"]);
@@ -33,5 +36,6 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     origin: (env.HEARTH_ORIGIN ?? `http://localhost:${port}`).replace(/\/$/, ""),
     devAuth,
     webDist: env.HEARTH_WEB_DIST ?? null,
+    chrome: loadLaunchConfig(env),
   };
 }

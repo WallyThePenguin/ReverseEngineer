@@ -6,6 +6,7 @@
   <executable>{{NODE}}</executable>
   <arguments>--env-file-if-exists="{{ROOT}}\.env" "{{ROOT}}\apps\cli\src\main.ts" jarvis</arguments>
   <workingdirectory>{{ROOT}}</workingdirectory>
+  <env name="HEARTH_AS_SERVICE" value="1"/>
   <startmode>Automatic</startmode>
   <delayedAutoStart/>
   <onfailure action="restart" delay="10 sec"/>

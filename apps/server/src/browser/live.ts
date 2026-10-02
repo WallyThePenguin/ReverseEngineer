@@ -1,7 +1,7 @@
 // The live view (D24): a tab streamed into Hearth as pictures, with your clicks, scrolls and keys
 // sent back. Sites refuse to be framed inside another page, so this is how Hearth shows them.
 // Everything here is you acting, so it goes straight to Chrome rather than through actions.
-import type { TabInfo } from "@hearth/modules";
+import type { BrowserStatus, TabInfo } from "@hearth/modules";
 import type { WebSocket } from "ws";
 import type { BrowserBridge, CdpEvent } from "./bridge.ts";
 import { keyEvent } from "./keys.ts";
@@ -30,6 +30,12 @@ type ViewerMessage = {
   modifiers?: number;
 };
 
+/** What the Browser pane shows: Chrome's connection, whether it's being opened, and the tabs. */
+function state(s: BrowserStatus) {
+  const { connected, canOpen, opening, openError, tabs } = s;
+  return { type: "state", connected, canOpen, opening, openError, tabs };
+}
+
 function send(ws: WebSocket, msg: unknown): void {
   // A slow phone connection skips frames instead of piling them up.
   if (ws.readyState === ws.OPEN && ws.bufferedAmount < 4 * 1024 * 1024)
@@ -45,16 +51,14 @@ export class LiveView {
   constructor(bridge: BrowserBridge) {
     this.bridge = bridge;
     bridge.onEvent((e) => this.onEvent(e));
-    bridge.onTabs((tabs, connected) => {
-      for (const ws of this.viewers) send(ws, { type: "state", connected, tabs });
+    bridge.onState((s) => {
+      for (const ws of this.viewers) send(ws, state(s));
     });
   }
 
   connect(ws: WebSocket): void {
     this.viewers.add(ws);
-    void this.bridge
-      .status()
-      .then((s) => send(ws, { type: "state", connected: s.connected, tabs: s.tabs }));
+    send(ws, state(this.bridge.snapshot()));
     ws.on("message", (data) => {
       let msg: ViewerMessage;
       try {

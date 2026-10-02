@@ -8,6 +8,7 @@ import {
   hand,
   listTabs,
   mayUse,
+  noticeTab,
   openTab,
   showTab,
   tabState,
@@ -21,6 +22,10 @@ const DEFAULT_URL = "http://127.0.0.1:4400";
 let socket = null;
 let connected = false;
 let lastError = "";
+// After the link drops (Hearth restarted, say), try again soon, then less often.
+let retryMs = 1000;
+/** @type {ReturnType<typeof setTimeout> | undefined} */
+let retryTimer;
 
 async function config() {
   return /** @type {{ hearthUrl: string, token: string }} */ (
@@ -77,6 +82,7 @@ async function onMessage(msg) {
   if (msg.type === "welcome") {
     connected = true;
     lastError = "";
+    retryMs = 1000;
     badge();
     return pushTabs();
   }
@@ -108,11 +114,16 @@ async function connect() {
     ws.send(JSON.stringify({ type: "hello", token, version: VERSION }));
   };
   ws.onmessage = (e) => void onMessage(JSON.parse(String(e.data)));
-  ws.onclose = () => {
+  ws.onclose = (e) => {
     if (socket !== ws) return;
     socket = null;
     connected = false;
     badge();
+    // A wrong pairing code, or another Chrome took over the link: leave it to the alarm.
+    if (e.code === 4000 || e.code === 4001) return;
+    clearTimeout(retryTimer);
+    retryTimer = setTimeout(() => void connect(), retryMs);
+    retryMs = Math.min(retryMs * 2, 15_000);
   };
   ws.onerror = () => {
     lastError = lastError || `Can't reach Hearth at ${hearthUrl}.`;
@@ -140,6 +151,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, change) => {
   if ((change.url || change.title || change.status) && (await mayUse(tabId))) pushTabs();
 });
 chrome.tabs.onActivated.addListener(() => pushTabs());
+chrome.tabs.onCreated.addListener((tab) => noticeTab(tab));
 chrome.windows.onRemoved.addListener((windowId) => void windowClosed(windowId));
 
 // From the popup and the options page.
@@ -163,7 +175,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   return true;
 });
 
-// Stay connected: on start, on browser start, and every 30 seconds if the link dropped.
+// Stay connected: on start, on browser start, soon after the link drops, and every 30 seconds.
 chrome.runtime.onStartup.addListener(() => void connect());
 chrome.runtime.onInstalled.addListener(() => void connect());
 chrome.alarms.create("hearth-reconnect", { periodInMinutes: 0.5 });

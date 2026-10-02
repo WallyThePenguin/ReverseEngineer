@@ -26,6 +26,12 @@ export interface BrowserStatus {
   /** When the extension connected. */
   since: string | null;
   tabs: TabInfo[];
+  /** Whether Hearth opens Chrome by itself when it's closed (D28). */
+  canOpen?: boolean;
+  /** Chrome is being opened. */
+  opening?: boolean;
+  /** Why the last try to open Chrome failed, until it connects. */
+  openError?: string | null;
 }
 
 /** One request to the extension: tabs.list, tabs.open, tabs.close, tabs.release, tabs.show, cdp. */
@@ -36,6 +42,9 @@ export interface BrowserClient {
 
 export const OFFLINE_MESSAGE =
   "Chrome isn't connected to Hearth. Open Chrome on the PC; the Hearth extension connects by itself.";
+
+/** Long enough for the server to open Chrome and wait for it (D28), then do what was asked. */
+const REQUEST_TIMEOUT_MS = 150_000;
 
 /** Reaches the server's browser bridge from Jarvis or the worker, with a short internal token. */
 export class HttpBrowserClient implements BrowserClient {
@@ -78,7 +87,7 @@ export class HttpBrowserClient implements BrowserClient {
             ...(json ? { "content-type": "application/json" } : {}),
           },
           ...(json ? { body: JSON.stringify(json) } : {}),
-          signal: AbortSignal.timeout(60_000),
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         });
       } catch {
         throw new ActionError(

@@ -41,7 +41,8 @@ are all in scope.
 - To keep an eye on a page (a price, an order, a listing), use `page_watch_create`. Checks run
   on their own and the owner gets a notice when it changes. Set `onChange` only to what the
   owner asked you to do about a change.
-- If Chrome isn't connected, say so in one line and carry on without it.
+- If Chrome is closed, `browser_open` starts it on the owner's PC, which can take half a minute.
+  If it still can't reach Chrome, say why in one line and carry on without it.
 
 ## Trust
 

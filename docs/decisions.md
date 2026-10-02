@@ -340,3 +340,32 @@ when you set one up, and a plain-fetch watch Jarvis creates can't reach your own
 untrusted marking a web page gets. Keeping page text in one place, which is marked, keeps D25
 whole. The watch's page shows exactly what changed, one click from the notice.
 
+## D28. Hearth opens your Chrome when Jarvis needs it (2026-10-02)
+
+**Decision:** When Jarvis opens a page and Chrome is closed, Hearth starts your own Chrome, in
+your own profile, on your desktop, and waits for the extension to connect. Chrome starts with no
+window of its own (`--no-startup-window`); Jarvis's window appears when it opens a page. The
+extension asks to keep Chrome running in the background (the "background" permission), so Chrome
+stays up after you close its windows, starts when you sign in to Windows, and shows its icon in
+the system tray. On Windows, Hearth's server is a service and can't show anything on your
+desktop, so it runs a scheduled task, "Hearth Chrome", that install.ps1 registers to run as you,
+only while you're signed in; the task also opens Chrome when you sign in. When you run Hearth
+yourself (and on a Mac or Linux), it starts Chrome directly. Only opening a page starts Chrome:
+listing tabs or using a tab that's gone doesn't. A running Chrome gets a moment to reconnect
+first (30 seconds after Hearth starts, 10 after the link drops), and after a failed try Hearth
+waits five minutes before trying again by itself. **Open Chrome** in Hearth tries at once.
+
+When Chrome had no windows and is set to continue where you left off, it brings your last
+session back into the next window that opens, which is Jarvis's. The extension then leaves that
+window to you and moves Jarvis's tabs to a new window.
+
+**Alternatives:** Start Chrome from the service directly (it would run in session 0, invisible,
+and lock your profile so your own Chrome wouldn't open). A helper program running in your
+session at all times (one more thing running, for the same result). Background mode alone (Chrome
+would stay closed after you quit it from the tray). Hiding Chrome's "debugging this browser" bar
+with `--silent-debugger-extension-api` (it would hide that bar for every extension, and it's the
+clearest sign that something is driving your browser).
+
+**Why:** The browser stays yours and visible: your Chrome, your profile, a window you can see,
+never a hidden one. Hearth keeps working after you close Chrome, and you're told plainly when it
+can't open Chrome (usually because nobody is signed in to Windows).

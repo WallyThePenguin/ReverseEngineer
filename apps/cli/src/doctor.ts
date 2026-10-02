@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { credential, type Database, loadMigrations, setting } from "@hearth/db";
+import { findChrome, loadLaunchConfig } from "@hearth/server";
 import { like } from "drizzle-orm";
 import { type Runner, runProgram } from "./backup.ts";
 
@@ -115,6 +116,41 @@ export async function checkBackupTools(
     });
   }
   return checks;
+}
+
+/** Whether Hearth can open Chrome by itself when Jarvis needs it (D28). */
+export async function checkChrome(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+  run: Runner = runProgram,
+): Promise<Check> {
+  // As the server sees it when it runs as a service: on Windows, that means the task.
+  const config = loadLaunchConfig({ ...env, HEARTH_AS_SERVICE: "1" }, platform);
+  if (platform === "win32" && config.mode === "direct") config.mode = "task";
+  if (config.mode === "off")
+    return {
+      name: "Chrome",
+      mark: "ok",
+      detail: "You open Chrome yourself (HEARTH_CHROME_LAUNCH=off)",
+    };
+  if (config.mode === "task") {
+    const found = (await run("schtasks", ["/Query", "/TN", config.task])).code === 0;
+    return found
+      ? { name: "Chrome", mark: "ok", detail: `Hearth opens it with the "${config.task}" task` }
+      : {
+          name: "Chrome",
+          mark: "warn",
+          detail: `No "${config.task}" task, so Hearth can't open Chrome by itself. Run ops\\windows\\install.ps1 again.`,
+        };
+  }
+  const chrome = config.chromePath ?? findChrome(env, platform);
+  return chrome && existsSync(chrome)
+    ? { name: "Chrome", mark: "ok", detail: `Hearth opens ${chrome} when Jarvis needs it` }
+    : {
+        name: "Chrome",
+        mark: "warn",
+        detail: "Can't find Chrome, so Hearth can't open it by itself. Set HEARTH_CHROME_PATH.",
+      };
 }
 
 export async function checkDatabase(database: Database): Promise<Check[]> {

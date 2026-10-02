@@ -3,7 +3,7 @@
 
 import { createResource, createSignal, onCleanup, Show } from "solid-js";
 import { Badge, Button } from "../components/ui.tsx";
-import { browserStatus, pairBrowser, unpairBrowser } from "../lib/browser.ts";
+import { browserStatus, openChrome, pairBrowser, unpairBrowser } from "../lib/browser.ts";
 import { ago } from "../lib/format.ts";
 import { reportError, toast } from "../lib/live.ts";
 import { act, useAction } from "../lib/query.ts";
@@ -25,6 +25,20 @@ function Pairing() {
   const [code, setCode] = createSignal<string | null>(null);
   const timer = setInterval(() => void refetch(), 5000);
   onCleanup(() => clearInterval(timer));
+
+  const [opening, setOpening] = createSignal(false);
+  const open = async () => {
+    setOpening(true);
+    try {
+      await openChrome();
+      toast.show("Chrome is open and connected.");
+    } catch (err) {
+      reportError(err);
+    } finally {
+      setOpening(false);
+      void refetch();
+    }
+  };
 
   const pair = async () => {
     try {
@@ -55,14 +69,26 @@ function Pairing() {
                 <p class="text-sm text-muted">
                   {s().connected
                     ? `Since ${ago(s().since ?? "")}. Jarvis has ${s().tabs.length} tab(s) it may use.`
-                    : s().paired
-                      ? "Open Chrome on the PC; the extension connects by itself."
-                      : "Install the Hearth extension in Chrome, then pair it here."}
+                    : !s().paired
+                      ? "Install the Hearth extension in Chrome, then pair it here."
+                      : s().opening
+                        ? "Opening Chrome on the PC…"
+                        : s().canOpen
+                          ? "Chrome is closed. Hearth opens it when Jarvis needs it."
+                          : "Open Chrome on the PC; the extension connects by itself."}
                 </p>
+                <Show when={!s().connected && !s().opening && s().openError}>
+                  <p class="text-sm text-bad">{s().openError}</p>
+                </Show>
               </>
             )}
           </Show>
         </div>
+        <Show when={status()?.paired && !status()?.connected && status()?.canOpen}>
+          <Button disabled={opening() || status()?.opening} onClick={() => void open()}>
+            Open Chrome
+          </Button>
+        </Show>
         <Show when={status()?.paired}>
           <Button
             kind="danger"

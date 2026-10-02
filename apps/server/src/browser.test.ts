@@ -3,11 +3,13 @@ import { PRINCIPAL } from "@hearth/core";
 import { createSession } from "@hearth/db";
 import { type ServerType, serve } from "@hono/node-server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import WebSocket from "ws";
 import { createApiToken } from "./auth/tokens.ts";
+import {
+  fakeExtension as fakeExtensionAt,
+  type Msg,
+  socket as socketTo,
+} from "./testing/extension.ts";
 import { createTestServer, TEST_ORIGIN, type TestServer } from "./testing/server.ts";
-
-type Msg = Record<string, unknown> & { type: string };
 
 let t: TestServer;
 let http: ServerType;
@@ -26,50 +28,9 @@ afterEach(async () => {
   await new Promise((r) => http.close(r));
 });
 
-/** A WebSocket that queues messages so a test can wait for the next one of a type. */
-function socket(path: string, origin: string) {
-  const ws = new WebSocket(`${base}${path}`, { origin });
-  const inbox: Msg[] = [];
-  const waiters: { type: string; resolve(m: Msg): void }[] = [];
-  ws.on("message", (data) => {
-    const msg = JSON.parse(String(data)) as Msg;
-    const i = waiters.findIndex((w) => w.type === msg.type);
-    if (i >= 0) waiters.splice(i, 1)[0]?.resolve(msg);
-    else inbox.push(msg);
-  });
-  const next = (type: string) =>
-    new Promise<Msg>((resolve, reject) => {
-      const i = inbox.findIndex((m) => m.type === type);
-      if (i >= 0) return resolve(inbox.splice(i, 1)[0] as Msg);
-      waiters.push({ type, resolve });
-      setTimeout(() => reject(new Error(`No ${type} message`)), 3000);
-    });
-  const opened = new Promise<void>((resolve, reject) => {
-    ws.once("open", () => resolve());
-    ws.once("unexpected-response", (_req, res) => reject(new Error(`HTTP ${res.statusCode}`)));
-    ws.once("error", reject);
-  });
-  return { ws, next, opened, send: (m: unknown) => ws.send(JSON.stringify(m)) };
-}
-
-/** A pretend Chrome extension that answers calls from a table and records them. */
-async function fakeExtension(token: string, answers: Record<string, (p: Msg) => unknown>) {
-  const ext = socket("/api/browser/bridge", "chrome-extension://hearth-test");
-  const calls: Msg[] = [];
-  await ext.opened;
-  ext.send({ type: "hello", token, version: "0.1.0" });
-  ext.ws.on("message", (data) => {
-    const msg = JSON.parse(String(data)) as Msg;
-    if (msg.type !== "call") return;
-    calls.push(msg);
-    const answer = answers[String(msg.method)];
-    const params = msg.params as Msg;
-    const key = msg.method === "cdp" ? String(params.method) : String(msg.method);
-    const result = (answers[key] ?? answer)?.(params) ?? {};
-    ext.send({ type: "result", id: msg.id, result });
-  });
-  return { ...ext, calls };
-}
+const socket = (path: string, origin: string) => socketTo(base, path, origin);
+const fakeExtension = (token: string, answers: Record<string, (p: Msg) => unknown>) =>
+  fakeExtensionAt(base, token, answers);
 
 async function pair(): Promise<string> {
   const res = await t.browser("/api/browser/pair", { method: "POST" });

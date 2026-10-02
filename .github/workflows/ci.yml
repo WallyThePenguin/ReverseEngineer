@@ -66,10 +66,20 @@ jobs:
       - name: Browser extension end-to-end
         run: |
           export HEARTH_WEB_DIST="$PWD/apps/web/dist"
-          HEARTH_DEV_AUTH=1 HEARTH_PORT=4401 HEARTH_ORIGIN=http://localhost:4401 \
+          HEARTH_DEV_AUTH=1 HEARTH_PORT=4401 HEARTH_ORIGIN=http://localhost:4401 HEARTH_CHROME_LAUNCH=off \
             pnpm -s hearth serve > server-dev.log 2>&1 &
           for i in $(seq 1 30); do curl -sf localhost:4401/api/health > /dev/null && break; sleep 1; done
           HEARTH_E2E_URL=http://localhost:4401 pnpm --filter @hearth/web e2e:browser
+      - name: Hearth opens Chrome by itself, end-to-end
+        run: |
+          PROFILE=$(mktemp -d) EXT="$PWD/apps/extension"
+          CHROME=$(cd apps/web && node -e "import('playwright').then((p) => console.log(p.chromium.executablePath()))")
+          HEARTH_DEV_AUTH=1 HEARTH_PORT=4402 HEARTH_ORIGIN=http://localhost:4402 HEARTH_CHROME_PATH="$CHROME" \
+            HEARTH_CHROME_ARGS="--headless=new --no-sandbox --user-data-dir=$PROFILE --disable-extensions-except=$EXT --load-extension=$EXT" \
+            pnpm -s hearth serve > server-launch.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf localhost:4402/api/health > /dev/null && break; sleep 1; done
+          HEARTH_E2E_URL=http://localhost:4402 HEARTH_E2E_PROFILE="$PROFILE" HEARTH_E2E_CHROME="$CHROME" \
+            pnpm --filter @hearth/web e2e:chrome-launch
       - name: Server log
         if: failure()
-        run: cat server.log server-dev.log || true
+        run: cat server.log server-dev.log server-launch.log || true

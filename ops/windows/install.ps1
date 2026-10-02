@@ -10,12 +10,19 @@
   - hearth-jarvis runs as your account, so it can use your Claude login. WinSW asks for your
     password once; Windows stores it, not Hearth.
   - The backup runs nightly at 2:30 a.m. as you, whether or not you're signed in.
+  - The "Hearth Chrome" task opens your Chrome, as you, on your desktop: when you sign in, and
+    when Jarvis needs it and it's closed (the server asks Windows to run it). Run this script from
+    your own Windows account (Run as administrator), so the task is yours and finds your Chrome.
 #>
 [CmdletBinding()]
 param(
   [string]$Root = (Resolve-Path "$PSScriptRoot\..\..").Path,
   [string]$BackupTime = "02:30",
-  [switch]$SkipBackupTask
+  [switch]$SkipBackupTask,
+  # Chrome's profile folder with the Hearth extension, like "Default" or "Profile 1". Chrome shows
+  # it on chrome://version as the last part of "Profile Path". Defaults to the last one you used.
+  [string]$ChromeProfile = "",
+  [switch]$SkipChromeTask
 )
 $ErrorActionPreference = "Stop"
 
@@ -71,6 +78,62 @@ foreach ($svc in "server", "worker", "jarvis") {
   if ($LASTEXITCODE -ne 0) { throw "Installing $id failed (exit $LASTEXITCODE)." }
   & $exe start
   Write-Host "Started $id."
+}
+
+function Find-Chrome {
+  $paths = @(foreach ($key in "HKCU:", "HKLM:", "HKLM:\SOFTWARE\WOW6432Node") {
+    $appPath = if ($key -like "*WOW6432Node") { "$key\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe" }
+               else { "$key\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe" }
+    $item = Get-Item -LiteralPath $appPath -ErrorAction SilentlyContinue
+    if ($item -and $item.GetValue("")) { [Environment]::ExpandEnvironmentVariables([string]$item.GetValue("")).Trim('"') }
+  })
+  $paths += "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+            "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
+            "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
+  foreach ($p in $paths) {
+    if ($p -and (Test-Path -LiteralPath $p -PathType Leaf)) { return (Get-Item -LiteralPath $p).FullName }
+  }
+  return $null
+}
+
+if (-not $SkipChromeTask) {
+  $chrome = Find-Chrome
+  if (-not $chrome) {
+    Write-Warning "Couldn't find Chrome, so Hearth can't open it by itself. Install Chrome, then run this again."
+  } else {
+    if (-not $ChromeProfile) {
+      $ChromeProfile = "Default"
+      $localState = "$env:LOCALAPPDATA\Google\Chrome\User Data\Local State"
+      try {
+        $state = Get-Content -Raw -LiteralPath $localState | ConvertFrom-Json
+        if ($state.profile.last_used) { $ChromeProfile = $state.profile.last_used }
+      } catch {}
+    }
+    $me = "$env:USERDOMAIN\$env:USERNAME"
+    # No window of its own: Chrome waits in the background until Jarvis opens a tab. If Chrome is
+    # already running, this does nothing.
+    $action = New-ScheduledTaskAction -Execute $chrome -WorkingDirectory (Split-Path $chrome) `
+      -Argument "--no-startup-window --profile-directory=`"$ChromeProfile`""
+    $atLogOn = New-ScheduledTaskTrigger -AtLogOn -User $me
+    $atLogOn.Delay = "PT20S"
+    # The task lasts as long as the Chrome it opened, so: no time limit, keep going on battery,
+    # normal priority (Chrome inherits it), and never a second copy.
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+      -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -Priority 5
+    # Interactive: only while you're signed in, on your desktop, so you can see it.
+    $user = New-ScheduledTaskPrincipal -UserId $me -LogonType Interactive -RunLevel Limited
+    Register-ScheduledTask -TaskName "Hearth Chrome" -TaskPath "\" -Action $action -Trigger $atLogOn `
+      -Settings $settings -Principal $user -Force `
+      -Description "Opens your Chrome for Jarvis when you sign in, and when Hearth needs it." | Out-Null
+    # Hearth's server runs as LocalService; let it start (read and run) this one task, nothing more.
+    $scheduler = New-Object -ComObject Schedule.Service
+    $scheduler.Connect()
+    $task = $scheduler.GetFolder("\").GetTask("Hearth Chrome")
+    $sddl = $task.GetSecurityDescriptor(7)
+    if ($sddl -notmatch ";;;(LS|S-1-5-19)\)") { $task.SetSecurityDescriptor($sddl + "(A;;GRGX;;;LS)", 0) }
+    Write-Host "Hearth can open Chrome (profile `"$ChromeProfile`") when Jarvis needs it."
+    Write-Host "If the Hearth extension is in another profile, run this again with -ChromeProfile."
+  }
 }
 
 if (-not $SkipBackupTask) {
