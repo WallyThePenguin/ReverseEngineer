@@ -167,7 +167,7 @@ download links.
 
 ## Open-source engines to build it on
 
-You pointed at Browser Use ([openalternative.co/browser-use](https://openalternative.co/browser-use)).
+You pointed at Browser Use ([openalternative.co/browser-use](https://openalternative.co/browser-use)) and ego lite.
 It's the strongest open project in this space, and it's one of the systems Polar benchmarks itself
 against. Facts as of 2026-10-02:
 
@@ -179,13 +179,47 @@ against. Facts as of 2026-10-02:
 | What it is | A full agent loop: give it a goal and it plans and acts. Parallel agents, vision plus DOM, saved sessions, any LLM. | Browser tools for an agent you already have: snapshot, click, type, navigate. Can attach to a tab in your real browser through an extension. | An SDK with `act`, `extract` and `observe` calls, mixing written code with AI steps |
 | How it drives Chrome | Directly over the DevTools protocol (`cdp-use`). Playwright is no longer a dependency, so openalternative's "playwright" tag is out of date. | Playwright | Playwright or CDP |
 | Fits Hearth's stack | Needs a Python sidecar. It ships an MCP server (`browser_use/mcp/server.py`). | Native TypeScript, same as Hearth's existing Playwright tests | Native TypeScript |
-| Watch for | PostHog telemetry is on by default (set `ANONYMIZED_TELEMETRY=false`). It bundles a TOTP library, which would let an agent fill 2FA codes; Jarvis must not. It has its own model loop, which would bypass Jarvis's budget unless pointed at the Max plan. | Low level, so Jarvis does the planning, and every step costs a turn | Built around Browserbase's cloud browsers, though local mode works |
+| Watch for | PostHog telemetry is on by default and fires on every MCP tool call (set `ANONYMIZED_TELEMETRY=false`). Its own agent loop, the MCP tools `browser_extract_content` and `retry_with_browser_use_agent`, and its Claude integration all need an LLM API key (OpenAI by default), which Jarvis's no-API-key rule forbids. The plain browser tools work without one. It also bundles a TOTP library, which would let an agent fill 2FA codes; Jarvis must not. | Low level, so Jarvis does the planning, and every step costs a turn | Built around Browserbase's cloud browsers, though local mode works |
+
+Browser Use comes three ways: a paid hosted cloud, a CLI skill for agents like Claude Code (built on
+its MIT-licensed Browser Harness), and the Python library above. Its MCP server keeps a separate
+profile by default (`~/.config/browseruse/profiles/default`).
+
+### ego lite (`citrolabs/ego-lite`)
+
+An "agent browser" from Citro Labs: a Chromium fork you use as your daily browser, which any coding
+agent (Claude Code, Codex, Cursor) can drive. About 16.8k stars, created 2026-04-16, v2.0.0 on
+2026-09-10. Its ideas are good, but it doesn't fit Jarvis.
+
+- **Only the connector is open.** The MIT repo holds `ego-browser`, a helper bundle that runs inside
+  an `ego-browser nodejs` environment hosted by the app. The browser, its custom snapshot engine and
+  the native `globalThis.ego` API it injects are a separate, free, closed download. Without the app,
+  the open code does nothing.
+- **macOS only.** A Windows closed beta is "coming soon", so it can't run on the always-on PC today.
+- **It wants your real logins.** On first launch it offers to migrate Chrome's cookies, sessions,
+  saved passwords and extensions, and it pitches itself as your default browser so the agent never
+  hits a login. That's the opposite of the separate-profile rule above.
+- **One script can do many steps.** The agent writes a JavaScript snippet that chains snapshot,
+  fill, click and navigate, and `ego-browser` runs it in one pass. That's where its speed and token
+  savings come from (they claim up to 3.45x faster than Vercel's agent-browser). But Hearth's policy
+  judges one action at a time. A script that can click Submit somewhere inside it can't get a
+  per-step risk class, and its skill file leaves approvals to the host agent.
+
+What to borrow:
+- **Spaces.** Each agent task gets its own isolated workspace in the same browser, so it never takes
+  your tabs or mouse, and you can watch or take over.
+- **Per-site learnings.** `learnings/<site>/` files are read on every call. Polar does the same with
+  per-site preference files, and two products arriving at the same idea is a strong signal.
+- **Batching, limited to reads.** A Hearth version could allow a multi-step script only in read-only
+  mode (navigate, snapshot, extract), and keep every click that changes something as its own gated
+  action.
 
 **Recommendation: start with Playwright MCP's tools, wrapped as Hearth actions, on a dedicated Chrome
-profile.** It's TypeScript, it leaves planning to Jarvis (one brain, one budget, one policy), and its
-extension mode later gives a "do this in my own tab" option. Keep Browser Use in reserve for big
-parallel research runs, where its agent loop and parallel sessions match what Polar does. It would
-run as a sidecar process that Jarvis calls through one coarse action ("run this research job").
+profile.** It's TypeScript, it runs on Windows, it needs no API key, and it leaves planning to
+Jarvis: one brain, one budget, one policy. Its extension mode later gives a "do this in my own tab"
+option. Browser Use's plain MCP tools are the backup, run as a Python sidecar with telemetry off and
+its LLM features unused. ego lite is worth a look as a tool for you in Claude Code on a Mac, not as
+Jarvis's engine.
 
 ## What this means for Hearth
 
@@ -241,7 +275,10 @@ None of this is in `PLAN.md` yet. It's waiting for your go-ahead.
 - [openalternative.co/browser-use](https://openalternative.co/browser-use),
   [browser-use/browser-use](https://github.com/browser-use/browser-use),
   [microsoft/playwright-mcp](https://github.com/microsoft/playwright-mcp),
-  [browserbase/stagehand](https://github.com/browserbase/stagehand)
+  [browserbase/stagehand](https://github.com/browserbase/stagehand),
+  [browser-use/browser-harness](https://github.com/browser-use/browser-harness)
+- ego lite: [citrolabs/ego-lite](https://github.com/citrolabs/ego-lite) (README,
+  `docs/native-bindings-api.md`, `package/ego-browser/README.md`), [lite.ego.app](https://lite.ego.app)
 - Benchmarks: [Odysseys paper (arXiv 2604.24964)](https://arxiv.org/html/2604.24964),
   [Odysseys leaderboard](https://odysseysbench.com/leaderboard),
   [recursive-hq/polar-evals](https://github.com/recursive-hq/polar-evals),
