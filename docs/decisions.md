@@ -324,3 +324,19 @@ chosen in step 2.
 **Why:** You asked for it, and with the site check the sign-in itself is low risk: a phishing page
 gets nothing, and signing in to the real site sends nothing anywhere. The risk is in what happens
 next, and those actions keep their approvals.
+
+## D27. A watched page's text stays on the watch (2026-10-02)
+
+**Decision:** Page watches keep the page's text on the watch record only. Notices and events say
+that a watched page changed, never what it says now. Watch records are marked as outside content,
+so a turn that reads one is untrusted, and a turn about a change starts untrusted. A watch's
+follow-up ("tell me if it drops under $30") is yours: Jarvis can only set one in a turn that
+hasn't read outside content. Watches run later without you, so blocked sites are refused even
+when you set one up, and a plain-fetch watch Jarvis creates can't reach your own network.
+
+**Alternatives:** Put the new text in the notice, which saves a click.
+
+**Why:** Notices and events are read all over Hearth, by Jarvis and by reflexes, without the
+untrusted marking a web page gets. Keeping page text in one place, which is marked, keeps D25
+whole. The watch's page shows exactly what changed, one click from the notice.
+

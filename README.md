@@ -4,7 +4,9 @@ A personal, self-hosted workspace modeled on [Macro](https://macro.com), with Ja
 its native agent. One graph of tasks, notes, people and conversations, one inbox, split panes,
 and an agent that both answers you and acts on its own.
 
-**Status:** M0 (foundations and Jarvis's spine) is built. See [PLAN.md](PLAN.md) for the roadmap.
+**Status:** M0 (foundations and Jarvis's spine) and step 1 of Jarvis's browser (B1) are built:
+Jarvis browses in your own Chrome while you watch, and take over, inside Hearth. See
+[PLAN.md](PLAN.md) for the roadmap.
 
 - [docs/setup-windows.md](docs/setup-windows.md): install it on your PC
 - [PLAN.md](PLAN.md): the plan
@@ -24,6 +26,14 @@ pnpm --filter @hearth/web dev   # the web app with hot reload on :5173
 pnpm check                  # lint, typecheck, file sizes, tests
 ```
 
+The browser's end-to-end check loads the extension into Chromium against a server with
+development login on (see the top of `apps/web/e2e/browser.ts`):
+
+```sh
+HEARTH_DEV_AUTH=1 HEARTH_WEB_DIST=apps/web/dist pnpm hearth serve
+pnpm --filter @hearth/web e2e:browser
+```
+
 Tests need a Postgres role that can create databases; set `HEARTH_TEST_DATABASE_URL` if it isn't
 `postgres://hearth:hearth@localhost:5432/postgres`.
 
@@ -34,13 +44,14 @@ Tests need a Postgres role that can create databases; set `HEARTH_TEST_DATABASE_
 | `packages/core` | Pure logic: mentions, filters, time and interrupt rules, conversation fold |
 | `packages/db` | Schema, migrations, test databases |
 | `packages/kernel` | Actions, policy, approvals, events, scheduler |
-| `packages/modules` | Tasks, notes, inbox, chat, people, system, Jarvis's assistant module |
+| `packages/modules` | Tasks, notes, inbox, chat, people, system, the browser and page watches, Jarvis's assistant module |
 | `packages/jarvis` | Reflex engine, turn runner, brains, routines |
-| `apps/server` | HTTP API, live events, passkeys, `/mcp` |
-| `apps/worker` | Schedules and health checks |
+| `apps/server` | HTTP API, live events, passkeys, `/mcp`, the browser bridge and live view |
+| `apps/worker` | Schedules, page watch checks and health checks |
 | `apps/jarvis` | The Jarvis service |
 | `apps/cli` | `hearth` command: setup, serve, backup, doctor, tokens |
-| `apps/web` | The SolidJS web app |
+| `apps/web` | The SolidJS web app, and its end-to-end checks (`e2e/`) |
+| `apps/extension` | The Hearth extension for Chrome (Jarvis's browser) |
 | `ops/windows` | Windows services and the backup task |
 
 Hearth is AGPLv3; it borrows from Macro (see [NOTICE.md](NOTICE.md)).

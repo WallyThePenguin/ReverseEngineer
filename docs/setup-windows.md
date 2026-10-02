@@ -147,10 +147,43 @@ claude mcp add --transport http hearth https://desktop.tail1234.ts.net/mcp --hea
 `pnpm hearth token list` shows the tokens and when each was last used, and
 `pnpm hearth token revoke claude-code` cuts one off.
 
+## 10. Connect Chrome (Jarvis's browser)
+
+Jarvis uses your own Chrome, signed in as you, through the Hearth extension. You watch it, and
+take over with your mouse and keyboard, from the **Browser** pane in Hearth (`g b`), on the PC
+or on your phone.
+
+1. In Chrome, open `chrome://extensions`, turn on **Developer mode**, choose **Load unpacked**,
+   and pick `C:\Hearth\apps\extension`.
+2. In Hearth, open **Settings → Chrome** and choose **Pair Chrome**. Copy the code; it's shown
+   once.
+3. Right-click the Hearth button in Chrome's toolbar and choose **Options**. Enter
+   `http://127.0.0.1:4400` as the address (the extension talks to Hearth on this PC, not over
+   Tailscale), paste the code, and save. It says **Connected**.
+
+What to expect:
+
+- Jarvis works in its own Chrome window, behind yours, in a purple **Jarvis** tab group. To let
+  it use one of your tabs, click the Hearth button on that tab and choose **Let Jarvis use this
+  tab**; **Take this tab back** returns it.
+- While Jarvis is using a tab, Chrome shows a bar saying Hearth is debugging the browser. That's
+  Chrome telling you, and it goes away a few minutes after Jarvis stops. Choosing **Cancel** on
+  it cuts Jarvis off from that tab.
+- In **Settings → Chrome → Never open**, add your bank. Password managers, your Google account
+  settings and PayPal are on the list already. **Open freely** lists sites Jarvis may open even
+  right after reading an email or a web page.
+- Page watches tell you when a page changes: ask Jarvis ("watch this kettle's price and tell me
+  if it drops under $30"), or use **Watch** in the Browser pane. They're listed under
+  **Settings → Chrome**.
+- Chrome has to be open on the PC for Jarvis to browse, and for page watches that run in your
+  Chrome. Watches set to a plain fetch work for public pages while Chrome is closed.
+- If Jarvis's window is minimized, the live view drops to about one picture a second.
+
 ## Using Hearth
 
 - `Ctrl+K` searches everything, runs commands, makes a task, or asks Jarvis.
 - `Ctrl+J` shows or hides Jarvis. `?` lists every shortcut.
+- `g b` opens the Browser: your Chrome, live, with Jarvis's tabs and the ones you handed it.
 - In the inbox: `j`/`k` to move, `e` done, `s` snooze, `a`/`d` approve or deny.
 - Type `@` in a note, task or comment to link anything, or `@Jarvis` to ask for help right there.
 - Give a task to Jarvis and it works on it, reporting in the task's thread.
@@ -160,6 +193,8 @@ claude mcp add --transport http hearth https://desktop.tail1234.ts.net/mcp --hea
 ## When something's wrong
 
 - `pnpm hearth doctor` first.
+- The Browser pane says Chrome isn't connected: open Chrome on the PC. If it still isn't, open
+  the extension's options; it says why (often an old pairing code: pair again in Settings).
 - Service logs are in `C:\ProgramData\Hearth\services\` (one set per service).
 - Restart a service: `Restart-Service hearth-jarvis` (or `hearth-server`, `hearth-worker`).
 - To update Hearth: `git pull`, `pnpm install`, `pnpm build:web`, `pnpm hearth migrate`, then
