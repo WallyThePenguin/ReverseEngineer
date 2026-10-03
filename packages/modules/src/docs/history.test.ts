@@ -112,6 +112,14 @@ describe("doc history", () => {
     expect(texts.slice(0, 2)).toEqual(["morning evening", "morning"]);
   });
 
+  it("names the writer of a note's text even before it's opened", async () => {
+    const note = await ok<{ id: string }>("note.create", { title: "Plan", body: "mine" });
+    await ok("note.update", { id: note.id, body: "mine and theirs" }, jarvisCaller("agent"));
+    await ok("note.update", { id: note.id, title: "Renamed" });
+    const h = await ok<History>("doc.history", { id: note.id });
+    expect(new Set(h.versions.flatMap((v) => v.by))).toEqual(new Set(["owner", "jarvis"]));
+  });
+
   it("refuses versions the doc doesn't have, and other people", async () => {
     const note = await ok<{ id: string }>("note.create", { title: "N", body: "x" });
     await new Screen(note.id).sync();

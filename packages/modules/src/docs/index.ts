@@ -3,7 +3,7 @@
 // what it's missing; changes made anywhere else show up through the live event feed.
 import { docCheckpoint, entity } from "@hearth/db";
 import { type ActionContext, ActionError, defineAction, newId, updateEntity } from "@hearth/kernel";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { VersionVector } from "loro-crdt";
 import { z } from "zod";
 import { id } from "../shared.ts";
@@ -137,6 +137,8 @@ export const docActions = [
     async handler(i, ctx) {
       await docRow(ctx, i.id);
       const text = await at(ctx, i.id, i.frontiers);
+      if (text.length > MAX_TEXT)
+        throw new ActionError("invalid_input", "That version is too long to put back.");
       const row = await writeDoc(ctx, i.id, { body: text }, { type: "note" });
       return { revision: row.revision };
     },
@@ -182,11 +184,14 @@ export const docActions = [
     risk: "internal",
     callers: ["owner"],
     async handler(i, ctx) {
-      const gone = await ctx.tx
-        .delete(docCheckpoint)
-        .where(and(eq(docCheckpoint.id, i.id)))
-        .returning({ id: docCheckpoint.id });
-      if (!gone.length) throw new ActionError("not_found", "No such checkpoint");
+      const [cp] = await ctx.tx
+        .select({ entityId: docCheckpoint.entityId })
+        .from(docCheckpoint)
+        .where(eq(docCheckpoint.id, i.id));
+      if (!cp) throw new ActionError("not_found", "No such checkpoint");
+      // Kept while its note is in the trash, so restoring the note brings it back.
+      await docRow(ctx, cp.entityId);
+      await ctx.tx.delete(docCheckpoint).where(eq(docCheckpoint.id, i.id));
       return { id: i.id };
     },
   }),

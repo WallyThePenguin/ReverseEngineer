@@ -2,6 +2,8 @@
 // merges, with the body column kept as the readable copy. Anything that writes the body directly
 // (Jarvis, the checklist) is taken into the doc as an edit the next time it's opened, so it merges
 // with typing instead of overwriting it.
+
+import { randomBytes } from "node:crypto";
 import { type DbOrTx, docPeer, docState, docUpdate, entity } from "@hearth/db";
 import { type ActionContext, type EntityRow, updateEntity } from "@hearth/kernel";
 import { and, asc, eq, gt, lte, max } from "drizzle-orm";
@@ -25,6 +27,11 @@ function fresh(): LoroDoc {
  * Saves an update, and names who wrote it: each Loro peer whose edits it adds is recorded as
  * theirs, so history can say who changed what. The first claim on a peer stands.
  */
+/** Each server-side edit gets its own peer, so it can be named as its writer's alone. */
+function newPeer(doc: LoroDoc) {
+  doc.setPeerId(randomBytes(8).readBigUInt64BE() & 0x7fff_ffff_ffff_ffffn);
+}
+
 async function append(
   ctx: ActionContext,
   id: string,
@@ -85,8 +92,9 @@ export async function openDoc(
       snapshot: Buffer.from(doc.export({ mode: "snapshot" })),
       revision: row.revision,
     });
-    // The text it starts from is the last writer's.
-    await recordPeers(ctx, row.id, doc, before, row.updatedBy);
+    // The text it starts from is the last writer's if only one has written it.
+    const by = row.createdBy === row.updatedBy ? row.updatedBy : "someone";
+    await recordPeers(ctx, row.id, doc, before, by);
     return { doc, pending: 0 };
   }
   const { doc, state } = loaded;
@@ -95,6 +103,7 @@ export async function openDoc(
     const body = row.body ?? "";
     if (body !== textOf(doc)) {
       const before = doc.oplogVersion();
+      newPeer(doc);
       doc.getText(TEXT).update(body);
       doc.commit();
       await append(ctx, row.id, doc, before, row.updatedBy);
@@ -117,17 +126,14 @@ export async function writeDoc(
   opts: { expectedRevision?: number; type: string },
 ): Promise<EntityRow> {
   const [row] = await ctx.tx.select().from(entity).where(eq(entity.id, id)).for("update");
-  const [state] = row
-    ? await ctx.tx.select({ id: docState.entityId }).from(docState).where(eq(docState.entityId, id))
-    : [];
-  if (!row || !state || row.deletedAt || !DOC_TYPES.has(row.type))
-    return updateEntity(ctx, id, patch, opts);
+  if (!row || row.deletedAt || !DOC_TYPES.has(row.type)) return updateEntity(ctx, id, patch, opts);
   if (opts.expectedRevision !== undefined && opts.expectedRevision !== row.revision)
     return updateEntity(ctx, id, patch, opts); // Fails with the usual conflict.
   const { doc, pending } = await openDoc(ctx, row);
   let added = 0;
   if (patch.body !== undefined && patch.body !== textOf(doc)) {
     const before = doc.oplogVersion();
+    newPeer(doc);
     doc.getText(TEXT).update(patch.body);
     doc.commit();
     await append(ctx, id, doc, before, ctx.caller.principal);
