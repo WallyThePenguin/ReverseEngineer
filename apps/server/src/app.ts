@@ -34,6 +34,7 @@ import { deviceRoutes } from "./routes/devices.ts";
 import { eventRoutes } from "./routes/events.ts";
 import { googleRoutes } from "./routes/google.ts";
 import { mailRoutes } from "./routes/mail.ts";
+import { voiceRoutes } from "./routes/voice.ts";
 
 const CSP = [
   "default-src 'self'",
@@ -99,6 +100,7 @@ export function createApp(opts: AppOptions) {
   app.route("/api/google", googleRoutes());
   app.route("/api/mail", mailRoutes());
   app.route("/api/devices", deviceRoutes());
+  app.route("/api/voice", voiceRoutes());
   app.route("/api", actionRoutes());
   app.route("/mcp", mcpRoutes());
   app.all("/api/*", (c) => c.json({ error: "Not found." }, 404));

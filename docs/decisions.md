@@ -649,3 +649,22 @@ nothing can approve it, so text from an email could make it paste out your data)
 **Why:** The desktop app runs beside every other program on the PC, so its token should be
 worth as little as possible if it leaks, and a pasted answer is an outward channel with no
 approval step.
+
+## D43. The desktop app is Handy, vendored, with Hearth's code kept to one folder (2026-10-03)
+
+**Decision:** `apps/desktop` is a copy of Handy at `ffbc950` (MIT), outside the pnpm workspace
+and Hearth's lint and file-size rules, built with Bun and Cargo as Handy is. Hearth's additions
+live in `src-tauri/src/hearth/` and `HearthSettings.tsx`; Handy's files get small hooks only, so
+upstream fixes can be merged in by hand. Dictation goes through `voice.clean` and falls back to
+Handy's own processing when Hearth is down. Command mode and talk mode are two more hotkeys on
+Handy's transcribe action. Speech is read with Windows' built-in voice (SAPI). It is renamed
+"Hearth Desktop" with its own identifier and Handy's updater off. A GitHub workflow builds the
+Windows installer, so the PC installs a file instead of a Rust toolchain.
+
+**Alternatives:** A git submodule or subtree of Handy (harder for the PC and CI to work with,
+and every Hearth change would be a patch on someone else's repository). Writing the desktop
+app from scratch (Handy already has hotkeys, local Parakeet and Whisper, and reliable paste on
+Windows). A cloud or neural voice for answers (not local, or another model to run).
+
+**Why:** Handy does the hard native parts well; keeping Hearth's code apart keeps the fork
+cheap to follow upstream.

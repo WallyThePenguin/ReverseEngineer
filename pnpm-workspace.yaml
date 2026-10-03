@@ -1,5 +1,7 @@
 packages:
   - packages/*
   - apps/*
+  # The desktop app is a Tauri fork of Handy and builds with Bun (apps/desktop/README.md).
+  - "!apps/desktop"
 onlyBuiltDependencies:
   - esbuild
