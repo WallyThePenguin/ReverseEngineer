@@ -76,7 +76,9 @@ export async function checkBackupTools(
   env: NodeJS.ProcessEnv = process.env,
   run: Runner = runProgram,
 ): Promise<Check[]> {
-  const has = async (cmd: string) => (await run(cmd, ["--version"])).code === 0;
+  // restic has no --version flag, only a `version` command.
+  const has = async (cmd: string) =>
+    (await run(cmd, cmd === "restic" ? ["version"] : ["--version"])).code === 0;
   const checks: Check[] = [];
   checks.push(
     (await has("pg_dump"))

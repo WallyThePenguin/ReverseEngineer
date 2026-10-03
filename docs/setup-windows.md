@@ -87,18 +87,18 @@ cd C:\Hearth
 ```
 
 Run it from your own Windows account (right-click PowerShell, **Run as administrator**), not a
-separate administrator account: the task that opens Chrome runs as whoever installs it. This
-installs three services, the backup task, and the task that opens Chrome (section 10):
+separate administrator account: Jarvis and the task that opens Chrome run as whoever installs it.
+It asks nothing and takes under a minute. It installs two services, Jarvis's task, the backup
+task, and the task that opens Chrome (section 10):
 
-| Service | Runs as | Does |
+| What | Runs as | Does |
 | --- | --- | --- |
-| Hearth server | LocalService | The web app, API and `/mcp` |
-| Hearth worker | LocalService | Schedules, reminders, health checks |
-| Hearth Jarvis | You | Jarvis, using your Claude login |
+| Hearth server (service) | LocalService | The web app, API and `/mcp` |
+| Hearth worker (service) | LocalService | Schedules, reminders, health checks |
+| Hearth Jarvis (task) | You | Jarvis, using your Claude login |
 
-When it asks, enter your Windows account (for example `.\yourname`) and password for Jarvis's
-service, and answer `y` to let it log on as a service. Windows keeps that password. Hearth never
-sees it.
+Jarvis is a scheduled task rather than a service so it can run as you without your password. It
+starts with Windows, whether or not you're signed in, and restarts if it stops.
 
 ## 7. Turn on off-site backups (Google Drive)
 
@@ -226,9 +226,12 @@ What to expect:
   it says why (often an old pairing code: pair again in Settings). `pnpm hearth doctor` checks
   the **Hearth Chrome** task.
 - Service logs are in `C:\ProgramData\Hearth\services\` (one set per service).
-- Restart a service: `Restart-Service hearth-jarvis` (or `hearth-server`, `hearth-worker`).
+- Restart a service: `Restart-Service hearth-server` (or `hearth-worker`). Jarvis's log is
+  `hearth-jarvis.log` in the same folder; to restart it, run `.\ops\windows\install.ps1` again.
+- If a service log says `EPERM`, its account can't read `node_modules`: run
+  `Remove-Item -Recurse -Force node_modules`, then `pnpm install`, then restart the services.
 - To update Hearth: `git pull`, `pnpm install`, `pnpm build:web`, `pnpm hearth migrate`, then
-  restart the three services. If you set Hearth up before it could open Chrome by itself, run
+  restart the two services and Jarvis (`.\ops\windows\install.ps1` does all three). If you set Hearth up before it could open Chrome by itself, run
   `.\ops\windows\install.ps1` again once instead (as administrator), to add the **Hearth
   Chrome** task and the services' newer settings.
 
@@ -237,9 +240,9 @@ What to expect:
 ```powershell
 restic -r rclone:gdrive:hearth-backups snapshots
 restic -r rclone:gdrive:hearth-backups restore latest --target C:\HearthRestore
-Stop-Service hearth-jarvis, hearth-worker, hearth-server
+.\ops\windows\uninstall.ps1
 pg_restore --clean --if-exists --no-owner --dbname "<HEARTH_DATABASE_URL>" C:\HearthRestore\...\hearth-<date>.dump
-Start-Service hearth-server, hearth-worker, hearth-jarvis
+.\ops\windows\install.ps1
 ```
 
 ### Removing Hearth's services

@@ -1,14 +1,15 @@
 <#
 .SYNOPSIS
-  Installs Hearth's three Windows services (server, worker, Jarvis) and the nightly backup task.
+  Installs Hearth's two Windows services (server, worker), Jarvis and the nightly backup task.
 
 .DESCRIPTION
   Run from an elevated PowerShell in the Hearth folder, after `pnpm install`, `pnpm build:web`
   and `pnpm hearth setup`. See docs/setup-windows.md.
 
   - hearth-server and hearth-worker run as LocalService (no password, few rights).
-  - hearth-jarvis runs as your account, so it can use your Claude login. WinSW asks for your
-    password once; Windows stores it, not Hearth.
+  - Jarvis runs as your account, so it can use your Claude login: the "Hearth Jarvis" task starts
+    it when Windows starts, whether or not you're signed in. Like the backup task, it needs no
+    password (that's why it isn't a service: a service as you would need your password).
   - The backup runs nightly at 2:30 a.m. as you, whether or not you're signed in.
   - The "Hearth Chrome" task opens your Chrome, as you, on your desktop: when you sign in, and
     when Jarvis needs it and it's closed (the server asks Windows to run it). Run this script from
@@ -59,11 +60,22 @@ if ($hash -ne $WinSWSha256) {
   throw "WinSW download didn't match its expected checksum. Nothing was installed."
 }
 
-# LocalService needs to read the app and write its own logs.
-icacls $Root /grant "*S-1-5-19:(OI)(CI)RX" /T /C /Q | Out-Null
-icacls $ServiceDir /grant "*S-1-5-19:(OI)(CI)M" /C /Q | Out-Null
+$me = "$env:USERDOMAIN\$env:USERNAME"
 
-foreach ($svc in "server", "worker", "jarvis") {
+# LocalService needs to read the app and write its own logs; Jarvis (you) writes its log there too.
+# No /T: the folder's (OI)(CI) grant is inherited by everything in it, which Windows applies in
+# seconds, where /T rewrote each of node_modules' ~20,000 files one by one (minutes). node_modules
+# holds copies, not links into pnpm's store (.npmrc), so its files inherit like the rest.
+Write-Host "Letting Hearth's services read $Root..."
+icacls $Root /grant "*S-1-5-19:(OI)(CI)RX" /C /Q | Out-Null
+icacls $ServiceDir /grant "*S-1-5-19:(OI)(CI)M" "${me}:(OI)(CI)M" /C /Q | Out-Null
+$probe = Get-ChildItem -LiteralPath "$Root\node_modules\.pnpm" -Recurse -File -Filter package.json -ErrorAction SilentlyContinue |
+  Select-Object -First 1
+if ($probe -and (fsutil hardlink list $probe.FullName 2>$null | Measure-Object).Count -gt 1) {
+  Write-Warning "node_modules links into pnpm's store, so the services can't read it. Run: Remove-Item -Recurse -Force node_modules; pnpm install"
+}
+
+foreach ($svc in "server", "worker") {
   $id = "hearth-$svc"
   $exe = Join-Path $ServiceDir "$id.exe"
   $xml = Join-Path $ServiceDir "$id.xml"
@@ -75,18 +87,44 @@ foreach ($svc in "server", "worker", "jarvis") {
   Copy-Item $winsw $exe -Force
   (Get-Content "$PSScriptRoot\$id.xml" -Raw).Replace("{{NODE}}", $node).Replace("{{ROOT}}", $Root) |
     Set-Content -Encoding UTF8 $xml
-  if ($svc -eq "jarvis") {
-    Write-Host ""
-    Write-Host "Jarvis runs as you. Enter your Windows account (like .\$env:USERNAME) and password,"
-    Write-Host "then answer y to allow it to log on as a service."
-    & $exe install /p
-  } else {
-    & $exe install
-  }
+  & $exe install
   if ($LASTEXITCODE -ne 0) { throw "Installing $id failed (exit $LASTEXITCODE)." }
   & $exe start
   Write-Host "Started $id."
 }
+
+# Jarvis used to be a service as you, which meant typing your Windows password. Remove that one.
+$oldJarvis = Join-Path $ServiceDir "hearth-jarvis.exe"
+if ((Test-Path $oldJarvis) -and (Get-Service hearth-jarvis -ErrorAction SilentlyContinue)) {
+  Write-Host "Removing the old hearth-jarvis service..."
+  & $oldJarvis stopwait | Out-Null
+  & $oldJarvis uninstall | Out-Null
+}
+Remove-Item (Join-Path $ServiceDir "hearth-jarvis.*") -ErrorAction SilentlyContinue
+
+# Jarvis: as you (S4U: no password, no window), from startup, restarted if it stops.
+# HEARTH_AS_SERVICE tells it to open Chrome through the "Hearth Chrome" task, on your desktop.
+$jarvisLog = Join-Path $ServiceDir "hearth-jarvis.log"
+$action = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\cmd.exe" -WorkingDirectory $Root `
+  -Argument "/d /c set HEARTH_AS_SERVICE=1&& `"$node`" --env-file-if-exists=`"$Root\.env`" `"$Root\apps\cli\src\main.ts`" jarvis >> `"$jarvisLog`" 2>&1"
+$atStartup = New-ScheduledTaskTrigger -AtStartup
+$atStartup.Delay = "PT1M"
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+  -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -StartWhenAvailable `
+  -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)
+$user = New-ScheduledTaskPrincipal -UserId $me -LogonType S4U -RunLevel Limited
+if (Get-ScheduledTask -TaskName "Hearth Jarvis" -ErrorAction SilentlyContinue) {
+  Stop-ScheduledTask -TaskName "Hearth Jarvis"
+}
+# Stopping the task ends cmd, not always the node under it: never leave two Jarvises running.
+Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" |
+  Where-Object { $_.CommandLine -match 'main\.ts"?\s+jarvis' } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+Register-ScheduledTask -TaskName "Hearth Jarvis" -TaskPath "\" -Action $action -Trigger $atStartup `
+  -Settings $settings -Principal $user -Force `
+  -Description "Runs Jarvis, Hearth's agent, as you so it can use your Claude login." | Out-Null
+Start-ScheduledTask -TaskName "Hearth Jarvis"
+Write-Host "Started Jarvis (the `"Hearth Jarvis`" task). Its log: $jarvisLog"
 
 function Find-Chrome {
   $paths = @(foreach ($key in "HKCU:", "HKLM:", "HKLM:\SOFTWARE\WOW6432Node") {
