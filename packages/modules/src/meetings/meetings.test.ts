@@ -111,6 +111,15 @@ describe("meeting notes", () => {
         jarvisCaller("agent"),
       ),
     ).toMatchObject({ status: "denied" });
+    // Once it has ended, nothing rewrites what was said.
+    await ok("meeting.end", { id });
+    expect(
+      await t.kernel.execute(
+        "meeting.add_segments",
+        { id, segments: [{ ...seg, text: "Something else" }] },
+        ownerCaller(),
+      ),
+    ).toMatchObject({ status: "error", code: "conflict" });
   });
 
   it("asks Jarvis for a summary when it ends, untrusted, and turns action items into tasks once", async () => {
@@ -201,5 +210,42 @@ describe("meeting notes", () => {
     t.clock.set("2026-10-02T10:00:00Z");
     const [turn] = await prepRoutine.run(firing(), { db: t.tdb.db, now: t.clock.now() });
     expect((turn as { prompt: string }).prompt).not.toContain("Private numbers.");
+  });
+
+  it("records into the meeting that's on now, or notes you opened, or a new one", async () => {
+    const eventId = await meetingWithCarol(
+      "Budget",
+      "2026-10-01T13:00:00Z",
+      "2026-10-01T14:00:00Z",
+    );
+    type Rec = { id: string; title: string; offsetMs: number };
+    const record = (title?: string) => ok<Rec>("meeting.record", title ? { title } : {});
+
+    // Five minutes before it starts, it's the one; times count from when recording began.
+    t.clock.set("2026-10-01T12:55:00Z");
+    const early = await record();
+    expect(early).toMatchObject({ title: "Budget", offsetMs: 0 });
+    t.clock.set("2026-10-01T13:10:00Z");
+    expect(await record()).toEqual({ ...early, offsetMs: 15 * 60_000 });
+    expect(await get(early.id)).toMatchObject({
+      event: { id: eventId },
+      people: [{ name: "Carol" }],
+    });
+
+    // Once it's ended, recording again makes a second meeting with the same people.
+    await ok("meeting.end", { id: early.id });
+    const again = await record();
+    expect(again.id).not.toBe(early.id);
+    expect(await get(again.id)).toMatchObject({ event: null, people: [{ name: "Carol" }] });
+    await ok("meeting.end", { id: again.id });
+
+    // Nothing on the calendar: notes you just opened, else a new meeting.
+    t.clock.set("2026-10-01T16:00:00Z");
+    const { id: opened } = await ok<{ id: string }>("meeting.start", { title: "Standup" });
+    expect((await record()).id).toBe(opened);
+    await ok("meeting.end", { id: opened });
+    const fresh = await record("Quick sync");
+    expect(fresh).toMatchObject({ title: "Quick sync", offsetMs: 0 });
+    expect(fresh.id).not.toBe(opened);
   });
 });

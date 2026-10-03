@@ -6,8 +6,11 @@
 // - talk mode sends what you said to Jarvis and reads the answer aloud.
 
 pub mod bakeoff;
+pub mod capture;
+pub mod chunker;
 pub mod client;
 pub mod foreground;
+pub mod meeting;
 pub mod selection;
 pub mod speak;
 
@@ -286,18 +289,26 @@ pub fn unpair_hearth(app: AppHandle) -> Result<(), String> {
 /// Opens Hearth itself in its own window (from the tray). It's a web page like any other: it
 /// gets none of this app's commands.
 pub fn open_window(app: &AppHandle) {
+    open_window_at(app, "/");
+}
+
+/// Opens Hearth's window at a page, like `/record/<id>`.
+pub fn open_window_at(app: &AppHandle, path: &str) {
     use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+    let base = get_settings(app).hearth_url;
+    let Ok(url) = base.parse::<tauri::Url>().and_then(|b| b.join(path)) else {
+        tell(app, "Set Hearth's address in Settings first.");
+        return;
+    };
     if let Some(w) = app.get_webview_window("hearth") {
+        if path != "/" {
+            let _ = w.navigate(url);
+        }
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
         return;
     }
-    let base = get_settings(app).hearth_url;
-    let Ok(url) = base.parse::<tauri::Url>() else {
-        tell(app, "Set Hearth's address in Settings first.");
-        return;
-    };
     let home = url.origin();
     if let Err(e) = WebviewWindowBuilder::new(app, "hearth", WebviewUrl::External(url))
         // Links elsewhere open in the browser, not in this window.

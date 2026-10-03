@@ -63,6 +63,8 @@ struct MenuInputs {
     downloaded_models: Vec<(String, String)>,
     locale: String,
     update_checks_enabled: bool,
+    /// Hearth's meeting recorder is running.
+    recording: bool,
 }
 
 /// Complete description of what the tray should look like.
@@ -334,6 +336,7 @@ fn compute_desired(app: &AppHandle, icon_state: TrayIconState) -> TrayDesired {
             downloaded_models,
             locale: settings.app_language,
             update_checks_enabled: settings.update_checks_enabled,
+            recording: crate::hearth::meeting::recording(),
         },
     }
 }
@@ -511,6 +514,12 @@ fn build_menu(app: &AppHandle, inputs: &MenuInputs) -> tauri::Result<(Menu<tauri
     )?;
     let quit_i = MenuItem::with_id(app, "quit", &strings.quit, true, quit_accelerator)?;
     let hearth_i = MenuItem::with_id(app, "open_hearth", "Open Hearth", true, None::<&str>)?;
+    let meeting_label = if inputs.recording {
+        "Stop recording the meeting"
+    } else {
+        "Record a meeting"
+    };
+    let meeting_i = MenuItem::with_id(app, "hearth_meeting", meeting_label, true, None::<&str>)?;
     let separator = || PredefinedMenuItem::separator(app);
 
     let menu = if inputs.busy {
@@ -525,6 +534,7 @@ fn build_menu(app: &AppHandle, inputs: &MenuInputs) -> tauri::Result<(Menu<tauri
                 &copy_last_transcript_i,
                 &separator()?,
                 &hearth_i,
+                &meeting_i,
                 &settings_i,
                 &check_updates_i,
                 &separator()?,
@@ -567,6 +577,7 @@ fn build_menu(app: &AppHandle, inputs: &MenuInputs) -> tauri::Result<(Menu<tauri
                 &unload_model_i,
                 &separator()?,
                 &hearth_i,
+                &meeting_i,
                 &settings_i,
                 &check_updates_i,
                 &separator()?,
@@ -588,6 +599,9 @@ fn build_menu(app: &AppHandle, inputs: &MenuInputs) -> tauri::Result<(Menu<tauri
     // Both layouts start with [version, separator, ...]; slot the warning in
     // right below the version line so it's the first actionable thing seen.
     let mut tooltip = version_label;
+    if inputs.recording {
+        tooltip = format!("● Recording a meeting — {tooltip}");
+    }
     if let Some(warning_item) = secure_input_warning {
         menu.insert(&warning_item, 2)?;
         menu.insert(&separator()?, 3)?;
@@ -697,6 +711,7 @@ mod tests {
             downloaded_models: vec![("small".to_string(), "Small".to_string())],
             locale: "en".to_string(),
             update_checks_enabled: true,
+            recording: false,
         }
     }
 

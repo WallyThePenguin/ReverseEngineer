@@ -13,6 +13,10 @@ export const DEVICE_SCOPES: Record<string, string[]> = {
     "voice.styles",
     "chat.send",
     "conversation.get",
+    // The meeting recorder.
+    "meeting.record",
+    "meeting.add_segments",
+    "meeting.end",
   ],
 };
 

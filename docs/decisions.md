@@ -668,3 +668,25 @@ Windows). A cloud or neural voice for answers (not local, or another model to ru
 
 **Why:** Handy does the hard native parts well; keeping Hearth's code apart keeps the fork
 cheap to follow upstream.
+
+## D44. The meeting recorder transcribes on the PC and sends text, two channels for who spoke (2026-10-03)
+
+**Decision:** The desktop app records the microphone and a WASAPI loopback of the speakers as
+two channels, "me" and "them", so the transcript knows who spoke without a diarization model.
+Each channel is cut at pauses (4 to 20 seconds a piece, silence dropped) and transcribed with
+the same local engine as dictation; only text goes to Hearth, through `meeting.add_segments`,
+with ids made of the channel and the start time so a retry never duplicates. `meeting.record`
+picks the meeting: the calendar event on now (or starting within ten minutes), else notes
+opened in the last three hours and not ended, else a new one. It returns how far into that
+meeting recording starts, so times line up with the meeting's clock. The paired desktop token
+gets `meeting.record`, `meeting.add_segments` and `meeting.end`, nothing else from meetings.
+No audio is kept.
+
+**Alternatives:** Streaming audio to Hearth to transcribe there (Hearth has no speech engine,
+and audio is a lot more to send and keep than text). Keeping the recordings (Granola doesn't
+either; the transcript and your notes are the record). Speaker diarization on one mixed
+stream (another model, and worse than knowing which device the sound came from).
+
+**Why:** It reuses the engine the bake-off picks, keeps audio on the PC, and the two-channel
+trick gives "who said it" for free on calls, which are most meetings.
+

@@ -22,6 +22,12 @@ small hooks into Handy's code (look for `hearth` in `actions.rs`, `settings.rs`,
 - **Talk to Jarvis** (Ctrl+Alt+J): hold and ask. The answer is read aloud with the Windows voice
   and stays in the conversation in Hearth.
 - **Open Hearth** in the tray menu opens Hearth in its own window.
+- **Record a meeting** in the tray menu records your microphone ("me") and what the PC plays
+  ("them", WASAPI loopback) into the meeting for the calendar event that's on now (or notes you
+  opened, or a new one). Each channel is cut at pauses, transcribed on this PC, and added to
+  the meeting, whose page opens with the live transcript beside your notes. A spoken reminder
+  asks you to tell people you're taking notes. Stopping ends the meeting and Jarvis writes the
+  summary.
 - Rebranded as "Hearth Desktop" (`dev.hearth.desktop`), with Handy's updater turned off so a
   Handy release never replaces it.
 
