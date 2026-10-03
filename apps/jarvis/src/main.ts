@@ -4,7 +4,13 @@ import { PRINCIPAL } from "@hearth/core";
 import { connect, databaseUrl } from "@hearth/db";
 import { ClaudeBrain, startJarvis } from "@hearth/jarvis";
 import { Kernel, Registry } from "@hearth/kernel";
-import { ALL_MODULES, BROWSER_SERVICE, internalBrowserClient } from "@hearth/modules";
+import {
+  ALL_MODULES,
+  BROWSER_SERVICE,
+  GOOGLE_SERVICE,
+  googleFromEnv,
+  internalBrowserClient,
+} from "@hearth/modules";
 
 export async function runJarvis(): Promise<() => Promise<void>> {
   const database = connect(databaseUrl(), { max: 6 });
@@ -12,7 +18,10 @@ export async function runJarvis(): Promise<() => Promise<void>> {
     db: database.db,
     registry: new Registry(ALL_MODULES),
     // Chrome is reached through the server, which holds the extension's connection.
-    services: { [BROWSER_SERVICE]: internalBrowserClient(database.db, PRINCIPAL.jarvis) },
+    services: {
+      [BROWSER_SERVICE]: internalBrowserClient(database.db, PRINCIPAL.jarvis),
+      [GOOGLE_SERVICE]: googleFromEnv(),
+    },
   });
   const model = process.env.HEARTH_JARVIS_MODEL;
   const brain = new ClaudeBrain({

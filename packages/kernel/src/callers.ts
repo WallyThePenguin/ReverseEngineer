@@ -12,3 +12,14 @@ export function systemCaller(extra: Partial<Caller> = {}): Caller {
 export function jarvisCaller(origin: Origin, extra: Partial<Caller> = {}): Caller {
   return { principal: PRINCIPAL.jarvis, kind: "agent", origin, via: "jarvis", ...extra };
 }
+
+/** An integration syncing records in (Google, later Slack). What it writes is outside content. */
+export function integrationCaller(name: string, extra: Partial<Caller> = {}): Caller {
+  return {
+    principal: `integration:${name}`,
+    kind: "integration",
+    origin: "untrusted",
+    via: "integration",
+    ...extra,
+  };
+}

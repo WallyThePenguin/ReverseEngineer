@@ -64,6 +64,20 @@ export function startOfLocalDay(date: Date, timeZone: string): Date {
   return new Date(d.getTime());
 }
 
+/** The instant a local date ("2026-10-02") reaches `minute` minutes after midnight. */
+export function atLocal(date: string, minute: number, timeZone: string): Date {
+  const [y, m, d] = date.split("-").map(Number) as [number, number, number];
+  const t = new TZDate(y, m - 1, d, Math.floor(minute / 60), minute % 60, 0, 0, timeZone);
+  return new Date(t.getTime());
+}
+
+/** A local date `days` days after another ("2026-10-31" + 1 = "2026-11-01"). */
+export function addLocalDays(date: string, days: number): string {
+  const [y, m, d] = date.split("-").map(Number) as [number, number, number];
+  const t = new Date(Date.UTC(y, m - 1, d + days));
+  return t.toISOString().slice(0, 10);
+}
+
 /** The next instant, at or after `date`, whose local time is `minute` minutes after midnight. */
 export function nextLocalTime(date: Date, minute: number, timeZone: string): Date {
   const d = new TZDate(date.getTime(), timeZone);

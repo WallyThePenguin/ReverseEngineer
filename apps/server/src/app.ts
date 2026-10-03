@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import type { Server } from "node:http";
 import { join } from "node:path";
 import { getSetting, type Kernel } from "@hearth/kernel";
-import { BROWSER_SERVICE } from "@hearth/modules";
+import { BROWSER_SERVICE, GOOGLE_SERVICE, googleFromEnv } from "@hearth/modules";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import type pg from "pg";
@@ -21,6 +21,7 @@ import { mcpRoutes } from "./mcp.ts";
 import { actionRoutes } from "./routes/actions.ts";
 import { authRoutes } from "./routes/auth.ts";
 import { eventRoutes } from "./routes/events.ts";
+import { googleRoutes } from "./routes/google.ts";
 
 const CSP = [
   "default-src 'self'",
@@ -53,6 +54,7 @@ export function createApp(opts: AppOptions) {
       isPaired: async () => (await getSetting(opts.kernel.db, "browser.pairing")) !== null,
     });
   opts.kernel.services[BROWSER_SERVICE] ??= bridge;
+  opts.kernel.services[GOOGLE_SERVICE] ??= googleFromEnv();
   const live = new LiveView(bridge);
   const deps: ServerDeps = {
     kernel: opts.kernel,
@@ -77,6 +79,7 @@ export function createApp(opts: AppOptions) {
   app.route("/api/auth", authRoutes());
   app.route("/api/events", eventRoutes());
   app.route("/api/browser", browserRoutes(bridge));
+  app.route("/api/google", googleRoutes());
   app.route("/api", actionRoutes());
   app.route("/mcp", mcpRoutes());
   app.all("/api/*", (c) => c.json({ error: "Not found." }, 404));

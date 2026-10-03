@@ -29,6 +29,7 @@ function commands(): Item[] {
     go("inbox", "Inbox"),
     go("tasks", "Tasks"),
     go("notes", "Notes"),
+    go("calendar", "Calendar"),
     go("people", "People"),
     go("memory", "Memory (what Jarvis remembers)"),
     go("browser", "the browser (your Chrome, live)"),

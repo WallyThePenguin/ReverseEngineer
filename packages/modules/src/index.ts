@@ -4,6 +4,7 @@ import type { HearthModule } from "@hearth/kernel";
 import { approvalsModule } from "./approvals/index.ts";
 import { assistantModule } from "./assistant/index.ts";
 import { browserModule } from "./browser/index.ts";
+import { calendarModule } from "./calendar/index.ts";
 import { chatModule } from "./chat/index.ts";
 import { graphModule } from "./graph/index.ts";
 import { inboxModule } from "./inbox/index.ts";
@@ -25,6 +26,7 @@ export const ALL_MODULES: HearthModule[] = [
   assistantModule,
   browserModule,
   memoryModule,
+  calendarModule,
 ];
 
 export { renderBrief, renderDigest } from "./assistant/brief.ts";
@@ -39,7 +41,9 @@ export {
   serverUrl,
   type TabInfo,
 } from "./browser/client.ts";
+export type { EventView } from "./calendar/store.ts";
 export { appendLog, type LogEntry, type LogKind, routeLane } from "./chat/index.ts";
+export { GOOGLE_SERVICE, GoogleClient, googleFromEnv, SCOPES } from "./google/client.ts";
 export { recallMemory, renderMemory } from "./memory/index.ts";
 export { parseChecklist } from "./notes/checklist.ts";
 export { loadTask, type TaskView } from "./tasks/index.ts";
@@ -47,6 +51,7 @@ export {
   approvalsModule,
   assistantModule,
   browserModule,
+  calendarModule,
   chatModule,
   graphModule,
   inboxModule,
