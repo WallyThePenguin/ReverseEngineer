@@ -140,9 +140,7 @@ try {
     if ((await preview.innerText()).includes("Scratch line")) throw new Error("wrong version");
     await p.getByRole("button", { name: "Restore this version" }).click();
     await editor.getByText("cancel the gym").waitFor();
-    await p.waitForFunction(
-      () => !document.querySelector(".cm-content")?.textContent?.includes("Scratch line"),
-    );
+    await editor.getByText("Scratch line").waitFor({ state: "detached" });
   });
 
   await step("the task lists the note as a backlink, and takes a subtask", async (p) => {
