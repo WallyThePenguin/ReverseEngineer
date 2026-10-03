@@ -70,6 +70,15 @@ export interface ActionDef<S extends z.ZodType = z.ZodType, R = unknown> {
   external?: boolean;
   /** The web address this call would open, so an untrusted turn can be held to D25. */
   opensUrl?(input: z.output<S>): string | null;
+  /**
+   * Pins a call to the page it acts on before it runs or waits for your yes: the page's address,
+   * so a turn that read outside content is held to D30, and anything to add to the input so the
+   * call refuses to run if the page changed by the time it's approved.
+   */
+  pin?(
+    input: z.output<S>,
+    services: { service<T>(name: string): T },
+  ): Promise<{ url: string; extra?: Record<string, unknown> } | null>;
   /** One line for an approval card: "Send email to Ana: Friday's agenda". */
   summarize?(input: z.output<S>): string;
   handler(input: z.output<S>, ctx: ActionContext): Promise<R>;

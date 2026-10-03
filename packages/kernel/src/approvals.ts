@@ -129,7 +129,14 @@ export async function resolveApproval(
           },
         },
       ],
-      { actor: caller.principal, origin: "owner", correlationId, at: now },
+      // Your decision is yours, but what Jarvis does next carries on the turn that asked: a
+      // request made after reading outside content stays untrusted (D25), approved or not.
+      {
+        actor: caller.principal,
+        origin: row.origin === "untrusted" ? "untrusted" : "owner",
+        correlationId,
+        at: now,
+      },
     );
   };
 

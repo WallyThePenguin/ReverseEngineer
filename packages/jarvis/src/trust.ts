@@ -9,6 +9,8 @@ export interface TrustState {
   origin: Origin;
   /** Every web address that appeared in outside content this turn. */
   seenUrls: Set<string>;
+  /** Sites this turn opened before it read anything from outside (D30). */
+  vouchedHosts?: Set<string>;
 }
 
 export type OpenVerdict =
@@ -49,4 +51,29 @@ export function checkOpen(state: TrustState, raw: string, sites: SiteRules): Ope
     kind: "ask",
     reason: `This turn read outside content, and ${url} didn't appear in it, so opening it needs your yes.`,
   };
+}
+
+/**
+ * D30: once a turn has read outside content, Jarvis types, clicks and chooses freely only on sites
+ * the turn opened before that, or sites you allowed. Elsewhere a page could have steered it there,
+ * to collect what it types or to have it press things, so it needs your yes.
+ */
+export function checkActing(state: TrustState, raw: string, sites: SiteRules): OpenVerdict {
+  if (state.origin !== "untrusted") return { kind: "ok" };
+  const url = normalizeUrl(raw);
+  if (!url) return { kind: "ok" };
+  const host = new URL(url).hostname;
+  if (state.vouchedHosts?.has(host) || onSiteList(host, sites.allowed)) return { kind: "ok" };
+  return {
+    kind: "ask",
+    reason: `This turn read outside content and then went to ${host}, so acting there needs your yes. Adding ${host} to the sites Jarvis may use freely skips this.`,
+  };
+}
+
+/** Remembers a site opened while the turn was still trusted. */
+export function vouchFor(state: TrustState, raw: string): void {
+  const url = normalizeUrl(raw);
+  if (!url || state.origin === "untrusted") return;
+  state.vouchedHosts ??= new Set();
+  state.vouchedHosts.add(new URL(url).hostname);
 }

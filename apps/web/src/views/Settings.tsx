@@ -11,6 +11,8 @@ import { act, useAction } from "../lib/query.ts";
 import type { StandingRule, SystemStatus } from "../lib/types.ts";
 import { ChromeSettings } from "./ChromeSettings.tsx";
 import { GoogleSettings } from "./GoogleSettings.tsx";
+import { RoutineSettings } from "./RoutineSettings.tsx";
+import { SignInSettings } from "./SignInSettings.tsx";
 
 export async function setPaused(paused: boolean) {
   if (await act(paused ? "jarvis.pause" : "jarvis.resume")) {
@@ -107,6 +109,10 @@ export function Settings() {
         <ChromeSettings />
 
         <GoogleSettings />
+
+        <SignInSettings />
+
+        <RoutineSettings />
 
         <section class="space-y-2">
           <h2 class="font-semibold">Sign-in</h2>

@@ -65,3 +65,35 @@ export function renderMemory(notes: RecalledNote[]): string | null {
   const parts = notes.map((n) => `### ${n.title} (memory ${n.id})\n${n.body.trim()}`);
   return `<memory>\n${parts.join("\n\n")}\n</memory>`;
 }
+
+/** The site and the sites it belongs to: "www.shop.example" → itself, "shop.example". */
+export function siteNames(host: string): string[] {
+  const labels = host.toLowerCase().split(".");
+  const out: string[] = [];
+  for (let i = 0; i <= labels.length - 2; i++) out.push(labels.slice(i).join("."));
+  return out;
+}
+
+/**
+ * Notes about a site (B2's per-site memory): topic notes with the site among their keywords.
+ * Browsing a site shows them, so its quirks and your preferences there come along.
+ */
+export async function notesForSite(db: DbOrTx, host: string): Promise<RecalledNote[]> {
+  const names = siteNames(host);
+  const rows = await db
+    .select({
+      id: entity.id,
+      title: entity.title,
+      body: entity.body,
+      scope: memoryNote.scope,
+      keywords: memoryNote.keywords,
+    })
+    .from(memoryNote)
+    .innerJoin(entity, eq(entity.id, memoryNote.entityId))
+    .where(isNull(entity.deletedAt))
+    .orderBy(asc(entity.title));
+  return rows
+    .filter((r) => r.scope === "topic" && r.keywords.some((k) => names.includes(k)))
+    .slice(0, 10)
+    .map(({ keywords: _k, ...r }) => ({ ...r, body: r.body ?? "" }));
+}

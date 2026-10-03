@@ -1,6 +1,13 @@
 // Jarvis's tools are Hearth's actions: the same registry the UI uses, so there are no side
 // doors. Every call runs through the kernel as Jarvis, with the turn's trust level.
-import { asUntrusted, formatDateTime, type Origin, type Risk, type SiteRules } from "@hearth/core";
+import {
+  asUntrusted,
+  formatDateTime,
+  normalizeUrl,
+  type Origin,
+  type Risk,
+  type SiteRules,
+} from "@hearth/core";
 import { entity } from "@hearth/db";
 import {
   type Caller,
@@ -13,7 +20,7 @@ import {
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { BrainTool } from "./brain.ts";
-import { checkOpen, readOutsideContent } from "./trust.ts";
+import { checkActing, checkOpen, readOutsideContent, vouchFor } from "./trust.ts";
 
 const MAX_OUTPUT = 20_000;
 
@@ -34,6 +41,8 @@ export interface TurnState {
   postedToSubject: boolean;
   /** Web addresses that appeared in outside content this turn (D25). */
   seenUrls: Set<string>;
+  /** Sites opened before the turn read outside content (D30). */
+  vouchedHosts?: Set<string>;
   sites: SiteRules;
 }
 
@@ -101,6 +110,23 @@ export function buildTools(kernel: Kernel, state: TurnState, log: LogFn): BrainT
           }
           if (verdict.kind === "ask") askFirst = verdict.reason;
         }
+        if (def.pin) {
+          const pinned = await def
+            .pin(input as never, { service: (n) => kernel.services[n] as never })
+            .catch(() => null);
+          if (pinned && normalizeUrl(pinned.url)) {
+            // Outward calls ask anyway; the rest are held to D30 after outside content.
+            if (!needsYes) {
+              const verdict = checkActing(state, pinned.url, state.sites);
+              if (verdict.kind === "ask") askFirst ??= verdict.reason;
+            }
+            // Pinned to the page it was checked on, should it run later after a yes.
+            const given = input as { site?: string };
+            input = { ...given, site: given.site ?? new URL(pinned.url).hostname, ...pinned.extra };
+          } else if (state.origin === "untrusted")
+            askFirst ??= "Hearth couldn't tell which site this would act on.";
+        }
+        const trustedBefore = state.origin !== "untrusted";
         const res = await kernel.execute(
           def.name,
           input,
@@ -111,6 +137,7 @@ export function buildTools(kernel: Kernel, state: TurnState, log: LogFn): BrainT
           risk: def.risk,
           status: res.status === "ok" ? "ok" : res.status,
         });
+        if (res.status === "ok" && url && trustedBefore) vouchFor(state, url);
         if (
           res.status === "ok" &&
           def.name === "comment.create" &&
@@ -134,8 +161,9 @@ export function buildTools(kernel: Kernel, state: TurnState, log: LogFn): BrainT
             : res.status === "denied"
               ? `Not allowed: ${res.reason}`
               : `Error (${res.code}): ${res.message}`;
-        if (res.status === "ok" && def.external) {
-          // Outside content: everything after this in the turn is untrusted (D25).
+        if (def.external && res.status !== "denied") {
+          // Outside content, errors included (they can quote the page): everything after this in
+          // the turn is untrusted (D25).
           readOutsideContent(state, output);
           output = asUntrusted(output, def.name);
         }

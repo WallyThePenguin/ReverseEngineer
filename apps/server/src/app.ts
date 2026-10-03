@@ -4,7 +4,13 @@ import { existsSync, readFileSync } from "node:fs";
 import type { Server } from "node:http";
 import { join } from "node:path";
 import { getSetting, type Kernel } from "@hearth/kernel";
-import { BROWSER_SERVICE, GOOGLE_SERVICE, googleFromEnv } from "@hearth/modules";
+import {
+  BROWSER_SERVICE,
+  GOOGLE_SERVICE,
+  googleFromEnv,
+  VAULT_SERVICE,
+  vaultFromEnv,
+} from "@hearth/modules";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import type pg from "pg";
@@ -55,6 +61,7 @@ export function createApp(opts: AppOptions) {
     });
   opts.kernel.services[BROWSER_SERVICE] ??= bridge;
   opts.kernel.services[GOOGLE_SERVICE] ??= googleFromEnv();
+  opts.kernel.services[VAULT_SERVICE] ??= vaultFromEnv();
   const live = new LiveView(bridge);
   const deps: ServerDeps = {
     kernel: opts.kernel,

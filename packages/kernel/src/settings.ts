@@ -18,6 +18,8 @@ export interface Settings {
   "browser.pairing": { hash: string; createdAt: string } | null;
   /** Earlier pairing codes, hashed, newest first: an extension with one needs pairing again. */
   "browser.oldPairings": string[];
+  /** Seconds Jarvis waits between steps on the same site, so sites don't take it for a bot. */
+  "browser.pace": { seconds: number; sites: Record<string, number> };
   /** Tasks estimated at this many minutes or more get time blocked on your calendar. */
   "calendar.blockMinMinutes": number;
   /** Prep packets are made for events with guests, or at least this long, in the next 48 hours. */
@@ -33,6 +35,7 @@ export const SETTING_DEFAULTS: Settings = {
   "browser.sites": DEFAULT_SITE_RULES,
   "browser.pairing": null,
   "browser.oldPairings": [],
+  "browser.pace": { seconds: 2, sites: {} },
   "calendar.blockMinMinutes": 60,
   "calendar.prepMinMinutes": 30,
 };
