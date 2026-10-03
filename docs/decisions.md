@@ -436,7 +436,11 @@ read and trash change Hearth at once and queue the same change for Gmail, which 
 you're told) if Gmail refuses it. Mail lands in Signal or Noise by your sender rules first, then
 whether you know the person, then Gmail's tabs; once you've written in a conversation it's Signal.
 Writing to someone makes them a person. Drafts, spam and chats stay out. Every email is outside
-content for Jarvis (D25); trashing mail waits for your yes, and the HTML view is yours only.
+content for Jarvis (D25): reading one through any tool, including a search or a list that only
+shows its subject, makes the rest of the turn untrusted, and the news of new mail is untrusted.
+The morning brief quotes subjects, so it starts untrusted; the journal and the nightly memory update
+leave email out, so it can never become memory. Trashing mail waits for your yes, and the HTML view
+is yours only. Disconnecting an account revokes Hearth's access at Google and deletes its mail.
 
 **Alternatives:** Read Gmail live on every screen. Use Gmail's thread ids. Push notifications
 through Pub/Sub. Back up the raw messages with the database.
@@ -446,3 +450,28 @@ possible, and it keeps working when Google is slow. Header threading works the s
 IMAP later. Polling needs nothing on your PC open to the internet. Raw messages are still in
 Gmail, so they stay out of the nightly backup to keep it small; after a restore, older mail shows
 as text until it's synced again.
+
+## D33. Drafts live in Hearth, and a send is approved as the exact message (2026-10-03)
+
+**Decision:** Drafts are `email_draft` entities with a `mail_draft` row (account, conversation,
+recipients, reply headers), saved as you type; Gmail never sees them until they're sent. A reply
+draft takes its recipients and `In-Reply-To`/`References` from the conversation, and reply-all
+leaves you out. `mail.send` builds the message, sends it through the `MailProvider`, and saves the
+sent copy straight into the conversation. Sending is outward, so Jarvis's send waits for your yes.
+To make that yes mean the message you read, an action can declare a `snapshot` hook: before asking,
+Jarvis's tool call is given the draft's current from, recipients, subject and text, the approval
+shows them in full (addresses first, so a display name can't pass for another recipient), and the
+send refuses if the draft no longer matches (compared key-order-free, since approvals are stored as
+jsonb). Your own Send works the same way: the composer saves what's on screen, Bcc included, and
+sends only if the draft still matches it, so a change Jarvis made meanwhile can't ride along. A
+send without a snapshot is only taken from you. Display names are always quoted when sent and
+stripped of control and direction-changing characters. HTML mail opens from `/api/mail/frame/:id` with its own policy (no scripts, nothing
+remote until you ask for images), and attachments only ever download.
+
+**Alternatives:** Keep drafts in Gmail. Approve "send draft X" and send whatever it holds by then.
+Show HTML in a `srcdoc` frame.
+
+**Why:** Local drafts work offline and let Jarvis and you edit the same one. Approving a draft by
+id would let it change between your yes and the send (by Jarvis, or by a page Jarvis read); the
+snapshot closes that gap. A `srcdoc` frame inherits Hearth's own policy, which blocks the images
+you ask to see, so the message gets a page of its own.

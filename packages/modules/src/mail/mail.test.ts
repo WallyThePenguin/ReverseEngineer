@@ -10,7 +10,7 @@ import { GOOGLE_SERVICE, SCOPES } from "../google/client.ts";
 import { FakeGoogle } from "../google/fake.ts";
 import { ALL_MODULES } from "../index.ts";
 import { BLOB_SERVICE, BlobStore } from "./blobs.ts";
-import type { ThreadSummary, ThreadView } from "./views.ts";
+import { messageHtml, type ThreadSummary, type ThreadView } from "./views.ts";
 
 const ME = "owner@example.com";
 const ANA = { address: "ana@friends.example", name: "Ana Silva" };
@@ -114,17 +114,10 @@ describe("mail sync", () => {
     const [x] = await ok<ThreadSummary[]>("mail.threads", { view: "all" });
     const view = await thread(x!.id);
     expect(view.messages[0]).toMatchObject({ hasHtml: true, text: "Thanks" });
-    const html = await ok<{ html: string; remoteImages: boolean }>("mail.html", {
-      id: view.messages[0]!.id,
-    });
+    const blobs = t.kernel.services[BLOB_SERVICE] as BlobStore;
+    const html = await messageHtml(t.tdb.db, blobs, view.messages[0]!.id);
     expect(html).toMatchObject({ remoteImages: true });
-    expect(html.html).toContain("<p>Thanks</p>");
-    const jarvis = await t.kernel.execute(
-      "mail.html",
-      { id: view.messages[0]!.id },
-      integrationCaller("google"),
-    );
-    expect(jarvis.status).toBe("denied");
+    expect(html?.html).toContain("<p>Thanks</p>");
   });
 
   it("follows new mail, changes and deletions made in Gmail", async () => {

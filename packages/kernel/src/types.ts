@@ -79,6 +79,12 @@ export interface ActionDef<S extends z.ZodType = z.ZodType, R = unknown> {
     input: z.output<S>,
     services: { service<T>(name: string): T },
   ): Promise<{ url: string; extra?: Record<string, unknown> } | null>;
+  /**
+   * What the call will do, captured from the records it acts on before it runs or waits for your
+   * yes (an email's recipients and text). It's added to the input, so the approval card shows it
+   * and the call refuses to run if the records changed by the time you say yes.
+   */
+  snapshot?(input: z.output<S>, ctx: ReadContext): Promise<Record<string, unknown>>;
   /** One line for an approval card: "Send email to Ana: Friday's agenda". */
   summarize?(input: z.output<S>): string;
   handler(input: z.output<S>, ctx: ActionContext): Promise<R>;
@@ -145,6 +151,8 @@ export type ReflexOutcome =
       notBefore?: Date;
       /** What to do instead when the turn can't be spent (Jarvis paused or over budget). */
       fallback?: ReflexOutcome[];
+      /** The prompt carries outside content, so the turn starts untrusted (D25). */
+      untrusted?: boolean;
     }
   | { kind: "tell"; notification: NewNotification }
   | { kind: "note"; observation: NewObservation }
@@ -188,6 +196,8 @@ export interface DigestItem {
   bucket: "handled" | "prepared" | "needs_yes" | "today" | "fyi";
   text: string;
   entityId?: string | null;
+  /** The text quotes something from outside Hearth (an email's subject). See isOutside. */
+  outside?: boolean;
 }
 
 export interface DigestSection {

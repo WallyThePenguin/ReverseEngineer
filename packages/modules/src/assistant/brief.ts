@@ -25,6 +25,16 @@ export function renderBrief(sections: DigestSection[], now: Date): string {
   return `Brief for ${formatDateTime(now)}\n\n${renderDigest(sections)}`;
 }
 
+/** Some item quotes outside content, so a turn reading the digest has to start untrusted. */
+export function hasOutside(sections: DigestSection[]): boolean {
+  return sections.some((s) => s.items.some((i) => i.outside));
+}
+
+/** The digest without outside content, for turns that must stay trusted (memory). */
+export function withoutOutside(sections: DigestSection[]): DigestSection[] {
+  return sections.map((s) => ({ ...s, items: s.items.filter((i) => !i.outside) }));
+}
+
 export function isEmptyDigest(sections: DigestSection[]): boolean {
   return sections.every((s) => s.items.length === 0);
 }

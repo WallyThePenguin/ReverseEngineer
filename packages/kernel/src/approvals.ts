@@ -48,8 +48,9 @@ export async function requestApproval(
       { tx, now, caller, emit },
       {
         kind: "approval",
-        title: `${who?.displayName ?? caller.principal} asks: ${summary}`,
-        body: reason,
+        // A summary's first paragraph is the title; the rest (an email's text) is shown in full.
+        title: `${who?.displayName ?? caller.principal} asks: ${summary.split("\n\n")[0]}`,
+        body: [summary.split("\n\n").slice(1).join("\n\n"), reason].filter(Boolean).join("\n\n"),
         approvalId: id,
         dedupeKey: `approval:${id}`,
       },

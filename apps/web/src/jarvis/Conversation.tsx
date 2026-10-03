@@ -27,7 +27,9 @@ function ToolLine(props: { item: Extract<ConversationItem, { type: "tool" }> }) 
       </button>
       <Show when={props.item.status === "pending_approval" && props.item.approvalId}>
         <div class="mt-1 flex items-center gap-2 rounded-md bg-accent-soft px-2 py-1.5 text-ink">
-          <span class="flex-1">Waiting for your yes.</span>
+          <span class="flex-1 whitespace-pre-wrap">
+            Waiting for your yes: {props.item.output || "see the Inbox."}
+          </span>
           <Button kind="primary" small onClick={() => decide(props.item.approvalId!, "approve")}>
             Approve
           </Button>

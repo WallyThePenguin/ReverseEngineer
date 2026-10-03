@@ -1,4 +1,5 @@
-// Mail and the people it comes from (M2). Mirrors migrations/0006_mail.up.sql.
+// Mail and the people it comes from (M2). Mirrors migrations/0006_mail.up.sql and
+// 0007_mail_drafts.up.sql.
 import { sql } from "drizzle-orm";
 import {
   boolean,
@@ -116,4 +117,15 @@ export const mailSenderRule = pgTable("mail_sender_rule", {
 export const personEmail = pgTable("person_email", {
   address: text("address").primaryKey(),
   personId: uuid("person_id").notNull(),
+});
+
+export const mailDraft = pgTable("mail_draft", {
+  entityId: uuid("entity_id").primaryKey(),
+  accountId: text("account_id").notNull(),
+  threadId: uuid("thread_id"),
+  toAddresses: jsonb("to_addresses").$type<MailAddress[]>().notNull().default([]),
+  ccAddresses: jsonb("cc_addresses").$type<MailAddress[]>().notNull().default([]),
+  bccAddresses: jsonb("bcc_addresses").$type<MailAddress[]>().notNull().default([]),
+  inReplyTo: text("in_reply_to"),
+  refs: text("refs").array().notNull().default(sql`'{}'`),
 });

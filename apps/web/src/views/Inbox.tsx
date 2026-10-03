@@ -164,9 +164,19 @@ export function Inbox(props: { pane: number }) {
                             </Show>
                           </div>
                           <Show when={n.body && n.kind !== "brief"}>
-                            <div class="mt-0.5 line-clamp-3 text-sm text-muted">
-                              <Body text={n.body} />
-                            </div>
+                            <Show
+                              when={n.approvalId && row.approvalStatus === "pending"}
+                              fallback={
+                                <div class="mt-0.5 line-clamp-3 text-sm text-muted">
+                                  <Body text={n.body} />
+                                </div>
+                              }
+                            >
+                              {/* Exactly what would happen, as plain text and in full. */}
+                              <pre class="mt-1 max-h-96 overflow-auto rounded bg-sunk p-2 font-sans text-sm whitespace-pre-wrap">
+                                {n.body}
+                              </pre>
+                            </Show>
                           </Show>
                           <Switch>
                             <Match when={n.approvalId && row.approvalStatus === "pending"}>

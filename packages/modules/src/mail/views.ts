@@ -209,3 +209,17 @@ export async function messageHtml(
     remoteImages: /<img[^>]+src=["']?https?:/i.test(html) || /url\(["']?https?:/i.test(html),
   };
 }
+
+/** One attachment from a message's original, for downloading. */
+export async function messageAttachment(
+  db: DbOrTx,
+  blobs: BlobStore,
+  id: string,
+  index: number,
+): Promise<{ filename: string; mimeType: string; content: Buffer } | null> {
+  const [m] = await db.select().from(mailMessage).where(eq(mailMessage.entityId, id));
+  const raw = m ? await blobs.get(m.rawHash) : null;
+  if (!raw) return null;
+  const a = (await parseMail(raw)).attachments[index];
+  return a ? { filename: a.filename, mimeType: a.mimeType, content: a.content } : null;
+}

@@ -9,65 +9,48 @@ import { useHotkeys } from "../lib/hotkeys.ts";
 import { toast } from "../lib/live.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
-import type { MailAddress, MailMessage, MailThreadView } from "../lib/types.ts";
+import type { MailAddress, MailDraft, MailMessage, MailThreadView } from "../lib/types.ts";
 import { named } from "./Mail.tsx";
+import { Composer } from "./MailCompose.tsx";
 
 const list = (xs: MailAddress[]) =>
   xs.map((a) => (a.name ? `${a.name} <${a.address}>` : a.address)).join(", ");
 
-function frameDoc(html: string, images: boolean): string {
-  const img = images ? "data: cid: https: http:" : "data: cid:";
-  return `<!doctype html><html><head><meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${img}; style-src 'unsafe-inline' ${images ? "https:" : ""}; font-src data:">
-<base target="_blank"><style>html{color-scheme:light}body{margin:0;padding:12px;font:14px/1.5 system-ui,sans-serif;color:#222;background:#fff;overflow-wrap:anywhere}img{max-width:100%;height:auto}</style>
-</head><body>${html}</body></html>`;
-}
-
-/** An HTML message, sized to fit its content. */
+/** An HTML message in its own frame, sized to fit. The frame runs no scripts. */
 function HtmlBody(props: { id: string }) {
   const [images, setImages] = createSignal(false);
-  const html = useAction<{ html: string; remoteImages: boolean }>("mail.html", () => ({
-    id: props.id,
-  }));
+  const [remote, setRemote] = createSignal(false);
   let frame: HTMLIFrameElement | undefined;
-  const fit = () => {
+  const loaded = () => {
     const doc = frame?.contentDocument;
-    if (frame && doc?.body)
-      frame.style.height = `${Math.min(doc.documentElement.scrollHeight + 4, 20000)}px`;
+    if (!frame || !doc?.body) return;
+    frame.style.height = `${Math.min(doc.documentElement.scrollHeight + 4, 20000)}px`;
+    setRemote(
+      doc.querySelector('meta[name="hearth-remote-images"]')?.getAttribute("content") === "1",
+    );
   };
   return (
-    <Show
-      when={html.data}
-      fallback={
-        <p class="text-sm text-muted">
-          {html.isError ? "This message's original isn't on this PC." : "Loading…"}
+    <div class="space-y-2">
+      <Show when={remote() && !images()}>
+        <p class="text-xs text-muted">
+          Pictures from the internet are hidden, so the sender can't tell you opened this.{" "}
+          <button type="button" class="underline" onClick={() => setImages(true)}>
+            Show them
+          </button>
         </p>
-      }
-    >
-      {(h) => (
-        <div class="space-y-2">
-          <Show when={h().remoteImages && !images()}>
-            <p class="text-xs text-muted">
-              Pictures from the internet are hidden, so the sender can't tell you opened this.{" "}
-              <button type="button" class="underline" onClick={() => setImages(true)}>
-                Show them
-              </button>
-            </p>
-          </Show>
-          {/* No scripts: same-origin only lets Hearth measure the height. */}
-          <iframe
-            ref={frame}
-            title="Message"
-            class="w-full rounded-md border border-line bg-white"
-            style={{ height: "200px" }}
-            sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-            referrerpolicy="no-referrer"
-            srcdoc={frameDoc(h().html, images())}
-            onLoad={fit}
-          />
-        </div>
-      )}
-    </Show>
+      </Show>
+      {/* No scripts: same-origin only lets Hearth measure the height. */}
+      <iframe
+        ref={frame}
+        title="Message"
+        class="w-full rounded-md border border-line bg-white"
+        style={{ height: "120px" }}
+        sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+        referrerpolicy="no-referrer"
+        src={`/api/mail/frame/${props.id}${images() ? "?images=1" : ""}`}
+        onLoad={loaded}
+      />
+    </div>
   );
 }
 
@@ -111,7 +94,9 @@ function Message(props: { m: MailMessage; open: boolean; onToggle: () => void })
               <For each={files()}>
                 {(a) => (
                   <li class="rounded border border-line bg-sunk px-2 py-1">
-                    📎 {a.filename}{" "}
+                    <a href={`/api/mail/attachment/${props.m.id}/${a.index}`} download={a.filename}>
+                      📎 {a.filename}
+                    </a>{" "}
                     <span class="text-faint">({Math.max(1, Math.round(a.size / 1024))} KB)</span>
                   </li>
                 )}
@@ -126,6 +111,14 @@ function Message(props: { m: MailMessage; open: boolean; onToggle: () => void })
 
 export function MailThreadPane(props: { id: string; pane: number }) {
   const t = useAction<MailThreadView>("mail.thread", () => ({ id: props.id }));
+  const drafts = useAction<MailDraft[]>(
+    "mail.drafts",
+    () => ({ threadId: t.data?.id }),
+    () => Boolean(t.data),
+  );
+  const draftIds = () => (drafts.data ?? []).map((d) => d.id);
+  const reply = (all: boolean) =>
+    t.data && void act("mail.draft", { threadId: t.data.id, replyAll: all, text: "" });
   const [opened, setOpened] = createSignal<Set<string>>(new Set());
   const focused = () => layout.focused() === props.pane;
   // The newest message and any unread ones start open.
@@ -159,6 +152,8 @@ export function MailThreadPane(props: { id: string; pane: number }) {
       when: focused,
       label: "Star",
     },
+    { keys: "r", run: () => reply(false), when: focused, label: "Reply" },
+    { keys: "a", run: () => reply(true), when: focused, label: "Reply all" },
   ]);
   return (
     <Show when={t.data} fallback={<Placeholder missing={t.isError} what="conversation" />}>
@@ -197,6 +192,18 @@ export function MailThreadPane(props: { id: string; pane: number }) {
                 />
               )}
             </For>
+            {/* Keyed by id, so a draft being typed in isn't redrawn when it saves. */}
+            <For each={draftIds()}>
+              {(id) => <Composer draft={(drafts.data ?? []).find((d) => d.id === id)!} />}
+            </For>
+            <div class="flex gap-2">
+              <Button small onClick={() => reply(false)}>
+                Reply
+              </Button>
+              <Button small onClick={() => reply(true)}>
+                Reply all
+              </Button>
+            </div>
             <Backlinks id={v().id} />
           </div>
         </div>

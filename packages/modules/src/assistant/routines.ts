@@ -4,7 +4,7 @@ import { localDate } from "@hearth/core";
 import { entity } from "@hearth/db";
 import { getSetting, type RoutineDef } from "@hearth/kernel";
 import { and, desc, eq, isNull } from "drizzle-orm";
-import { renderBrief, renderDigest } from "./brief.ts";
+import { hasOutside, renderBrief, renderDigest, withoutOutside } from "./brief.ts";
 
 const DAY_MS = 24 * 3600_000;
 
@@ -31,6 +31,7 @@ export const briefRoutine: RoutineDef = {
         trigger: "routine",
         lane: "deep",
         dedupeKey: `brief:${date}`,
+        untrusted: hasOutside(sections),
         context: { routine: "brief", date },
         prompt: [
           `It's time for the morning brief (${date}).`,
@@ -55,7 +56,8 @@ export const journalRoutine: RoutineDef = {
     const rules = await getSetting(ctx.db, "owner.dayRules");
     const date = localDate(ctx.now, rules.timeZone);
     const since = new Date(ctx.now.getTime() - 14 * 3600_000);
-    const facts = renderDigest(await firing.digest(since));
+    // The journal feeds the nightly memory update, so it's written from Hearth's own facts only.
+    const facts = renderDigest(withoutOutside(await firing.digest(since)));
     return [
       {
         kind: "turn",

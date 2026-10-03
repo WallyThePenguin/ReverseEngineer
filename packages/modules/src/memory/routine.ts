@@ -5,7 +5,7 @@ import { formatDateTime, localDate } from "@hearth/core";
 import { conversationLog, type Db, entity, memoryNote } from "@hearth/db";
 import { getSetting, type RoutineDef } from "@hearth/kernel";
 import { and, asc, desc, eq, gte, isNull, sql } from "drizzle-orm";
-import { renderDigest } from "../assistant/brief.ts";
+import { renderDigest, withoutOutside } from "../assistant/brief.ts";
 import { preview } from "../shared.ts";
 
 const DAY_MS = 24 * 3600_000;
@@ -52,7 +52,8 @@ export const consolidateRoutine: RoutineDef = {
     const rules = await getSetting(ctx.db, "owner.dayRules");
     const date = localDate(new Date(ctx.now.getTime() - DAY_MS), rules.timeZone);
     const since = new Date(ctx.now.getTime() - DAY_MS);
-    const facts = renderDigest(await firing.digest(since));
+    // Outside content (email subjects) is never a source for memory, so it isn't shown at all.
+    const facts = renderDigest(withoutOutside(await firing.digest(since)));
     const said = await ownerWords(ctx.db, since);
     const [journal] = await ctx.db
       .select({ body: entity.body })

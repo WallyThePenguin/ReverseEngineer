@@ -8,6 +8,7 @@ import {
   entity,
   googleAccount,
   mailAccount,
+  mailDraft,
   mailMessage,
   mailThread,
 } from "@hearth/db";
@@ -313,9 +314,9 @@ export const calendarModule = defineModule({
             );
           await ctx.tx.delete(entity).where(inArray(entity.id, events));
         }
-        // Its mail too: messages, conversations and the account (raw copies stay on disk).
+        // Its mail too: messages, conversations, drafts and the account (raw copies stay on disk).
         const mailId = `gmail:${email}`;
-        for (const table of [mailMessage, mailThread] as const)
+        for (const table of [mailMessage, mailThread, mailDraft] as const)
           await ctx.tx
             .delete(entity)
             .where(
@@ -331,7 +332,12 @@ export const calendarModule = defineModule({
         const gone = await ctx.tx
           .delete(googleAccount)
           .where(eq(googleAccount.email, email))
-          .returning({ email: googleAccount.email });
+          .returning({ email: googleAccount.email, token: googleAccount.refreshToken });
+        let google: GoogleClient | null = null;
+        try {
+          google = ctx.service<GoogleClient>(GOOGLE_SERVICE);
+        } catch {}
+        for (const g of gone) await google?.revoke(g.token);
         return { removed: gone.length };
       },
     }),

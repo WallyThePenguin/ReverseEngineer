@@ -30,6 +30,7 @@ import { actionRoutes } from "./routes/actions.ts";
 import { authRoutes } from "./routes/auth.ts";
 import { eventRoutes } from "./routes/events.ts";
 import { googleRoutes } from "./routes/google.ts";
+import { mailRoutes } from "./routes/mail.ts";
 
 const CSP = [
   "default-src 'self'",
@@ -77,7 +78,8 @@ export function createApp(opts: AppOptions) {
   app.use("*", async (c, next) => {
     c.set("deps", deps);
     await next();
-    c.header("Content-Security-Policy", CSP);
+    // A route with its own policy (an email shown in a frame) keeps it.
+    if (!c.res.headers.has("Content-Security-Policy")) c.header("Content-Security-Policy", CSP);
     c.header("X-Content-Type-Options", "nosniff");
     c.header("Referrer-Policy", "no-referrer");
     c.header("Cross-Origin-Opener-Policy", "same-origin");
@@ -90,6 +92,7 @@ export function createApp(opts: AppOptions) {
   app.route("/api/events", eventRoutes());
   app.route("/api/browser", browserRoutes(bridge));
   app.route("/api/google", googleRoutes());
+  app.route("/api/mail", mailRoutes());
   app.route("/api", actionRoutes());
   app.route("/mcp", mcpRoutes());
   app.all("/api/*", (c) => c.json({ error: "Not found." }, 404));

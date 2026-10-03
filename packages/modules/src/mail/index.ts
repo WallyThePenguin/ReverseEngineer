@@ -13,14 +13,16 @@ import {
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { id, isoDateTime } from "../shared.ts";
-import { BLOB_SERVICE, type BlobStore } from "./blobs.ts";
+import { describeDraft, draftActions } from "./drafts.ts";
 import { changeFlags, pendingChanges } from "./flags.ts";
 import { normalizePattern, senderPatterns } from "./people.ts";
 import { syncMail } from "./sync.ts";
-import { listThreads, loadThread, messageHtml, searchThreads, threadText, who } from "./views.ts";
+import { listThreads, loadThread, searchThreads, threadText, who } from "./views.ts";
 
 export { BLOB_SERVICE, BlobStore, blobsFromEnv } from "./blobs.ts";
+export type { DraftView } from "./drafts.ts";
 export type { MessageView, ThreadSummary, ThreadView } from "./views.ts";
+export { messageAttachment, messageHtml } from "./views.ts";
 
 const ids = z.array(id).min(1).max(500).describe("Conversation ids.");
 const lane = z.enum(["signal", "noise"]);
@@ -96,9 +98,9 @@ function flagAction(
 export const mailModule = defineModule({
   name: "mail",
   description: "Email: your Gmail accounts in one inbox, split into Signal and Noise.",
-  entityTypes: ["email_thread", "email"],
+  entityTypes: ["email_thread", "email", "email_draft"],
   // Mail is written by other people: reading it makes the rest of Jarvis's turn untrusted (D25).
-  outsideTypes: ["email_thread", "email"],
+  outsideTypes: ["email_thread", "email", "email_draft"],
   events: [
     {
       kind: "mail.received",
@@ -111,9 +113,11 @@ export const mailModule = defineModule({
         "The provider refused a change, so it was rolled back. Payload: add, remove, error.",
     },
     { kind: "mail.sync_failed", description: "Syncing mail failed. Payload: errors." },
+    { kind: "mail.sent", description: "An email was sent. Payload: to, subject." },
   ],
   kernelEvents: ["entity.created", "entity.updated", "link.added"],
   knowledge: {
+    email_draft: describeDraft,
     async email_thread(entityId, ctx) {
       const t = await loadThread(ctx.db, entityId);
       return t ? threadText(t) : null;
@@ -172,18 +176,6 @@ export const mailModule = defineModule({
         const t = await loadThread(ctx.tx, m?.threadId ?? i.id);
         if (!t) throw new ActionError("not_found", "No email conversation with that id.");
         return t;
-      },
-    }),
-    defineAction({
-      name: "mail.html",
-      description: "A message's HTML, for showing in the app.",
-      input: z.object({ id }),
-      risk: "read",
-      callers: ["owner"],
-      async handler(i, ctx) {
-        const html = await messageHtml(ctx.tx, ctx.service<BlobStore>(BLOB_SERVICE), i.id);
-        if (!html) throw new ActionError("not_found", "That message's original isn't on this PC.");
-        return html;
       },
     }),
     flagAction(
@@ -317,9 +309,11 @@ export const mailModule = defineModule({
       description: "Send queued changes to the mail provider and bring in new mail now.",
       input: z.object({}),
       risk: "internal",
-      callers: ["owner", "system", "integration"],
+      // Only as the integration, so the news it emits (mail.received) is always untrusted.
+      callers: ["integration"],
       handler: (_i, ctx) => syncMail(ctx),
     }),
+    ...draftActions,
   ],
   reflexes: [syncFailed, changeFailed],
   async digest(ctx): Promise<DigestItem[]> {
@@ -335,6 +329,7 @@ export const mailModule = defineModule({
       bucket: "fyi" as const,
       text: `Email from ${t.participants[0] ? who(t.participants[0]) : "someone"}: ${t.subject}`,
       entityId: t.id,
+      outside: true,
     }));
   },
 });
