@@ -1,3 +1,4 @@
+import { entity } from "@hearth/db";
 import {
   type Caller,
   type HearthEvent,
@@ -6,6 +7,7 @@ import {
   ownerCaller,
 } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prepRoutine } from "../calendar/prep.ts";
 import { GOOGLE_SERVICE, SCOPES } from "../google/client.ts";
@@ -60,10 +62,10 @@ interface Meeting {
   people: { name: string }[];
   event: { id: string } | null;
   summary: string | null;
-  tasks: { title: string }[];
+  tasks: { id: string; title: string }[];
   segments: { id: string; text: string }[];
 }
-const get = (id: string) => ok<Meeting>("meeting.get", { id });
+const get = (id: string) => ok<Meeting>("meeting.get", { id, segments: true });
 const firing = () => ({
   scheduledFor: t.clock.now(),
   event: {} as HearthEvent,
@@ -140,6 +142,26 @@ describe("meeting notes", () => {
       summary: "Budget agreed.",
       tasks: [{ title: "Send the deck" }, { title: "Book a room" }],
     });
+    // The task titles came from what people said, so they're outside content.
+    const [made] = (await get(id)).tasks;
+    const rows = await t.tdb.db.select().from(entity).where(eq(entity.id, made!.id));
+    expect(rows[0]?.createdBy).toBe("integration:meetings");
+    // A turn that read outside content can't rewrite a summary, or start or change notes.
+    const untrusted = { ...jarvis, origin: "untrusted" as const };
+    expect(
+      await t.kernel.execute("meeting.publish_summary", { id, summary: "Fake" }, untrusted),
+    ).toMatchObject({ status: "error", code: "conflict" });
+    expect(
+      await t.kernel.execute("meeting.update", { id, notes: "Fake" }, untrusted),
+    ).toMatchObject({ status: "pending_approval" });
+    expect(
+      await t.kernel.execute("meeting.start", { title: "Fake", peopleIds: [made!.id] }, untrusted),
+    ).toMatchObject({ status: "pending_approval" });
+    const notPeople = await ok<{ id: string }>("meeting.start", {
+      title: "X",
+      peopleIds: [made!.id],
+    });
+    expect((await get(notPeople.id)).people).toEqual([]);
   });
 
   it("puts the last meeting with the same people in tomorrow's prep, by itself", async () => {
@@ -159,5 +181,25 @@ describe("meeting notes", () => {
     // Jarvis paused: the plain packet carries the same notes.
     const fallback = (turn as { fallback: { input: { markdown: string } }[] }).fallback;
     expect(fallback[0]!.input.markdown).toContain("Agreed to cut travel by 10%.");
+  });
+
+  it("keeps your notes out of a stranger's invitation that names the same meeting and people", async () => {
+    const first = await meetingWithCarol("Budget", "2026-10-01T13:00:00Z", "2026-10-01T13:30:00Z");
+    const { id } = await ok<{ id: string }>("meeting.start", { eventId: first });
+    await ok("meeting.publish_summary", { id, summary: "Private numbers." });
+    g.put(ME, {
+      summary: "Budget",
+      start: { dateTime: "2026-10-02T15:00:00Z" },
+      end: { dateTime: "2026-10-02T16:00:00Z" },
+      organizer: { email: "x@evil.example" },
+      attendees: [
+        { email: ME, self: true, responseStatus: "needsAction" },
+        { email: "x@evil.example", displayName: "Carol", organizer: true },
+      ],
+    });
+    await ok("calendar.sync", {}, integrationCaller("google"));
+    t.clock.set("2026-10-02T10:00:00Z");
+    const [turn] = await prepRoutine.run(firing(), { db: t.tdb.db, now: t.clock.now() });
+    expect((turn as { prompt: string }).prompt).not.toContain("Private numbers.");
   });
 });

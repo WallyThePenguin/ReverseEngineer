@@ -544,7 +544,11 @@ people linked to it. Ending a meeting with notes or a transcript gives Jarvis an
 to write the summary and make tasks from your action items (publishing again skips tasks it
 already made). A meeting is outside content, since the transcript is other people's words. The
 prep packet names the last meeting with any of the same guests (or the last time this meeting
-happened), with its summary and your notes, and that makes the prep turn untrusted.
+happened), with its summary and your notes, and that makes the prep turn untrusted; it does so
+only for meetings you organized or accepted, matching guests by address. Tasks made from action
+items are written as `integration:meetings`, so they stay outside content wherever they show up.
+A turn that read outside content can write a summary once, and asks before starting or changing
+meeting notes.
 
 **Alternatives:** Keep the summary in the body. Make meetings only from the recorder. Leave
 transcripts out of D25.

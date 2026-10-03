@@ -21,3 +21,7 @@ CREATE TABLE meeting_segment (
   PRIMARY KEY (meeting_id, id)
 );
 CREATE INDEX meeting_segment_order ON meeting_segment (meeting_id, start_ms);
+
+-- Tasks made from a meeting's action items are written in its name: the words came from the
+-- transcript, so they count as outside content (D25).
+INSERT INTO principal (id, kind, display_name) VALUES ('integration:meetings', 'integration', 'Meeting notes');

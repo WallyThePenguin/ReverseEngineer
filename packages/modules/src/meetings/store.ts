@@ -9,8 +9,14 @@ import {
   meetingSegment,
   task,
 } from "@hearth/db";
-import { type ActionContext, addLink, createEntity, type EntityRow } from "@hearth/kernel";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import {
+  type ActionContext,
+  ActionError,
+  addLink,
+  createEntity,
+  type EntityRow,
+} from "@hearth/kernel";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 
 export interface MeetingView {
   id: string;
@@ -31,6 +37,9 @@ export interface MeetingView {
     text: string;
   }[];
 }
+
+/** The most transcript a meeting keeps. */
+export const MAX_SEGMENTS = 5000;
 
 /** The people an event or meeting is linked to. */
 export async function peopleOn(db: DbOrTx, fromId: string) {
@@ -68,16 +77,33 @@ export async function startMeeting(
       .from(calendarEvent)
       .innerJoin(entity, eq(entity.id, calendarEvent.entityId))
       .where(and(eq(calendarEvent.entityId, i.eventId), isNull(entity.deletedAt)));
-    if (!ev) throw new Error("No such event");
+    if (!ev) throw new ActionError("not_found", "No such event");
     title = i.title ?? ev.title;
     // Notes taken before the meeting start count from its start.
     if (ev.startsAt < startedAt) startedAt = ev.startsAt;
   }
+  // A meeting for this event you trashed earlier lets go of it, keeping its notes.
+  if (i.eventId)
+    await ctx.tx.update(meeting).set({ eventId: null }).where(eq(meeting.eventId, i.eventId));
   const row = await createEntity(ctx, { type: "meeting", title, body: "" });
-  // A meeting for an event you trashed earlier gives way to the new one.
-  if (i.eventId) await ctx.tx.delete(meeting).where(eq(meeting.eventId, i.eventId));
-  await ctx.tx.insert(meeting).values({ entityId: row.id, eventId: i.eventId ?? null, startedAt });
-  const people = new Set(i.peopleIds ?? []);
+  const inserted = await ctx.tx
+    .insert(meeting)
+    .values({ entityId: row.id, eventId: i.eventId ?? null, startedAt })
+    .onConflictDoNothing()
+    .returning({ id: meeting.entityId });
+  if (inserted.length === 0)
+    throw new ActionError("conflict", "Notes for this event were just started; open them again");
+  // Only real people: the ids may come from Jarvis.
+  const people = new Set<string>();
+  if (i.peopleIds?.length) {
+    const real = await ctx.tx
+      .select({ id: entity.id })
+      .from(entity)
+      .where(
+        and(inArray(entity.id, i.peopleIds), eq(entity.type, "person"), isNull(entity.deletedAt)),
+      );
+    for (const p of real) people.add(p.id);
+  }
   if (i.eventId) {
     await addLink(ctx, { fromId: row.id, toId: i.eventId, kind: "derived_from" });
     for (const p of await peopleOn(ctx.tx, i.eventId)) people.add(p.id);
@@ -86,7 +112,11 @@ export async function startMeeting(
   return row.id;
 }
 
-export async function meetingView(db: DbOrTx, e: EntityRow): Promise<MeetingView | null> {
+export async function meetingView(
+  db: DbOrTx,
+  e: EntityRow,
+  withTranscript = true,
+): Promise<MeetingView | null> {
   const [m] = await db.select().from(meeting).where(eq(meeting.entityId, e.id));
   if (!m) return null;
   const [ev] = m.eventId
@@ -108,18 +138,20 @@ export async function meetingView(db: DbOrTx, e: EntityRow): Promise<MeetingView
     .innerJoin(task, eq(task.entityId, entity.id))
     .where(and(eq(link.toId, e.id), eq(link.kind, "derived_from"), isNull(entity.deletedAt)))
     .orderBy(asc(task.number));
-  const transcript = await db
-    .select({
-      id: meetingSegment.id,
-      channel: meetingSegment.channel,
-      startMs: meetingSegment.startMs,
-      endMs: meetingSegment.endMs,
-      text: meetingSegment.text,
-    })
-    .from(meetingSegment)
-    .where(eq(meetingSegment.meetingId, e.id))
-    .orderBy(asc(meetingSegment.startMs), asc(meetingSegment.id))
-    .limit(5000);
+  const transcript = !withTranscript
+    ? []
+    : await db
+        .select({
+          id: meetingSegment.id,
+          channel: meetingSegment.channel,
+          startMs: meetingSegment.startMs,
+          endMs: meetingSegment.endMs,
+          text: meetingSegment.text,
+        })
+        .from(meetingSegment)
+        .where(eq(meetingSegment.meetingId, e.id))
+        .orderBy(asc(meetingSegment.startMs), asc(meetingSegment.id))
+        .limit(MAX_SEGMENTS);
   return {
     id: e.id,
     title: e.title,

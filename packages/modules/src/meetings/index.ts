@@ -16,7 +16,9 @@ import {
 import { desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { body, describeRow, id, isoDateTime, liveEntity, preview } from "../shared.ts";
-import { meetingView, startMeeting, taskTitles, transcriptText } from "./store.ts";
+import { MAX_SEGMENTS, meetingView, startMeeting, taskTitles, transcriptText } from "./store.ts";
+
+const MEETINGS_PRINCIPAL = "integration:meetings";
 
 async function liveMeeting(db: Parameters<typeof liveEntity>[0], meetingId: string) {
   const row = await liveEntity(db, meetingId, "meeting");
@@ -75,8 +77,12 @@ export const meetingsModule = defineModule({
     async meeting(entityId, ctx) {
       const row = await liveEntity(ctx.db, entityId, "meeting");
       if (!row) return null;
-      const v = await meetingView(ctx.db, row);
+      const v = await meetingView(ctx.db, row, false);
       if (!v) return null;
+      const [{ n } = { n: 0 }] = await ctx.db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(meetingSegment)
+        .where(eq(meetingSegment.meetingId, entityId));
       const rules = await getSetting(ctx.db, "owner.dayRules");
       const tail = [
         `Started: ${formatDateTime(v.startedAt, rules.timeZone)}${v.endedAt ? `, ended ${formatDateTime(v.endedAt, rules.timeZone)}` : ""}`,
@@ -86,7 +92,7 @@ export const meetingsModule = defineModule({
           : "",
         v.summary ? `## Summary\n${v.summary}` : "Not summarized yet.",
         ...v.tasks.map((t) => `- Task T-${t.number}: ${t.title} (${t.status})`),
-        v.transcript.length ? `Transcript: ${v.transcript.length} segments (meeting_get)` : "",
+        n ? `Transcript: ${n} segments (meeting_get)` : "",
       ].filter(Boolean);
       return describeRow(row, ["a meeting"], tail.join("\n"));
     },
@@ -101,31 +107,27 @@ export const meetingsModule = defineModule({
         title: z.string().trim().min(1).max(300).optional(),
         peopleIds: z.array(id).max(20).optional(),
       }),
-      risk: "internal",
-      async handler(i, ctx) {
-        try {
-          return { id: await startMeeting(ctx, i) };
-        } catch (err) {
-          throw new ActionError("not_found", err instanceof Error ? err.message : String(err));
-        }
-      },
+      // A meeting's notes go into the next prep packet as yours, so a turn that read outside
+      // content asks before starting or changing one.
+      risk: "self_external",
+      summarize: (i) => `Start meeting notes${i.title ? `: ${i.title}` : ""}`,
+      handler: async (i, ctx) => ({ id: await startMeeting(ctx, i) }),
     }),
     defineAction({
       name: "meeting.get",
       description:
         "A meeting: the owner's notes, the transcript (Owner and Them), the summary, the event, the people and the tasks from it.",
-      input: z.object({ id }),
+      input: z.object({ id, segments: z.boolean().default(false) }),
       risk: "read",
       external: true,
       async handler(i, ctx) {
         const v = await meetingView(ctx.tx, await liveMeeting(ctx.tx, i.id));
         if (!v) throw new ActionError("not_found", "No such meeting");
-        return {
-          ...v,
-          transcript: undefined,
-          transcriptText: transcriptText(v),
-          segments: v.transcript,
-        };
+        const { transcript, ...rest } = v;
+        // The page wants the segments; Jarvis reads the transcript as text.
+        return i.segments
+          ? { ...rest, segments: transcript }
+          : { ...rest, transcriptText: transcriptText(v) };
       },
     }),
     defineAction({
@@ -155,7 +157,8 @@ export const meetingsModule = defineModule({
         title: z.string().trim().min(1).max(300).optional(),
         notes: body.optional(),
       }),
-      risk: "internal",
+      risk: "self_external",
+      summarize: () => "Change a meeting's notes",
       handler: (i, ctx) =>
         updateEntity(ctx, i.id, { title: i.title, body: i.notes }, { type: "meeting" }),
     }),
@@ -169,6 +172,15 @@ export const meetingsModule = defineModule({
       callers: ["owner", "integration"],
       async handler(i, ctx) {
         await liveMeeting(ctx.tx, i.id);
+        const [{ n } = { n: 0 }] = await ctx.tx
+          .select({ n: sql<number>`count(*)::int` })
+          .from(meetingSegment)
+          .where(eq(meetingSegment.meetingId, i.id));
+        if (n + i.segments.length > MAX_SEGMENTS)
+          throw new ActionError(
+            "invalid_input",
+            `A meeting keeps at most ${MAX_SEGMENTS} segments`,
+          );
         for (const s of i.segments) {
           const values = {
             channel: s.channel,
@@ -201,7 +213,8 @@ export const meetingsModule = defineModule({
           .where(eq(meeting.entityId, i.id))
           .for("update");
         if (m?.endedAt) return { id: i.id, endedAt: m.endedAt };
-        const endedAt = i.endedAt ? new Date(i.endedAt) : ctx.now;
+        const asked = i.endedAt ? new Date(i.endedAt) : ctx.now;
+        const endedAt = m && asked < m.startedAt ? m.startedAt : asked;
         await ctx.tx.update(meeting).set({ endedAt }).where(eq(meeting.entityId, i.id));
         const [{ n } = { n: 0 }] = await ctx.tx
           .select({ n: sql<number>`count(*)::int` })
@@ -229,6 +242,14 @@ export const meetingsModule = defineModule({
       risk: "internal",
       async handler(i, ctx) {
         await liveMeeting(ctx.tx, i.id);
+        const [m] = await ctx.tx
+          .select()
+          .from(meeting)
+          .where(eq(meeting.entityId, i.id))
+          .for("update");
+        // A turn reading outside content writes a summary once; rewriting it takes a trusted turn.
+        if (m?.summarizedAt && ctx.caller.origin === "untrusted")
+          throw new ActionError("conflict", "This meeting is already summarized");
         await ctx.tx
           .update(meeting)
           .set({ summary: i.summary, summarizedAt: ctx.now })
@@ -239,6 +260,11 @@ export const meetingsModule = defineModule({
           if (made.has(title.toLowerCase())) continue;
           made.add(title.toLowerCase());
           const t = await ctx.call<{ id: string }>("task.create", { title });
+          // The words came from the transcript, so the task counts as outside content (D25).
+          await ctx.tx
+            .update(entity)
+            .set({ createdBy: MEETINGS_PRINCIPAL, updatedBy: MEETINGS_PRINCIPAL })
+            .where(eq(entity.id, t.id));
           await addLink(ctx, { fromId: t.id, toId: i.id, kind: "derived_from" });
           tasks.push(t.id);
         }

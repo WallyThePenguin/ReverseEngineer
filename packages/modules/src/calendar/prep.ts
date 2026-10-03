@@ -81,6 +81,8 @@ export async function prepFacts(
   tz: string,
 ): Promise<{ text: string; outside: boolean }> {
   let known: { id: string; title: string; body: string | null }[] = [];
+  // Guests matched by address: a name on an invitation is whatever the sender typed.
+  let byAddress: { id: string }[] = [];
   const lines = [`## ${ev.title}`, `- When: ${whenText(ev, tz)}`, `- Event id: ${ev.id}`];
   if (ev.location) lines.push(`- Where: ${ev.location}`);
   if (ev.meetUrl) lines.push(`- Video: ${ev.meetUrl}`);
@@ -97,6 +99,11 @@ export async function prepFacts(
           people.map((g) => g.email),
         ),
       );
+    byAddress = await ctx.db
+      .select({ id: entity.id })
+      .from(entity)
+      .where(and(inArray(entity.id, byEmail), eq(entity.type, "person"), isNull(entity.deletedAt)))
+      .limit(20);
     known = await ctx.db
       .select({ id: entity.id, title: entity.title, body: entity.body })
       .from(entity)
@@ -142,6 +149,7 @@ export async function prepFacts(
     .where(
       and(
         eq(entity.title, ev.title),
+        isNull(entity.deletedAt),
         ne(calendarEvent.entityId, ev.id),
         lt(calendarEvent.startsAt, ev.startsAt),
         ne(calendarEvent.status, "cancelled"),
@@ -168,8 +176,10 @@ export async function prepFacts(
   // The description is outside content (anyone can send an invite), so it stays out of the
   // prompt; reading the event with record_read marks the turn as having read it (D25).
   if (ev.description) lines.push("- Has a description: read the event to see it.");
-  // The last meeting with any of the same people, or the last time this meeting happened.
-  const together = known.length
+  // The last meeting with any of the same people, or the last time this meeting happened. Only
+  // for meetings you set up or accepted, so a stranger's invitation can't pull your notes in.
+  const yours = ev.selfOrganizer || ev.selfResponse === "accepted";
+  const together = byAddress.length
     ? ctx.db
         .select({ id: link.fromId })
         .from(link)
@@ -177,36 +187,38 @@ export async function prepFacts(
           and(
             inArray(
               link.toId,
-              known.map((k) => k.id),
+              byAddress.map((k) => k.id),
             ),
             eq(link.kind, "participant"),
           ),
         )
     : null;
-  const [met] = await ctx.db
-    .select({
-      id: entity.id,
-      title: entity.title,
-      notes: entity.body,
-      summary: meeting.summary,
-      startedAt: meeting.startedAt,
-    })
-    .from(meeting)
-    .innerJoin(entity, eq(entity.id, meeting.entityId))
-    .where(
-      and(
-        isNull(entity.deletedAt),
-        lt(meeting.startedAt, ev.startsAt),
-        or(isNull(meeting.eventId), ne(meeting.eventId, ev.id)),
-        or(
-          ...(together ? [inArray(meeting.entityId, together)] : []),
-          ...(last ? [eq(meeting.eventId, last.id)] : []),
-          sql`false`,
-        ),
-      ),
-    )
-    .orderBy(desc(meeting.startedAt))
-    .limit(1);
+  const [met] = !yours
+    ? []
+    : await ctx.db
+        .select({
+          id: entity.id,
+          title: entity.title,
+          notes: entity.body,
+          summary: meeting.summary,
+          startedAt: meeting.startedAt,
+        })
+        .from(meeting)
+        .innerJoin(entity, eq(entity.id, meeting.entityId))
+        .where(
+          and(
+            isNull(entity.deletedAt),
+            lt(meeting.startedAt, ev.startsAt),
+            or(isNull(meeting.eventId), ne(meeting.eventId, ev.id)),
+            or(
+              ...(together ? [inArray(meeting.entityId, together)] : []),
+              ...(last ? [eq(meeting.eventId, last.id)] : []),
+              sql`false`,
+            ),
+          ),
+        )
+        .orderBy(desc(meeting.startedAt))
+        .limit(1);
   if (met) {
     lines.push(
       `- Last meeting with them: "${met.title}", ${formatDateTime(met.startedAt, tz)} (meeting ${met.id})`,

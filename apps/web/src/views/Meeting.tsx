@@ -33,7 +33,7 @@ export async function takeNotes(eventId: string, beside = false) {
 }
 
 export function MeetingPanel(props: { id: string }) {
-  const m = useAction<MeetingDetail>("meeting.get", () => ({ id: props.id }));
+  const m = useAction<MeetingDetail>("meeting.get", () => ({ id: props.id, segments: true }));
   const [showTranscript, setShowTranscript] = createSignal(false);
   const open = (type: string, id: string, e: MouseEvent) =>
     layout.open(routeFor(type, id), { beside: e.shiftKey });
