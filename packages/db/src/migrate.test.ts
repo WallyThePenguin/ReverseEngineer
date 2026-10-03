@@ -15,9 +15,6 @@ describe("migrations", () => {
     await admin.connect();
     await admin.query(`CREATE DATABASE ${name}`);
     const pool = new pg.Pool({ connectionString: withDatabase(name) });
-    // DROP ... WITH (FORCE) below can kill a backend whose client is still closing after
-    // pool.end(); without a listener its FATAL message escapes as an uncaught error.
-    pool.on("connect", (client) => client.on("error", () => {}));
     try {
       const all = loadMigrations().map((m) => m.name);
       expect(await migrateUp(pool)).toEqual(all);
@@ -30,6 +27,13 @@ describe("migrations", () => {
       expect(await migrateUp(pool)).toEqual(all);
     } finally {
       await pool.end();
+      // pool.end() resolves before the server has closed those backends. Wait for them, or
+      // FORCE kills one mid-close and its FATAL message escapes as an uncaught error.
+      for (let i = 0; i < 50; i++) {
+        const open = await admin.query("SELECT 1 FROM pg_stat_activity WHERE datname = $1", [name]);
+        if (open.rowCount === 0) break;
+        await new Promise((r) => setTimeout(r, 100));
+      }
       await admin.query(`DROP DATABASE ${name} WITH (FORCE)`);
       await admin.end();
     }
