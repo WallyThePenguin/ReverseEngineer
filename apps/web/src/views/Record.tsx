@@ -11,6 +11,7 @@ import { layout, routeFor } from "../lib/panes.ts";
 import { useAction } from "../lib/query.ts";
 import type { Entity } from "../lib/types.ts";
 import { EventPanel } from "./Calendar.tsx";
+import { MeetingPanel } from "./Meeting.tsx";
 import { MemoryPanel } from "./Memory.tsx";
 import { PageWatchPanel } from "./PageWatch.tsx";
 import { CompanyPanel, PersonPanel } from "./Person.tsx";
@@ -40,13 +41,24 @@ export function RecordView(props: { id: string; pane: number }) {
             <Show when={r().type === "person"}>
               <PersonPanel id={r().id} />
             </Show>
+            <Show when={r().type === "meeting"}>
+              <MeetingPanel id={r().id} />
+            </Show>
             <Show when={r().type === "company"}>
               <CompanyPanel id={r().id} />
             </Show>
             <Show when={r().type === "page_watch"}>
               <PageWatchPanel id={r().id} />
             </Show>
-            <Show when={r().type === "memory_note"} fallback={<Body text={r().body} />}>
+            <Show
+              when={r().type === "memory_note"}
+              fallback={
+                // A meeting's body is your notes, edited in its panel.
+                <Show when={r().type !== "meeting"}>
+                  <Body text={r().body} />
+                </Show>
+              }
+            >
               <MemoryPanel id={r().id} />
             </Show>
             <Show when={r().type !== "comment"}>

@@ -533,3 +533,22 @@ message. Look up companies online.
 **Why:** Following Macro's rule keeps strangers and newsletters out of your people. Working out
 the last contact from links means a deleted email or a declined meeting stops counting with no
 bookkeeping. Nothing about a person leaves Hearth (PLAN.md section 8.7: no outside enrichment).
+
+## D37. A meeting is notes, a transcript and a summary, linked to the event and the people (2026-10-03)
+
+**Decision:** A `meeting` entity holds your notes (its body), a `meeting` row (the event, start
+and end, Jarvis's summary) and `meeting_segment` rows. Segment ids come from the recorder (the
+channel and the audio's start), so sending them again replaces rather than duplicates. Only you
+and the recorder write the transcript. One meeting per event, linked to the event and to the
+people linked to it. Ending a meeting with notes or a transcript gives Jarvis an untrusted turn
+to write the summary and make tasks from your action items (publishing again skips tasks it
+already made). A meeting is outside content, since the transcript is other people's words. The
+prep packet names the last meeting with any of the same guests (or the last time this meeting
+happened), with its summary and your notes, and that makes the prep turn untrusted.
+
+**Alternatives:** Keep the summary in the body. Make meetings only from the recorder. Leave
+transcripts out of D25.
+
+**Why:** Your notes stay yours and the summary can be rewritten without touching them. The
+recorder (desktop app, M3) only has to post segments and end the meeting. Anything a guest says
+could be an instruction, so it's held to the same rules as email.
