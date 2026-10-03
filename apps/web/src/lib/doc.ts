@@ -2,7 +2,7 @@
 // synced with Hearth through doc.sync whenever you type or something changes it elsewhere.
 
 import { LoroDoc, VersionVector } from "loro-crdt";
-import { action } from "./api.ts";
+import { ApiError, action } from "./api.ts";
 import { onLiveEvent } from "./live.ts";
 
 const DB = "hearth-docs";
@@ -48,6 +48,18 @@ async function load(id: string): Promise<Saved | null> {
 async function save(rec: Saved): Promise<void> {
   const db = await idb();
   db?.transaction(STORE, "readwrite").objectStore(STORE).put(rec);
+}
+
+async function forget(id: string): Promise<void> {
+  const db = await idb();
+  db?.transaction(STORE, "readwrite").objectStore(STORE).delete(id);
+}
+
+/** Drops this browser's copies of every doc (on sign-out). */
+export function forgetAllDocs() {
+  try {
+    indexedDB.deleteDatabase(DB);
+  } catch {}
 }
 
 export class LiveDoc {
@@ -130,7 +142,14 @@ export class LiveDoc {
             server: r.version,
           });
           this.onSaved(!this.hasNew(VersionVector.decode(unb64(r.version))));
-        } catch {
+        } catch (e) {
+          // Deleted (or never a doc): keep no copy of it here.
+          if (e instanceof ApiError && e.code === "not_found") {
+            await forget(this.id);
+            this.server = null;
+            this.onSaved(true);
+            return;
+          }
           // Offline or Hearth is restarting: the edits wait here and go with the next sync.
           this.onSaved(false);
           await save({

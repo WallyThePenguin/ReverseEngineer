@@ -2,8 +2,8 @@
 // merges, with the body column kept as the readable copy. Anything that writes the body directly
 // (Jarvis, the checklist) is taken into the doc as an edit the next time it's opened, so it merges
 // with typing instead of overwriting it.
-import { type DbOrTx, docState, docUpdate } from "@hearth/db";
-import type { ActionContext, EntityRow } from "@hearth/kernel";
+import { type DbOrTx, docState, docUpdate, entity } from "@hearth/db";
+import { type ActionContext, type EntityRow, updateEntity } from "@hearth/kernel";
 import { and, asc, eq, gt, lte, max } from "drizzle-orm";
 import { LoroDoc } from "loro-crdt";
 
@@ -66,6 +66,40 @@ export async function openDoc(
     await setRevision(ctx.tx, row.id, row.revision);
   }
   return { doc, pending };
+}
+
+/**
+ * Writes a doc's title or body as the caller (note.update). The doc first takes in any earlier
+ * direct write, then this body as the caller's own edit, so history names who wrote what (a
+ * later rename can't claim an earlier body change).
+ */
+export async function writeDoc(
+  ctx: ActionContext,
+  id: string,
+  patch: { title?: string; body?: string },
+  opts: { expectedRevision?: number; type: string },
+): Promise<EntityRow> {
+  const [row] = await ctx.tx.select().from(entity).where(eq(entity.id, id)).for("update");
+  const [state] = row
+    ? await ctx.tx.select({ id: docState.entityId }).from(docState).where(eq(docState.entityId, id))
+    : [];
+  if (!row || !state || row.deletedAt || !DOC_TYPES.has(row.type))
+    return updateEntity(ctx, id, patch, opts);
+  if (opts.expectedRevision !== undefined && opts.expectedRevision !== row.revision)
+    return updateEntity(ctx, id, patch, opts); // Fails with the usual conflict.
+  const { doc, pending } = await openDoc(ctx, row);
+  let added = 0;
+  if (patch.body !== undefined && patch.body !== textOf(doc)) {
+    const before = doc.oplogVersion();
+    doc.getText(TEXT).update(patch.body);
+    doc.commit();
+    await append(ctx, id, doc.export({ mode: "update", from: before }), ctx.caller.principal);
+    added = 1;
+  }
+  const out = await updateEntity(ctx, id, patch, opts);
+  await setRevision(ctx.tx, id, out.revision);
+  await fold(ctx, id, doc, pending + added);
+  return out;
 }
 
 export async function setRevision(db: DbOrTx, id: string, revision: number) {

@@ -9,11 +9,11 @@ import {
   type EntityRow,
   requireEntity,
   stableHash,
-  updateEntity,
 } from "@hearth/kernel";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { docActions } from "../docs/index.ts";
+import { writeDoc } from "../docs/store.ts";
 import { body, describeRow, id, liveEntity, preview, title } from "../shared.ts";
 import { linkItemToTask, openUnlinkedItems } from "./checklist.ts";
 
@@ -60,7 +60,7 @@ export const notesModule = defineModule({
       }),
       risk: "internal",
       handler: (i, ctx) =>
-        updateEntity(
+        writeDoc(
           ctx,
           i.id,
           { title: i.title, body: i.body },
@@ -106,7 +106,7 @@ export const notesModule = defineModule({
           text = linkItemToTask(text, item.line, { id: task.id, label: task.title });
           created.push({ id: task.id, title: task.title });
         }
-        if (created.length) await updateEntity(ctx, note.id, { body: text });
+        if (created.length) await writeDoc(ctx, note.id, { body: text }, { type: "note" });
         return { created };
       },
     }),

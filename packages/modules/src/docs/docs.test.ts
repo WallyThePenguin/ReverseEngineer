@@ -86,6 +86,29 @@ describe("live docs", () => {
     expect(stale).toMatchObject({ status: "error", code: "conflict" });
   });
 
+  it("names who wrote each change, even when a rename follows", async () => {
+    const note = await ok<{ id: string }>("note.create", { title: "Plan", body: "mine" });
+    const a = new Screen(note.id);
+    await a.sync();
+    await ok("note.update", { id: note.id, body: "theirs" }, jarvisCaller("agent"));
+    await ok("note.update", { id: note.id, title: "Renamed" });
+    const rows = await t.tdb.db
+      .select({ by: docUpdate.createdBy })
+      .from(docUpdate)
+      .where(eq(docUpdate.entityId, note.id));
+    expect(rows.map((r) => r.by)).toEqual(["jarvis"]);
+    await a.sync();
+    expect(a.text).toBe("theirs");
+  });
+
+  it("won't grow a note past the body limit", async () => {
+    const note = await ok<{ id: string }>("note.create", { title: "Big", body: "" });
+    const a = new Screen(note.id);
+    await a.sync();
+    a.type(0, "x".repeat(200_001));
+    await expect(a.sync()).rejects.toThrow(/too long/);
+  });
+
   it("folds updates into the snapshot without losing text or history", async () => {
     const note = await ok<{ id: string }>("note.create", { title: "Log", body: "" });
     const a = new Screen(note.id);

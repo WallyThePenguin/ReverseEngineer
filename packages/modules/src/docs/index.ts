@@ -9,6 +9,8 @@ import { z } from "zod";
 import { id } from "../shared.ts";
 import { applyUpdate, DOC_TYPES, fold, openDoc, setRevision, textOf } from "./store.ts";
 
+const MAX_TEXT = 200_000;
+
 /** Base64, at most this many bytes once decoded. */
 const b64 = (bytes: number) =>
   z
@@ -53,6 +55,9 @@ export const docActions = [
       }
       let revision = row.revision;
       const text = textOf(doc);
+      // The same ceiling as note.update: search, mentions and Jarvis read the whole body.
+      if (text.length > MAX_TEXT)
+        throw new ActionError("invalid_input", "That note is too long to save.");
       if (text !== (row.body ?? "")) {
         revision = (await updateEntity(ctx, row.id, { body: text })).revision;
         await setRevision(ctx.tx, row.id, revision);
