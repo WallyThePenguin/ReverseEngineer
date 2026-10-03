@@ -4,5 +4,6 @@ export * from "./google.ts";
 export * from "./graph.ts";
 export * from "./inbox.ts";
 export * from "./jarvis.ts";
+export * from "./mail.ts";
 export * from "./memory.ts";
 export * from "./vault.ts";

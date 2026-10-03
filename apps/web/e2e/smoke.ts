@@ -146,10 +146,13 @@ try {
     await p.getByText("Back to version 1.").waitFor();
   });
 
-  await step("the calendar, and Google in Settings", async (p) => {
+  await step("the calendar, mail, and Google in Settings", async (p) => {
     await p.locator("nav").click({ position: { x: 100, y: 600 } });
     await keys("g", "c");
     await p.getByRole("heading", { name: "Calendar" }).waitFor();
+    await keys("g", "e");
+    await p.getByRole("heading", { name: "Mail" }).waitFor();
+    await p.getByText("Connect Gmail in Settings").waitFor();
     await keys("g", "s");
     await p.getByRole("heading", { name: "Google" }).waitFor();
   });

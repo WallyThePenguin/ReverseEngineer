@@ -6,7 +6,9 @@ import { ClaudeBrain, startJarvis } from "@hearth/jarvis";
 import { Kernel, Registry } from "@hearth/kernel";
 import {
   ALL_MODULES,
+  BLOB_SERVICE,
   BROWSER_SERVICE,
+  blobsFromEnv,
   GOOGLE_SERVICE,
   googleFromEnv,
   internalBrowserClient,
@@ -24,6 +26,7 @@ export async function runJarvis(): Promise<() => Promise<void>> {
       [BROWSER_SERVICE]: internalBrowserClient(database.db, PRINCIPAL.jarvis),
       [GOOGLE_SERVICE]: googleFromEnv(),
       [VAULT_SERVICE]: vaultFromEnv(),
+      [BLOB_SERVICE]: blobsFromEnv(),
     },
   });
   const model = process.env.HEARTH_JARVIS_MODEL;

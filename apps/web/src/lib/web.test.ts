@@ -23,6 +23,7 @@ describe("pane routes", () => {
     expect(routeFor("note", ID)).toEqual({ view: "note", id: ID });
     expect(routeFor("conversation", ID)).toEqual({ view: "chat", id: ID });
     expect(routeFor("person", ID)).toEqual({ view: "record", id: ID });
+    expect(routeFor("email", ID)).toEqual({ view: "thread", id: ID });
   });
 });
 

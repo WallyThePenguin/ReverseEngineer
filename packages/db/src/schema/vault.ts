@@ -7,7 +7,7 @@ export const vaultLogin = pgTable(
   "vault_login",
   {
     id: uuid("id").primaryKey(),
-    /** The site it belongs to, like "example.com"; it's filled there and on its subdomains only. */
+    /** The site it belongs to, like "example.com"; it's filled on that exact site only (D29). */
     site: text("site").notNull(),
     username: text("username").notNull(),
     /** The password, encrypted. Never sent to the model, the event log or the audit log. */

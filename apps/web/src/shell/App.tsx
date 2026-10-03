@@ -23,6 +23,8 @@ import { Activity } from "../views/Activity.tsx";
 import { Browser } from "../views/Browser.tsx";
 import { Calendar } from "../views/Calendar.tsx";
 import { Inbox } from "../views/Inbox.tsx";
+import { Mail } from "../views/Mail.tsx";
+import { MailThreadPane } from "../views/MailThread.tsx";
 import { Memory } from "../views/Memory.tsx";
 import { Notes, NoteView } from "../views/Notes.tsx";
 import { People } from "../views/People.tsx";
@@ -39,6 +41,12 @@ function PaneView(props: { route: PaneRoute; index: number }) {
     <Switch>
       <Match when={props.route.view === "inbox"}>
         <Inbox pane={props.index} />
+      </Match>
+      <Match when={props.route.view === "mail"}>
+        <Mail pane={props.index} />
+      </Match>
+      <Match when={props.route.view === "thread"}>
+        <MailThreadPane id={id()} pane={props.index} />
       </Match>
       <Match when={props.route.view === "tasks"}>
         <Tasks pane={props.index} />
@@ -122,6 +130,7 @@ function Shell(props: { onSignOut: () => void }) {
     { keys: "/", run: () => setPalette(true) },
     { keys: "mod+j", run: () => jarvis.toggle(), inInputs: true, label: "Show or hide Jarvis" },
     { keys: "g i", run: go("inbox"), label: "Go to Inbox" },
+    { keys: "g e", run: go("mail"), label: "Go to Mail" },
     { keys: "g t", run: go("tasks"), label: "Go to Tasks" },
     { keys: "g n", run: go("notes"), label: "Go to Notes" },
     { keys: "g c", run: go("calendar"), label: "Go to Calendar" },

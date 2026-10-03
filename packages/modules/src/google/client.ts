@@ -48,6 +48,8 @@ function b64url(buf: Buffer): string {
 export class GoogleClient {
   readonly config: GoogleConfig;
   private readonly fetch: Fetch;
+  /** Token lookups, one at a time: calls made in parallel share one database connection. */
+  private tokens: Promise<unknown> = Promise.resolve();
 
   constructor(config: GoogleConfig) {
     this.config = config;
@@ -218,7 +220,9 @@ export class GoogleClient {
     url: string,
     body?: unknown,
   ): Promise<T> {
-    const token = await this.accessToken(db, email);
+    const next = this.tokens.then(() => this.accessToken(db, email));
+    this.tokens = next.catch(() => {});
+    const token = await next;
     const res = await this.fetch(url, {
       method,
       headers: {

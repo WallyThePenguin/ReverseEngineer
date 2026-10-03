@@ -47,8 +47,10 @@ export function googleRoutes() {
     } catch (err) {
       return back(err instanceof Error ? err.message : "That didn't work.");
     }
-    // Pull calendars right away so they're there when you land back in Settings.
+    // Pull calendars right away so they're there when you land back in Settings. Mail takes
+    // longer, so its first page starts in the background; the worker brings in the rest.
     await kernel.execute("calendar.sync", {}, integrationCaller("google"));
+    void kernel.execute("mail.sync", {}, integrationCaller("google")).catch(() => {});
     return back(`Connected ${email}.`);
   });
 

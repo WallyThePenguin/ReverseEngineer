@@ -10,6 +10,7 @@ import type { Approval, InboxRow } from "../lib/types.ts";
 
 const NAV: { view: ListView; label: string; keys: string }[] = [
   { view: "inbox", label: "Inbox", keys: "g i" },
+  { view: "mail", label: "Mail", keys: "g e" },
   { view: "tasks", label: "Tasks", keys: "g t" },
   { view: "notes", label: "Notes", keys: "g n" },
   { view: "calendar", label: "Calendar", keys: "g c" },

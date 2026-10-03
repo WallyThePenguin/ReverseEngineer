@@ -1,5 +1,5 @@
-// The worker: fires schedules (routines, reminders, checks), checks watched pages, and keeps an
-// eye on Hearth's health.
+// The worker: fires schedules (routines, reminders, checks), checks watched pages, syncs
+// Google Calendar and mail, and keeps an eye on Hearth's health.
 
 import { googleAccount } from "@hearth/db";
 import { integrationCaller, type Kernel, startScheduler } from "@hearth/kernel";
@@ -12,6 +12,7 @@ export interface WorkerOptions extends HealthOptions {
   healthIntervalMs?: number;
   watchIntervalMs?: number;
   calendarIntervalMs?: number;
+  mailIntervalMs?: number;
   log?: (msg: string, err?: unknown) => void;
 }
 
@@ -74,15 +75,49 @@ export function startWorker(opts: WorkerOptions) {
   const calendarTimer = setInterval(calendars, opts.calendarIntervalMs ?? 5 * 60_000);
   void calendars();
 
+  // Mail, every minute; a first sync comes in pages, fetched back to back.
+  let mailing = false;
+  const mail = async () => {
+    if (mailing) return;
+    mailing = true;
+    try {
+      for (let page = 0; page < 20; page++) {
+        const [any] = await kernel.db
+          .select({ email: googleAccount.email })
+          .from(googleAccount)
+          .limit(1);
+        if (!any) return;
+        const res = await kernel.execute<{ more: boolean }>(
+          "mail.sync",
+          {},
+          integrationCaller("google"),
+        );
+        if (res.status !== "ok") {
+          log(`mail sync: ${JSON.stringify(res)}`);
+          return;
+        }
+        if (!res.result.more) return;
+      }
+    } catch (err) {
+      log("mail sync failed", err);
+    } finally {
+      mailing = false;
+    }
+  };
+  const mailTimer = setInterval(mail, opts.mailIntervalMs ?? 60_000);
+  void mail();
+
   return {
     health,
     watches,
     calendars,
+    mail,
     tick: scheduler.tick,
     stop() {
       clearInterval(timer);
       clearInterval(watchTimer);
       clearInterval(calendarTimer);
+      clearInterval(mailTimer);
       scheduler.stop();
     },
   };

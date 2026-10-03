@@ -4,7 +4,9 @@ import { connect, databaseUrl } from "@hearth/db";
 import { Kernel, Registry } from "@hearth/kernel";
 import {
   ALL_MODULES,
+  BLOB_SERVICE,
   BROWSER_SERVICE,
+  blobsFromEnv,
   GOOGLE_SERVICE,
   googleFromEnv,
   internalBrowserClient,
@@ -22,6 +24,7 @@ export async function runWorker(): Promise<() => Promise<void>> {
       [BROWSER_SERVICE]: internalBrowserClient(database.db, PRINCIPAL.system),
       [GOOGLE_SERVICE]: googleFromEnv(),
       [VAULT_SERVICE]: vaultFromEnv(),
+      [BLOB_SERVICE]: blobsFromEnv(),
     },
   });
   const worker = startWorker({ kernel, dataDir: process.env.HEARTH_DATA_DIR ?? process.cwd() });
