@@ -126,6 +126,19 @@ export function buildTools(kernel: Kernel, state: TurnState, log: LogFn): BrainT
           } else if (state.origin === "untrusted")
             askFirst ??= "Hearth couldn't tell which site this would act on.";
         }
+        if (def.snapshot) {
+          try {
+            input = {
+              ...(input as object),
+              ...(await def.snapshot(input as never, { db: kernel.db, now: kernel.clock.now() })),
+            };
+          } catch (err) {
+            const output = `Error: ${err instanceof Error ? err.message : String(err)}`;
+            state.calls.push({ action: def.name, risk: def.risk, status: "error" });
+            await log("tool_result", { callId, output, isError: true });
+            return output;
+          }
+        }
         const trustedBefore = state.origin !== "untrusted";
         const res = await kernel.execute(
           def.name,

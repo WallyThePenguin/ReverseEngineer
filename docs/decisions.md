@@ -446,3 +446,24 @@ possible, and it keeps working when Google is slow. Header threading works the s
 IMAP later. Polling needs nothing on your PC open to the internet. Raw messages are still in
 Gmail, so they stay out of the nightly backup to keep it small; after a restore, older mail shows
 as text until it's synced again.
+
+## D33. Drafts live in Hearth, and a send is approved as the exact message (2026-10-03)
+
+**Decision:** Drafts are `email_draft` entities with a `mail_draft` row (account, conversation,
+recipients, reply headers), saved as you type; Gmail never sees them until they're sent. A reply
+draft takes its recipients and `In-Reply-To`/`References` from the conversation, and reply-all
+leaves you out. `mail.send` builds the message, sends it through the `MailProvider`, and saves the
+sent copy straight into the conversation. Sending is outward, so Jarvis's send waits for your yes.
+To make that yes mean the message you read, an action can declare a `snapshot` hook: before asking,
+Jarvis's tool call is given the draft's current from, recipients, subject and text, the approval
+shows them, and the send refuses if the draft no longer matches. A send without a snapshot is only
+taken from you. HTML mail opens from `/api/mail/frame/:id` with its own policy (no scripts, nothing
+remote until you ask for images), and attachments only ever download.
+
+**Alternatives:** Keep drafts in Gmail. Approve "send draft X" and send whatever it holds by then.
+Show HTML in a `srcdoc` frame.
+
+**Why:** Local drafts work offline and let Jarvis and you edit the same one. Approving a draft by
+id would let it change between your yes and the send (by Jarvis, or by a page Jarvis read); the
+snapshot closes that gap. A `srcdoc` frame inherits Hearth's own policy, which blocks the images
+you ask to see, so the message gets a page of its own.

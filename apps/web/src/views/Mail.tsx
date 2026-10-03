@@ -3,13 +3,14 @@
 // lane, # trash. Changes show at once and reach Gmail within a minute.
 
 import { createSignal, For, Show } from "solid-js";
-import { Badge, Empty, PaneHeader } from "../components/ui.tsx";
+import { Badge, Button, Empty, PaneHeader } from "../components/ui.tsx";
 import { ago } from "../lib/format.ts";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
 import { toast } from "../lib/live.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
-import type { MailAccount, MailAddress, MailThread } from "../lib/types.ts";
+import type { MailAccount, MailAddress, MailDraft, MailThread } from "../lib/types.ts";
+import { Composer } from "./MailCompose.tsx";
 
 type View = "inbox" | "starred" | "sent" | "all" | "trash";
 
@@ -41,6 +42,10 @@ export function Mail(props: { pane: number }) {
     },
   };
   const list = () => threads.data ?? [];
+  const drafts = useAction<MailDraft[]>("mail.drafts");
+  // New messages (not replies) are written here, above the list.
+  const fresh = () => (drafts.data ?? []).filter((d) => !d.threadId).map((d) => d.id);
+  const compose = () => void act("mail.draft", { text: "" });
   const current = () => list()[Math.min(index(), list().length - 1)];
   const focused = () => layout.focused() === props.pane;
 
@@ -98,6 +103,7 @@ export function Mail(props: { pane: number }) {
       when: focused,
       label: "Sender to Signal or Noise",
     },
+    { keys: "c", run: compose, when: focused, label: "Write an email" },
     {
       keys: "#",
       run: () =>
@@ -139,6 +145,9 @@ export function Mail(props: { pane: number }) {
           <option value="all">All mail</option>
           <option value="trash">Trash</option>
         </select>
+        <Button small kind="primary" onClick={compose}>
+          Write
+        </Button>
         <input
           class="w-36 rounded-md border border-line bg-panel px-2 py-1 text-sm"
           type="search"
@@ -157,6 +166,13 @@ export function Mail(props: { pane: number }) {
         </p>
       </Show>
       <div class="flex-1 overflow-auto">
+        <Show when={fresh().length > 0}>
+          <div class="space-y-3 border-b border-line p-4">
+            <For each={fresh()}>
+              {(id) => <Composer draft={(drafts.data ?? []).find((d) => d.id === id)!} />}
+            </For>
+          </div>
+        </Show>
         <Show
           when={(accounts.data ?? []).length > 0 || accounts.isLoading}
           fallback={<Empty>No mail account yet. Connect Gmail in Settings.</Empty>}

@@ -305,3 +305,15 @@ export interface MailAccount {
   firstSyncDone: boolean;
   pendingChanges: number;
 }
+
+export interface MailDraft {
+  id: string;
+  account: string;
+  threadId: string | null;
+  to: MailAddress[];
+  cc: MailAddress[];
+  bcc: MailAddress[];
+  subject: string;
+  text: string;
+  updatedAt: string;
+}
