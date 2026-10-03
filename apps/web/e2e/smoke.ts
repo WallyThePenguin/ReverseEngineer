@@ -146,6 +146,14 @@ try {
     await p.getByText("Back to version 1.").waitFor();
   });
 
+  await step("the calendar, and Google in Settings", async (p) => {
+    await p.locator("nav").click({ position: { x: 100, y: 600 } });
+    await keys("g", "c");
+    await p.getByRole("heading", { name: "Calendar" }).waitFor();
+    await keys("g", "s");
+    await p.getByRole("heading", { name: "Google" }).waitFor();
+  });
+
   await step("sign out and back in with the passkey", async (p) => {
     signedOut = true;
     await p.getByRole("button", { name: "Sign out" }).click();

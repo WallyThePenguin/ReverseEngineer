@@ -1,0 +1,37 @@
+{
+  "scenario": "brief",
+  "recordedWith": "hand",
+  "recordedAt": "2026-10-03T00:00:00Z",
+  "turns": [
+    {
+      "promptStart": "Prep time (2026-10-02).",
+      "steps": [
+        {
+          "call": "prep_publish",
+          "input": {
+            "eventId": "@{event:Dentist}",
+            "markdown": "Dentist at 3 p.m. Nothing to bring."
+          }
+        },
+        {
+          "say": ""
+        }
+      ]
+    },
+    {
+      "promptStart": "It's time for the morning brief (2026-10-02).",
+      "steps": [
+        {
+          "call": "brief_publish",
+          "input": {
+            "date": "2026-10-02",
+            "markdown": "## Prepared\n- Prep for the dentist\n\n## Today\n- Call the bank (T-1), due 11 a.m.\n- 3 p.m. Dentist"
+          }
+        },
+        {
+          "say": ""
+        }
+      ]
+    }
+  ]
+}

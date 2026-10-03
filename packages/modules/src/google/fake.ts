@@ -1,0 +1,117 @@
+// A fake Google for tests: sign-in, token refresh and the Calendar calls Hearth makes, kept in
+// memory. Hand `fake.fetch` to a GoogleClient.
+import type { GCalendar, GEvent } from "./calendar-api.ts";
+import { GoogleClient } from "./client.ts";
+
+interface FakeCalendar extends GCalendar {
+  events: Map<string, GEvent>;
+}
+
+export class FakeGoogle {
+  readonly email: string;
+  readonly calendars = new Map<string, FakeCalendar>();
+  readonly calls: { method: string; path: string; body?: unknown }[] = [];
+  /** Set to make the next token refresh fail as if access was revoked. */
+  revoked = false;
+  private seq = 0;
+
+  constructor(email = "owner@example.com") {
+    this.email = email;
+    this.addCalendar({ id: email, summary: email, primary: true, accessRole: "owner" });
+  }
+
+  addCalendar(c: GCalendar) {
+    this.calendars.set(c.id, { ...c, events: new Map() });
+  }
+
+  /** Puts an event straight into Google, as if made in Google's own app or by someone else. */
+  put(calendarId: string, ev: Partial<GEvent> & Pick<GEvent, "start" | "end">): GEvent {
+    const cal = this.calendars.get(calendarId)!;
+    const id = ev.id ?? `ev${++this.seq}`;
+    const full: GEvent = { status: "confirmed", summary: "", ...ev, id, etag: `"${++this.seq}"` };
+    cal.events.set(id, full);
+    return full;
+  }
+
+  remove(calendarId: string, id: string) {
+    this.calendars.get(calendarId)!.events.delete(id);
+  }
+
+  client(): GoogleClient {
+    return new GoogleClient({
+      clientId: "test-client",
+      clientSecret: "test-secret",
+      redirectUri: "http://localhost:4400/api/google/callback",
+      fetch: (url, init) => this.fetch(url, init),
+    });
+  }
+
+  async fetch(url: string, init: RequestInit = {}): Promise<Response> {
+    const u = new URL(url);
+    const method = init.method ?? "GET";
+    const body =
+      typeof init.body === "string" && init.body.startsWith("{")
+        ? JSON.parse(init.body)
+        : init.body instanceof URLSearchParams
+          ? Object.fromEntries(init.body)
+          : undefined;
+    this.calls.push({ method, path: u.pathname, ...(body ? { body } : {}) });
+    const json = (status: number, data: unknown) =>
+      new Response(data === null ? null : JSON.stringify(data), {
+        status,
+        headers: { "content-type": "application/json" },
+      });
+
+    if (u.hostname === "oauth2.googleapis.com") {
+      if (body?.grant_type === "refresh_token" && this.revoked)
+        return json(400, { error: "invalid_grant", error_description: "Token has been revoked." });
+      return json(200, {
+        access_token: `at${++this.seq}`,
+        expires_in: 3600,
+        ...(body?.grant_type === "authorization_code"
+          ? {
+              refresh_token: "rt",
+              scope: "openid email https://www.googleapis.com/auth/calendar",
+            }
+          : {}),
+      });
+    }
+    if (u.hostname === "openidconnect.googleapis.com") return json(200, { email: this.email });
+
+    const path = u.pathname.replace("/calendar/v3", "");
+    if (path === "/users/me/calendarList") {
+      return json(200, {
+        items: [...this.calendars.values()].map(({ events: _e, ...c }) => c),
+      });
+    }
+    const m = path.match(/^\/calendars\/([^/]+)\/events(?:\/([^/]+))?$/);
+    const cal = m ? this.calendars.get(decodeURIComponent(m[1]!)) : undefined;
+    if (!m || !cal) return json(404, { error: { message: "Not found" } });
+    const eventId = m[2] ? decodeURIComponent(m[2]) : null;
+    if (method === "GET" && !eventId) {
+      const from = new Date(u.searchParams.get("timeMin") ?? 0).getTime();
+      const to = new Date(u.searchParams.get("timeMax") ?? 8.64e15).getTime();
+      const start = (t?: { dateTime?: string; date?: string }) =>
+        new Date(t?.dateTime ?? `${t?.date}T00:00:00Z`).getTime();
+      const items = [...cal.events.values()].filter(
+        (e) => start(e.start) < to && start(e.end) > from,
+      );
+      return json(200, { items });
+    }
+    if (method === "POST" && !eventId) {
+      return json(200, this.put(cal.id, { ...body, organizer: { email: this.email, self: true } }));
+    }
+    const existing = eventId ? cal.events.get(eventId) : undefined;
+    if (!existing) return json(404, { error: { message: "Not found" } });
+    if (method === "PATCH") {
+      const next = { ...existing, ...body, etag: `"${++this.seq}"` };
+      cal.events.set(existing.id, next);
+      return json(200, next);
+    }
+    if (method === "DELETE") {
+      cal.events.delete(existing.id);
+      return json(204, null);
+    }
+    return json(405, { error: { message: "Unsupported" } });
+  }
+}

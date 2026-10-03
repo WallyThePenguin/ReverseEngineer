@@ -218,3 +218,38 @@ export interface MemoryRevision {
   changedBy: string;
   at: string;
 }
+
+export interface CalEvent {
+  id: string;
+  title: string;
+  description: string;
+  calendarId: string;
+  status: "confirmed" | "tentative" | "cancelled";
+  startsAt: string;
+  endsAt: string;
+  allDay: boolean;
+  location: string | null;
+  meetUrl: string | null;
+  htmlLink: string | null;
+  selfResponse: string | null;
+  attendees: { email: string; name?: string; response?: string; self?: boolean }[];
+  taskId: string | null;
+}
+
+export interface CalendarSetup {
+  configured: boolean;
+  accounts: {
+    email: string;
+    status: "ok" | "failing" | "revoked";
+    lastError: string | null;
+    connectedAt: string;
+  }[];
+  calendars: {
+    id: string;
+    title: string;
+    color: string | null;
+    selected: boolean;
+    lastSyncedAt: string | null;
+    lastError: string | null;
+  }[];
+}

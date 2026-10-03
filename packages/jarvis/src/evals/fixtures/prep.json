@@ -1,0 +1,36 @@
+{
+  "scenario": "prep",
+  "recordedWith": "hand",
+  "recordedAt": "2026-10-03T00:00:00Z",
+  "turns": [
+    {
+      "promptStart": "Nightly memory update for 2026-10-01.",
+      "steps": [
+        {
+          "say": ""
+        }
+      ]
+    },
+    {
+      "promptStart": "Prep time (2026-10-02).",
+      "steps": [
+        {
+          "call": "record_read",
+          "input": {
+            "id": "@{person:Sam Lee}"
+          }
+        },
+        {
+          "call": "prep_publish",
+          "input": {
+            "eventId": "@{event:Budget review}",
+            "markdown": "Budget review with Sam Lee, 11 a.m.\n\n- Sam runs the budget and prefers numbers up front: lead with the totals.\n- No earlier meeting on record."
+          }
+        },
+        {
+          "say": ""
+        }
+      ]
+    }
+  ]
+}

@@ -6,7 +6,8 @@
   "license": "AGPL-3.0-only",
   "exports": {
     ".": "./src/index.ts",
-    "./testing": "./src/browser/testing.ts"
+    "./testing": "./src/browser/testing.ts",
+    "./google-testing": "./src/google/fake.ts"
   },
   "dependencies": {
     "@hearth/core": "workspace:*",

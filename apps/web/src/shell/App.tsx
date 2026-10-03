@@ -21,6 +21,7 @@ import { live, queryClient, toast } from "../lib/live.ts";
 import { type ListView, layout, type PaneRoute } from "../lib/panes.ts";
 import { Activity } from "../views/Activity.tsx";
 import { Browser } from "../views/Browser.tsx";
+import { Calendar } from "../views/Calendar.tsx";
 import { Inbox } from "../views/Inbox.tsx";
 import { Memory } from "../views/Memory.tsx";
 import { Notes, NoteView } from "../views/Notes.tsx";
@@ -47,6 +48,9 @@ function PaneView(props: { route: PaneRoute; index: number }) {
       </Match>
       <Match when={props.route.view === "people"}>
         <People pane={props.index} />
+      </Match>
+      <Match when={props.route.view === "calendar"}>
+        <Calendar pane={props.index} />
       </Match>
       <Match when={props.route.view === "memory"}>
         <Memory pane={props.index} />
@@ -120,6 +124,7 @@ function Shell(props: { onSignOut: () => void }) {
     { keys: "g i", run: go("inbox"), label: "Go to Inbox" },
     { keys: "g t", run: go("tasks"), label: "Go to Tasks" },
     { keys: "g n", run: go("notes"), label: "Go to Notes" },
+    { keys: "g c", run: go("calendar"), label: "Go to Calendar" },
     { keys: "g p", run: go("people"), label: "Go to People" },
     { keys: "g m", run: go("memory"), label: "Go to Memory" },
     { keys: "g b", run: go("browser"), label: "Go to the browser" },

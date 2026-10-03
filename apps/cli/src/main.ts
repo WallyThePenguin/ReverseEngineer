@@ -27,6 +27,9 @@ const HELP = `hearth: your personal workspace, with Jarvis.
   hearth dev [--no-jarvis]  Run all three in one process
   hearth backup             Back up now (dump, upload with restic, prune, test a restore)
   hearth doctor             Check that everything is set up
+  hearth eval [--record] [name...]
+                            Run Jarvis's eval scenarios with the real model (needs
+                            HEARTH_TEST_DATABASE_URL); --record saves passing runs as fixtures
   hearth status             Show health, routines and whether Jarvis is paused
   hearth pause | resume     Pause or resume Jarvis's own initiative (it still answers you)
   hearth token create <name>   Make a token for an outside agent (Claude Code, Claude Desktop)
@@ -121,6 +124,33 @@ async function main(argv: string[]): Promise<number> {
         console.log(result.detail);
         return result.ok ? 0 : 1;
       });
+
+    case "eval": {
+      const { values, positionals } = parseArgs({
+        args: rest,
+        options: { record: { type: "boolean", default: false } },
+        allowPositionals: true,
+      });
+      const { ClaudeBrain } = await import("@hearth/jarvis");
+      const { SCENARIOS, runLive } = await import("@hearth/jarvis/evals");
+      const model = process.env.HEARTH_JARVIS_MODEL;
+      const brain = new ClaudeBrain({
+        ...(model ? { models: { fast: model, deep: model } } : {}),
+        web: false,
+      });
+      const chosen = positionals.length
+        ? SCENARIOS.filter((s) => positionals.includes(s.name))
+        : SCENARIOS;
+      let failed = 0;
+      for (const s of chosen) {
+        const r = await runLive(s, brain, values.record ? { record: model ?? "default" } : {});
+        console.log(`${r.passed ? "pass" : "FAIL"}  ${s.name}  (${r.turns} turns)`);
+        for (const f of r.failures) console.log(`      ${f}`);
+        if (!r.passed) failed++;
+      }
+      console.log(`${chosen.length - failed}/${chosen.length} passed`);
+      return failed ? 1 : 0;
+    }
 
     case "doctor": {
       const checks = [
