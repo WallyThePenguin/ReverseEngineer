@@ -1,0 +1,24 @@
+{
+  "scenario": "memory",
+  "recordedWith": "hand",
+  "recordedAt": "2026-10-03T00:00:00Z",
+  "turns": [
+    {
+      "promptStart": "for the future: I never take meetings before 10am. remember t",
+      "steps": [
+        {
+          "call": "memory_remember",
+          "input": {
+            "title": "How the owner works",
+            "body": "Never takes meetings before 10 a.m.",
+            "scope": "always",
+            "reason": "The owner said so"
+          }
+        },
+        {
+          "say": "Noted: no meetings before 10 a.m."
+        }
+      ]
+    }
+  ]
+}

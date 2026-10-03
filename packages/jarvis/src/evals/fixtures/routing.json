@@ -1,0 +1,22 @@
+{
+  "scenario": "routing",
+  "recordedWith": "hand",
+  "recordedAt": "2026-10-03T00:00:00Z",
+  "turns": [
+    {
+      "promptStart": "remind me to call mom tomorrow at 5pm",
+      "steps": [
+        {
+          "call": "task_create",
+          "input": {
+            "title": "Call mom",
+            "dueAt": "2026-10-02T17:00:00-04:00"
+          }
+        },
+        {
+          "say": "Added T-1, Call mom, due tomorrow at 5 p.m."
+        }
+      ]
+    }
+  ]
+}
