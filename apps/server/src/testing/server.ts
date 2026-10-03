@@ -4,6 +4,7 @@ import { ALL_MODULES } from "@hearth/modules";
 import { createApp } from "../app.ts";
 import type { BrowserBridge } from "../browser/bridge.ts";
 import type { ServerConfig } from "../config.ts";
+import type { PushSend } from "../push.ts";
 
 export const TEST_ORIGIN = "http://localhost:4400";
 
@@ -18,12 +19,13 @@ export interface TestServer extends TestKernel {
 
 export async function createTestServer(
   config: Partial<ServerConfig> = {},
-  opts: { bridge?: BrowserBridge } = {},
+  opts: { bridge?: BrowserBridge; push?: PushSend } = {},
 ): Promise<TestServer> {
   const tk = await createTestKernel(ALL_MODULES);
   const server = createApp({
     kernel: tk.kernel,
     bridge: opts.bridge,
+    push: opts.push,
     config: {
       host: "127.0.0.1",
       port: 4400,

@@ -12,6 +12,7 @@ import type { StandingRule, SystemStatus } from "../lib/types.ts";
 import { ChromeSettings } from "./ChromeSettings.tsx";
 import { DesktopSettings } from "./DesktopSettings.tsx";
 import { GoogleSettings } from "./GoogleSettings.tsx";
+import { PhoneSettings } from "./PhoneSettings.tsx";
 import { RoutineSettings } from "./RoutineSettings.tsx";
 import { SignInSettings } from "./SignInSettings.tsx";
 
@@ -110,6 +111,8 @@ export function Settings() {
         <ChromeSettings />
 
         <DesktopSettings />
+
+        <PhoneSettings />
 
         <GoogleSettings />
 
