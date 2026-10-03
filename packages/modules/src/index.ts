@@ -14,6 +14,7 @@ import { mailModule } from "./mail/index.ts";
 import { meetingsModule } from "./meetings/index.ts";
 import { memoryModule } from "./memory/index.ts";
 import { notesModule } from "./notes/index.ts";
+import { notionModule } from "./notion/index.ts";
 import { peopleModule } from "./people/index.ts";
 import { routinesModule } from "./routines/index.ts";
 import { slackModule } from "./slack/index.ts";
@@ -41,6 +42,7 @@ export const ALL_MODULES: HearthModule[] = [
   canvasModule,
   slackModule,
   githubModule,
+  notionModule,
 ];
 
 export { renderBrief, renderDigest } from "./assistant/brief.ts";
@@ -75,6 +77,12 @@ export {
 export { recallMemory, renderMemory } from "./memory/index.ts";
 export { parseChecklist } from "./notes/checklist.ts";
 export {
+  ExportError,
+  readExport,
+  UPLOADS_SERVICE,
+  type Uploads,
+} from "./notion/index.ts";
+export {
   FakeSlack,
   httpSlack,
   SLACK_SCOPES,
@@ -96,6 +104,7 @@ export {
   meetingsModule,
   memoryModule,
   notesModule,
+  notionModule,
   peopleModule,
   routinesModule,
   slackModule,
