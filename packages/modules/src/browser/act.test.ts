@@ -24,6 +24,7 @@ const PAGES: Record<string, string> = {
       <input name="note" aria-label="Note"> <input type="password" name="pin" aria-label="PIN">
       <button>Place order</button>
     </form>
+    <label><input type="checkbox" role="switch"> Make my wishlist public</label>
     <div style="position:relative">
       <button>Hidden deal</button>
       <div style="position:absolute;inset:0;background:white">Cookie banner</div>
@@ -77,7 +78,12 @@ describe.skipIf(!hasChromium)("Jarvis's hands in Chrome", () => {
     expect(page.text).toContain(
       "[field E6: Note] [password field E7: PIN] [button E8: Place order]",
     );
-    expect(page.sends).toEqual(["E6 Note", "E7 PIN", "E8 Place order"]);
+    expect(page.sends).toEqual([
+      "E6 Note",
+      "E7 PIN",
+      "E8 Place order",
+      "E9 Make my wishlist public",
+    ]);
   });
 
   it("clicks, ticks, picks and searches without asking", async () => {
@@ -104,7 +110,13 @@ describe.skipIf(!hasChromium)("Jarvis's hands in Chrome", () => {
       jarvis,
     );
     expect(pin).toMatchObject({ status: "error", code: "forbidden" });
-    const covered = await t.kernel.execute("browser.click", { tabId, element: "E9" }, jarvis);
+    const shared = await t.kernel.execute(
+      "browser.choose",
+      { tabId, element: "E9", value: "on" },
+      jarvis,
+    );
+    expect(shared).toMatchObject({ status: "error", code: "forbidden" });
+    const covered = await t.kernel.execute("browser.click", { tabId, element: "E10" }, jarvis);
     expect(covered).toMatchObject({ status: "error", message: expect.stringMatching(/covers/) });
     expect(chrome.posts).toEqual([]);
   });
@@ -114,7 +126,7 @@ describe.skipIf(!hasChromium)("Jarvis's hands in Chrome", () => {
     await ok("browser.type", { tabId, element: "E6", text: "leave at door" });
     const asked = await t.kernel.execute(
       "browser.submit",
-      { tabId, element: "E8", label: "Place order" },
+      { tabId, element: "E8", label: "Place order", site: "shop.example" },
       jarvis,
     );
     expect(asked).toMatchObject({
@@ -132,10 +144,17 @@ describe.skipIf(!hasChromium)("Jarvis's hands in Chrome", () => {
     const again = await openShop();
     const wrong = await t.kernel.execute(
       "browser.submit",
-      { tabId: again.tabId, element: "E8", label: "Search" },
+      { tabId: again.tabId, element: "E8", label: "Search", site: "shop.example" },
       ownerCaller(),
     );
     expect(wrong).toMatchObject({ status: "error", code: "conflict" });
+    // Approved for one site, never pressed on another.
+    const elsewhere = await t.kernel.execute(
+      "browser.submit",
+      { tabId: again.tabId, element: "E8", label: "Place order", site: "other.example" },
+      ownerCaller(),
+    );
+    expect(elsewhere).toMatchObject({ status: "error", code: "conflict" });
   });
 
   it("keeps what's typed out of the logs", async () => {

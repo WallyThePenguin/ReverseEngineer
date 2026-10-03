@@ -44,7 +44,8 @@ describe("typing after reading a page", () => {
     expect(outputs[4]).toMatch(/^Waiting for the owner's approval/);
     const [held] = await pending();
     expect(held).toMatchObject({ action: "browser.type", origin: "untrusted" });
-    expect(held?.summary).toBe('Type into E1 on tab 2: "me@example.com"');
+    expect(held?.summary).toBe('Type into E1 on other.example: "me@example.com"');
+    expect(held?.input).toMatchObject({ site: "other.example" });
     expect(held?.reason).toMatch(/other\.example/);
   });
 

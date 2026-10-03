@@ -24,7 +24,7 @@ function pageElements() {
   ]);
   // Pressing something with one of these words in its name sends, buys, posts or deletes.
   const OUTWARD =
-    /\b(send|submit|post|publish|buy|purchase|pay|order|checkout|check out|confirm|place|book|reserve|subscribe|sign up|register|apply|donate|transfer|delete|remove|reply|comment|tweet|share|invite|accept|decline|like|follow|unfollow|connect|vote|upvote|repost|retweet|message|save)\b/i;
+    /\b(send|submit|post|publish|buy|purchase|pay|order|checkout|check out|confirm|place|book|reserve|subscribe|unsubscribe|sign up|register|apply|donate|transfer|withdraw|delete|remove|erase|reply|comment|tweet|share|invite|accept|decline|like|follow|unfollow|connect|vote|upvote|repost|retweet|message|save|allow|authori[sz]e|grant|approve|agree|consent|continue as|install|upload|enable|disable|deactivate|close account|make public|publish)\b/i;
   const SEARCH_NAMES = /^(q|query|search|s|k|keywords?|term|search_query)$/i;
   const INVISIBLE = /[­᠎​-‏‪-‮⁠-⁤⁦-⁩﻿]|[\u{E0000}-\u{E007F}]/gu;
 
@@ -123,9 +123,14 @@ function pageElements() {
   function submits(el) {
     const tag = el.tagName.toUpperCase();
     const kind = kindOf(el);
-    // Ticking a box, picking from a list or writing in a text area sends nothing by itself.
-    if (kind && ["checkbox", "radio", "select", "text area", "file field"].includes(kind))
-      return false;
+    // Writing in a text area or picking a file sends nothing by itself.
+    if (kind === "text area" || kind === "file field") return false;
+    // Ticking a box or picking from a list in a form waits for the form. A switch, or one
+    // outside any form, may change something at once ("Make profile public"): judge it by name.
+    if (kind === "checkbox" || kind === "radio" || kind === "select") {
+      if (el.getAttribute("role") === "switch") return true;
+      return formOf(el) === null && OUTWARD.test(labelOf(el));
+    }
     if (kind === "field" || kind === "password field") {
       const form = formOf(el);
       return form === null || !isSearchForm(form);

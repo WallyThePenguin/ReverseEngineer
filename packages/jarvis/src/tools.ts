@@ -1,6 +1,13 @@
 // Jarvis's tools are Hearth's actions: the same registry the UI uses, so there are no side
 // doors. Every call runs through the kernel as Jarvis, with the turn's trust level.
-import { asUntrusted, formatDateTime, type Origin, type Risk, type SiteRules } from "@hearth/core";
+import {
+  asUntrusted,
+  formatDateTime,
+  normalizeUrl,
+  type Origin,
+  type Risk,
+  type SiteRules,
+} from "@hearth/core";
 import { entity } from "@hearth/db";
 import {
   type Caller,
@@ -103,12 +110,18 @@ export function buildTools(kernel: Kernel, state: TurnState, log: LogFn): BrainT
           }
           if (verdict.kind === "ask") askFirst = verdict.reason;
         }
-        if (def.typesInto && !askFirst) {
+        if (def.typesInto) {
           const where = await def
             .typesInto(input as never, { service: (n) => kernel.services[n] as never })
             .catch(() => null);
-          const verdict = where ? checkTyping(state, where, state.sites) : null;
-          if (verdict?.kind === "ask") askFirst = verdict.reason;
+          if (where && normalizeUrl(where)) {
+            const verdict = checkTyping(state, where, state.sites);
+            if (verdict.kind === "ask") askFirst ??= verdict.reason;
+            // Pinned to the site it was checked on, should it run later after a yes.
+            const typed = input as { site?: string };
+            if (!typed.site) input = { ...typed, site: new URL(where).hostname };
+          } else if (state.origin === "untrusted")
+            askFirst ??= "Hearth couldn't tell which site this would type into.";
         }
         const trustedBefore = state.origin !== "untrusted";
         const res = await kernel.execute(

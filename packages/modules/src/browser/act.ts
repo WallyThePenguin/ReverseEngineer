@@ -137,6 +137,23 @@ export async function afterStep(ctx: ActionContext, client: BrowserClient, befor
   return { url: after.url, pageChanged: moved, next: "Read the page again to see what changed." };
 }
 
+const SITE_CHECK = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z0-9-]+(\.[a-z0-9-]+)+$/, "A site name, like shop.example.");
+
+/** A step approved for one site never runs on another the tab has moved to since. */
+function assertSite(tab: TabInfo, site: string | undefined): void {
+  if (!site) return;
+  const host = new URL(tab.url).hostname;
+  if (host !== site && !host.endsWith(`.${site}`))
+    throw new ActionError(
+      "conflict",
+      `Tab ${tab.tabId} is on ${host} now, not ${site}. Nothing was done.`,
+    );
+}
+
 const same = (a: string, b: string) =>
   a.replace(/\s+/g, " ").trim().toLowerCase() === b.replace(/\s+/g, " ").trim().toLowerCase();
 
@@ -158,6 +175,8 @@ export const actActions = [
     input: z.object({ tabId, element }),
     risk: "internal",
     callers: CALLERS,
+    // Results carry the page's own words (a button's name), so they're outside content.
+    external: true,
     async handler(i, ctx) {
       const { client, tab, el } = await locate(ctx, i, "inspect");
       if (el.isLink)
@@ -186,18 +205,21 @@ export const actActions = [
       element,
       text: z.string().max(10_000),
       clear: z.boolean().default(true),
+      site: SITE_CHECK.optional(),
     }),
     risk: "internal",
     callers: CALLERS,
+    external: true,
     typesInto: tabUrl,
     summarize: (i) => {
       const seen = elementSeen(i.tabId, i.element);
-      const where = seen ? new URL(seen.url).hostname : `tab ${i.tabId}`;
+      const where = i.site ?? (seen ? new URL(seen.url).hostname : `tab ${i.tabId}`);
       const field = seen?.element?.label ? `"${seen.element.label}"` : i.element;
       return `Type into ${field} on ${where}: "${i.text.slice(0, 120)}"`;
     },
     async handler(i, ctx) {
-      const { client, el } = await locate(ctx, i, "inspect");
+      const { client, tab, el } = await locate(ctx, i, "inspect");
+      assertSite(tab, i.site);
       if (el.kind === "password field")
         throw new ActionError(
           "forbidden",
@@ -220,8 +242,15 @@ export const actActions = [
     input: z.object({ tabId, element, value: z.string().max(300) }),
     risk: "internal",
     callers: CALLERS,
+    external: true,
     async handler(i, ctx) {
-      const { client, tab, el } = await locate(ctx, i, "choose", { value: i.value });
+      const peek = await locate(ctx, i, "inspect");
+      if (peek.el.submits)
+        throw new ActionError(
+          "forbidden",
+          `Changing "${peek.el.label}" may take effect at once. Use browser_submit, which asks the owner first.`,
+        );
+      const { client, tab, el } = await locate(ctx, i, "choose", { value: i.value }, false);
       if (el.error) throw new ActionError("invalid_input", el.error);
       if (el.toggle) {
         assertPressable(el, i.element);
@@ -242,6 +271,7 @@ export const actActions = [
     }),
     risk: "internal",
     callers: CALLERS,
+    external: true,
     async handler(i, ctx) {
       const client = browser(ctx);
       const tab = await findTab(client, i.tabId);
@@ -261,15 +291,16 @@ export const actActions = [
         .string()
         .max(200)
         .describe("Its name as browser_read showed it, e.g. 'Place order'."),
+      site: SITE_CHECK.describe("The site the page is on, e.g. shop.example."),
     }),
     risk: "outward",
     callers: CALLERS,
-    summarize: (i) => {
-      const seen = elementSeen(i.tabId, i.element);
-      return `Press "${i.label}" on ${seen ? new URL(seen.url).hostname : `tab ${i.tabId}`}`;
-    },
+    external: true,
+    // The card names the site, and the press happens only on that site, whenever it's approved.
+    summarize: (i) => `Press "${i.label}" on ${i.site}`,
     async handler(i, ctx) {
       const { client, tab, el } = await locate(ctx, i, "inspect");
+      assertSite(tab, i.site);
       if (!same(el.label, i.label))
         throw new ActionError(
           "conflict",
