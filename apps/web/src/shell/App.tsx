@@ -24,6 +24,7 @@ import { type ListView, layout, type PaneRoute } from "../lib/panes.ts";
 import { Activity } from "../views/Activity.tsx";
 import { Browser } from "../views/Browser.tsx";
 import { Calendar } from "../views/Calendar.tsx";
+import { Canvases, CanvasView } from "../views/Canvas.tsx";
 import { Inbox } from "../views/Inbox.tsx";
 import { Mail } from "../views/Mail.tsx";
 import { MailThreadPane } from "../views/MailThread.tsx";
@@ -57,6 +58,12 @@ function PaneView(props: { route: PaneRoute; index: number }) {
       </Match>
       <Match when={props.route.view === "notes"}>
         <Notes pane={props.index} />
+      </Match>
+      <Match when={props.route.view === "canvases"}>
+        <Canvases pane={props.index} />
+      </Match>
+      <Match when={props.route.view === "canvas"}>
+        <CanvasView id={id()} pane={props.index} />
       </Match>
       <Match when={props.route.view === "people"}>
         <People pane={props.index} />
@@ -147,6 +154,7 @@ function Shell(props: { onSignOut: () => void }) {
     { keys: "g t", run: go("tasks"), label: "Go to Tasks" },
     { keys: "g n", run: go("notes"), label: "Go to Notes" },
     { keys: "g c", run: go("calendar"), label: "Go to Calendar" },
+    { keys: "g w", run: go("canvases"), label: "Go to Canvas" },
     { keys: "g p", run: go("people"), label: "Go to People" },
     { keys: "g m", run: go("memory"), label: "Go to Memory" },
     { keys: "g v", run: go("voice"), label: "Go to Voice" },

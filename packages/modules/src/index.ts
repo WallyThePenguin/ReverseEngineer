@@ -5,6 +5,7 @@ import { approvalsModule } from "./approvals/index.ts";
 import { assistantModule } from "./assistant/index.ts";
 import { browserModule } from "./browser/index.ts";
 import { calendarModule } from "./calendar/index.ts";
+import { canvasModule } from "./canvas/index.ts";
 import { chatModule } from "./chat/index.ts";
 import { graphModule } from "./graph/index.ts";
 import { inboxModule } from "./inbox/index.ts";
@@ -35,6 +36,7 @@ export const ALL_MODULES: HearthModule[] = [
   mailModule,
   meetingsModule,
   voiceModule,
+  canvasModule,
 ];
 
 export { renderBrief, renderDigest } from "./assistant/brief.ts";

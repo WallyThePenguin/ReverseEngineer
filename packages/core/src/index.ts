@@ -1,3 +1,4 @@
+export * from "./canvas.ts";
 export * from "./conversation.ts";
 export * from "./filter.ts";
 export * from "./ids.ts";

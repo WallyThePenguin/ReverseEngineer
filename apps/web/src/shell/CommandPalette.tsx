@@ -8,6 +8,7 @@ import { TYPE_LABEL } from "../lib/format.ts";
 import { type ListView, layout, routeFor } from "../lib/panes.ts";
 import { act } from "../lib/query.ts";
 import type { SearchHit } from "../lib/types.ts";
+import { newCanvas } from "../views/Canvas.tsx";
 import { newNote } from "../views/Notes.tsx";
 import { setPaused } from "../views/Settings.tsx";
 
@@ -31,6 +32,7 @@ function commands(): Item[] {
     go("tasks", "Tasks"),
     go("notes", "Notes"),
     go("calendar", "Calendar"),
+    go("canvases", "Canvas (boards)"),
     go("people", "People"),
     go("memory", "Memory (what Jarvis remembers)"),
     go("voice", "Voice (dictation history, dictionary, snippets)"),
@@ -38,6 +40,12 @@ function commands(): Item[] {
     go("activity", "Jarvis's activity"),
     go("settings", "Settings"),
     { id: "new:note", label: "New note", hint: "Create", run: () => newNote(layout.focused()) },
+    {
+      id: "new:canvas",
+      label: "New canvas board",
+      hint: "Create",
+      run: () => newCanvas(layout.focused()),
+    },
     {
       id: "new:chat",
       label: "New conversation with Jarvis",

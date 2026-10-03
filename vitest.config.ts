@@ -5,7 +5,7 @@ export default defineConfig({
     include: [
       "packages/*/src/**/*.test.ts",
       "apps/{server,worker,jarvis,cli}/src/**/*.test.ts",
-      "apps/web/src/lib/**/*.test.ts",
+      "apps/web/src/{lib,canvas}/**/*.test.ts",
     ],
     globalSetup: ["packages/db/src/testing/global-setup.ts"],
     testTimeout: 20_000,

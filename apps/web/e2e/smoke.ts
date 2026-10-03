@@ -164,6 +164,61 @@ try {
     await p.locator("section").nth(1).waitFor();
   });
 
+  await step("a canvas board with a sticky, a box, an arrow and a task card", async (p) => {
+    await p.goto(`${base}/canvases`);
+    await p.getByRole("heading", { name: "Canvas" }).waitFor();
+    await p.getByRole("button", { name: "New board" }).click();
+    const name = p.getByLabel("Board name");
+    await name.fill(`Trip plan ${tag}`);
+    await name.press("Enter");
+    const board = p.locator("[data-toolbar]").locator("..");
+    const box = (await board.boundingBox())!;
+    await p.mouse.dblclick(box.x + 200, box.y + 250);
+    await p.keyboard.type(`Book flights ${tag}`);
+    await keys("Escape");
+    await p.getByTitle("Box (R)").click();
+    await p.mouse.click(box.x + 600, box.y + 250);
+    await p.keyboard.type("Hotel");
+    await keys("Escape");
+    await p.getByTitle("Arrow (A)").click();
+    await p.mouse.move(box.x + 200, box.y + 250);
+    await p.mouse.down();
+    await p.mouse.move(box.x + 400, box.y + 250, { steps: 5 });
+    await p.mouse.move(box.x + 600, box.y + 250, { steps: 5 });
+    await p.mouse.up();
+    await p.getByRole("button", { name: "@ Record" }).click();
+    await p.getByLabel("Find a record").fill(`Pay rent ${tag}`);
+    await p.getByRole("button", { name: new RegExp(`Pay rent ${tag}`) }).click();
+    await p.waitForTimeout(1500);
+    const id = new URL(p.url()).pathname.split("canvas/")[1]!.split("+")[0]!;
+    const saved = await p.evaluate(async (id) => {
+      const r = await fetch("/api/actions/canvas.get", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      type Saved = {
+        title: string;
+        board: {
+          nodes: { type: string }[];
+          edges: { from: { type: string }; to: { type: string } }[];
+        };
+      };
+      return ((await r.json()) as { result: Saved }).result;
+    }, id);
+    const kinds = saved.board.nodes
+      .map((n: { type: string }) => n.type)
+      .sort()
+      .join(",");
+    if (saved.title !== `Trip plan ${tag}`) throw new Error(`board named ${saved.title}`);
+    if (kinds !== "entitymention,shape,text") throw new Error(`board holds ${kinds}`);
+    const edge = saved.board.edges[0];
+    if (edge?.from.type !== "connected" || edge?.to.type !== "connected")
+      throw new Error(`arrow ${JSON.stringify(saved.board.edges)}`);
+    await p.reload();
+    await p.getByText(`Book flights ${tag}`).waitFor();
+  });
+
   await step("a message to Jarvis", async (p) => {
     await p.locator("aside textarea").fill(`Hello ${tag}`);
     await p.locator("aside").getByRole("button", { name: "Send" }).click();
