@@ -33,6 +33,7 @@ import { RecordView } from "../views/Record.tsx";
 import { Settings } from "../views/Settings.tsx";
 import { Tasks } from "../views/Tasks.tsx";
 import { TaskView } from "../views/TaskView.tsx";
+import { Voice } from "../views/Voice.tsx";
 import { CommandPalette } from "./CommandPalette.tsx";
 import { Sidebar } from "./Sidebar.tsx";
 
@@ -63,6 +64,9 @@ function PaneView(props: { route: PaneRoute; index: number }) {
       </Match>
       <Match when={props.route.view === "memory"}>
         <Memory pane={props.index} />
+      </Match>
+      <Match when={props.route.view === "voice"}>
+        <Voice />
       </Match>
       <Match when={props.route.view === "browser"}>
         <Browser />
@@ -137,6 +141,7 @@ function Shell(props: { onSignOut: () => void }) {
     { keys: "g c", run: go("calendar"), label: "Go to Calendar" },
     { keys: "g p", run: go("people"), label: "Go to People" },
     { keys: "g m", run: go("memory"), label: "Go to Memory" },
+    { keys: "g v", run: go("voice"), label: "Go to Voice" },
     { keys: "g b", run: go("browser"), label: "Go to the browser" },
     { keys: "g a", run: go("activity"), label: "Go to Jarvis's activity" },
     { keys: "g s", run: go("settings"), label: "Go to Settings" },

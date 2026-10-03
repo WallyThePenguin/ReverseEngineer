@@ -24,6 +24,8 @@ export interface Settings {
   "calendar.blockMinMinutes": number;
   /** Prep packets are made for events with guests, or at least this long, in the next 48 hours. */
   "calendar.prepMinMinutes": number;
+  /** How dictation is written in each app: the first whose match is in the app or window. */
+  "voice.styles": { name: string; match: string; instructions: string }[];
 }
 
 export const SETTING_DEFAULTS: Settings = {
@@ -38,6 +40,10 @@ export const SETTING_DEFAULTS: Settings = {
   "browser.pace": { seconds: 2, sites: {} },
   "calendar.blockMinMinutes": 60,
   "calendar.prepMinMinutes": 30,
+  "voice.styles": [
+    { name: "Chat", match: "slack", instructions: "Casual and short. No greeting or sign-off." },
+    { name: "Email", match: "gmail", instructions: "Clear, friendly full sentences." },
+  ],
 };
 
 export async function getSetting<K extends keyof Settings>(

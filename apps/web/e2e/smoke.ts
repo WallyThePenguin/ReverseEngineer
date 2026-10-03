@@ -187,6 +187,29 @@ try {
     await editor.getByText("Oat flat white.").waitFor({ state: "detached" });
   });
 
+  await step("dictation cleaned with your dictionary, in the voice history", async (p) => {
+    await p.locator("nav").click({ position: { x: 100, y: 600 } });
+    await keys("g", "v");
+    await p.getByRole("heading", { name: "Voice" }).waitFor();
+    await p.getByRole("tab", { name: "Dictionary" }).click();
+    await p.getByPlaceholder("When it hears… (optional)").fill("auto pair");
+    await p.getByPlaceholder("Write it as").fill(`OtoPair${tag}`);
+    await keys("Enter");
+    await p.getByText(`OtoPair${tag}`).waitFor();
+    // What the desktop app sends when you let go of the hotkey.
+    const status = await p.evaluate(async () => {
+      const r = await fetch("/api/actions/voice.clean", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ raw: "um open auto pair please", app: "notepad.exe" }),
+      });
+      return r.status;
+    });
+    if (status !== 200) throw new Error(`voice.clean answered ${status}`);
+    await p.getByRole("tab", { name: "History" }).click();
+    await p.getByText(`Open OtoPair${tag} please`).waitFor();
+  });
+
   await step("the calendar, mail, and Google in Settings", async (p) => {
     await p.locator("nav").click({ position: { x: 100, y: 600 } });
     await keys("g", "c");

@@ -8,6 +8,7 @@ export type ListView =
   | "people"
   | "calendar"
   | "memory"
+  | "voice"
   | "browser"
   | "activity"
   | "settings";
@@ -25,6 +26,7 @@ const LIST_VIEWS = new Set([
   "people",
   "calendar",
   "memory",
+  "voice",
   "browser",
   "activity",
   "settings",

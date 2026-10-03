@@ -16,6 +16,7 @@ import { peopleModule } from "./people/index.ts";
 import { routinesModule } from "./routines/index.ts";
 import { systemModule } from "./system/index.ts";
 import { tasksModule } from "./tasks/index.ts";
+import { voiceModule } from "./voice/index.ts";
 
 export const ALL_MODULES: HearthModule[] = [
   graphModule,
@@ -33,6 +34,7 @@ export const ALL_MODULES: HearthModule[] = [
   routinesModule,
   mailModule,
   meetingsModule,
+  voiceModule,
 ];
 
 export { renderBrief, renderDigest } from "./assistant/brief.ts";
@@ -66,6 +68,7 @@ export {
 export { recallMemory, renderMemory } from "./memory/index.ts";
 export { parseChecklist } from "./notes/checklist.ts";
 export { loadTask, type TaskView } from "./tasks/index.ts";
+export { POLISH_SERVICE, type Polisher, polisherFromEnv } from "./voice/polish.ts";
 export {
   approvalsModule,
   assistantModule,
@@ -82,4 +85,5 @@ export {
   routinesModule,
   systemModule,
   tasksModule,
+  voiceModule,
 };
