@@ -823,3 +823,19 @@ integration, needs a token kept in Hearth, and invites a sync nobody asked for).
 imported pages as your own writing (a team page could then steer Jarvis).
 
 **Why:** An export needs no credentials and moves everything at once, which is what an import is.
+
+## D51. Spreadsheets are cells as typed, worked out by IronCalc on both sides (2026-10-03)
+
+**Decision:** A spreadsheet stores only what you typed in each cell (values and =formulas), per
+sheet, as one JSON workbook saved whole (last write wins, D20). IronCalc, an open-source engine
+in Rust compiled to WebAssembly, works out the formulas: in the browser as you type (loaded only
+when a spreadsheet opens) and on the server, which writes the results as markdown tables into the
+record's body for search, backlinks and Jarvis. Jarvis edits with sheet.set, a few cells at a time
+by name ("Budget!B3"). Sheets are capped at 500 rows by 52 columns, and 20 sheets.
+
+**Alternatives:** Our own formula parser (Excel's functions and their edge cases are a project of
+their own). Storing results (they go stale whenever a formula's inputs change). A live-merged
+cell document like notes (spreadsheets are rarely edited by two people at once; saving whole is
+simpler and matches canvas boards).
+
+**Why:** One engine in both places means what you see is what Jarvis reads.

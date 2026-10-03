@@ -20,6 +20,7 @@
     "@codemirror/state": "^6.7.6",
     "@codemirror/view": "^6.43.13",
     "@hearth/core": "workspace:*",
+    "@ironcalc/wasm": "0.8.4",
     "@simplewebauthn/browser": "^14.0.0",
     "@tanstack/solid-query": "^5.104.0",
     "loro-codemirror": "^0.3.3",

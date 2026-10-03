@@ -65,6 +65,7 @@ export const TYPE_LABEL: Record<string, string> = {
   task: "Task",
   note: "Note",
   canvas: "Canvas",
+  spreadsheet: "Spreadsheet",
   person: "Person",
   company: "Company",
   meeting: "Meeting",

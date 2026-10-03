@@ -6,5 +6,6 @@ export * from "./interrupts.ts";
 export * from "./mentions.ts";
 export * from "./schedule.ts";
 export * from "./security.ts";
+export * from "./sheet.ts";
 export * from "./tasks.ts";
 export * from "./time.ts";

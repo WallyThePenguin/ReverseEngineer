@@ -33,6 +33,7 @@ import { Notes, NoteView } from "../views/Notes.tsx";
 import { People } from "../views/People.tsx";
 import { RecordView } from "../views/Record.tsx";
 import { Settings } from "../views/Settings.tsx";
+import { Sheets, SheetView } from "../views/Sheets.tsx";
 import { Tasks } from "../views/Tasks.tsx";
 import { TaskView } from "../views/TaskView.tsx";
 import { Voice } from "../views/Voice.tsx";
@@ -64,6 +65,12 @@ function PaneView(props: { route: PaneRoute; index: number }) {
       </Match>
       <Match when={props.route.view === "canvas"}>
         <CanvasView id={id()} pane={props.index} />
+      </Match>
+      <Match when={props.route.view === "sheets"}>
+        <Sheets pane={props.index} />
+      </Match>
+      <Match when={props.route.view === "sheet"}>
+        <SheetView id={id()} pane={props.index} />
       </Match>
       <Match when={props.route.view === "people"}>
         <People pane={props.index} />
@@ -155,6 +162,7 @@ function Shell(props: { onSignOut: () => void }) {
     { keys: "g n", run: go("notes"), label: "Go to Notes" },
     { keys: "g c", run: go("calendar"), label: "Go to Calendar" },
     { keys: "g w", run: go("canvases"), label: "Go to Canvas" },
+    { keys: "g x", run: go("sheets"), label: "Go to Spreadsheets" },
     { keys: "g p", run: go("people"), label: "Go to People" },
     { keys: "g m", run: go("memory"), label: "Go to Memory" },
     { keys: "g v", run: go("voice"), label: "Go to Voice" },

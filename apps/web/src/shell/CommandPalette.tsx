@@ -11,6 +11,7 @@ import type { SearchHit } from "../lib/types.ts";
 import { newCanvas } from "../views/Canvas.tsx";
 import { newNote } from "../views/Notes.tsx";
 import { setPaused } from "../views/Settings.tsx";
+import { newSheet } from "../views/Sheets.tsx";
 
 interface Item {
   id: string;
@@ -33,6 +34,7 @@ function commands(): Item[] {
     go("notes", "Notes"),
     go("calendar", "Calendar"),
     go("canvases", "Canvas (boards)"),
+    go("sheets", "Spreadsheets"),
     go("people", "People"),
     go("memory", "Memory (what Jarvis remembers)"),
     go("voice", "Voice (dictation history, dictionary, snippets)"),
@@ -45,6 +47,12 @@ function commands(): Item[] {
       label: "New canvas board",
       hint: "Create",
       run: () => newCanvas(layout.focused()),
+    },
+    {
+      id: "new:sheet",
+      label: "New spreadsheet",
+      hint: "Create",
+      run: () => newSheet(layout.focused()),
     },
     {
       id: "new:chat",

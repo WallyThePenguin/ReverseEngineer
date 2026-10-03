@@ -21,7 +21,12 @@ export function RecordView(props: { id: string; pane: number }) {
   // If it turns out to be a task or note, show it in its proper view.
   const redirect = () => {
     const r = rec.data;
-    if (r && ["task", "note", "canvas", "conversation", "email", "email_thread"].includes(r.type)) {
+    if (
+      r &&
+      ["task", "note", "canvas", "spreadsheet", "conversation", "email", "email_thread"].includes(
+        r.type,
+      )
+    ) {
       queueMicrotask(() => layout.open(routeFor(r.type, r.id), { pane: props.pane }));
     }
     return r;

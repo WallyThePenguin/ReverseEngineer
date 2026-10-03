@@ -6,6 +6,7 @@ export type ListView =
   | "tasks"
   | "notes"
   | "canvases"
+  | "sheets"
   | "people"
   | "calendar"
   | "memory"
@@ -16,7 +17,7 @@ export type ListView =
 
 export type PaneRoute =
   | { view: ListView }
-  | { view: "task" | "note" | "canvas" | "record" | "chat" | "thread"; id: string };
+  | { view: "task" | "note" | "canvas" | "sheet" | "record" | "chat" | "thread"; id: string };
 
 export const MAX_PANES = 3;
 const LIST_VIEWS = new Set([
@@ -25,6 +26,7 @@ const LIST_VIEWS = new Set([
   "tasks",
   "notes",
   "canvases",
+  "sheets",
   "people",
   "calendar",
   "memory",
@@ -33,7 +35,7 @@ const LIST_VIEWS = new Set([
   "activity",
   "settings",
 ]);
-const RECORD_VIEWS = new Set(["task", "note", "canvas", "record", "chat", "thread"]);
+const RECORD_VIEWS = new Set(["task", "note", "canvas", "sheet", "record", "chat", "thread"]);
 const ID = /^[0-9a-f-]{36}$/i;
 
 export function encodeRoute(r: PaneRoute): string {
@@ -66,6 +68,7 @@ export function routeFor(type: string, id: string): PaneRoute {
   if (type === "task") return { view: "task", id };
   if (type === "note") return { view: "note", id };
   if (type === "canvas") return { view: "canvas", id };
+  if (type === "spreadsheet") return { view: "sheet", id };
   if (type === "conversation") return { view: "chat", id };
   if (type === "email_thread" || type === "email") return { view: "thread", id };
   return { view: "record", id };
