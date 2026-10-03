@@ -1,12 +1,40 @@
 // A conversation's state comes from its messages' flags: in the inbox if any message is, unread
 // if any is, and so on. Archiving, starring and the like change the flags here at once and queue
 // the same change for the provider (local first); a change the provider refuses is rolled back.
-import { type DbOrTx, entity, type MailAddress, mailMessage, mailOp, mailThread } from "@hearth/db";
+import {
+  type DbOrTx,
+  entity,
+  type MailAddress,
+  type MailLane,
+  mailAccount,
+  mailMessage,
+  mailOp,
+  mailThread,
+} from "@hearth/db";
 import { type ActionContext, newId, updateEntity } from "@hearth/kernel";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import type { MailProvider } from "./provider.ts";
 
 type MessageRow = typeof mailMessage.$inferSelect;
+
+/** Senders that are machines, not people: nobody expects a reply. (Also in 0008_mail_waiting.) */
+const AUTOMATED =
+  /^(no-?reply|do-?not-?reply|notifications?|notify|mailer-daemon|postmaster|bounces?|alerts?|news(letter)?|updates?|info|hello|support|billing|receipts?|orders?|team|marketing)([+._-][^@]*)?@/i;
+
+/**
+ * Who the conversation waits on, from its last message: "them" if you wrote last; "you" if a
+ * person wrote to you directly (not a cc, a newsletter, a notification or a Gmail tab) in Signal.
+ */
+export function waitingOn(
+  last: Pick<MessageRow, "outbound" | "fromAddress" | "labels" | "toAddresses">,
+  me: string,
+  lane: MailLane,
+): "you" | "them" | null {
+  if (last.outbound) return "them";
+  if (lane !== "signal" || AUTOMATED.test(last.fromAddress)) return null;
+  if (last.labels.some((l) => l.startsWith("CATEGORY_") && l !== "CATEGORY_PERSONAL")) return null;
+  return last.toAddresses.some((a) => a.address === me) ? "you" : null;
+}
 
 /** Works the conversation's state out again from its messages. Removes it if none are left. */
 export async function recomputeThread(ctx: ActionContext, threadId: string): Promise<void> {
@@ -31,7 +59,15 @@ export async function recomputeThread(ctx: ActionContext, threadId: string): Pro
       : [{ address: m.fromAddress, ...(m.fromName ? { name: m.fromName } : {}) }];
     for (const a of who) if (a.address && !people.has(a.address)) people.set(a.address, a);
   }
-  const [thread] = await ctx.tx.select().from(mailThread).where(eq(mailThread.entityId, threadId));
+  const [row] = await ctx.tx
+    .select({ thread: mailThread, me: mailAccount.address })
+    .from(mailThread)
+    .innerJoin(mailAccount, eq(mailAccount.id, mailThread.accountId))
+    .where(eq(mailThread.entityId, threadId));
+  const thread = row?.thread;
+  // Once you've written in a conversation, it's Signal.
+  const lane = msgs.some((m) => m.outbound) ? "signal" : (thread?.lane ?? "signal");
+  const said = thread?.noReplyAt && thread.noReplyAt >= last.sentAt;
   // The conversation is named by its first message, whichever arrived first.
   const [first] = await ctx.tx
     .select({ title: entity.title })
@@ -51,10 +87,9 @@ export async function recomputeThread(ctx: ActionContext, threadId: string): Pro
       starred: any("STARRED"),
       inInbox: any("INBOX"),
       trashed: live.length === 0,
-      // Once you've written in a conversation, it's Signal.
-      ...(msgs.some((m) => m.outbound) && thread?.lane === "noise"
-        ? { lane: "signal" as const }
-        : {}),
+      lane,
+      waiting: said || !row ? null : waitingOn(last, row.me, lane),
+      waitingSince: last.sentAt,
     })
     .where(eq(mailThread.entityId, threadId));
 }

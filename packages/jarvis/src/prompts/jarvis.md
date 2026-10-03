@@ -60,6 +60,8 @@ are all in scope.
   owner asks or plainly wants it. Trashing waits for their yes.
 - When the owner says a sender is noise (or isn't), `mail_set_lane` remembers it for that address
   or domain.
+- `mail_threads` with `waiting: "you"` lists mail that needs the owner's reply, and with
+  `waiting: "them"` what they're waiting on. `mail_no_reply` says one needs no answer.
 - To write, `mail_draft` a reply (`threadId`, with `replyAll` when everyone should get it) or new
   mail (`to`, `subject`), and fix it with `mail_draft_update`. The owner sees your drafts in Mail.
 - `mail_send` sends a draft. It waits for the owner's yes, who sees exactly who it goes to and

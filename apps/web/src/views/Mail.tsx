@@ -1,6 +1,7 @@
-// Mail: every account's conversations in one list, split into Signal and Noise.
-// j/k to move, Enter to open, e archive, s star, u read or unread, n send the sender to the other
-// lane, # trash. Changes show at once and reach Gmail within a minute.
+// Mail: every account's conversations in one list, split into Signal and Noise, plus what needs
+// your reply and what you're waiting on. j/k to move, Enter to open, e archive, s star, u read or
+// unread, n send the sender to the other lane, d no reply needed, # trash. Changes show at once
+// and reach Gmail within a minute.
 
 import { createSignal, For, Show } from "solid-js";
 import { Badge, Button, Empty, PaneHeader } from "../components/ui.tsx";
@@ -18,14 +19,19 @@ export const named = (a: MailAddress | undefined) => a?.name || a?.address || "s
 
 export function Mail(props: { pane: number }) {
   const [view, setView] = createSignal<View>("inbox");
-  const [lane, setLane] = createSignal<"signal" | "noise">("signal");
+  const [lane, setLane] = createSignal<"signal" | "noise" | "reply" | "waiting">("signal");
   const [query, setQuery] = createSignal("");
   const [index, setIndex] = createSignal(0);
   const accounts = useAction<MailAccount[]>("mail.accounts");
   const searching = () => query().trim().length > 0;
   const listed = useAction<MailThread[]>(
     "mail.threads",
-    () => ({ view: view(), lane: view() === "inbox" ? lane() : undefined, limit: 100 }),
+    () => {
+      if (view() !== "inbox") return { view: view(), limit: 100 };
+      if (lane() === "reply") return { view: "inbox", waiting: "you", limit: 100 };
+      if (lane() === "waiting") return { view: "all", waiting: "them", limit: 100 };
+      return { view: "inbox", lane: lane(), limit: 100 };
+    },
     () => !searching(),
   );
   const found = useAction<MailThread[]>(
@@ -103,6 +109,15 @@ export function Mail(props: { pane: number }) {
       when: focused,
       label: "Sender to Signal or Noise",
     },
+    {
+      keys: "d",
+      run: () => {
+        const t = current();
+        if (t?.waiting) void run("mail.no_reply", { ids: [t.id] }, "Marked as needing no reply.");
+      },
+      when: focused,
+      label: "No reply needed",
+    },
     { keys: "c", run: compose, when: focused, label: "Write an email" },
     {
       keys: "#",
@@ -127,6 +142,16 @@ export function Mail(props: { pane: number }) {
           </button>
           <button type="button" class={tab(lane() === "noise")} onClick={() => setLane("noise")}>
             Noise
+          </button>
+          <button type="button" class={tab(lane() === "reply")} onClick={() => setLane("reply")}>
+            To reply
+          </button>
+          <button
+            type="button"
+            class={tab(lane() === "waiting")}
+            onClick={() => setLane("waiting")}
+          >
+            Waiting
           </button>
           <span class="mx-1 h-4 w-px bg-line" />
         </Show>
@@ -227,6 +252,12 @@ export function Mail(props: { pane: number }) {
                         </Show>
                         <Show when={view() !== "inbox" && t.inInbox}>
                           <Badge tone="muted">inbox</Badge>
+                        </Show>
+                        <Show when={t.waiting === "you" && lane() !== "reply"}>
+                          <Badge tone="jarvis">reply</Badge>
+                        </Show>
+                        <Show when={t.waiting === "them" && lane() === "waiting"}>
+                          <Badge tone="muted">no answer yet</Badge>
                         </Show>
                         <span class="shrink-0 text-xs text-faint">{ago(t.lastMessageAt)}</span>
                       </div>

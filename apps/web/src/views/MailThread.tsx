@@ -161,7 +161,7 @@ export function MailThreadPane(props: { id: string; pane: number }) {
         <div class="flex h-full flex-col">
           <PaneHeader
             title={v().subject}
-            sub={`${v().account} · ${v().messageCount} message${v().messageCount === 1 ? "" : "s"} · ${v().lane === "noise" ? "Noise" : "Signal"}`}
+            sub={`${v().account} · ${v().messageCount} message${v().messageCount === 1 ? "" : "s"} · ${v().lane === "noise" ? "Noise" : "Signal"}${v().waiting === "you" ? " · needs your reply" : v().waiting === "them" ? " · waiting on them" : ""}`}
           >
             <Button
               small
@@ -181,6 +181,14 @@ export function MailThreadPane(props: { id: string; pane: number }) {
             >
               {v().starred ? "Unstar" : "Star"}
             </Button>
+            <Show when={v().waiting}>
+              <Button
+                small
+                onClick={() => void run("mail.no_reply", { ids: [v().id] }, "No reply needed.")}
+              >
+                No reply needed
+              </Button>
+            </Show>
           </PaneHeader>
           <div class="flex-1 space-y-3 overflow-auto px-5 py-4">
             <For each={v().messages}>

@@ -31,11 +31,13 @@ export function Sidebar(props: { onPalette: () => void; onSignOut: () => void })
     status: "pending",
     limit: 50,
   }));
+  const mail = useAction<{ unread: number; toReply: number }>("mail.counts");
   const unseen = () => (inbox.data ?? []).filter((r) => r.notification.state === "unseen").length;
   const current = () => layout.panes()[layout.focused()]?.view;
 
   const count = (view: ListView) => {
     if (view === "inbox") return unseen() + (approvals.data?.length ?? 0) || null;
+    if (view === "mail") return mail.data?.unread || null;
     return null;
   };
 

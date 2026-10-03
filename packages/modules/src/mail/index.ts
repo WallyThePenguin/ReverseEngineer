@@ -14,10 +14,11 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { id, isoDateTime } from "../shared.ts";
 import { describeDraft, draftActions } from "./drafts.ts";
-import { changeFlags, pendingChanges } from "./flags.ts";
+import { changeFlags, pendingChanges, recomputeThread } from "./flags.ts";
 import { normalizePattern, senderPatterns } from "./people.ts";
 import { syncMail } from "./sync.ts";
 import { listThreads, loadThread, searchThreads, threadText, who } from "./views.ts";
+import { followUpRoutine, waitingActions, waitingDigest } from "./waiting.ts";
 
 export { BLOB_SERVICE, BlobStore, blobsFromEnv } from "./blobs.ts";
 export type { DraftView } from "./drafts.ts";
@@ -141,6 +142,10 @@ export const mailModule = defineModule({
         lane: lane.optional(),
         account: z.string().email().optional(),
         unread: z.boolean().optional(),
+        waiting: z
+          .enum(["you", "them"])
+          .optional()
+          .describe("you: needs the owner's reply. them: the owner wrote last and is waiting."),
         before: isoDateTime.optional().describe("For the next page: the last one's lastMessageAt."),
         limit: z.number().int().min(1).max(200).default(50),
       }),
@@ -259,6 +264,8 @@ export const mailModule = defineModule({
             .update(mailThread)
             .set({ lane: i.lane })
             .where(inArray(mailThread.entityId, moving));
+          // Who each one waits on depends on its lane.
+          for (const id of moving) await recomputeThread(ctx, id);
           ctx.emit({ kind: "mail.changed", payload: { lane: i.lane, moved: moving.length } });
         }
         return { pattern, lane: i.lane, moved: moving.length };
@@ -314,7 +321,9 @@ export const mailModule = defineModule({
       handler: (_i, ctx) => syncMail(ctx),
     }),
     ...draftActions,
+    ...waitingActions,
   ],
+  routines: [followUpRoutine],
   reflexes: [syncFailed, changeFailed],
   async digest(ctx): Promise<DigestItem[]> {
     const rows = await listThreads(ctx.db, {
@@ -324,12 +333,14 @@ export const mailModule = defineModule({
       limit: 20,
     });
     const fresh = rows.filter((t) => t.lastMessageAt >= ctx.since);
-    if (fresh.length === 0) return [];
-    return fresh.slice(0, 8).map((t) => ({
-      bucket: "fyi" as const,
-      text: `Email from ${t.participants[0] ? who(t.participants[0]) : "someone"}: ${t.subject}`,
-      entityId: t.id,
-      outside: true,
-    }));
+    return [
+      ...(await waitingDigest(ctx)),
+      ...fresh.slice(0, 8).map((t) => ({
+        bucket: "fyi" as const,
+        text: `Email from ${t.participants[0] ? who(t.participants[0]) : "someone"}: ${t.subject}`,
+        entityId: t.id,
+        outside: true,
+      })),
+    ];
   },
 });
