@@ -15,15 +15,16 @@ import {
   createEntity,
   defineAction,
   type ReadContext,
+  stableStringify,
   updateEntity,
 } from "@hearth/kernel";
 import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { body, id } from "../shared.ts";
-import { buildMessage } from "./mime.ts";
+import { buildMessage, cleanName } from "./mime.ts";
 import { saveMail } from "./store.ts";
 import { providerFor } from "./sync.ts";
-import { loadThread, who } from "./views.ts";
+import { loadThread } from "./views.ts";
 
 const address = z.string().trim().max(320).describe('An email address, or "Name <address>".');
 const addresses = z.array(address).max(50);
@@ -34,9 +35,19 @@ export function parseAddress(raw: string): MailAddress | null {
     raw.trim().match(/^(?:"?([^"<]*?)"?\s*)?<([^<>\s]+@[^<>\s]+)>$/) ??
     raw.trim().match(/^()([^<>\s]+@[^<>\s]+)$/);
   if (!m || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(m[2]!)) return null;
-  const name = m[1]?.trim();
-  return { address: m[2]!.toLowerCase(), ...(name ? { name } : {}) };
+  return clean({ address: m[2]!, name: m[1] });
 }
+
+/** An address as a draft keeps it: lower-case, with a name that's safe to show. */
+function clean(a: MailAddress): MailAddress {
+  const name = cleanName(a.name);
+  return { address: a.address.toLowerCase(), ...(name ? { name } : {}) };
+}
+
+/** Address first, so a name can't pass for another recipient: "ana@x.example (Ana Silva)". */
+const shown = (a: MailAddress) => (a.name ? `${a.address} (${a.name})` : a.address);
+/** Subjects on one line, without characters that change how the line reads. */
+const oneLine = (s: string) => s.replace(/[\p{Cc}\p{Cf}]/gu, " ");
 
 function parseAll(list: string[] | undefined): MailAddress[] | undefined {
   if (!list) return undefined;
@@ -84,9 +95,9 @@ export async function loadDraft(db: DbOrTx, draftId: string): Promise<DraftView 
 export function snapshotOf(d: DraftView) {
   return {
     from: d.account,
-    to: d.to.map(who),
-    cc: d.cc.map(who),
-    bcc: d.bcc.map(who),
+    to: d.to.map(shown),
+    cc: d.cc.map(shown),
+    bcc: d.bcc.map(shown),
     subject: d.subject,
     text: d.text,
   };
@@ -138,10 +149,12 @@ async function replyHeaders(ctx: ActionContext, threadId: string, all: boolean) 
     address: last.fromAddress,
     ...(last.fromName ? { name: last.fromName } : {}),
   };
-  const to = last.outbound ? last.toAddresses : [last.replyTo ? { address: last.replyTo } : from];
+  const to = (
+    last.outbound ? last.toAddresses : [last.replyTo ? { address: last.replyTo } : from]
+  ).map(clean);
   const taken = new Set([self, ...to.map((a) => a.address)]);
   const cc = all
-    ? [...last.toAddresses, ...last.ccAddresses].filter((a) => {
+    ? [...last.toAddresses, ...last.ccAddresses].map(clean).filter((a) => {
         if (taken.has(a.address)) return false;
         taken.add(a.address);
         return true;
@@ -219,7 +232,9 @@ export const draftActions = [
             ...(bcc ? { bccAddresses: bcc } : {}),
           })
           .where(eq(mailDraft.entityId, i.id));
-      return loadDraft(ctx.tx, i.id);
+      const d = (await loadDraft(ctx.tx, i.id))!;
+      // What's in the draft now, for a Send that must match it.
+      return { ...d, snapshot: snapshotOf(d) };
     },
   }),
   defineAction({
@@ -227,6 +242,8 @@ export const draftActions = [
     description: "Drafts waiting to be sent, newest first, or the ones for one conversation.",
     input: z.object({ threadId: id.optional() }),
     risk: "read",
+    // Replies carry the sender's subject and names, and may hold text written after reading mail.
+    external: true,
     async handler(i, ctx) {
       const rows = await ctx.tx
         .select({ id: mailDraft.entityId })
@@ -272,14 +289,17 @@ export const draftActions = [
       if (!s) return `Send draft ${i.id}`;
       const cc = s.cc.length ? `, cc ${s.cc.join(", ")}` : "";
       const bcc = s.bcc.length ? `, bcc ${s.bcc.join(", ")}` : "";
-      return `Send email to ${s.to.join(", ")}${cc}${bcc}: "${s.subject}"\n\n${s.text.slice(0, 1500)}`;
+      // All of it: the card shows exactly what goes out.
+      return `Send email from ${s.from} to ${s.to.join(", ")}${cc}${bcc}: "${oneLine(s.subject)}"\n\n${s.text}`;
     },
     async handler(i, ctx) {
+      // Held until this send finishes, so two Sends can't both go out.
+      await ctx.tx.select().from(mailDraft).where(eq(mailDraft.entityId, i.id)).for("update");
       const d = await loadDraft(ctx.tx, i.id);
       if (!d)
         throw new ActionError("not_found", "No draft with that id. Was it sent or thrown away?");
       const now = snapshotOf(d);
-      if (i.snapshot && JSON.stringify(i.snapshot) !== JSON.stringify(now))
+      if (i.snapshot && stableStringify(i.snapshot) !== stableStringify(now))
         throw new ActionError(
           "conflict",
           "The draft changed since you were asked, so nothing was sent.",
@@ -308,12 +328,17 @@ export const draftActions = [
         date: ctx.now,
       });
       const sent = await providerFor(ctx, account!).send(account!.address, raw);
-      // Kept here at once, so it shows in the conversation before the next sync.
-      const saved = await saveMail(ctx, account!, {
-        providerId: sent.providerId,
-        labels: ["SENT"],
-        raw,
-      });
+      // Kept here at once, so it shows in the conversation before the next sync. It has gone
+      // out either way, so failing to keep it mustn't undo the send (the next sync brings it in).
+      const saved = await ctx.tx
+        .transaction((tx) =>
+          saveMail({ ...ctx, tx }, account!, {
+            providerId: sent.providerId,
+            labels: ["SENT"],
+            raw,
+          }),
+        )
+        .catch(() => null);
       await ctx.tx.delete(entity).where(eq(entity.id, d.id));
       ctx.emit({
         kind: "mail.sent",

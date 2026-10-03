@@ -37,7 +37,8 @@ export function googleRoutes() {
       c.redirect(`${config.origin}/settings?google=${encodeURIComponent(msg)}`);
     if (!google?.configured) return c.text("Google isn't set up yet.", 503);
     const error = c.req.query("error");
-    if (error) return back(error === "access_denied" ? "Cancelled." : `Google said: ${error}`);
+    if (error)
+      return back(error === "access_denied" ? "Cancelled." : "Google didn't connect. Try again.");
     const state = c.req.query("state");
     const code = c.req.query("code");
     if (!state || !code) return c.text("Missing sign-in details.", 400);

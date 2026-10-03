@@ -131,10 +131,21 @@ function headerText(s: string): string {
     : `=?UTF-8?B?${Buffer.from(clean).toString("base64")}?=`;
 }
 
+/** A display name made safe to show and send: no control or direction-changing characters. */
+export function cleanName(name: string | undefined): string | undefined {
+  const clean = name
+    ?.replace(/[\p{Cc}\p{Cf}"<>\\]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 100);
+  return clean || undefined;
+}
+
+/** "Name" <address>, with the name always quoted (or encoded), so it can't add recipients. */
 export function formatAddress(a: MailAddress): string {
-  if (!a.name) return a.address;
-  const plain = /^[\w .'-]*$/.test(a.name);
-  return `${plain ? `"${a.name}"` : headerText(a.name)} <${a.address}>`;
+  const name = cleanName(a.name);
+  if (!name) return a.address;
+  return `${/^[\x20-\x7e]*$/.test(name) ? `"${name}"` : headerText(name)} <${a.address}>`;
 }
 
 const base64Lines = (data: Buffer) => data.toString("base64").replace(/.{76}(?=.)/g, "$&\r\n");

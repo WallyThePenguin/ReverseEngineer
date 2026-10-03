@@ -10,6 +10,7 @@ import {
 } from "@hearth/db";
 import { type ActionContext, addLink, createEntity } from "@hearth/kernel";
 import { eq, inArray } from "drizzle-orm";
+import { cleanName } from "./mime.ts";
 
 /** Gmail's tabs other than Primary. Mail there starts out as Noise. */
 export const NOISE_CATEGORIES = [
@@ -79,7 +80,8 @@ export async function ensurePerson(ctx: ActionContext, who: MailAddress): Promis
   if (known) return known;
   const person = await createEntity(ctx, {
     type: "person",
-    title: who.name?.trim() || who.address,
+    // The name is whatever the mail said, so it's kept short and plain.
+    title: cleanName(who.name) ?? who.address,
     body: `Email: ${who.address}`,
   });
   await ctx.tx

@@ -54,7 +54,7 @@ export async function applyOutcomes(
           trigger: o.trigger,
           mode,
           lane: o.lane,
-          origin: src.event.origin,
+          origin: o.untrusted ? "untrusted" : src.event.origin,
           prompt: o.prompt,
           context: { ...o.context, source: src.name },
           conversationId: o.conversationId ?? null,

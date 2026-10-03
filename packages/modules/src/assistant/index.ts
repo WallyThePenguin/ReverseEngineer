@@ -270,6 +270,7 @@ export const assistantModule = defineModule({
           bucket: "handled",
           text: t.reply.split("\n")[0]!.slice(0, 200),
           entityId: t.subjectId,
+          outside: t.origin === "untrusted",
         });
     }
     const obs = await ctx.db

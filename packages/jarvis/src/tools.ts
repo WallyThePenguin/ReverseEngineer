@@ -17,7 +17,7 @@ import {
   type ModelImage,
   newId,
 } from "@hearth/kernel";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { BrainTool } from "./brain.ts";
 import { checkActing, checkOpen, readOutsideContent, vouchFor } from "./trust.ts";
@@ -97,7 +97,10 @@ export function buildTools(kernel: Kernel, state: TurnState, log: LogFn): BrainT
       input: def.input,
       async run(input) {
         const callId = newId();
-        await log("tool_call", { callId, name: def.name, input });
+        // Hearth fills the snapshot in below; what the model put there is never what's shown.
+        const { snapshot: _given, ...asked } = input as Record<string, unknown>;
+        await log("tool_call", { callId, name: def.name, input: def.snapshot ? asked : input });
+        if (def.snapshot) input = asked;
         let askFirst: string | undefined;
         const url = def.opensUrl?.(input as never);
         if (url) {
@@ -174,7 +177,9 @@ export function buildTools(kernel: Kernel, state: TurnState, log: LogFn): BrainT
             : res.status === "denied"
               ? `Not allowed: ${res.reason}`
               : `Error (${res.code}): ${res.message}`;
-        if (def.external && res.status !== "denied") {
+        const outside =
+          def.external || (res.status === "ok" && (await mentionsOutside(kernel, result)));
+        if (outside && res.status !== "denied") {
           // Outside content, errors included (they can quote the page): everything after this in
           // the turn is untrusted (D25).
           readOutsideContent(state, output);
@@ -214,6 +219,42 @@ export function buildTools(kernel: Kernel, state: TurnState, log: LogFn): BrainT
   return tools;
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Whether a result shows records holding outside content (an email found by entity_search, a
+ * conversation's title in a list of links). Reading those lowers trust like record_read does.
+ */
+export async function mentionsOutside(kernel: Kernel, value: unknown): Promise<boolean> {
+  const ids = new Set<string>();
+  let found = false;
+  const walk = (v: unknown, depth: number) => {
+    if (found || depth > 8 || ids.size > 500) return;
+    if (typeof v === "string") {
+      if (UUID.test(v)) ids.add(v);
+    } else if (Array.isArray(v)) {
+      for (const x of v) walk(x, depth + 1);
+    } else if (v && typeof v === "object") {
+      for (const [k, x] of Object.entries(v)) {
+        if ((k === "type" || k === "otherType") && typeof x === "string")
+          found ||= kernel.registry.isOutsideType(x);
+        if (k === "createdBy" && typeof x === "string") found ||= fromOutsideTool(x);
+        walk(x, depth + 1);
+      }
+    }
+  };
+  walk(value, 0);
+  if (found) return true;
+  if (ids.size === 0) return false;
+  const rows = await kernel.db
+    .select({ type: entity.type, createdBy: entity.createdBy })
+    .from(entity)
+    .where(inArray(entity.id, [...ids]));
+  return rows.some((r) => kernel.registry.isOutsideType(r.type) || fromOutsideTool(r.createdBy));
+}
+
+const fromOutsideTool = (by: string) => by.startsWith("integration:") || by.startsWith("mcp:");
+
 /** A record as Jarvis reads it: its module's description, plus links both ways. */
 export async function describeRecord(
   kernel: Kernel,
@@ -248,8 +289,7 @@ export async function readRecord(
       text += `\n\n## Linked from\n${links.result.incoming.map(fmt).join("\n")}`;
   }
   const outsideType = kernel.registry.isOutsideType(row.type);
-  const fromOutside =
-    outsideType || row.createdBy.startsWith("integration:") || row.createdBy.startsWith("mcp:");
+  const fromOutside = outsideType || fromOutsideTool(row.createdBy);
   const source = outsideType ? row.type : row.createdBy;
   return { text: fromOutside ? asUntrusted(text, source) : text, fromOutside };
 }

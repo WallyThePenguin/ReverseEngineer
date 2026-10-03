@@ -20,6 +20,7 @@ export const SCOPES = {
 
 const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
+const REVOKE_URL = "https://oauth2.googleapis.com/revoke";
 const USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo";
 
 export type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
@@ -160,6 +161,15 @@ export class GoogleClient {
       .values({ email, connectedAt: now, ...values })
       .onConflictDoUpdate({ target: googleAccount.email, set: values });
     return email;
+  }
+
+  /** Tells Google to drop Hearth's access, so a forgotten token is useless. Best effort. */
+  async revoke(refreshToken: string): Promise<void> {
+    await this.fetch(REVOKE_URL, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ token: refreshToken }),
+    }).catch(() => {});
   }
 
   /** A fresh access token for an account, refreshing it when it's about to run out. */

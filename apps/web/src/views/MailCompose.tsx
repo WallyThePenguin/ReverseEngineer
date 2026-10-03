@@ -1,5 +1,6 @@
 // Writing email: a draft saves itself as you type, and Send sends it. Drafts Jarvis wrote show up
-// here too, ready to check and send.
+// here too, ready to check and send. Send saves exactly what's on screen and sends only if the
+// draft still matches it, so nothing you can't see (a change Jarvis made meanwhile) goes out.
 
 import { createSignal, onCleanup } from "solid-js";
 import { Button } from "../components/ui.tsx";
@@ -19,25 +20,25 @@ const split = (s: string) =>
 export function Composer(props: { draft: MailDraft; onDone?: () => void }) {
   const [to, setTo] = createSignal(show(props.draft.to));
   const [cc, setCc] = createSignal(show(props.draft.cc));
+  const [bcc, setBcc] = createSignal(show(props.draft.bcc));
   const [subject, setSubject] = createSignal(props.draft.subject);
   const [text, setText] = createSignal(props.draft.text);
   const [busy, setBusy] = createSignal(false);
   let timer: number | undefined;
   let dirty = false;
 
-  const save = async () => {
+  const save = async (always = false) => {
     window.clearTimeout(timer);
-    if (!dirty) return true;
+    if (!dirty && !always) return { snapshot: undefined };
     dirty = false;
-    return (
-      (await act("mail.draft_update", {
-        id: props.draft.id,
-        to: split(to()),
-        cc: split(cc()),
-        subject: subject(),
-        text: text(),
-      })) !== null
-    );
+    return act<{ snapshot: unknown }>("mail.draft_update", {
+      id: props.draft.id,
+      to: split(to()),
+      cc: split(cc()),
+      bcc: split(bcc()),
+      subject: subject(),
+      text: text(),
+    });
   };
   const edited = () => {
     dirty = true;
@@ -45,12 +46,17 @@ export function Composer(props: { draft: MailDraft; onDone?: () => void }) {
     timer = window.setTimeout(() => void save(), 800);
   };
   onCleanup(() => void save());
+  const typed = (set: (v: string) => void) => (e: { currentTarget: { value: string } }) => {
+    set(e.currentTarget.value);
+    edited();
+  };
 
   const send = async () => {
     setBusy(true);
     try {
-      if (!(await save())) return;
-      if (await act("mail.send", { id: props.draft.id })) {
+      const saved = await save(true);
+      if (!saved) return;
+      if (await act("mail.send", { id: props.draft.id, snapshot: saved.snapshot })) {
         toast.show("Sent.");
         props.onDone?.();
       }
@@ -73,32 +79,27 @@ export function Composer(props: { draft: MailDraft; onDone?: () => void }) {
       }}
     >
       <div class="text-xs text-muted">From {props.draft.account}</div>
+      <input class={field} aria-label="To" placeholder="To" value={to()} onInput={typed(setTo)} />
+      <input class={field} aria-label="Cc" placeholder="Cc" value={cc()} onInput={typed(setCc)} />
       <input
         class={field}
-        aria-label="To"
-        placeholder="To"
-        value={to()}
-        onInput={(e) => (setTo(e.currentTarget.value), edited())}
-      />
-      <input
-        class={field}
-        aria-label="Cc"
-        placeholder="Cc"
-        value={cc()}
-        onInput={(e) => (setCc(e.currentTarget.value), edited())}
+        aria-label="Bcc"
+        placeholder="Bcc"
+        value={bcc()}
+        onInput={typed(setBcc)}
       />
       <input
         class={field}
         aria-label="Subject"
         placeholder="Subject"
         value={subject()}
-        onInput={(e) => (setSubject(e.currentTarget.value), edited())}
+        onInput={typed(setSubject)}
       />
       <textarea
         class={`${field} min-h-40`}
         aria-label="Message"
         value={text()}
-        onInput={(e) => (setText(e.currentTarget.value), edited())}
+        onInput={typed(setText)}
         onKeyDown={(e) => {
           if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
             e.preventDefault();

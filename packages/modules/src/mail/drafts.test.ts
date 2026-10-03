@@ -103,7 +103,7 @@ describe("drafts and sending", () => {
     expect(asked).toMatchObject({ status: "pending_approval" });
     const [row] = await t.tdb.db.select().from(approval);
     expect(row?.summary).toBe(
-      'Send email to Ana Silva <ana@friends.example>: "Re: Lunch?"\n\nFriday works.',
+      'Send email from owner@example.com to ana@friends.example (Ana Silva): "Re: Lunch?"\n\nFriday works.',
     );
 
     await ok(
@@ -152,5 +152,48 @@ describe("drafts and sending", () => {
       address: "ana@x.example",
       name: "Silva, Ana",
     });
+  });
+
+  it("sends what you approved when nothing changed", async () => {
+    const thread = await lunch();
+    const jarvis = jarvisCaller("agent");
+    const draft = await ok<DraftView>(
+      "mail.draft",
+      { threadId: thread.id, text: "See you." },
+      jarvis,
+    );
+    const send = t.kernel.registry.action("mail.send")!;
+    const snap = await send.snapshot!({ id: draft.id }, { db: t.tdb.db, now: t.clock.now() });
+    await t.kernel.execute("mail.send", { id: draft.id, ...snap }, jarvis);
+    const [row] = await t.tdb.db.select().from(approval);
+    expect(await t.kernel.decideApproval(row!.id, "approve", ownerCaller())).toMatchObject({
+      status: "ok",
+    });
+    expect(g.gmail.sent).toHaveLength(1);
+  });
+
+  it("won't send your Send if the draft changed after what you saw", async () => {
+    const draft = await ok<DraftView>("mail.draft", { to: ["bo@x.example"], text: "Hi" });
+    const seen = await ok<{ snapshot: unknown }>("mail.draft_update", { id: draft.id, text: "Hi" });
+    await ok(
+      "mail.draft_update",
+      { id: draft.id, bcc: ["records@evil.example"] },
+      jarvisCaller("agent"),
+    );
+    expect(
+      await t.kernel.execute("mail.send", { id: draft.id, snapshot: seen.snapshot }, ownerCaller()),
+    ).toMatchObject({ status: "error", code: "conflict" });
+    expect(g.gmail.sent).toEqual([]);
+  });
+
+  it("keeps names from adding recipients or hiding addresses", async () => {
+    const draft = await ok<DraftView>("mail.draft", {
+      to: ['"leak@evil.example, Ana" <ana@x.example>', "Bo\u202eLee <bo@x.example>"],
+      text: "Hi",
+    });
+    await ok("mail.send", { id: draft.id });
+    const sent = await parseMail(g.gmail.sent[0]!);
+    expect(sent.to.map((a) => a.address)).toEqual(["ana@x.example", "bo@x.example"]);
+    expect(draft.to[1]?.name).toBe("Bo Lee");
   });
 });

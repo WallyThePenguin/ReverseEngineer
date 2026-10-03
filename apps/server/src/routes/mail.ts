@@ -35,6 +35,7 @@ export function mailRoutes() {
         "content-type": "text/html; charset=utf-8",
         "content-security-policy": policy,
         "referrer-policy": "no-referrer",
+        "x-dns-prefetch-control": "off",
         "cache-control": "private, no-store",
       },
     });

@@ -151,6 +151,8 @@ export type ReflexOutcome =
       notBefore?: Date;
       /** What to do instead when the turn can't be spent (Jarvis paused or over budget). */
       fallback?: ReflexOutcome[];
+      /** The prompt carries outside content, so the turn starts untrusted (D25). */
+      untrusted?: boolean;
     }
   | { kind: "tell"; notification: NewNotification }
   | { kind: "note"; observation: NewObservation }
@@ -194,6 +196,8 @@ export interface DigestItem {
   bucket: "handled" | "prepared" | "needs_yes" | "today" | "fyi";
   text: string;
   entityId?: string | null;
+  /** The text quotes something from outside Hearth (an email's subject). See isOutside. */
+  outside?: boolean;
 }
 
 export interface DigestSection {

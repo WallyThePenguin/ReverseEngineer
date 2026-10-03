@@ -100,7 +100,7 @@ export const mailModule = defineModule({
   description: "Email: your Gmail accounts in one inbox, split into Signal and Noise.",
   entityTypes: ["email_thread", "email", "email_draft"],
   // Mail is written by other people: reading it makes the rest of Jarvis's turn untrusted (D25).
-  outsideTypes: ["email_thread", "email"],
+  outsideTypes: ["email_thread", "email", "email_draft"],
   events: [
     {
       kind: "mail.received",
@@ -309,7 +309,8 @@ export const mailModule = defineModule({
       description: "Send queued changes to the mail provider and bring in new mail now.",
       input: z.object({}),
       risk: "internal",
-      callers: ["owner", "system", "integration"],
+      // Only as the integration, so the news it emits (mail.received) is always untrusted.
+      callers: ["integration"],
       handler: (_i, ctx) => syncMail(ctx),
     }),
     ...draftActions,
@@ -328,6 +329,7 @@ export const mailModule = defineModule({
       bucket: "fyi" as const,
       text: `Email from ${t.participants[0] ? who(t.participants[0]) : "someone"}: ${t.subject}`,
       entityId: t.id,
+      outside: true,
     }));
   },
 });
