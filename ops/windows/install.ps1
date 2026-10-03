@@ -88,7 +88,12 @@ foreach ($svc in "server", "worker", "jarvis") {
   }
   if ($LASTEXITCODE -ne 0) { throw "Installing $id failed (exit $LASTEXITCODE)." }
   & $exe start
-  Write-Host "Started $id."
+  if ($LASTEXITCODE -ne 0) {
+    # Keep going so the Chrome and backup tasks still get set up.
+    Write-Warning "$id is installed but didn't start. Windows Event Viewer (System log) says why."
+  } else {
+    Write-Host "Started $id."
+  }
 }
 
 function Find-Chrome {
