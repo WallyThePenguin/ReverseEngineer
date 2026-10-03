@@ -2,11 +2,12 @@
 // 8.5, D38). A screen syncs by sending what it changed and the version it has, and gets back
 // what it's missing; changes made anywhere else show up through the live event feed.
 import { docCheckpoint, entity } from "@hearth/db";
-import { type ActionContext, ActionError, defineAction, newId, updateEntity } from "@hearth/kernel";
+import { type ActionContext, ActionError, defineAction, newId } from "@hearth/kernel";
 import { eq } from "drizzle-orm";
 import { VersionVector } from "loro-crdt";
 import { z } from "zod";
 import { id } from "../shared.ts";
+import { docEdit } from "./edit.ts";
 import { checkpointsOf, frontiersInput, peersOf, textAt, versions } from "./history.ts";
 import {
   applyUpdate,
@@ -15,8 +16,8 @@ import {
   loadDoc,
   openDoc,
   setRevision,
+  takeIntoDoc,
   textOf,
-  writeDoc,
 } from "./store.ts";
 
 /** A live doc's record, or not_found. */
@@ -39,8 +40,6 @@ async function at(
   return text;
 }
 
-const MAX_TEXT = 200_000;
-
 /** Base64, at most this many bytes once decoded. */
 const b64 = (bytes: number) =>
   z
@@ -52,6 +51,7 @@ const encode = (u: Uint8Array) => Buffer.from(u).toString("base64");
 
 /** Live editing, part of the notes module (notes are the docs). */
 export const docActions = [
+  docEdit,
   defineAction({
     name: "doc.sync",
     description:
@@ -85,11 +85,12 @@ export const docActions = [
       }
       let revision = row.revision;
       const text = textOf(doc);
-      // The same ceiling as note.update: search, mentions and Jarvis read the whole body.
-      if (text.length > MAX_TEXT)
-        throw new ActionError("invalid_input", "That note is too long to save.");
+      const spec = DOC_TYPES.get(row.type)!;
+      // The same ceiling as the record's own update: search and Jarvis read the whole text.
+      if (text.length > spec.maxChars)
+        throw new ActionError("invalid_input", "That's too long to save.");
       if (text !== (row.body ?? "")) {
-        revision = (await updateEntity(ctx, row.id, { body: text })).revision;
+        revision = await spec.write(ctx, row.id, text);
         await setRevision(ctx.tx, row.id, revision);
       }
       await fold(ctx, row.id, doc, pending + added);
@@ -135,12 +136,15 @@ export const docActions = [
     risk: "internal",
     callers: ["owner"],
     async handler(i, ctx) {
-      await docRow(ctx, i.id);
+      const row = await docRow(ctx, i.id);
       const text = await at(ctx, i.id, i.frontiers);
-      if (text.length > MAX_TEXT)
+      const spec = DOC_TYPES.get(row.type)!;
+      if (text.length > spec.maxChars)
         throw new ActionError("invalid_input", "That version is too long to put back.");
-      const row = await writeDoc(ctx, i.id, { body: text }, { type: "note" });
-      return { revision: row.revision };
+      const step = await takeIntoDoc(ctx, i.id, text);
+      const revision = await spec.write(ctx, i.id, text);
+      await step.done(revision);
+      return { revision };
     },
   }),
   defineAction({

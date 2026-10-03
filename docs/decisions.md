@@ -588,3 +588,20 @@ stays in the history. History, preview, restore and checkpoints are yours only f
 came after). One version per change (too many to scrub).
 
 **Why:** Loro already keeps every edit, so this costs a small table, and restore can't lose work.
+
+## D40. Jarvis edits notes in place, and memory notes are live docs (2026-10-03)
+
+**Decision:** `doc.edit` (Jarvis's `doc_edit`) changes part of a note through its Loro doc:
+replace or insert after text found exactly once, or append, as Jarvis's own peer, so it merges
+with typing and shows on open screens with a labelled caret where the change landed. It works on
+notes only, for you, Jarvis and outside agents over MCP; a passage that isn't there exactly once
+is refused rather than guessed. Memory notes are live docs too: the Memory page edits them like
+notes, a stretch of typing is one memory version (a new one after 10 minutes), and Jarvis still
+changes memory only through `memory_update`, which refuses after outside content (D25). Each
+doc type sets its own length limit and how its text is saved.
+
+**Alternatives:** Character-offset ops (the model counts badly). Live cursors for every screen.
+Opening `doc.edit` to memory notes.
+
+**Why:** Text anchors are what a model can get right, and refusing ambiguous ones beats editing
+the wrong place. Memory keeps its own trust rules.

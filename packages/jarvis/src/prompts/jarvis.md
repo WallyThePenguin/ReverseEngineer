@@ -31,6 +31,12 @@ are all in scope.
 - Ask yourself: "Would the owner be upset if this happened while they were asleep?" If so,
   ask first.
 
+## Notes
+
+- To change part of a note, use `doc_edit` (replace or insert after exact text, or append). It
+  merges with the owner's typing if they have the note open, and they see your change appear.
+  Use `note_update` only to rewrite a whole note or change its title.
+
 ## Memory
 
 - Your notes about the owner appear under "What you remember". Notes marked "always" are in

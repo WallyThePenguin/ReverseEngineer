@@ -174,15 +174,17 @@ try {
     await p.getByRole("heading", { name: "Memory" }).waitFor();
     await p.getByPlaceholder("Add something for Jarvis to remember…").fill(`Coffee ${tag}`);
     await keys("Enter");
-    await p.getByText("What should Jarvis remember?").click();
-    const editor = p.getByPlaceholder("Write… type @ to link");
-    await editor.fill("Oat flat white.");
-    await keys("Control+Enter");
-    await p.getByText("Oat flat white.").waitFor();
+    // The text is a live doc, saved as you type.
+    const editor = p.locator(".cm-content");
+    await editor.click();
+    await p.keyboard.type("Oat flat white.");
+    await p.waitForTimeout(1500);
     await p.getByRole("button", { name: "in every answer" }).click();
     await p.getByText("Earlier versions").waitFor();
+    await p.locator("li", { hasText: "Oat flat white." }).first().waitFor();
     await p.getByRole("button", { name: "Go back to this" }).last().click();
     await p.getByText("Back to version 1.").waitFor();
+    await editor.getByText("Oat flat white.").waitFor({ state: "detached" });
   });
 
   await step("the calendar, mail, and Google in Settings", async (p) => {

@@ -30,6 +30,7 @@ import { LiveDoc } from "../lib/doc.ts";
 import { TYPE_LABEL, who } from "../lib/format.ts";
 import { layout, routeFor } from "../lib/panes.ts";
 import type { SearchHit } from "../lib/types.ts";
+import { remoteCaret } from "./remoteCaret.ts";
 
 const TAG = /<m-ref\s+([^>]*)>([\s\S]*?)<\/m-ref>/g;
 const attr = (attrs: string, name: string) =>
@@ -189,6 +190,10 @@ export default function DocEditor(props: { id: string; placeholder?: string }) {
           markdown(),
           EditorView.lineWrapping,
           chips,
+          remoteCaret(() => {
+            const by = editedBy();
+            return by ? who(by) : null;
+          }),
           autocompletion({ override: [mentions], icons: false }),
           placeholder(props.placeholder ?? ""),
           theme,

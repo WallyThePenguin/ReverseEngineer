@@ -7,10 +7,32 @@ import { randomBytes } from "node:crypto";
 import { type DbOrTx, docPeer, docState, docUpdate, entity } from "@hearth/db";
 import { type ActionContext, type EntityRow, updateEntity } from "@hearth/kernel";
 import { and, asc, eq, gt, lte, max } from "drizzle-orm";
-import { LoroDoc, type VersionVector } from "loro-crdt";
+import { LoroDoc, type LoroText, type VersionVector } from "loro-crdt";
 
-/** Record types whose text is a live doc. */
-export const DOC_TYPES = new Set(["note"]);
+/**
+ * A record type whose text is a live doc: how long its text may get, and how a new text is
+ * saved to the record (the memory module keeps its own versions, for one).
+ */
+export interface DocType {
+  maxChars: number;
+  write(ctx: ActionContext, id: string, body: string): Promise<number>;
+}
+
+/** Record types whose text is a live doc, by type. */
+export const DOC_TYPES = new Map<string, DocType>([
+  [
+    "note",
+    {
+      maxChars: 200_000,
+      write: async (ctx, id, body) => (await updateEntity(ctx, id, { body })).revision,
+    },
+  ],
+]);
+
+/** Makes another record type's text a live doc. */
+export function registerDocType(type: string, spec: DocType) {
+  DOC_TYPES.set(type, spec);
+}
 const TEXT = "body";
 /** Updates kept before they're folded into the snapshot. */
 const FOLD_AFTER = 50;
@@ -115,10 +137,54 @@ export async function openDoc(
 }
 
 /**
- * Writes a doc's title or body as the caller (note.update). The doc first takes in any earlier
- * direct write, then this body as the caller's own edit, so history names who wrote what (a
- * later rename can't claim an earlier body change).
+ * Takes a new text into a record's doc as the caller's own edit, before the record itself is
+ * written, so history names who wrote what (a later rename can't claim an earlier change). Call
+ * `done` with the record's new revision once it's saved. Does nothing for other records.
  */
+export async function takeIntoDoc(
+  ctx: ActionContext,
+  id: string,
+  body: string | undefined,
+): Promise<{ done(revision: number): Promise<void> }> {
+  const [row] = await ctx.tx.select().from(entity).where(eq(entity.id, id)).for("update");
+  if (!row || row.deletedAt || !DOC_TYPES.has(row.type)) return { done: async () => {} };
+  const { doc, pending } = await openDoc(ctx, row);
+  const added =
+    body !== undefined && body !== textOf(doc)
+      ? await editAsCaller(ctx, id, doc, (t) => t.update(body))
+      : false;
+  return { done: (revision) => finish(ctx, id, revision, doc, pending + (added ? 1 : 0)) };
+}
+
+/** Makes an edit to the doc as the caller, and saves it. Returns whether it changed anything. */
+export async function editAsCaller(
+  ctx: ActionContext,
+  id: string,
+  doc: LoroDoc,
+  change: (text: LoroText) => void,
+): Promise<boolean> {
+  const before = doc.oplogVersion();
+  newPeer(doc);
+  change(doc.getText(TEXT));
+  doc.commit();
+  if (doc.oplogVersion().compare(before) === 0) return false;
+  await append(ctx, id, doc, before, ctx.caller.principal);
+  return true;
+}
+
+/** After the record is saved with the doc's text: notes its revision, and folds if it's time. */
+export async function finish(
+  ctx: ActionContext,
+  id: string,
+  revision: number,
+  doc: LoroDoc,
+  pending: number,
+) {
+  await setRevision(ctx.tx, id, revision);
+  await fold(ctx, id, doc, pending);
+}
+
+/** note.update: the title or body, written as the caller (see takeIntoDoc). */
 export async function writeDoc(
   ctx: ActionContext,
   id: string,
@@ -126,22 +192,11 @@ export async function writeDoc(
   opts: { expectedRevision?: number; type: string },
 ): Promise<EntityRow> {
   const [row] = await ctx.tx.select().from(entity).where(eq(entity.id, id)).for("update");
-  if (!row || row.deletedAt || !DOC_TYPES.has(row.type)) return updateEntity(ctx, id, patch, opts);
-  if (opts.expectedRevision !== undefined && opts.expectedRevision !== row.revision)
+  if (row && opts.expectedRevision !== undefined && opts.expectedRevision !== row.revision)
     return updateEntity(ctx, id, patch, opts); // Fails with the usual conflict.
-  const { doc, pending } = await openDoc(ctx, row);
-  let added = 0;
-  if (patch.body !== undefined && patch.body !== textOf(doc)) {
-    const before = doc.oplogVersion();
-    newPeer(doc);
-    doc.getText(TEXT).update(patch.body);
-    doc.commit();
-    await append(ctx, id, doc, before, ctx.caller.principal);
-    added = 1;
-  }
+  const step = await takeIntoDoc(ctx, id, patch.body);
   const out = await updateEntity(ctx, id, patch, opts);
-  await setRevision(ctx.tx, id, out.revision);
-  await fold(ctx, id, doc, pending + added);
+  await step.done(out.revision);
   return out;
 }
 
