@@ -1,8 +1,7 @@
 // What Jarvis remembers: the list of memory notes, and on each note, when it's used, its text,
 // and every earlier version with a way to go back.
 
-import { createSignal, For, Show } from "solid-js";
-import { EditableBody } from "../components/EditableBody.tsx";
+import { createSignal, For, lazy, Show } from "solid-js";
 import { Badge, Button, Empty, PaneHeader } from "../components/ui.tsx";
 import { ago, who } from "../lib/format.ts";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
@@ -10,6 +9,9 @@ import { toast } from "../lib/live.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
 import type { MemoryNote, MemoryRevision } from "../lib/types.ts";
+
+// The live editor loads when a memory note opens, like a note's.
+const DocEditor = lazy(() => import("../components/DocEditor.tsx"));
 
 function ScopeBadge(props: { scope: MemoryNote["scope"] }) {
   return props.scope === "always" ? <Badge tone="jarvis">always</Badge> : <Badge>by topic</Badge>;
@@ -138,11 +140,7 @@ export function MemoryPanel(props: { id: string }) {
               </label>
             </Show>
           </div>
-          <EditableBody
-            body={n().body}
-            placeholder="What should Jarvis remember? Click to write."
-            save={async (body) => Boolean(await update({ body }))}
-          />
+          <DocEditor id={n().id} placeholder="What should Jarvis remember?" />
           <Show when={(history.data ?? []).length > 1}>
             <section class="space-y-1">
               <h2 class="text-sm font-semibold">Earlier versions</h2>

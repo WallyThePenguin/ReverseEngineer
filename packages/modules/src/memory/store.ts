@@ -10,6 +10,10 @@ import {
   updateEntity,
 } from "@hearth/kernel";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { registerDocType, takeIntoDoc } from "../docs/store.ts";
+
+/** Typing in a memory note within this long of your last change updates that version. */
+const EDIT_SESSION_MS = 10 * 60_000;
 
 export interface NoteFields {
   title: string;
@@ -99,13 +103,27 @@ async function addRevision(
   id: string,
   fields: NoteFields,
   reason: string | null,
+  coalesce = false,
 ): Promise<number> {
   const [last] = await ctx.tx
-    .select({ revision: memoryRevision.revision })
+    .select()
     .from(memoryRevision)
     .where(eq(memoryRevision.entityId, id))
     .orderBy(desc(memoryRevision.revision))
     .limit(1);
+  if (
+    coalesce &&
+    last &&
+    last.changedBy === ctx.caller.principal &&
+    last.reason === reason &&
+    ctx.now.getTime() - last.at.getTime() < EDIT_SESSION_MS
+  ) {
+    await ctx.tx
+      .update(memoryRevision)
+      .set({ ...fields, at: ctx.now })
+      .where(and(eq(memoryRevision.entityId, id), eq(memoryRevision.revision, last.revision)));
+    return last.revision;
+  }
   const revision = (last?.revision ?? 0) + 1;
   await ctx.tx.insert(memoryRevision).values({
     entityId: id,
@@ -150,6 +168,7 @@ export async function changeNote(
   patch: Partial<NoteFields>,
   reason: string | null,
   expectedRevision?: number,
+  coalesce = false,
 ): Promise<MemoryNoteView> {
   await requireEntity(ctx.tx, id, "memory_note");
   const current = await loadNote(ctx.tx, id);
@@ -171,12 +190,29 @@ export async function changeNote(
     next.scope === current.scope &&
     next.keywords.join("\n") === current.keywords.join("\n");
   if (same) return current;
+  // A memory note is also a live doc on the Memory page: the change goes in as the caller's edit.
+  const step = await takeIntoDoc(ctx, id, next.body);
   const row = await updateEntity(ctx, id, { title: next.title, body: next.body });
+  await step.done(row.revision);
   const [m] = await ctx.tx
     .update(memoryNote)
     .set({ scope: next.scope, keywords: next.keywords })
     .where(eq(memoryNote.entityId, id))
     .returning();
-  const revision = await addRevision(ctx, id, next, reason);
+  const revision = await addRevision(ctx, id, next, reason, coalesce);
   return toView(row, m!, revision);
 }
+
+// Typing on the Memory page saves through here, one version per stretch of typing.
+registerDocType("memory_note", {
+  maxChars: 20_000,
+  async write(ctx, id, body, restored) {
+    if (restored) await changeNote(ctx, id, { body }, "Put back an earlier version");
+    else await changeNote(ctx, id, { body }, "Edited on the Memory page", undefined, true);
+    const [row] = await ctx.tx
+      .select({ revision: entity.revision })
+      .from(entity)
+      .where(eq(entity.id, id));
+    return row!.revision;
+  },
+});
