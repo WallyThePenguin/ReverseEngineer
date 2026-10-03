@@ -39,6 +39,8 @@ function normalize(path: string): string {
 
 /** Text that came from Notion can't carry Hearth's own link tags. */
 const defuse = (s: string) => s.replace(/<(\/?m-ref)/gi, "‹$1");
+/** Stands in for "<" in the tags the import writes, until the page's own text is defused. */
+const OPEN = "\uE000";
 const labelText = (s: string) => s.replace(/[<>]/g, "").trim() || "link";
 
 /** RFC 4180 CSV: quoted fields, doubled quotes, newlines inside quotes. */
@@ -94,7 +96,10 @@ function table(rows: string[][]): string {
 export function planImport(files: ImportFile[], newId: () => string): PlannedPage[] {
   const pages = new Map<string, PlannedPage>();
   const sources = new Map<string, { path: string; text: string }>();
+  if (files.length > MAX_PAGES * 2)
+    throw new Error(`That export has more than ${MAX_PAGES} pages.`);
   const csv = files.filter((f) => f.path.toLowerCase().endsWith(".csv"));
+  const csvPaths = new Set(csv.map((f) => normalize(f.path)));
   for (const f of files) {
     const path = normalize(f.path);
     if (path.toLowerCase().endsWith(".md")) {
@@ -116,7 +121,7 @@ export function planImport(files: ImportFile[], newId: () => string): PlannedPag
     const all = path.endsWith("_all.csv");
     const key = path.slice(0, all ? -8 : -4);
     // "_all.csv" has every row; the plain one only the current view's.
-    if (!all && csv.some((g) => normalize(g.path) === `${key}_all.csv`)) continue;
+    if (!all && csvPaths.has(`${key}_all.csv`)) continue;
     if (pages.has(key) && !pages.get(key)!.database) continue;
     pages.set(key, {
       id: newId(),
@@ -139,11 +144,12 @@ export function planImport(files: ImportFile[], newId: () => string): PlannedPag
   for (const [key, src] of sources) {
     const page = pages.get(key)!;
     const here = dirname(src.path);
-    let text = defuse(src.text);
+    let text = src.text.slice(0, MAX_BODY * 2).replaceAll(OPEN, "");
     // The title is the note's title, not its first line.
     text = text.replace(/^\s*#\s+.+\n?/, "");
+    // Labels stop at a bracket or line end, so a page of "[" can't make this slow.
     text = text.replace(
-      /(!?)\[([^\]]*)\]\(([^)\s]+)\)/g,
+      /(!?)\[([^[\]\n]{0,500})\]\(([^)\s]{1,2000})\)/g,
       (whole, bang: string, label: string, href: string) => {
         if (/^[a-z][a-z0-9+.-]*:/i.test(href)) return whole;
         let target: string;
@@ -154,13 +160,15 @@ export function planImport(files: ImportFile[], newId: () => string): PlannedPag
         }
         const linked = pages.get(target.replace(/(_all)?\.(md|csv)$/i, ""));
         if (linked && !bang)
-          return `<m-ref type="note" id="${linked.id}">${labelText(label || linked.title)}</m-ref>`;
+          return `${OPEN}m-ref type="note" id="${linked.id}">${labelText(label || linked.title)}${OPEN}/m-ref>`;
         if (bang || !/\.(md|csv)$/i.test(target))
           return `*(attachment left in Notion: ${labelText(basename(target))})*`;
         return label;
       },
     );
-    page.body = text.trim().slice(0, MAX_BODY);
+    // Only the tags written above are real: anything in the page that reads as one is defused,
+    // including one pieced together around a link.
+    page.body = defuse(text).replaceAll(OPEN, "<").trim().slice(0, MAX_BODY);
   }
 
   const depth = (p: PlannedPage) => {

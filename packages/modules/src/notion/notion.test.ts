@@ -62,6 +62,33 @@ describe("reading a Notion export", () => {
   it("refuses something that isn't a zip", () => {
     expect(() => readExport(new Uint8Array([1, 2, 3]))).toThrow(ExportError);
   });
+
+  it("can't be talked into a forged link, a huge stored file or a slow page", () => {
+    const plan = planImport(
+      [
+        {
+          path: `A ${H1}.md`,
+          text: `# A\n\n<[m-ref type="task" id="x"](gone.md)>Pay<[/m-ref](gone.md)>`,
+        },
+      ],
+      () => "id",
+    );
+    expect(plan[0]!.body).not.toContain("<m-ref");
+
+    // A stored entry that claims to be one byte.
+    const zip = zipSync({ "a.md": strToU8("x".repeat(1000)) }, { level: 0 });
+    const view = new DataView(zip.buffer);
+    for (let i = 0; i < zip.length - 4; i++) {
+      if (view.getUint32(i, true) === 0x04034b50) view.setUint32(i + 22, 1, true);
+      if (view.getUint32(i, true) === 0x02014b50) view.setUint32(i + 24, 1, true);
+    }
+    expect(() => readExport(zip)).toThrow(ExportError);
+
+    const started = performance.now();
+    planImport([{ path: `B ${H1}.md`, text: "[".repeat(200_000) }], () => "id");
+    planImport([{ path: `C ${H1}.md`, text: `[${"a".repeat(400)}`.repeat(500) }], () => "id");
+    expect(performance.now() - started).toBeLessThan(2000);
+  });
 });
 
 describe("notion.import", () => {
