@@ -19,6 +19,7 @@ import { getMe, setSignedOutHandler } from "../lib/api.ts";
 import { forgetAllDocs } from "../lib/doc.ts";
 import { listHotkeys, useHotkeys } from "../lib/hotkeys.ts";
 import { live, queryClient, toast } from "../lib/live.ts";
+import { narrow } from "../lib/narrow.ts";
 import { type ListView, layout, type PaneRoute } from "../lib/panes.ts";
 import { Activity } from "../views/Activity.tsx";
 import { Browser } from "../views/Browser.tsx";
@@ -35,7 +36,8 @@ import { Tasks } from "../views/Tasks.tsx";
 import { TaskView } from "../views/TaskView.tsx";
 import { Voice } from "../views/Voice.tsx";
 import { CommandPalette } from "./CommandPalette.tsx";
-import { Sidebar } from "./Sidebar.tsx";
+import { Sidebar, useWaiting } from "./Sidebar.tsx";
+import { TabBar } from "./TabBar.tsx";
 
 function PaneView(props: { route: PaneRoute; index: number }) {
   const id = () => ("id" in props.route ? props.route.id : "");
@@ -121,7 +123,13 @@ function Shortcuts(props: { onClose: () => void }) {
 function Shell(props: { onSignOut: () => void }) {
   const [palette, setPalette] = createSignal(false);
   const [help, setHelp] = createSignal(false);
-  onMount(() => live.start());
+  const [menu, setMenu] = createSignal(false);
+  const waiting = useWaiting();
+  onMount(() => {
+    live.start();
+    // The home screen's "Talk to Jarvis" shortcut.
+    if (new URLSearchParams(location.search).has("jarvis")) jarvis.toggle(true);
+  });
   onCleanup(() => live.stop());
 
   const go = (view: ListView) => () => layout.open({ view });
@@ -160,32 +168,71 @@ function Shell(props: { onSignOut: () => void }) {
     },
   ]);
 
+  const pane = (route: PaneRoute, i: number) => (
+    <section
+      class={`relative min-w-0 flex-1 overflow-hidden border-r border-line bg-panel last:border-r-0 ${layout.panes().length > 1 && layout.focused() === i && !narrow() ? "shadow-[inset_0_2px_0_var(--color-accent)]" : ""}`}
+      onMouseDown={() => layout.focus(i)}
+      onFocusIn={() => layout.focus(i)}
+    >
+      <PaneContext.Provider
+        value={{
+          get close() {
+            return layout.panes().length > 1 ? () => layout.close(i) : null;
+          },
+        }}
+      >
+        <PaneView route={route} index={i} />
+      </PaneContext.Provider>
+    </section>
+  );
+
   return (
-    <div class="flex h-full">
-      <Sidebar onPalette={() => setPalette(true)} onSignOut={props.onSignOut} />
-      <main class="flex min-w-0 flex-1">
-        <For each={layout.panes()}>
-          {(route, i) => (
-            <section
-              class={`relative min-w-0 flex-1 border-r border-line bg-panel last:border-r-0 ${layout.panes().length > 1 && layout.focused() === i() ? "shadow-[inset_0_2px_0_var(--color-accent)]" : ""}`}
-              onMouseDown={() => layout.focus(i())}
-              onFocusIn={() => layout.focus(i())}
-            >
-              <PaneContext.Provider
-                value={{
-                  get close() {
-                    return layout.panes().length > 1 ? () => layout.close(i()) : null;
-                  },
-                }}
+    <div class="flex h-full flex-col">
+      <div class="flex min-h-0 flex-1">
+        <Show
+          when={narrow()}
+          fallback={<Sidebar onPalette={() => setPalette(true)} onSignOut={props.onSignOut} />}
+        >
+          <Show when={menu()}>
+            <div class="fixed inset-0 z-40 flex" onClick={() => setMenu(false)}>
+              <div
+                class="h-full pt-[env(safe-area-inset-top)] shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
               >
-                <PaneView route={route} index={i()} />
-              </PaneContext.Provider>
-            </section>
-          )}
-        </For>
-      </main>
-      <Show when={jarvis.open()}>
-        <JarvisPane />
+                <Sidebar
+                  onPalette={() => {
+                    setMenu(false);
+                    setPalette(true);
+                  }}
+                  onSignOut={props.onSignOut}
+                  onPicked={() => setMenu(false)}
+                />
+              </div>
+              <div class="flex-1 bg-black/30" />
+            </div>
+          </Show>
+        </Show>
+        {/* On a phone Jarvis takes the place of the pane. */}
+        <main
+          class="flex min-w-0 flex-1 pt-[env(safe-area-inset-top)] md:pt-0"
+          classList={{ hidden: narrow() && jarvis.open() }}
+        >
+          <Show
+            when={narrow()}
+            fallback={<For each={layout.panes()}>{(route, i) => pane(route, i())}</For>}
+          >
+            {/* One pane at a time on a phone: the one you're in. */}
+            <Show when={layout.panes()[layout.focused()]} keyed>
+              {(route) => pane(route, layout.focused())}
+            </Show>
+          </Show>
+        </main>
+        <Show when={jarvis.open()}>
+          <JarvisPane />
+        </Show>
+      </div>
+      <Show when={narrow()}>
+        <TabBar waiting={waiting()} onMenu={() => setMenu(true)} />
       </Show>
       <Show when={palette()}>
         <CommandPalette onClose={() => setPalette(false)} />
@@ -193,7 +240,7 @@ function Shell(props: { onSignOut: () => void }) {
       <Show when={help()}>
         <Shortcuts onClose={() => setHelp(false)} />
       </Show>
-      <div class="pointer-events-none fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 flex-col items-center gap-2">
+      <div class="pointer-events-none fixed bottom-16 left-1/2 md:bottom-4 z-50 flex -translate-x-1/2 flex-col items-center gap-2">
         <For each={toast.toasts()}>
           {(t) => (
             <div

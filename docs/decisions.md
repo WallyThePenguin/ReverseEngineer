@@ -690,3 +690,22 @@ stream (another model, and worse than knowing which device the sound came from).
 **Why:** It reuses the engine the bake-off picks, keeps audio on the PC, and the two-channel
 trick gives "who said it" for free on calls, which are most meetings.
 
+## D45. The phone is the web app, installed, with Web Push for what needs you (2026-10-03)
+
+**Decision:** M6 starts with the PWA. On a phone-sized screen the web app shows one pane at a
+time with a tab bar (Inbox, Tasks, Calendar, Jarvis, More), Jarvis takes the whole screen, and
+closing a record goes back to its list. A manifest and service worker make it installable from
+Safari's Add to Home Screen; the service worker caches only the app's own files, never the API,
+so nothing of yours is stored on the phone. Notifications use Web Push, end-to-end encrypted to
+each device with a key pair Hearth makes once and keeps in its settings. Only approvals, the
+morning brief, and interrupts the interrupt budget let through are pushed; everything else waits
+in the inbox. The server watches the event log for new inbox items and starts from the newest
+event, so a restart never re-sends.
+
+**Alternatives:** Pushing every inbox item (the interrupt budget exists so the phone doesn't
+buzz all day). A third-party push relay such as ntfy (another service and account, when the
+browser's own push works). Waiting for the iOS shell for notifications (Safari supports Web Push
+for home-screen apps).
+
+**Why:** It reuses the whole web app, needs no app store or weekly re-signing, and the only
+outside party is Apple's or Google's push service, which sees encrypted bytes.

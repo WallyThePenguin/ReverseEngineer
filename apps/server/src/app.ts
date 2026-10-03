@@ -28,6 +28,7 @@ import type { ServerConfig } from "./config.ts";
 import type { AppEnv, ServerDeps } from "./env.ts";
 import { EventHub } from "./hub.ts";
 import { mcpRoutes } from "./mcp.ts";
+import { type PushSend, startPush, webPushSend } from "./push.ts";
 import { actionRoutes } from "./routes/actions.ts";
 import { authRoutes } from "./routes/auth.ts";
 import { deviceRoutes } from "./routes/devices.ts";
@@ -35,6 +36,7 @@ import { eventRoutes } from "./routes/events.ts";
 import { googleRoutes } from "./routes/google.ts";
 import { mailRoutes } from "./routes/mail.ts";
 import { voiceRoutes } from "./routes/voice.ts";
+import { pushRoutes } from "./routes/push.ts";
 
 const CSP = [
   "default-src 'self'",
@@ -57,6 +59,8 @@ export interface AppOptions {
   config: ServerConfig;
   /** The extension's link. The kernel's browser service is set to it if it has none. */
   bridge?: BrowserBridge;
+  /** How phone notifications go out; tests pass a fake. */
+  push?: PushSend;
 }
 
 export function createApp(opts: AppOptions) {
@@ -73,6 +77,8 @@ export function createApp(opts: AppOptions) {
   opts.kernel.services[BLOB_SERVICE] ??= blobsFromEnv();
   opts.kernel.services[POLISH_SERVICE] ??= polisherFromEnv();
   const live = new LiveView(bridge);
+  const sendPush = opts.push ?? webPushSend;
+  let push: ReturnType<typeof startPush> | null = null;
   const deps: ServerDeps = {
     kernel: opts.kernel,
     pool: opts.pool as pg.Pool,
@@ -101,6 +107,7 @@ export function createApp(opts: AppOptions) {
   app.route("/api/mail", mailRoutes());
   app.route("/api/devices", deviceRoutes());
   app.route("/api/voice", voiceRoutes());
+  app.route("/api/push", pushRoutes(sendPush));
   app.route("/api", actionRoutes());
   app.route("/mcp", mcpRoutes());
   app.all("/api/*", (c) => c.json({ error: "Not found." }, 404));
@@ -108,6 +115,11 @@ export function createApp(opts: AppOptions) {
   const dist = opts.config.webDist;
   if (dist && existsSync(join(dist, "index.html"))) {
     const index = readFileSync(join(dist, "index.html"), "utf8");
+    // The service worker must update as soon as a new build is out.
+    app.use("/sw.js", async (c, next) => {
+      await next();
+      c.header("Cache-Control", "no-cache");
+    });
     app.use("/*", serveStatic({ root: dist }));
     // Client-side routes (/tasks/12, /notes/...) all load the app shell.
     app.get("*", (c) => c.html(index));
@@ -122,7 +134,12 @@ export function createApp(opts: AppOptions) {
     app,
     hub,
     bridge,
-    start: () => hub.start(),
+    start: () => {
+      hub.start();
+      push = startPush(opts.kernel, hub, sendPush);
+    },
+    /** Resolves once phone notifications for the events so far are sent (for tests). */
+    pushIdle: () => push?.idle() ?? Promise.resolve(),
     /** Adds the WebSockets (the extension's link and the live view) to the HTTP server. */
     attach(server: Server) {
       detachSockets = attachBrowserSockets(server, {
@@ -135,6 +152,7 @@ export function createApp(opts: AppOptions) {
     async stop() {
       detachSockets?.();
       bridge.close();
+      push?.stop();
       await hub.stop();
     },
   };

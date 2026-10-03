@@ -272,6 +272,25 @@ try {
     await resume.click();
     await pause.waitFor();
   });
+
+  await step(
+    "on a phone: one pane, a tab bar, Jarvis full screen, the phone settings",
+    async (p) => {
+      await p.setViewportSize({ width: 390, height: 844 });
+      const tabs = p.locator("nav").last();
+      await tabs.getByRole("button", { name: "Tasks" }).click();
+      await p.getByRole("heading", { name: "Tasks" }).waitFor();
+      await p.getByText(`Pack for the trip ${tag}`).first().click();
+      // The task fills the screen; closing it goes back to the list.
+      await p.getByTitle("Close pane (Alt+W)").click();
+      await p.getByRole("heading", { name: "Tasks" }).waitFor();
+      await tabs.getByRole("button", { name: "Jarvis" }).click();
+      await p.locator("aside").getByText("Jarvis", { exact: true }).waitFor();
+      await tabs.getByRole("button", { name: "More" }).click();
+      await p.getByRole("button", { name: "Settings" }).click();
+      await p.getByRole("heading", { name: "Phone" }).waitFor();
+    },
+  );
 } finally {
   await browser.close();
 }

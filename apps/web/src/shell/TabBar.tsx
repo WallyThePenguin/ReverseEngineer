@@ -1,0 +1,52 @@
+// The phone's bottom bar: the places you go most, Jarvis, and the rest of the menu.
+
+import { For, Show } from "solid-js";
+import { jarvis } from "../jarvis/JarvisPane.tsx";
+import { type ListView, layout } from "../lib/panes.ts";
+
+const TABS: { view: ListView; label: string }[] = [
+  { view: "inbox", label: "Inbox" },
+  { view: "tasks", label: "Tasks" },
+  { view: "calendar", label: "Calendar" },
+];
+
+export function TabBar(props: { waiting: number; onMenu: () => void }) {
+  const current = () => (jarvis.open() ? null : layout.panes()[layout.focused()]?.view);
+  const tab = (active: boolean) =>
+    `flex flex-1 flex-col items-center gap-0.5 py-2 text-xs ${active ? "font-semibold text-accent" : "text-muted"}`;
+  return (
+    <nav class="flex shrink-0 border-t border-line bg-panel pb-[env(safe-area-inset-bottom)]">
+      <For each={TABS}>
+        {(t) => (
+          <button
+            type="button"
+            class={tab(current() === t.view)}
+            onClick={() => {
+              jarvis.toggle(false);
+              layout.reset({ view: t.view });
+            }}
+          >
+            <span class="relative">
+              {t.label}
+              <Show when={t.view === "inbox" && props.waiting > 0}>
+                <span class="absolute -top-1.5 -right-4 rounded-full bg-accent px-1 text-[10px] text-white">
+                  {props.waiting}
+                </span>
+              </Show>
+            </span>
+          </button>
+        )}
+      </For>
+      <button
+        type="button"
+        class={`${tab(jarvis.open())} ${jarvis.open() ? "!text-jarvis" : ""}`}
+        onClick={() => jarvis.toggle(!jarvis.open())}
+      >
+        Jarvis
+      </button>
+      <button type="button" class={tab(false)} onClick={props.onMenu}>
+        More
+      </button>
+    </nav>
+  );
+}

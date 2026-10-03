@@ -3,6 +3,7 @@
 // /inbox+task/0190...+note/0191...
 
 import { createRoot, createSignal } from "solid-js";
+import { narrow } from "./narrow.ts";
 import {
   decodePath,
   encodePath,
@@ -67,11 +68,16 @@ function createPanes() {
       } else {
         list[from + 1] = route;
       }
-      commit(list, from);
+      // On a phone only one pane shows, so the record is what you see; closing it goes back.
+      commit(list, narrow() ? Math.min(from + 1, list.length - 1) : from);
     },
     close(i = focused()) {
       const list = panes().filter((_, j) => j !== i);
       commit(list.length ? list : [{ view: "inbox" }], Math.min(i, list.length - 1));
+    },
+    /** Starts over with one view (a phone's tab bar). */
+    reset(route: PaneRoute) {
+      commit([route], 0);
     },
     /** Splits the focused pane: the same view opens beside it. */
     split() {

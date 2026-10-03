@@ -3,13 +3,17 @@
 import { createRoot, createSignal, For, Show } from "solid-js";
 import { Badge, Button } from "../components/ui.tsx";
 import { ago } from "../lib/format.ts";
+import { narrow } from "../lib/narrow.ts";
 import { layout } from "../lib/panes.ts";
 import { useAction } from "../lib/query.ts";
 import type { ConversationRow, SystemStatus } from "../lib/types.ts";
 import { Conversation } from "./Conversation.tsx";
 
 function createJarvisState() {
-  const [open, setOpen] = createSignal(localStorage.getItem("hearth.jarvisOpen") !== "0");
+  // On a phone Jarvis covers the screen, so it starts closed there.
+  const [open, setOpen] = createSignal(
+    !narrow() && localStorage.getItem("hearth.jarvisOpen") !== "0",
+  );
   const [conversationId, setConversationId] = createSignal<string | null>(null);
   return {
     open,
@@ -22,6 +26,7 @@ function createJarvisState() {
         queueMicrotask(() =>
           document.querySelector<HTMLTextAreaElement>("aside textarea")?.focus(),
         );
+      if (narrow()) return;
       try {
         localStorage.setItem("hearth.jarvisOpen", next ? "1" : "0");
       } catch {}
@@ -42,7 +47,13 @@ export function JarvisPane() {
   const current = () => (conversations.data ?? []).find((c) => c.id === jarvis.conversationId());
 
   return (
-    <aside class="flex h-full w-[380px] shrink-0 flex-col border-l border-line bg-panel">
+    <aside
+      class={
+        narrow()
+          ? "flex h-full min-w-0 flex-1 flex-col bg-panel pt-[env(safe-area-inset-top)]"
+          : "flex h-full w-[380px] shrink-0 flex-col border-l border-line bg-panel"
+      }
+    >
       <header class="flex min-h-12 items-center gap-2 border-b border-line px-3">
         <span class="font-semibold text-jarvis">Jarvis</span>
         <Show when={status.data?.jarvisPaused}>
@@ -59,7 +70,7 @@ export function JarvisPane() {
         <Button small onClick={() => jarvis.newChat()} title="New conversation">
           New
         </Button>
-        <Show when={jarvis.conversationId()}>
+        <Show when={jarvis.conversationId() && !narrow()}>
           <Button
             small
             title="Open in a pane"

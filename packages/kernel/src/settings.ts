@@ -26,6 +26,8 @@ export interface Settings {
   "calendar.prepMinMinutes": number;
   /** How dictation is written in each app: the first whose match is in the app or window. */
   "voice.styles": { name: string; match: string; instructions: string }[];
+  /** The key pair phone notifications are signed with, made the first time one is turned on. */
+  "push.vapid": { publicKey: string; privateKey: string } | null;
 }
 
 export const SETTING_DEFAULTS: Settings = {
@@ -44,6 +46,7 @@ export const SETTING_DEFAULTS: Settings = {
     { name: "Chat", match: "slack", instructions: "Casual and short. No greeting or sign-off." },
     { name: "Email", match: "gmail", instructions: "Clear, friendly full sentences." },
   ],
+  "push.vapid": null,
 };
 
 export async function getSetting<K extends keyof Settings>(

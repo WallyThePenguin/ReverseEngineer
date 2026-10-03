@@ -22,7 +22,8 @@ const NAV: { view: ListView; label: string; keys: string }[] = [
   { view: "settings", label: "Settings", keys: "g s" },
 ];
 
-export function Sidebar(props: { onPalette: () => void; onSignOut: () => void }) {
+/** What's waiting for you: unseen inbox items and approvals. */
+export function useWaiting() {
   const inbox = useAction<InboxRow[]>("inbox.list", () => ({
     view: "live",
     lane: "signal",
@@ -32,12 +33,23 @@ export function Sidebar(props: { onPalette: () => void; onSignOut: () => void })
     status: "pending",
     limit: 50,
   }));
+  return () =>
+    (inbox.data ?? []).filter((r) => r.notification.state === "unseen").length +
+    (approvals.data?.length ?? 0);
+}
+
+export function Sidebar(props: {
+  onPalette: () => void;
+  onSignOut: () => void;
+  /** On a phone the menu is a drawer that closes once you pick something. */
+  onPicked?: () => void;
+}) {
+  const waiting = useWaiting();
   const mail = useAction<{ unread: number; toReply: number }>("mail.counts");
-  const unseen = () => (inbox.data ?? []).filter((r) => r.notification.state === "unseen").length;
   const current = () => layout.panes()[layout.focused()]?.view;
 
   const count = (view: ListView) => {
-    if (view === "inbox") return unseen() + (approvals.data?.length ?? 0) || null;
+    if (view === "inbox") return waiting() || null;
     if (view === "mail") return mail.data?.unread || null;
     return null;
   };
@@ -67,7 +79,13 @@ export function Sidebar(props: { onPalette: () => void; onSignOut: () => void })
                 type="button"
                 class={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm ${current() === item.view ? "bg-panel font-medium shadow-sm" : "text-muted hover:text-ink"}`}
                 title={`${item.label} (${item.keys})`}
-                onClick={(e) => layout.open({ view: item.view }, { beside: e.shiftKey })}
+                onClick={(e) => {
+                  if (props.onPicked) {
+                    jarvis.toggle(false);
+                    layout.reset({ view: item.view });
+                    props.onPicked();
+                  } else layout.open({ view: item.view }, { beside: e.shiftKey });
+                }}
               >
                 <span class="flex-1">{item.label}</span>
                 <Show when={count(item.view)}>
@@ -84,7 +102,10 @@ export function Sidebar(props: { onPalette: () => void; onSignOut: () => void })
       <button
         type="button"
         class={`mb-1 rounded-md px-2 py-1.5 text-left text-sm ${jarvis.open() ? "text-jarvis" : "text-muted hover:text-ink"}`}
-        onClick={() => jarvis.toggle()}
+        onClick={() => {
+          jarvis.toggle();
+          props.onPicked?.();
+        }}
         title="Ctrl+J"
       >
         {jarvis.open() ? "Hide Jarvis" : "Show Jarvis"}
