@@ -2,13 +2,15 @@
 // decrypted here and typed straight into the password field of the site it belongs to, over
 // HTTPS only; the model, the event log and the audit log never see it. Two-factor codes and
 // captchas stay with you: the result says the site needs you, and you finish in the live view.
+import { randomBytes } from "node:crypto";
 import { vaultLogin } from "@hearth/db";
 import { type ActionContext, ActionError, defineAction } from "@hearth/kernel";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { assertAllowed, browser, CALLERS } from "./access.ts";
-import { afterStep, insertText, pressKey } from "./act.ts";
+import { afterStep } from "./act.ts";
 import type { BrowserClient } from "./client.ts";
+import { insertText, pressKey } from "./input.ts";
 import { pace } from "./pace.ts";
 import { evaluate, findTab, loadTiming, pageCall, pageFunction } from "./page.ts";
 import { loginsFor, VAULT_SERVICE, type Vault, type VaultRow } from "./vault.ts";
@@ -42,20 +44,32 @@ async function siteLogin(
   return { host: url.hostname, row: row ?? null };
 }
 
-/** Puts the cursor in the marked field and types into it. */
-async function fill(client: BrowserClient, tabId: number, which: "user" | "pass", text: string) {
-  const res = await login<{ focused: boolean }>(client, tabId, { op: "focus", which });
+interface Form {
+  tabId: number;
+  /** Marks this sign-in's fields; random, so a page can't mark its own in advance. */
+  marker: string;
+  host: string;
+}
+
+/** Puts the cursor in the marked field, on the right site, and types into it. */
+async function fill(client: BrowserClient, f: Form, which: "user" | "pass", text: string) {
+  const res = await login<{ focused: boolean }>(client, f.tabId, {
+    op: "focus",
+    which,
+    marker: f.marker,
+    host: f.host,
+  });
   if (!res.focused) throw new ActionError("failed", "The sign-in form changed while filling it.");
-  await insertText(client, tabId, text);
+  await insertText(client, f.tabId, text);
 }
 
 /** Looks for the form a few times: pages often draw the next step a moment later. */
-async function findForm(client: BrowserClient, tabId: number): Promise<Found> {
-  let found = await login<Found>(client, tabId, { op: "find" });
+async function findForm(client: BrowserClient, f: Form): Promise<Found> {
+  const find = () => login<Found>(client, f.tabId, { op: "find", marker: f.marker });
+  let found = await find();
   for (let i = 0; i < 4 && !found.pass && !found.code && !found.captcha; i++) {
     await sleep(Math.max(loadTiming.settleMs, loadTiming.pollMs));
-    const again = await login<Found>(client, tabId, { op: "find" });
-    if (again.pass || again.code || again.captcha || (again.user && !found.user)) found = again;
+    found = await find();
   }
   return found;
 }
@@ -75,6 +89,8 @@ export const signInAction = defineAction({
   // D26: signing in sends nothing anywhere, so it doesn't ask; what comes after keeps its rules.
   risk: "internal",
   callers: CALLERS,
+  // The address it ends on is the site's choice.
+  external: true,
   async handler(i, ctx) {
     const client = browser(ctx);
     const vault = ctx.service<Vault>(VAULT_SERVICE);
@@ -99,7 +115,8 @@ export const signInAction = defineAction({
         break;
       }
       await pace(ctx, `https://${host}/`);
-      const found = await findForm(client, i.tabId);
+      const form: Form = { tabId: i.tabId, marker: randomBytes(12).toString("hex"), host };
+      const found = await findForm(client, form);
       if (found.code || found.captcha) {
         result = {
           status: "needs_you",
@@ -116,13 +133,13 @@ export const signInAction = defineAction({
         break;
       }
       const tab = await findTab(client, i.tabId);
-      if (found.user) await fill(client, i.tabId, "user", used.username);
+      if (found.user) await fill(client, form, "user", used.username);
       if (found.pass) {
         // Checked again right before typing: the password goes to its own site only.
         const now = await siteLogin(ctx, client, i.tabId, used.username);
         if (now.row?.id !== used.id)
           throw new ActionError("failed", "The page moved while signing in.");
-        await fill(client, i.tabId, "pass", vault.open(used.site, used.username, used.secret));
+        await fill(client, form, "pass", vault.open(used.site, used.username, used.secret));
         passwordSent = true;
       }
       await pressKey(client, i.tabId, "Enter");

@@ -7,6 +7,7 @@ import { type ActionContext, ActionError, defineAction } from "@hearth/kernel";
 import { z } from "zod";
 import { assertAllowed, browser, CALLERS } from "./access.ts";
 import type { BrowserClient, TabInfo } from "./client.ts";
+import { cdp, clickAt, insertText, KEYS, type KeyName, pressKey } from "./input.ts";
 import { pace } from "./pace.ts";
 import {
   elementSeen,
@@ -19,6 +20,7 @@ import {
 } from "./page.ts";
 
 const ACT = pageFunction("./page-act.js", "pageAct");
+const PROBE = pageFunction("./page-probe.js", "pageProbe");
 
 export interface ElementState {
   missing: boolean;
@@ -79,48 +81,6 @@ function assertPressable(el: ElementState, ref: string): void {
     );
 }
 
-const cdp = (client: BrowserClient, tab: number, method: string, params: object) =>
-  client.call("cdp", { tabId: tab, method, params });
-
-/** A left click at a point, as a person's mouse would make it. */
-export async function clickAt(client: BrowserClient, tab: number, x: number, y: number) {
-  const at = { x, y, button: "left", clickCount: 1 };
-  await cdp(client, tab, "Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
-  await cdp(client, tab, "Input.dispatchMouseEvent", { type: "mousePressed", ...at });
-  await cdp(client, tab, "Input.dispatchMouseEvent", { type: "mouseReleased", ...at });
-}
-
-const KEYS = {
-  Enter: { code: "Enter", keyCode: 13, text: "\r" },
-  Escape: { code: "Escape", keyCode: 27 },
-  Tab: { code: "Tab", keyCode: 9 },
-  Backspace: { code: "Backspace", keyCode: 8 },
-  ArrowDown: { code: "ArrowDown", keyCode: 40 },
-  ArrowUp: { code: "ArrowUp", keyCode: 38 },
-  ArrowLeft: { code: "ArrowLeft", keyCode: 37 },
-  ArrowRight: { code: "ArrowRight", keyCode: 39 },
-  PageDown: { code: "PageDown", keyCode: 34 },
-  PageUp: { code: "PageUp", keyCode: 33 },
-  Home: { code: "Home", keyCode: 36 },
-  End: { code: "End", keyCode: 35 },
-} as const;
-type KeyName = keyof typeof KEYS;
-
-export async function pressKey(client: BrowserClient, tab: number, key: KeyName) {
-  const k: { code: string; keyCode: number; text?: string } = KEYS[key];
-  const base = { key, code: k.code, windowsVirtualKeyCode: k.keyCode };
-  await cdp(client, tab, "Input.dispatchKeyEvent", {
-    type: k.text ? "keyDown" : "rawKeyDown",
-    ...base,
-    ...(k.text ? { text: k.text } : {}),
-  });
-  await cdp(client, tab, "Input.dispatchKeyEvent", { type: "keyUp", ...base });
-}
-
-/** Types text into whatever has focus, as one paste-like input. */
-export const insertText = (client: BrowserClient, tab: number, text: string) =>
-  cdp(client, tab, "Input.insertText", { text });
-
 /** Waits for what a step set off, and steps back from a blocked site it led to. */
 export async function afterStep(ctx: ActionContext, client: BrowserClient, before: TabInfo) {
   const after = await waitForLoad(client, before.tabId);
@@ -154,31 +114,67 @@ function assertSite(tab: TabInfo, site: string | undefined): void {
     );
 }
 
+/** "\"Email\" on shop.example", from what the page reader last saw. */
+function described(i: { tabId: number; element: string; site?: string }): string {
+  const seen = elementSeen(i.tabId, i.element);
+  const where = i.site ?? (seen ? new URL(seen.url).hostname : `tab ${i.tabId}`);
+  const what = seen?.element?.label ? `"${seen.element.label}"` : i.element;
+  return `${what} on ${where}`;
+}
+
 const same = (a: string, b: string) =>
   a.replace(/\s+/g, " ").trim().toLowerCase() === b.replace(/\s+/g, " ").trim().toLowerCase();
 
-/** The tab's address, for D30's check on typing. */
-async function tabUrl(
-  i: { tabId: number },
-  services: { service<T>(name: string): T },
-): Promise<string | null> {
+type Services = { service<T>(name: string): T };
+
+/** The tab's address, for D30's check on acting after outside content. */
+async function tabPin(i: { tabId: number }, services: Services) {
   const client = services.service<BrowserClient>("browser");
   const tabs = await client.call<TabInfo[]>("tabs.list");
-  return tabs.find((t) => t.tabId === i.tabId)?.url ?? null;
+  const url = tabs.find((t) => t.tabId === i.tabId)?.url;
+  return url ? { url } : null;
 }
+
+const SENDS = z
+  .object({
+    url: z.string().max(2000),
+    fields: z.array(z.object({ label: z.string().max(200), value: z.string().max(400) })).max(20),
+  })
+  .describe("Filled in by Hearth: what the press sends. Leave it out.");
+type Sends = z.output<typeof SENDS>;
+
+/** What pressing an element would send: the page and the fields of its form. */
+const probeForm = (client: BrowserClient, tab: number, ref: string) =>
+  evaluate<Sends>(client, tab, pageCall(PROBE, { op: "form", ref }));
+
+/** Keys that move a choice in a list, radio group or checkbox, rather than just the cursor. */
+const MOVES = new Set([
+  "ArrowDown",
+  "ArrowUp",
+  "ArrowLeft",
+  "ArrowRight",
+  "PageDown",
+  "PageUp",
+  "Home",
+  "End",
+]);
+const CHOICES = new Set(["select", "radio", "checkbox", "option"]);
 
 export const actActions = [
   defineAction({
     name: "browser.click",
     description:
       "Click something on a page by its reference (a button, tab, menu, checkbox...). It won't press anything that sends, buys, posts or deletes; use browser_submit for that. Read the page again afterwards.",
-    input: z.object({ tabId, element }),
+    input: z.object({ tabId, element, site: SITE_CHECK.optional() }),
     risk: "internal",
     callers: CALLERS,
     // Results carry the page's own words (a button's name), so they're outside content.
     external: true,
+    pin: tabPin,
+    summarize: (i) => `Click ${described(i)}`,
     async handler(i, ctx) {
       const { client, tab, el } = await locate(ctx, i, "inspect");
+      assertSite(tab, i.site);
       if (el.isLink)
         throw new ActionError(
           "invalid_input",
@@ -192,7 +188,7 @@ export const actActions = [
           `Pressing "${el.label}" would send something. Use browser_submit, which asks the owner first.`,
         );
       assertPressable(el, i.element);
-      await clickAt(client, i.tabId, el.x, el.y);
+      await clickAt(client, i.tabId, i.element, el.x, el.y);
       return { tabId: i.tabId, pressed: el.label, ...(await afterStep(ctx, client, tab)) };
     },
   }),
@@ -210,13 +206,8 @@ export const actActions = [
     risk: "internal",
     callers: CALLERS,
     external: true,
-    typesInto: tabUrl,
-    summarize: (i) => {
-      const seen = elementSeen(i.tabId, i.element);
-      const where = i.site ?? (seen ? new URL(seen.url).hostname : `tab ${i.tabId}`);
-      const field = seen?.element?.label ? `"${seen.element.label}"` : i.element;
-      return `Type into ${field} on ${where}: "${i.text.slice(0, 120)}"`;
-    },
+    pin: tabPin,
+    summarize: (i) => `Type into ${described(i)}: "${i.text.slice(0, 120)}"`,
     async handler(i, ctx) {
       const { client, tab, el } = await locate(ctx, i, "inspect");
       assertSite(tab, i.site);
@@ -239,12 +230,15 @@ export const actActions = [
     name: "browser.choose",
     description:
       'Pick an option in a list (by its text), or set a checkbox to "on" or "off", by reference.',
-    input: z.object({ tabId, element, value: z.string().max(300) }),
+    input: z.object({ tabId, element, value: z.string().max(300), site: SITE_CHECK.optional() }),
     risk: "internal",
     callers: CALLERS,
     external: true,
+    pin: tabPin,
+    summarize: (i) => `Set ${described(i)} to "${i.value}"`,
     async handler(i, ctx) {
       const peek = await locate(ctx, i, "inspect");
+      assertSite(peek.tab, i.site);
       if (peek.el.submits)
         throw new ActionError(
           "forbidden",
@@ -254,7 +248,7 @@ export const actActions = [
       if (el.error) throw new ActionError("invalid_input", el.error);
       if (el.toggle) {
         assertPressable(el, i.element);
-        await clickAt(client, i.tabId, el.x, el.y);
+        await clickAt(client, i.tabId, i.element, el.x, el.y);
       }
       const now = await locate(ctx, i, "inspect", {}, false).catch(() => null);
       await afterStep(ctx, client, tab);
@@ -268,14 +262,31 @@ export const actActions = [
     input: z.object({
       tabId,
       key: z.enum(Object.keys(KEYS).filter((k) => k !== "Enter") as [KeyName, ...KeyName[]]),
+      site: SITE_CHECK.optional(),
     }),
     risk: "internal",
     callers: CALLERS,
     external: true,
+    pin: tabPin,
+    summarize: (i) => `Press ${i.key} in tab ${i.tabId}${i.site ? ` on ${i.site}` : ""}`,
     async handler(i, ctx) {
       const client = browser(ctx);
       const tab = await findTab(client, i.tabId);
+      assertSite(tab, i.site);
       await pace(ctx, await assertAllowed(ctx, tab.url));
+      if (MOVES.has(i.key)) {
+        // An arrow on a list or radio group changes the choice, which can take effect at once.
+        const active = await evaluate<{ kind: string | null; label?: string }>(
+          client,
+          i.tabId,
+          pageCall(PROBE, { op: "active" }),
+        );
+        if (active?.kind && CHOICES.has(active.kind))
+          throw new ActionError(
+            "forbidden",
+            `${i.key} would change "${active.label ?? active.kind}". Use browser_choose to pick an option.`,
+          );
+      }
       await pressKey(client, i.tabId, i.key);
       return { tabId: i.tabId, pressed: i.key, ...(await afterStep(ctx, client, tab)) };
     },
@@ -292,12 +303,22 @@ export const actActions = [
         .max(200)
         .describe("Its name as browser_read showed it, e.g. 'Place order'."),
       site: SITE_CHECK.describe("The site the page is on, e.g. shop.example."),
+      sends: SENDS.optional(),
     }),
     risk: "outward",
     callers: CALLERS,
     external: true,
-    // The card names the site, and the press happens only on that site, whenever it's approved.
-    summarize: (i) => `Press "${i.label}" on ${i.site}`,
+    // Pinned to what the press would send, so the card can show it and the press is refused if
+    // the page or the form changed by the time it's approved.
+    async pin(i, services) {
+      const client = services.service<BrowserClient>("browser");
+      const sends = await probeForm(client, i.tabId, i.element);
+      return sends ? { url: sends.url, extra: { sends } } : null;
+    },
+    summarize: (i) => {
+      const fields = (i.sends?.fields ?? []).map((f) => `${f.label}: "${f.value.slice(0, 80)}"`);
+      return `Press "${i.label}" on ${i.site}${fields.length ? `, sending ${fields.join(", ")}` : ""}`;
+    },
     async handler(i, ctx) {
       const { client, tab, el } = await locate(ctx, i, "inspect");
       assertSite(tab, i.site);
@@ -306,13 +327,21 @@ export const actActions = [
           "conflict",
           `The page changed: ${i.element} is now "${el.label}", not "${i.label}". Nothing was pressed.`,
         );
+      if (i.sends) {
+        const now = await probeForm(client, i.tabId, i.element);
+        if (JSON.stringify(now) !== JSON.stringify(i.sends))
+          throw new ActionError(
+            "conflict",
+            "The page or what it would send changed since this was asked. Nothing was pressed.",
+          );
+      }
       if (TYPEABLE.has(el.kind) || el.kind === "password field") {
         const ready = await locate(ctx, i, "focus", {}, false);
         if (!ready.el.focused) throw new ActionError("failed", `Couldn't focus "${el.label}".`);
         await pressKey(client, i.tabId, "Enter");
       } else {
         assertPressable(el, i.element);
-        await clickAt(client, i.tabId, el.x, el.y);
+        await clickAt(client, i.tabId, i.element, el.x, el.y);
       }
       return { tabId: i.tabId, pressed: el.label, ...(await afterStep(ctx, client, tab)) };
     },

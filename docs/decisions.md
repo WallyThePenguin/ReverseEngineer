@@ -378,7 +378,8 @@ data folder, which Hearth makes the first time you save a sign-in. Each one is t
 and username, so it can't be moved to another site. You add them in Settings > Sign-ins; only you
 can, and the audit log keeps none of it. Jarvis sees sites and usernames, never a password:
 `browser.sign_in` decrypts one in code and types it into the password field of the matching site
-(that site or its subdomains, over HTTPS only). Database backups don't include the key, so a
+(that exact site, over HTTPS only; `www.` aside, a subdomain is a different site, since anyone
+with a blog or a shop on one could put a form there). Database backups don't include the key, so a
 stolen backup gives nothing away, and after a rebuild you save the sign-ins again.
 
 **Alternatives:** KeePassXC through its browser protocol, as D26 suggested. Chrome's own saved
@@ -390,15 +391,18 @@ its saved passwords at all. Hearth's own vault needs no setup, works unattended 
 and keeps the same promise: the model never sees a password and a look-alike site gets nothing.
 The key file is only as safe as the PC, the same trade KeePassXC's key file would make.
 
-## D30. After reading outside content, Jarvis types freely only where it went first (2026-10-03)
+## D30. After reading outside content, Jarvis acts freely only where it went first (2026-10-03)
 
 **Decision:** Clicking, picking from lists and typing don't need your yes. Pressing anything that
 sends (a form's submit button, a button named Send, Buy, Post, Delete and the like, or Enter in
-most fields) is `browser.submit`, which always does. Once a turn has read outside content, typing
-goes freely only into sites the turn opened before that, or sites on your allowed list; anywhere
-else it waits for your yes. Passwords are typed only by `browser.sign_in`. Hearth refuses to
-click something covered by another element, and checks a submit button's name against what you
-approved before pressing it.
+most fields) is `browser.submit`, which always does. Once a turn has read outside content,
+typing, clicking, choosing and pressing keys go freely only on sites the turn opened before that,
+or sites on your allowed list; anywhere else they wait for your yes. Passwords are typed only by
+`browser.sign_in`. Hearth refuses to click something covered by another element, checks the
+point is still on the element just before the click, and won't move a list's or radio group's
+choice with the arrow keys. A submit's approval card shows what the form will send, and the press
+is refused if the site, the button's name or any of that changed by the time you say yes. When
+an approved step resumes a turn that had read outside content, the turn stays untrusted.
 
 **Alternatives:** Ask before every typing step after reading a page. Let typing go anywhere and
 rely on the submit approval.

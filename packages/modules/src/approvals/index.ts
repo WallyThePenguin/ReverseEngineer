@@ -1,5 +1,6 @@
 // Approvals and standing rules. Deciding an approval is owner-only and goes through the
 // kernel directly (POST /api/approvals/:id), so it's not an action any agent can call.
+import { asUntrusted } from "@hearth/core";
 import { approval, standingRule } from "@hearth/db";
 import { type DigestItem, defineAction, defineModule, newId } from "@hearth/kernel";
 import { asc, desc, eq } from "drizzle-orm";
@@ -96,12 +97,15 @@ export const approvalsModule = defineModule({
           error?: string;
         };
         if (p.requestedBy !== "jarvis") return [];
+        // A result or error from an untrusted turn's request may hold a page's words.
+        const outside = (text: string) =>
+          event.origin === "untrusted" ? asUntrusted(text, p.action) : text;
         const outcome =
           p.decision === "denied"
             ? "The owner said no. Don't retry it; adjust or ask what they'd prefer if it matters."
             : p.error
-              ? `It was approved but failed: ${p.error}`
-              : `It was approved and done. Result: ${JSON.stringify(p.result ?? null).slice(0, 2000)}`;
+              ? `It was approved but failed: ${outside(p.error)}`
+              : `It was approved and done. Result: ${outside(JSON.stringify(p.result ?? null).slice(0, 2000))}`;
         return [
           {
             kind: "turn",

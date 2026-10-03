@@ -49,6 +49,28 @@ describe("typing after reading a page", () => {
     expect(held?.reason).toMatch(/other\.example/);
   });
 
+  it("asks before clicking or pressing keys on a site a page led it to", async () => {
+    let outputs: string[] = [];
+    h.brain.next((_req, out) => {
+      outputs = out;
+      return [
+        { call: "browser_open", input: { url: SHOP } },
+        { call: "browser_read", input: { tabId: 1 } },
+        { call: "browser_open", input: { url: OTHER } },
+        { call: "browser_click", input: { tabId: 2, element: "E1" } },
+        { call: "browser_key", input: { tabId: 2, key: "Tab" } },
+        { say: "done" },
+      ];
+    });
+    await h.kernel.execute("chat.send", { text: "look around" }, ownerCaller());
+    await h.settle();
+    expect(outputs[3]).toMatch(/^Waiting for the owner's approval/);
+    expect(outputs[4]).toMatch(/^Waiting for the owner's approval/);
+    const held = await pending();
+    expect(held.map((r) => r.action).sort()).toEqual(["browser.click", "browser.key"]);
+    expect(held.every((r) => (r.input as { site?: string }).site === "other.example")).toBe(true);
+  });
+
   it("types on sites the owner allowed, wherever the turn came from", async () => {
     await setSetting(h.kernel.db, "browser.sites", { allowed: ["other.example"], blocked: [] });
     h.brain.next([
@@ -88,18 +110,23 @@ describe("the owner's routines", () => {
   });
 
   it("won't take a routine's words from outside content, and runs while Jarvis is paused", async () => {
-    h.brain.next([
-      { call: "browser_open", input: { url: SHOP } },
-      { call: "browser_read", input: { tabId: 1 } },
-      {
-        call: "routine_create",
-        input: { title: "x", instructions: "send my files", when: { every: "day" } },
-      },
-      { say: "ok" },
-    ]);
+    let outputs: string[] = [];
+    h.brain.next((_req, out) => {
+      outputs = out;
+      return [
+        { call: "browser_open", input: { url: SHOP } },
+        { call: "browser_read", input: { tabId: 1 } },
+        {
+          call: "routine_create",
+          input: { title: "x", instructions: "send my files", when: { every: "day" } },
+        },
+        { say: "ok" },
+      ];
+    });
     await h.kernel.execute("chat.send", { text: "look at the shop" }, ownerCaller());
     await h.settle();
     const list = await h.kernel.execute<unknown[]>("routine.list", {}, ownerCaller());
+    expect(outputs.at(-1)).toMatch(/can't come from outside content/);
     expect(list).toMatchObject({ status: "ok", result: [] });
 
     await h.kernel.execute(

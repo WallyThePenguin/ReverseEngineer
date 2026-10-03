@@ -118,6 +118,10 @@ describe.skipIf(!hasChromium)("Jarvis's hands in Chrome", () => {
     expect(shared).toMatchObject({ status: "error", code: "forbidden" });
     const covered = await t.kernel.execute("browser.click", { tabId, element: "E10" }, jarvis);
     expect(covered).toMatchObject({ status: "error", message: expect.stringMatching(/covers/) });
+    // Arrows on a list change the choice, so they go through browser_choose.
+    await chrome.page(tabId).focus("select");
+    const arrow = await t.kernel.execute("browser.key", { tabId, key: "ArrowDown" }, jarvis);
+    expect(arrow).toMatchObject({ status: "error", code: "forbidden" });
     expect(chrome.posts).toEqual([]);
   });
 
@@ -140,6 +144,25 @@ describe.skipIf(!hasChromium)("Jarvis's hands in Chrome", () => {
     expect(chrome.posts).toEqual([
       { url: "https://shop.example/order", body: "note=leave+at+door&pin=" },
     ]);
+
+    // Pinned to what it sends: the card shows it, and a page that changed it gets nothing.
+    const again0 = await openShop();
+    await ok("browser.type", { tabId: again0.tabId, element: "E6", text: "ring twice" });
+    const submit = t.kernel.registry.action("browser.submit")!;
+    const services = { service: <T>(n: string) => t.kernel.services[n] as T };
+    const base = { tabId: again0.tabId, element: "E8", label: "Place order", site: "shop.example" };
+    const pinned = await submit.pin!(base, services);
+    expect(pinned?.extra).toEqual({
+      sends: { url: SHOP, fields: [{ label: "Note", value: "ring twice" }] },
+    });
+    const input = { ...base, ...pinned!.extra };
+    expect(submit.summarize!(input)).toBe(
+      'Press "Place order" on shop.example, sending Note: "ring twice"',
+    );
+    await chrome.page(again0.tabId).fill("input[name=note]", "send it elsewhere");
+    const changed = await t.kernel.execute("browser.submit", input, ownerCaller());
+    expect(changed).toMatchObject({ status: "error", code: "conflict" });
+    expect(chrome.posts).toHaveLength(1);
 
     const again = await openShop();
     const wrong = await t.kernel.execute(

@@ -54,11 +54,11 @@ export function checkOpen(state: TrustState, raw: string, sites: SiteRules): Ope
 }
 
 /**
- * D30: once a turn has read outside content, typing goes freely only into sites the turn opened
- * before that, or sites you allowed. Elsewhere a page could have steered Jarvis there to collect
- * what it types, so it needs your yes.
+ * D30: once a turn has read outside content, Jarvis types, clicks and chooses freely only on sites
+ * the turn opened before that, or sites you allowed. Elsewhere a page could have steered it there,
+ * to collect what it types or to have it press things, so it needs your yes.
  */
-export function checkTyping(state: TrustState, raw: string, sites: SiteRules): OpenVerdict {
+export function checkActing(state: TrustState, raw: string, sites: SiteRules): OpenVerdict {
   if (state.origin !== "untrusted") return { kind: "ok" };
   const url = normalizeUrl(raw);
   if (!url) return { kind: "ok" };
@@ -66,7 +66,7 @@ export function checkTyping(state: TrustState, raw: string, sites: SiteRules): O
   if (state.vouchedHosts?.has(host) || onSiteList(host, sites.allowed)) return { kind: "ok" };
   return {
     kind: "ask",
-    reason: `This turn read outside content and then went to ${host}, so typing there needs your yes. Adding ${host} to the sites Jarvis may use freely skips this.`,
+    reason: `This turn read outside content and then went to ${host}, so acting there needs your yes. Adding ${host} to the sites Jarvis may use freely skips this.`,
   };
 }
 

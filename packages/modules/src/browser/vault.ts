@@ -5,7 +5,6 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { onSiteList } from "@hearth/core";
 import { type DbOrTx, vaultLogin } from "@hearth/db";
 import { ActionError, defineAction, newId } from "@hearth/kernel";
 import { desc, eq } from "drizzle-orm";
@@ -92,15 +91,27 @@ export function siteOf(raw: string): string | null {
 
 export type VaultRow = typeof vaultLogin.$inferSelect;
 
-/** The saved logins that may be used on a host: the most specific site first, then most used. */
-export async function loginsFor(db: DbOrTx, host: string, username?: string): Promise<VaultRow[]> {
-  const rows = await db.select().from(vaultLogin).orderBy(desc(vaultLogin.lastUsedAt));
-  return rows
-    .filter((r) => onSiteList(host, [r.site]) && (!username || r.username === username))
-    .sort((a, b) => b.site.length - a.site.length);
+/**
+ * Whether a login saved for a site may be filled on a host: that exact host, with or without
+ * "www.". Never other subdomains, which on many sites belong to other people (blogs, pages).
+ */
+export function fillsOn(site: string, host: string): boolean {
+  const bare = (h: string) => h.toLowerCase().replace(/^www\./, "");
+  return bare(site) === bare(host);
 }
 
-const site = z.string().trim().min(3).max(253).describe("The site, like example.com.");
+/** The saved logins that may be used on a host, most recently used first. */
+export async function loginsFor(db: DbOrTx, host: string, username?: string): Promise<VaultRow[]> {
+  const rows = await db.select().from(vaultLogin).orderBy(desc(vaultLogin.lastUsedAt));
+  return rows.filter((r) => fillsOn(r.site, host) && (!username || r.username === username));
+}
+
+const site = z
+  .string()
+  .trim()
+  .min(3)
+  .max(253)
+  .describe("The site's own address, like accounts.example.com. It's filled there only.");
 
 export const vaultActions = [
   defineAction({

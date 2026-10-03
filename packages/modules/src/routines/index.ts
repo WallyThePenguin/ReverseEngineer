@@ -200,8 +200,14 @@ export const routinesModule = defineModule({
       risk: "internal",
       callers: ["owner", "agent"],
       async handler(i, ctx) {
+        refuseUntrusted(ctx);
         const r = await loadRoutine(ctx.tx, i.id);
         if (!r) throw new ActionError("not_found", "No routine with that id.");
+        if (!r.active && ctx.caller.kind !== "owner")
+          throw new ActionError(
+            "forbidden",
+            "That routine is turned off; only the owner can run it.",
+          );
         await upsertSchedule(
           ctx.tx,
           {

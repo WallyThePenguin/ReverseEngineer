@@ -24,7 +24,8 @@ const PAGES: Record<string, string> = {
   "https://login.example/session": welcome,
   // Two pages: the name first, then the password.
   "https://steps.example/": `<title>Sign in</title>
-    <form method="post" action="/password"><input name="identifier" aria-label="Email or phone">
+    <form method="post" action="/password"><input name="identifier" autocomplete="username"
+    aria-label="Email or phone">
     <button>Next</button></form>`,
   "https://steps.example/password": `<title>Password</title>
     <form method="post" action="/code"><input type="password" name="pw" aria-label="Password">
@@ -32,6 +33,9 @@ const PAGES: Record<string, string> = {
   // After the password, a code from your phone.
   "https://steps.example/code": `<title>2-Step</title>
     <form method="post"><input name="totp" autocomplete="one-time-code" aria-label="Code"></form>`,
+  // On login.example's domain, but not login.example: a blog anyone there could post to.
+  "https://blog.login.example/": `<form method="post" action="/grab">
+    <input type="email" name="email" autocomplete="username"><input type="password" name="password"></form>`,
   // Looks like login.example, isn't.
   "https://login.example.evil.test/": `<form method="post" action="/grab">
     <input type="email" name="email"><input type="password" name="password"></form>`,
@@ -128,12 +132,15 @@ describe.skipIf(!hasChromium)("signing in", () => {
     });
   });
 
-  it("gives a look-alike site nothing", async () => {
-    await save("login.example", "me@example.com");
-    const [posts, sent] = [chrome.posts.length, chrome.sent.length];
-    const res = await signIn("https://login.example.evil.test/");
-    expect(res).toMatchObject({ status: "error", code: "not_found" });
-    expect(chrome.posts.length).toBe(posts);
-    expect(JSON.stringify(chrome.sent.slice(sent))).not.toContain(PASSWORD);
-  });
+  it.each(["https://login.example.evil.test/", "https://blog.login.example/"])(
+    "gives %s nothing",
+    async (url) => {
+      await save("login.example", "me@example.com");
+      const [posts, sent] = [chrome.posts.length, chrome.sent.length];
+      const res = await signIn(url);
+      expect(res).toMatchObject({ status: "error", code: "not_found" });
+      expect(chrome.posts.length).toBe(posts);
+      expect(JSON.stringify(chrome.sent.slice(sent))).not.toContain(PASSWORD);
+    },
+  );
 });

@@ -20,7 +20,7 @@ import {
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { BrainTool } from "./brain.ts";
-import { checkOpen, checkTyping, readOutsideContent, vouchFor } from "./trust.ts";
+import { checkActing, checkOpen, readOutsideContent, vouchFor } from "./trust.ts";
 
 const MAX_OUTPUT = 20_000;
 
@@ -110,18 +110,21 @@ export function buildTools(kernel: Kernel, state: TurnState, log: LogFn): BrainT
           }
           if (verdict.kind === "ask") askFirst = verdict.reason;
         }
-        if (def.typesInto) {
-          const where = await def
-            .typesInto(input as never, { service: (n) => kernel.services[n] as never })
+        if (def.pin) {
+          const pinned = await def
+            .pin(input as never, { service: (n) => kernel.services[n] as never })
             .catch(() => null);
-          if (where && normalizeUrl(where)) {
-            const verdict = checkTyping(state, where, state.sites);
-            if (verdict.kind === "ask") askFirst ??= verdict.reason;
-            // Pinned to the site it was checked on, should it run later after a yes.
-            const typed = input as { site?: string };
-            if (!typed.site) input = { ...typed, site: new URL(where).hostname };
+          if (pinned && normalizeUrl(pinned.url)) {
+            // Outward calls ask anyway; the rest are held to D30 after outside content.
+            if (!needsYes) {
+              const verdict = checkActing(state, pinned.url, state.sites);
+              if (verdict.kind === "ask") askFirst ??= verdict.reason;
+            }
+            // Pinned to the page it was checked on, should it run later after a yes.
+            const given = input as { site?: string };
+            input = { ...given, site: given.site ?? new URL(pinned.url).hostname, ...pinned.extra };
           } else if (state.origin === "untrusted")
-            askFirst ??= "Hearth couldn't tell which site this would type into.";
+            askFirst ??= "Hearth couldn't tell which site this would act on.";
         }
         const trustedBefore = state.origin !== "untrusted";
         const res = await kernel.execute(
@@ -158,8 +161,9 @@ export function buildTools(kernel: Kernel, state: TurnState, log: LogFn): BrainT
             : res.status === "denied"
               ? `Not allowed: ${res.reason}`
               : `Error (${res.code}): ${res.message}`;
-        if (res.status === "ok" && def.external) {
-          // Outside content: everything after this in the turn is untrusted (D25).
+        if (def.external && res.status !== "denied") {
+          // Outside content, errors included (they can quote the page): everything after this in
+          // the turn is untrusted (D25).
           readOutsideContent(state, output);
           output = asUntrusted(output, def.name);
         }

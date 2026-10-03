@@ -5,7 +5,8 @@
 // function, sent as source; `h` is page-elements.js.
 
 /**
- * @param {{ op: "find" | "focus" | "state", which?: "user" | "pass" }} opts
+ * @param {{ op: "find" | "focus" | "state", which?: "user" | "pass", marker?: string,
+ *   host?: string }} opts
  * @param {PageElements} h
  */
 // biome-ignore lint/correctness/noUnusedVariables: sent to the page as source text.
@@ -50,7 +51,10 @@ function pageLogin(opts, h) {
   const captcha = frames.some(visible) || /verify you are (a )?human|i'?m not a robot/i.test(text);
 
   if (opts.op === "focus") {
-    const [el] = h.findAll(`[data-hearth-login="${opts.which}"]`);
+    // Checked in the same step as focusing: the page can't move on in between.
+    if (location.protocol !== "https:" || location.hostname !== opts.host)
+      return { focused: false };
+    const [el] = h.findAll(`[data-hearth-login="${opts.marker}-${opts.which}"]`);
     if (!(el instanceof HTMLInputElement) || !el.isConnected) return { focused: false };
     // The password goes into a password field and nowhere else.
     if (opts.which === "pass" && el.type !== "password") return { focused: false };
@@ -80,14 +84,17 @@ function pageLogin(opts, h) {
       before.filter((i) => i !== codeField).at(-1) ??
       null;
   } else if (!codeField) {
+    // A name on its own is filled only on what's plainly a sign-in page, never in a box for
+    // sharing or inviting by email.
+    const signInPage = /log.?in|sign.?in|auth|session|account|sso/i.test(location.pathname);
     user =
-      textual.find((i) => i.autocomplete === "username" || i.autocomplete === "email") ??
-      textual.find((i) => i.type === "email") ??
-      textual.find((i) => USERISH.test(describes(i))) ??
+      textual.find((i) => i.autocomplete === "username") ??
+      (signInPage ? textual.find((i) => USERISH.test(describes(i))) : undefined) ??
       null;
   }
-  user?.setAttribute("data-hearth-login", "user");
-  pass?.setAttribute("data-hearth-login", "pass");
+  // A fresh marker each time, which the page can't know in advance.
+  user?.setAttribute("data-hearth-login", `${opts.marker}-user`);
+  pass?.setAttribute("data-hearth-login", `${opts.marker}-pass`);
   return {
     user: user !== null,
     pass: pass !== null,
