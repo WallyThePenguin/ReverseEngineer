@@ -2,7 +2,7 @@
 // conversation, posts the reply where it was asked, and records an audit row for the turn.
 import { conversation, jarvisTurn, type TurnOutcome } from "@hearth/db";
 import { appendEvents, getSetting, jarvisCaller, type Kernel } from "@hearth/kernel";
-import type { LogEntry } from "@hearth/modules";
+import { type LogEntry, recallMemory, renderMemory } from "@hearth/modules";
 import { and, asc, desc, eq, lte, sql } from "drizzle-orm";
 import type pg from "pg";
 import type { Brain } from "./brain.ts";
@@ -142,6 +142,9 @@ export class TurnRunner {
       // A turn about something an outside tool wrote starts untrusted.
       if (record?.fromOutside) readOutsideContent(state, record.text);
       const subject = record?.text ?? null;
+      const memory = renderMemory(
+        await recallMemory(this.kernel.db, `${turn.prompt}\n${subject ?? ""}`),
+      );
       const system = buildSystemPrompt({
         now,
         rules: await getSetting(this.kernel.db, "owner.dayRules"),
@@ -149,6 +152,7 @@ export class TurnRunner {
         origin: state.origin,
         paused: await getSetting(this.kernel.db, "jarvis.paused"),
         subject,
+        memory,
       });
       const [conv] = await this.kernel.db
         .select()

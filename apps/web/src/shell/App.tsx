@@ -22,6 +22,7 @@ import { type ListView, layout, type PaneRoute } from "../lib/panes.ts";
 import { Activity } from "../views/Activity.tsx";
 import { Browser } from "../views/Browser.tsx";
 import { Inbox } from "../views/Inbox.tsx";
+import { Memory } from "../views/Memory.tsx";
 import { Notes, NoteView } from "../views/Notes.tsx";
 import { People } from "../views/People.tsx";
 import { RecordView } from "../views/Record.tsx";
@@ -46,6 +47,9 @@ function PaneView(props: { route: PaneRoute; index: number }) {
       </Match>
       <Match when={props.route.view === "people"}>
         <People pane={props.index} />
+      </Match>
+      <Match when={props.route.view === "memory"}>
+        <Memory pane={props.index} />
       </Match>
       <Match when={props.route.view === "browser"}>
         <Browser />
@@ -117,6 +121,7 @@ function Shell(props: { onSignOut: () => void }) {
     { keys: "g t", run: go("tasks"), label: "Go to Tasks" },
     { keys: "g n", run: go("notes"), label: "Go to Notes" },
     { keys: "g p", run: go("people"), label: "Go to People" },
+    { keys: "g m", run: go("memory"), label: "Go to Memory" },
     { keys: "g b", run: go("browser"), label: "Go to the browser" },
     { keys: "g a", run: go("activity"), label: "Go to Jarvis's activity" },
     { keys: "g s", run: go("settings"), label: "Go to Settings" },

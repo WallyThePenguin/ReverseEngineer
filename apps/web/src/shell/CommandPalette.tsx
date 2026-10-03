@@ -30,6 +30,7 @@ function commands(): Item[] {
     go("tasks", "Tasks"),
     go("notes", "Notes"),
     go("people", "People"),
+    go("memory", "Memory (what Jarvis remembers)"),
     go("browser", "the browser (your Chrome, live)"),
     go("activity", "Jarvis's activity"),
     go("settings", "Settings"),
