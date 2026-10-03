@@ -9,6 +9,7 @@ import { chatModule } from "./chat/index.ts";
 import { graphModule } from "./graph/index.ts";
 import { inboxModule } from "./inbox/index.ts";
 import { mailModule } from "./mail/index.ts";
+import { meetingsModule } from "./meetings/index.ts";
 import { memoryModule } from "./memory/index.ts";
 import { notesModule } from "./notes/index.ts";
 import { peopleModule } from "./people/index.ts";
@@ -31,6 +32,7 @@ export const ALL_MODULES: HearthModule[] = [
   calendarModule,
   routinesModule,
   mailModule,
+  meetingsModule,
 ];
 
 export { renderBrief, renderDigest } from "./assistant/brief.ts";
@@ -73,6 +75,7 @@ export {
   graphModule,
   inboxModule,
   mailModule,
+  meetingsModule,
   memoryModule,
   notesModule,
   peopleModule,

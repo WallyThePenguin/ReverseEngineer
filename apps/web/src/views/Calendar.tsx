@@ -5,6 +5,7 @@ import { Badge, Button, Empty, PaneHeader } from "../components/ui.tsx";
 import { layout } from "../lib/panes.ts";
 import { useAction } from "../lib/query.ts";
 import type { CalEvent } from "../lib/types.ts";
+import { takeNotes } from "./Meeting.tsx";
 
 const DAY_MS = 24 * 3600_000;
 const dayLabel = (d: Date) =>
@@ -134,6 +135,13 @@ export function EventPanel(props: { id: string }) {
             </p>
           </Show>
           <p class="flex gap-3 pt-1">
+            <button
+              type="button"
+              class="text-jarvis underline"
+              onClick={(ev) => void takeNotes(e().id, ev.shiftKey)}
+            >
+              Meeting notes
+            </button>
             <Show when={e().meetUrl}>
               <a
                 class="text-jarvis underline"

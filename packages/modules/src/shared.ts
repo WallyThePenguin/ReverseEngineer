@@ -47,6 +47,10 @@ export async function liveEntity(
   return row;
 }
 
+/** Written by an outside tool or integration, so its text is outside content (D25). */
+export const writtenOutside = (by: string) =>
+  by.startsWith("integration:") || by.startsWith("mcp:");
+
 /** A short single-line preview of a body. */
 export function preview(text: string | null | undefined, max = 140): string {
   const flat = stripMentions(text ?? "")
