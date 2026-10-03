@@ -168,6 +168,8 @@ try {
     await p.goto(`${base}/canvases`);
     await p.getByRole("heading", { name: "Canvas" }).waitFor();
     await p.getByRole("button", { name: "New board" }).click();
+    // Name it once the board has loaded (loading sets the name it came with).
+    await p.locator("[data-toolbar]").waitFor();
     const name = p.getByLabel("Board name");
     await name.fill(`Trip plan ${tag}`);
     await name.press("Enter");
@@ -348,8 +350,9 @@ try {
         r.fulfill({ json: { text: `What is on today ${tag}` } }),
       );
       await tabs.getByRole("button", { name: "Talk to Jarvis" }).click();
+      await p.waitForTimeout(1500);
       await tabs.getByRole("button", { name: "Stop and send" }).click();
-      await p.locator("aside").getByText(`What is on today ${tag}`).waitFor();
+      await p.locator("aside").getByText(`What is on today ${tag}`).first().waitFor();
       await p.unroute("**/api/voice/transcribe");
       await tabs.getByRole("button", { name: "More" }).click();
       await p.getByRole("button", { name: "Settings" }).click();
