@@ -13,6 +13,8 @@ interface Job {
 const WAIT_MS = 60_000;
 /** The desktop app counts as running if it asked for work this recently. */
 const SEEN_MS = 45_000;
+/** Recordings waiting or being transcribed at once (each up to 10 MB, held in memory). */
+const MAX_JOBS = 4;
 
 export class SpeechRelay {
   private queue: Job[] = [];
@@ -23,6 +25,11 @@ export class SpeechRelay {
   /** Whether the desktop app is around to transcribe. */
   available(now = Date.now()): boolean {
     return this.waiters.length > 0 || now - this.lastAsked < SEEN_MS;
+  }
+
+  /** Whether another recording would be one too many. */
+  busy(): boolean {
+    return this.queue.length + this.taken.size >= MAX_JOBS;
   }
 
   /** Text for a recording (16 kHz mono WAV), once the desktop app has done it. */

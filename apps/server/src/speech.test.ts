@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { pairDevice } from "./auth/devices.ts";
+import { SpeechRelay } from "./speech.ts";
 import { createTestServer, type TestServer } from "./testing/server.ts";
 
 let t: TestServer;
@@ -38,6 +39,14 @@ describe("speech through the desktop app", () => {
     const res = await t.browser("/api/voice/transcribe", { method: "POST", body: wav() });
     expect(await res.json()).toEqual({ text: "Remind me to call Sam." });
     await desktop;
+  });
+
+  it("holds only a few recordings at once", async () => {
+    const relay = new SpeechRelay();
+    const waiting = Array.from({ length: 4 }, () => relay.transcribe(wav(), 30).catch(() => null));
+    expect(relay.busy()).toBe(true);
+    await Promise.all(waiting);
+    expect(relay.busy()).toBe(false);
   });
 
   it("keeps each side to its own half", async () => {

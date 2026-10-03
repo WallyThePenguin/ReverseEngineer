@@ -34,6 +34,8 @@ export function speechRoutes(relay: SpeechRelay) {
           { error: "Speech runs on the desktop app, and it isn't running on your PC." },
           503,
         );
+      if (relay.busy())
+        return c.json({ error: "The desktop app is still on earlier recordings." }, 429);
       try {
         return c.json({ text: await relay.transcribe(audio) });
       } catch (err) {

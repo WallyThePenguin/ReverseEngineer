@@ -105,6 +105,7 @@ export function Conversation(props: {
     setSending(true);
     const r = await act<{ conversationId: string }>("chat.send", {
       text,
+      ...(spoken ? { heard: true } : {}),
       ...(props.id ? { conversationId: props.id } : {}),
     });
     setSending(false);
