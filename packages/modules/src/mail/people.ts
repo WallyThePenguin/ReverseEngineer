@@ -1,16 +1,9 @@
 // People from mail, and which lane a sender's mail goes to. Following Macro's rule, someone
 // becomes a person when you write to them; mail from people you know is Signal.
-import {
-  type DbOrTx,
-  type MailAddress,
-  type MailLane,
-  mailMessage,
-  mailSenderRule,
-  personEmail,
-} from "@hearth/db";
-import { type ActionContext, addLink, createEntity } from "@hearth/kernel";
-import { eq, inArray } from "drizzle-orm";
-import { cleanName } from "./mime.ts";
+import { type DbOrTx, type MailAddress, type MailLane, mailSenderRule } from "@hearth/db";
+import type { ActionContext } from "@hearth/kernel";
+import { inArray } from "drizzle-orm";
+import { ensurePerson, linkPerson, personFor } from "../people/store.ts";
 
 /** Gmail's tabs other than Primary. Mail there starts out as Noise. */
 export const NOISE_CATEGORIES = [
@@ -51,11 +44,6 @@ export async function ruleFor(db: DbOrTx, address: string): Promise<MailLane | n
   return null;
 }
 
-export async function personFor(db: DbOrTx, address: string): Promise<string | null> {
-  const [row] = await db.select().from(personEmail).where(eq(personEmail.address, address));
-  return row?.personId ?? null;
-}
-
 /** Where a new conversation goes: your rules, then people you know, then Gmail's tabs. */
 export async function laneFor(
   db: DbOrTx,
@@ -68,34 +56,6 @@ export async function laneFor(
   if (rule) return rule;
   if (await personFor(db, from)) return "signal";
   return labels.some((l) => NOISE_CATEGORIES.includes(l)) ? "noise" : "signal";
-}
-
-// A person you've since put in the trash just isn't linked (addLink checks before writing).
-const link = (ctx: ActionContext, fromId: string, toId: string) =>
-  addLink(ctx, { fromId, toId, kind: "participant" }).catch(() => {});
-
-/** The person for an address, made from what the mail says about them if they're new. */
-export async function ensurePerson(ctx: ActionContext, who: MailAddress): Promise<string> {
-  const known = await personFor(ctx.tx, who.address);
-  if (known) return known;
-  const person = await createEntity(ctx, {
-    type: "person",
-    // The name is whatever the mail said, so it's kept short and plain.
-    title: cleanName(who.name) ?? who.address,
-    body: `Email: ${who.address}`,
-  });
-  await ctx.tx
-    .insert(personEmail)
-    .values({ address: who.address, personId: person.id })
-    .onConflictDoNothing();
-  // Mail they sent before you wrote to them is theirs too.
-  const earlier = await ctx.tx
-    .select({ id: mailMessage.entityId })
-    .from(mailMessage)
-    .where(eq(mailMessage.fromAddress, who.address))
-    .limit(200);
-  for (const m of earlier) await link(ctx, m.id, person.id);
-  return (await personFor(ctx.tx, who.address)) ?? person.id;
 }
 
 /**
@@ -112,12 +72,12 @@ export async function linkPeople(
   if (m.outbound) {
     for (const who of others([...m.to, ...m.cc]).slice(0, 20)) {
       const personId = await ensurePerson(ctx, who);
-      await link(ctx, messageId, personId);
+      await linkPerson(ctx, messageId, personId);
     }
     return;
   }
   for (const who of others([...(m.from ? [m.from] : []), ...m.to, ...m.cc]).slice(0, 20)) {
     const personId = await personFor(ctx.tx, who.address);
-    if (personId) await link(ctx, messageId, personId);
+    if (personId) await linkPerson(ctx, messageId, personId);
   }
 }

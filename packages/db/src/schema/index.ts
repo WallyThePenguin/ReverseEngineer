@@ -6,4 +6,5 @@ export * from "./inbox.ts";
 export * from "./jarvis.ts";
 export * from "./mail.ts";
 export * from "./memory.ts";
+export * from "./people.ts";
 export * from "./vault.ts";

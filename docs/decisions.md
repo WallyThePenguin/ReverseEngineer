@@ -511,3 +511,25 @@ meeting.
 **Why:** Gmail already puts invitations on your calendar, and answering there tells the organizer
 the same way Google does. The email's text is the sender's, so the card shows only what the
 calendar says, and an invitation naming someone else's meeting matches nothing.
+
+## D36. People and companies come from what you do, not what arrives (2026-10-03)
+
+**Decision:** A person is made when you write to someone or meet them in a meeting you organized
+or accepted (up to 20 guests); mail you receive and invitations you haven't answered only link
+people you already know. A person's first work address makes a company (`company`, keyed by its
+domain, named from it), never a free-mail domain or a role account (info@, noreply@). A
+`person` row keeps the company, a follow-up in days and your own fields. When you last talked is
+worked out from mail you sent them or they sent (not spam, not a stranger copying them in) and
+meetings you organized or accepted (not cancelled), never stored,
+and the brief says "You haven't talked to X in N days" once a follow-up has passed. People from
+before this get their company from a nightly tidy; events get their guests linked on the next
+sync. Recording whose an address is (`person.add_email`) waits for your yes in a turn that
+read outside content, and a record that names outside records (a person's email subjects) makes
+Jarvis's turn untrusted like the outside records themselves.
+
+**Alternatives:** Make people from every sender. Store a last-contact date and update it on each
+message. Look up companies online.
+
+**Why:** Following Macro's rule keeps strangers and newsletters out of your people. Working out
+the last contact from links means a deleted email or a declined meeting stops counting with no
+bookkeeping. Nothing about a person leaves Hearth (PLAN.md section 8.7: no outside enrichment).

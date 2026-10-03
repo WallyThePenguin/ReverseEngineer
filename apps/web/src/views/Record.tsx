@@ -13,6 +13,7 @@ import type { Entity } from "../lib/types.ts";
 import { EventPanel } from "./Calendar.tsx";
 import { MemoryPanel } from "./Memory.tsx";
 import { PageWatchPanel } from "./PageWatch.tsx";
+import { CompanyPanel, PersonPanel } from "./Person.tsx";
 
 export function RecordView(props: { id: string; pane: number }) {
   const rec = useAction<Entity>("entity.get", () => ({ id: props.id }));
@@ -36,6 +37,12 @@ export function RecordView(props: { id: string; pane: number }) {
             <Show when={r().type === "event"}>
               <EventPanel id={r().id} />
             </Show>
+            <Show when={r().type === "person"}>
+              <PersonPanel id={r().id} />
+            </Show>
+            <Show when={r().type === "company"}>
+              <CompanyPanel id={r().id} />
+            </Show>
             <Show when={r().type === "page_watch"}>
               <PageWatchPanel id={r().id} />
             </Show>
@@ -45,7 +52,10 @@ export function RecordView(props: { id: string; pane: number }) {
             <Show when={r().type !== "comment"}>
               <Comments parentId={r().id} />
             </Show>
-            <Backlinks id={r().id} />
+            {/* A person's or company's page already lists what's linked to them. */}
+            <Show when={!["person", "company"].includes(r().type)}>
+              <Backlinks id={r().id} />
+            </Show>
           </div>
         </div>
       )}

@@ -2,7 +2,7 @@
 // with what Hearth knows about it: the guests, the last time you met, linked records and open
 // tasks. Jarvis writes it up; if it can't, you get the plain facts (PLAN.md section 6.2).
 import { formatDateTime, localDate } from "@hearth/core";
-import { calendarEvent, entity, link, task } from "@hearth/db";
+import { calendarEvent, entity, link, personEmail, task } from "@hearth/db";
 import {
   addLink,
   createEntity,
@@ -31,6 +31,9 @@ import { id, preview } from "../shared.ts";
 import { type EventView, guests, toEventView, whenText } from "./store.ts";
 
 const HOUR_MS = 3600_000;
+
+/** An address as a LIKE pattern that matches only itself. */
+const likeEscape = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 
 /** Events worth preparing for: not all-day, not declined, not a time block, with guests or long. */
 export async function eventsToPrep(ctx: ReadContext, hours = 48): Promise<EventView[]> {
@@ -75,6 +78,16 @@ export async function prepFacts(ctx: ReadContext, ev: EventView, tz: string): Pr
   const people = guests(ev);
   if (people.length) {
     lines.push(`- Guests: ${people.map((g) => g.name ?? g.email).join(", ")}`);
+    // Their addresses, else (for people you added by hand) their name or an address in the notes.
+    const byEmail = ctx.db
+      .select({ id: personEmail.personId })
+      .from(personEmail)
+      .where(
+        inArray(
+          personEmail.address,
+          people.map((g) => g.email),
+        ),
+      );
     const known = await ctx.db
       .select({ id: entity.id, title: entity.title, body: entity.body })
       .from(entity)
@@ -83,11 +96,13 @@ export async function prepFacts(ctx: ReadContext, ev: EventView, tz: string): Pr
           eq(entity.type, "person"),
           isNull(entity.deletedAt),
           or(
-            ...people.map((g) => ilike(entity.body, `%${g.email}%`)),
+            inArray(entity.id, byEmail),
+            ...people.map((g) => ilike(entity.body, `%${likeEscape(g.email)}%`)),
             ...people.filter((g) => g.name).map((g) => eq(entity.title, g.name!)),
           ),
         ),
-      );
+      )
+      .limit(20);
     for (const p of known)
       lines.push(`- About ${p.title} (person ${p.id}): ${preview(p.body, 300) || "no notes"}`);
     if (known.length) {

@@ -65,6 +65,7 @@ export const TYPE_LABEL: Record<string, string> = {
   task: "Task",
   note: "Note",
   person: "Person",
+  company: "Company",
   agent: "Agent",
   conversation: "Chat",
   comment: "Comment",

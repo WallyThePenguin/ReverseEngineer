@@ -220,6 +220,7 @@ export function buildTools(kernel: Kernel, state: TurnState, log: LogFn): BrainT
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_IN_TEXT = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 
 /**
  * Whether a result shows records holding outside content (an email found by entity_search, a
@@ -229,7 +230,12 @@ export async function mentionsOutside(kernel: Kernel, value: unknown): Promise<b
   const ids = new Set<string>();
   let found = false;
   const walk = (v: unknown, depth: number) => {
-    if (found || depth > 8 || ids.size > 500) return;
+    if (found || depth > 8) return;
+    // Too much to check: assume it holds something from outside.
+    if (ids.size > 500) {
+      found = true;
+      return;
+    }
     if (typeof v === "string") {
       if (UUID.test(v)) ids.add(v);
     } else if (Array.isArray(v)) {
@@ -289,7 +295,11 @@ export async function readRecord(
       text += `\n\n## Linked from\n${links.result.incoming.map(fmt).join("\n")}`;
   }
   const outsideType = kernel.registry.isOutsideType(row.type);
-  const fromOutside = outsideType || fromOutsideTool(row.createdBy);
+  // A record written by Hearth can still quote others (a person's email subjects, the titles
+  // of what links to it), so the records it names count too.
+  const named = [...text.matchAll(UUID_IN_TEXT)].map((m) => m[0]).filter((x) => x !== id);
+  const fromOutside =
+    outsideType || fromOutsideTool(row.createdBy) || (await mentionsOutside(kernel, named));
   const source = outsideType ? row.type : row.createdBy;
   return { text: fromOutside ? asUntrusted(text, source) : text, fromOutside };
 }
