@@ -6,6 +6,7 @@ import { Badge, Button, Empty, PaneHeader } from "../components/ui.tsx";
 import { ago } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
 import { act, useAction } from "../lib/query.ts";
+import { Samples } from "./VoiceSamples.tsx";
 
 interface Dictation {
   id: string;
@@ -34,12 +35,13 @@ interface Style {
   instructions: string;
 }
 
-type Tab = "history" | "dictionary" | "snippets" | "styles";
+type Tab = "history" | "dictionary" | "snippets" | "styles" | "samples";
 const TABS: { tab: Tab; label: string }[] = [
   { tab: "history", label: "History" },
   { tab: "dictionary", label: "Dictionary" },
   { tab: "snippets", label: "Snippets" },
   { tab: "styles", label: "Styles" },
+  { tab: "samples", label: "Voice samples" },
 ];
 
 const input = "rounded-md border border-line bg-panel px-2 py-1 text-sm";
@@ -78,6 +80,9 @@ export function Voice() {
           </Match>
           <Match when={tab() === "styles"}>
             <Styles />
+          </Match>
+          <Match when={tab() === "samples"}>
+            <Samples />
           </Match>
         </Switch>
       </div>

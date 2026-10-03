@@ -208,6 +208,8 @@ try {
     if (status !== 200) throw new Error(`voice.clean answered ${status}`);
     await p.getByRole("tab", { name: "History" }).click();
     await p.getByText(`Open OtoPair${tag} please`).waitFor();
+    await p.getByRole("tab", { name: "Voice samples" }).click();
+    await p.getByText(`Can you send the OtoPair${tag} update to the team today?`).waitFor();
   });
 
   await step("the calendar, mail, and Google in Settings", async (p) => {

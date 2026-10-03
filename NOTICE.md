@@ -7,7 +7,7 @@ original notice at the top, and is listed here with where it came from.
 
 | Hearth path | Origin | Upstream path | License |
 |---|---|---|---|
-| _(none yet)_ | | | |
+| `apps/desktop/` (all of it, except `src-tauri/src/hearth/` and `src/components/settings/HearthSettings.tsx`, which are Hearth's) | [Handy](https://github.com/cjpais/Handy) at `ffbc950`, changed where marked | the whole repository | MIT (`apps/desktop/LICENSE`) |
 
 Projects Hearth borrows ideas from without copying code: Macro (macro-inc/macro, AGPLv3),
-Twenty (twentyhq/twenty, AGPLv3 and MIT parts), Handy (cjpais/Handy, MIT).
+Twenty (twentyhq/twenty, AGPLv3 and MIT parts).

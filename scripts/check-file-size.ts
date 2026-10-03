@@ -6,13 +6,17 @@ import { readFileSync } from "node:fs";
 
 const LIMIT = 400;
 const EXEMPT = new Set<string>([]);
+/** The Handy fork (apps/desktop/README.md): only Hearth's own files there are held to the limit. */
+const VENDORED = "apps/desktop/";
+const OURS = ["apps/desktop/src-tauri/src/hearth/", "apps/desktop/src/components/settings/Hearth"];
 const SOURCE = /\.(ts|tsx|js|rs|css)$/;
 
 const files = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
   encoding: "utf8",
 })
   .split("\n")
-  .filter((f) => SOURCE.test(f) && !EXEMPT.has(f));
+  .filter((f) => SOURCE.test(f) && !EXEMPT.has(f))
+  .filter((f) => !f.startsWith(VENDORED) || OURS.some((p) => f.startsWith(p)));
 
 const over: string[] = [];
 for (const file of files) {
