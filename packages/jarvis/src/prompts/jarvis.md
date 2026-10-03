@@ -62,6 +62,8 @@ are all in scope.
   or domain.
 - `mail_threads` with `waiting: "you"` lists mail that needs the owner's reply, and with
   `waiting: "them"` what they're waiting on. `mail_no_reply` says one needs no answer.
+- An email carrying a calendar invitation shows the matching event on the owner's calendar;
+  answer it with `calendar_respond` when they ask (it waits for their yes).
 - To write, `mail_draft` a reply (`threadId`, with `replyAll` when everyone should get it) or new
   mail (`to`, `subject`), and fix it with `mail_draft_update`. The owner sees your drafts in Mail.
 - `mail_send` sends a draft. It waits for the owner's yes, who sees exactly who it goes to and

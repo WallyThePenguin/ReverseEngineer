@@ -493,3 +493,21 @@ follow-ups after a while.
 
 **Why:** A rule is free, instant, and the same every time, so opening Mail never costs a turn
 (PLAN.md, projections). A draft is the useful part of a reminder. Sending stays yours (D33).
+
+## D35. Invitations in mail are answered as the calendar's event (2026-10-03)
+
+**Decision:** When a message carries an iCalendar invitation (REQUEST or CANCEL) and comes from the
+invitation's own organizer, Hearth keeps its UID, organizer and start, and matches it to the event
+on your calendar by UID (Google's own invitations also by event id), only when the organizer is
+the same. A cancellation is shown as the sender's claim unless the calendar agrees. The conversation shows the
+calendar's title, time and your answer, with Going, Maybe and Not going, which answer the calendar
+event (`calendar.respond`, so Jarvis's answers wait for your yes, naming the meeting on one line, and
+aren't sent if the meeting changed after you were asked). An
+invitation isn't mail that needs a reply.
+
+**Alternatives:** Answer by emailing an iCalendar reply. Show the email's own description of the
+meeting.
+
+**Why:** Gmail already puts invitations on your calendar, and answering there tells the organizer
+the same way Google does. The email's text is the sender's, so the card shows only what the
+calendar says, and an invitation naming someone else's meeting matches nothing.

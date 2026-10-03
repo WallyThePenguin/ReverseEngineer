@@ -106,6 +106,7 @@ export function mapEvent(calendarId: string, g: GEvent, tz: string): Mapped | nu
     selfResponse: me?.response ?? null,
     attendees,
     recurringEventId: g.recurringEventId ?? null,
+    icalUid: g.iCalUID ?? null,
   };
 }
 
@@ -146,7 +147,9 @@ export async function saveEvent(
     return { id: row.id, change: "added" };
   }
   const { e, r } = existing;
-  if (r.etag && r.etag === m.etag && !e.deletedAt) return { id: e.id, change: null };
+  // Unchanged, unless it's from before Hearth kept UIDs.
+  if (r.etag && r.etag === m.etag && !e.deletedAt && (r.icalUid || !m.icalUid))
+    return { id: e.id, change: null };
   const moved =
     r.startsAt.getTime() !== m.startsAt.getTime() || r.endsAt.getTime() !== m.endsAt.getTime();
   const change: Change =

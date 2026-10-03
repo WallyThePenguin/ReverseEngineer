@@ -1,11 +1,26 @@
 // Writing your calendar. Your own events (no guests) change directly; anything guests would see
 // is a separate action that waits for your yes (PLAN.md section 5.5).
-import { type ActionContext, ActionError, defineAction, getSetting } from "@hearth/kernel";
+import type { DbOrTx } from "@hearth/db";
+import {
+  type ActionContext,
+  ActionError,
+  defineAction,
+  getSetting,
+  type ReadContext,
+} from "@hearth/kernel";
 import { z } from "zod";
 import { CalendarApi, type GEvent, type SendUpdates } from "../google/calendar-api.ts";
 import { GOOGLE_SERVICE, type GoogleClient } from "../google/client.ts";
 import { id } from "../shared.ts";
-import { type EventView, emitChange, guests, loadEvent, mapEvent, saveEvent } from "./store.ts";
+import {
+  type EventView,
+  emitChange,
+  guests,
+  loadEvent,
+  mapEvent,
+  saveEvent,
+  whenText,
+} from "./store.ts";
 import { writableCalendar } from "./sync.ts";
 
 const when = z.union([
@@ -126,6 +141,17 @@ export async function removeEvent(ctx: ActionContext, eventId: string, shared = 
 const describeTimes = (i: { title: string; start: string; end: string }) =>
   `"${i.title}" ${i.start} to ${i.end}`;
 
+/** A meeting on one line, as an approval shows it: its title can't pass for anything else. */
+async function meetingText(db: DbOrTx, ev: EventView): Promise<string> {
+  const { timeZone } = await getSetting(db, "owner.dayRules");
+  const title = ev.title
+    .replace(/[\p{Cc}\p{Cf}"]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120);
+  return `"${title}", ${whenText(ev, timeZone)}`;
+}
+
 export const calendarWriteActions = [
   defineAction({
     name: "calendar.create_event",
@@ -193,12 +219,36 @@ export const calendarWriteActions = [
   defineAction({
     name: "calendar.respond",
     description: "Answer an invitation: accepted, declined or tentative. The organizer sees it.",
-    input: z.object({ id, response: z.enum(["accepted", "declined", "tentative"]) }),
+    input: z.object({
+      id,
+      response: z.enum(["accepted", "declined", "tentative"]),
+      snapshot: z
+        .object({ event: z.string() })
+        .optional()
+        .describe("Filled in by Hearth: the event. Leave it out."),
+    }),
     risk: "outward",
-    summarize: (i) => `Answer an invitation: ${i.response}`,
+    // So the approval names the meeting as the calendar has it, and the answer goes only to
+    // that meeting as it was when you said yes.
+    async snapshot(i: { id: string }, ctx: ReadContext) {
+      const ev = await loadEvent(ctx.db, i.id);
+      if (!ev) throw new Error("No event with that id.");
+      return { snapshot: { event: await meetingText(ctx.db, ev) } };
+    },
+    summarize: (i) =>
+      `Answer the invitation to ${i.snapshot?.event ?? `event ${i.id}`}: ${i.response}`,
     async handler(i, ctx) {
       const ev = await loadEvent(ctx.tx, i.id);
       if (!ev) throw new ActionError("not_found", "Event not found");
+      if (
+        i.snapshot
+          ? i.snapshot.event !== (await meetingText(ctx.tx, ev))
+          : ctx.caller.kind !== "owner"
+      )
+        throw new ActionError(
+          "conflict",
+          "The meeting changed since you were asked, so it wasn't answered.",
+        );
       const me = ev.attendees.find((a) => a.self);
       if (!me) throw new ActionError("invalid_input", "You're not a guest on this event.");
       const cal = await writableCalendar(ctx, ev.calendarId);

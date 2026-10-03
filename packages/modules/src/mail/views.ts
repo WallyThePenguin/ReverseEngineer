@@ -11,7 +11,9 @@ import {
   mailThread,
 } from "@hearth/db";
 import { and, asc, desc, eq, inArray, isNotNull, lt, type SQL, sql } from "drizzle-orm";
+import { loadEvent } from "../calendar/store.ts";
 import type { BlobStore } from "./blobs.ts";
+import { matchInvite } from "./invites.ts";
 import { parseMail } from "./mime.ts";
 
 export interface ThreadSummary {
@@ -43,6 +45,25 @@ export interface MessageView {
   outbound: boolean;
   unread: boolean;
   attachments: MailAttachment[];
+  /** A calendar invitation, matched to the event on your calendar when there is one. */
+  invite: InviteView | null;
+}
+
+export interface InviteView {
+  method: string;
+  /** The email's own name for it: written by the sender. */
+  summary: string;
+  /** The event on your calendar, as the calendar has it. */
+  event: {
+    id: string;
+    title: string;
+    startsAt: Date;
+    endsAt: Date;
+    allDay: boolean;
+    cancelled: boolean;
+    response: string | null;
+    selfOrganizer: boolean;
+  } | null;
 }
 
 export interface ThreadView extends ThreadSummary {
@@ -144,6 +165,27 @@ export async function loadThread(db: DbOrTx, id: string): Promise<ThreadView | n
     .innerJoin(entity, eq(entity.id, mailMessage.entityId))
     .where(eq(mailMessage.threadId, id))
     .orderBy(asc(mailMessage.sentAt));
+  const invites = new Map<string, InviteView>();
+  // The newest few: a conversation full of invitations doesn't slow every view.
+  for (const { m } of rows.filter((r) => r.m.invite).slice(-10)) {
+    if (!m.invite) continue;
+    const eventId = await matchInvite(db, m.invite);
+    const ev = eventId ? await loadEvent(db, eventId) : null;
+    invites.set(m.entityId, {
+      method: m.invite.method,
+      summary: m.invite.summary,
+      event: ev && {
+        id: ev.id,
+        title: ev.title,
+        startsAt: ev.startsAt,
+        endsAt: ev.endsAt,
+        allDay: ev.allDay,
+        cancelled: ev.status === "cancelled",
+        response: ev.selfResponse,
+        selfOrganizer: ev.selfOrganizer,
+      },
+    });
+  }
   return {
     ...summary,
     messages: rows.map(({ m, text }) => ({
@@ -157,11 +199,22 @@ export async function loadThread(db: DbOrTx, id: string): Promise<ThreadView | n
       outbound: m.outbound,
       unread: m.labels.includes("UNREAD"),
       attachments: m.attachments,
+      invite: invites.get(m.entityId) ?? null,
     })),
   };
 }
 
 export const who = (a: MailAddress) => (a.name ? `${a.name} <${a.address}>` : a.address);
+
+function inviteLine(i: InviteView): string {
+  if (i.method === "CANCEL")
+    return i.event?.cancelled
+      ? `Cancels calendar event ${i.event.id}, and the calendar shows it cancelled.`
+      : `The sender says "${i.summary}" is cancelled; the calendar doesn't show that.`;
+  if (!i.event) return `Invitation "${i.summary}": not on the calendar yet.`;
+  const answer = i.event.response ?? "not answered";
+  return `Invitation: calendar event ${i.event.id} (owner's answer: ${answer}). Answer it with calendar_respond if the owner asks.`;
+}
 
 /** A conversation as markdown, for Jarvis. Quoted replies are cut to keep it short. */
 export function threadText(t: ThreadView, maxPerMessage = 4000): string {
@@ -182,6 +235,7 @@ export function threadText(t: ThreadView, maxPerMessage = 4000): string {
       `## ${m.outbound ? "You" : who(m.from)}, ${m.sentAt.toISOString()} (message ${m.id})`,
       `To: ${m.to.map(who).join(", ")}${m.cc.length ? ` · Cc: ${m.cc.map(who).join(", ")}` : ""}`,
       ...(files.length ? [`Attachments: ${files.join(", ")}`] : []),
+      ...(m.invite ? [inviteLine(m.invite)] : []),
       "",
       own.length > maxPerMessage ? `${own.slice(0, maxPerMessage)}…` : own,
     ].join("\n");

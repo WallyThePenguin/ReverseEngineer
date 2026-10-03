@@ -3,13 +3,19 @@
 
 import { createSignal, For, Show } from "solid-js";
 import { Backlinks } from "../components/Backlinks.tsx";
-import { Button, PaneHeader, Placeholder } from "../components/ui.tsx";
+import { Badge, Button, PaneHeader, Placeholder } from "../components/ui.tsx";
 import { ago } from "../lib/format.ts";
 import { useHotkeys } from "../lib/hotkeys.ts";
 import { toast } from "../lib/live.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
-import type { MailAddress, MailDraft, MailMessage, MailThreadView } from "../lib/types.ts";
+import type {
+  MailAddress,
+  MailDraft,
+  MailInvite,
+  MailMessage,
+  MailThreadView,
+} from "../lib/types.ts";
 import { named } from "./Mail.tsx";
 import { Composer } from "./MailCompose.tsx";
 
@@ -54,6 +60,75 @@ function HtmlBody(props: { id: string }) {
   );
 }
 
+const ANSWERS = [
+  { response: "accepted", label: "Going" },
+  { response: "tentative", label: "Maybe" },
+  { response: "declined", label: "Not going" },
+] as const;
+
+/** An invitation, shown as the event on your calendar, answered right here. */
+function Invite(props: { invite: MailInvite }) {
+  const ev = () => props.invite.event;
+  const when = () => {
+    const e = ev()!;
+    const start = new Date(e.startsAt);
+    return e.allDay
+      ? start.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })
+      : start.toLocaleString(undefined, {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        });
+  };
+  const answer = (response: string) =>
+    void act("calendar.respond", { id: ev()!.id, response }).then(
+      (r) => r && toast.show("Answered. The organizer will see it."),
+    );
+  return (
+    <div class="rounded-md border border-line bg-sunk px-3 py-2 text-sm">
+      <Show
+        when={props.invite.method !== "CANCEL"}
+        fallback={
+          <span>
+            📅{" "}
+            {props.invite.event?.cancelled
+              ? `"${props.invite.event.title}" is cancelled on your calendar.`
+              : "The sender says a meeting is cancelled. Your calendar doesn't show that."}
+          </span>
+        }
+      >
+        <Show when={ev()} fallback={<span>📅 An invitation that isn't on your calendar yet.</span>}>
+          {(e) => (
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="font-medium">📅 {e().title}</span>
+              <span class="text-muted">{when()}</span>
+              <Show when={e().cancelled}>
+                <Badge tone="bad">cancelled</Badge>
+              </Show>
+              <span class="flex-1" />
+              <Show when={!e().cancelled && !e().selfOrganizer}>
+                <For each={ANSWERS}>
+                  {(a) => (
+                    <Button
+                      small
+                      kind={e().response === a.response ? "primary" : undefined}
+                      onClick={() => answer(a.response)}
+                    >
+                      {a.label}
+                    </Button>
+                  )}
+                </For>
+              </Show>
+            </div>
+          )}
+        </Show>
+      </Show>
+    </div>
+  );
+}
+
 function Message(props: { m: MailMessage; open: boolean; onToggle: () => void }) {
   const files = () => props.m.attachments.filter((a) => !a.inline);
   return (
@@ -83,6 +158,7 @@ function Message(props: { m: MailMessage; open: boolean; onToggle: () => void })
       </button>
       <Show when={props.open}>
         <div class="space-y-3 px-4 pb-4">
+          <Show when={props.m.invite}>{(i) => <Invite invite={i()} />}</Show>
           <Show
             when={props.m.hasHtml}
             fallback={<pre class="whitespace-pre-wrap font-sans text-sm">{props.m.text}</pre>}
