@@ -35,8 +35,8 @@ import { deviceRoutes } from "./routes/devices.ts";
 import { eventRoutes } from "./routes/events.ts";
 import { googleRoutes } from "./routes/google.ts";
 import { mailRoutes } from "./routes/mail.ts";
-import { voiceRoutes } from "./routes/voice.ts";
 import { pushRoutes } from "./routes/push.ts";
+import { voiceRoutes } from "./routes/voice.ts";
 
 const CSP = [
   "default-src 'self'",
