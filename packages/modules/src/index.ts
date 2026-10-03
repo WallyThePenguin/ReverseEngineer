@@ -7,6 +7,7 @@ import { browserModule } from "./browser/index.ts";
 import { chatModule } from "./chat/index.ts";
 import { graphModule } from "./graph/index.ts";
 import { inboxModule } from "./inbox/index.ts";
+import { memoryModule } from "./memory/index.ts";
 import { notesModule } from "./notes/index.ts";
 import { peopleModule } from "./people/index.ts";
 import { systemModule } from "./system/index.ts";
@@ -23,6 +24,7 @@ export const ALL_MODULES: HearthModule[] = [
   systemModule,
   assistantModule,
   browserModule,
+  memoryModule,
 ];
 
 export { renderBrief, renderDigest } from "./assistant/brief.ts";
@@ -38,6 +40,7 @@ export {
   type TabInfo,
 } from "./browser/client.ts";
 export { appendLog, type LogEntry, type LogKind, routeLane } from "./chat/index.ts";
+export { recallMemory, renderMemory } from "./memory/index.ts";
 export { parseChecklist } from "./notes/checklist.ts";
 export { loadTask, type TaskView } from "./tasks/index.ts";
 export {
@@ -47,6 +50,7 @@ export {
   chatModule,
   graphModule,
   inboxModule,
+  memoryModule,
   notesModule,
   peopleModule,
   systemModule,

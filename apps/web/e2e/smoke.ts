@@ -1,6 +1,6 @@
 // End-to-end check of the web app in a real browser, against a running Hearth server:
 // passkey setup and sign-in (with a virtual authenticator), tasks, a note that @mentions a task,
-// backlinks, subtasks, Cmd+K with split panes, chatting with Jarvis, and the pause switch.
+// backlinks, subtasks, Cmd+K with split panes, chatting with Jarvis, memory, and the pause switch.
 //
 //   HEARTH_E2E_URL=http://localhost:4400 HEARTH_E2E_SETUP_CODE=<from hearth setup> \
 //     node apps/web/e2e/smoke.ts
@@ -120,6 +120,23 @@ try {
     await p.locator("aside textarea").fill(`Hello ${tag}`);
     await p.locator("aside").getByRole("button", { name: "Send" }).click();
     await p.locator("aside .ml-8", { hasText: `Hello ${tag}` }).waitFor();
+  });
+
+  await step("something for Jarvis to remember, changed and put back", async (p) => {
+    await p.locator("nav").click({ position: { x: 100, y: 600 } });
+    await keys("g", "m");
+    await p.getByRole("heading", { name: "Memory" }).waitFor();
+    await p.getByPlaceholder("Add something for Jarvis to remember…").fill(`Coffee ${tag}`);
+    await keys("Enter");
+    await p.getByText("What should Jarvis remember?").click();
+    const editor = p.getByPlaceholder("Write… type @ to link");
+    await editor.fill("Oat flat white.");
+    await keys("Control+Enter");
+    await p.getByText("Oat flat white.").waitFor();
+    await p.getByRole("button", { name: "in every answer" }).click();
+    await p.getByText("Earlier versions").waitFor();
+    await p.getByRole("button", { name: "Go back to this" }).last().click();
+    await p.getByText("Back to version 1.").waitFor();
   });
 
   await step("sign out and back in with the passkey", async (p) => {

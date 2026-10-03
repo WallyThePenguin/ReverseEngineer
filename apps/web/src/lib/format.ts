@@ -71,6 +71,7 @@ export const TYPE_LABEL: Record<string, string> = {
   brief: "Brief",
   journal: "Journal",
   page_watch: "Page watch",
+  memory_note: "Memory",
 };
 
 export function who(principal: string): string {

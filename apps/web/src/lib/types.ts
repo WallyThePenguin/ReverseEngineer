@@ -194,3 +194,27 @@ export interface PageWatch {
   lastText?: string | null;
   previousText?: string | null;
 }
+
+export interface MemoryNote {
+  id: string;
+  title: string;
+  /** Not in memory.list. */
+  body: string;
+  scope: "always" | "topic";
+  keywords: string[];
+  revision: number;
+  updatedAt: string;
+  updatedBy: string;
+}
+
+export interface MemoryRevision {
+  entityId: string;
+  revision: number;
+  title: string;
+  body: string;
+  scope: "always" | "topic";
+  keywords: string[];
+  reason: string | null;
+  changedBy: string;
+  at: string;
+}

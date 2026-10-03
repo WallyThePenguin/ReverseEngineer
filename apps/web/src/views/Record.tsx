@@ -10,6 +10,7 @@ import { ago, TYPE_LABEL, who } from "../lib/format.ts";
 import { layout, routeFor } from "../lib/panes.ts";
 import { useAction } from "../lib/query.ts";
 import type { Entity } from "../lib/types.ts";
+import { MemoryPanel } from "./Memory.tsx";
 import { PageWatchPanel } from "./PageWatch.tsx";
 
 export function RecordView(props: { id: string; pane: number }) {
@@ -34,7 +35,9 @@ export function RecordView(props: { id: string; pane: number }) {
             <Show when={r().type === "page_watch"}>
               <PageWatchPanel id={r().id} />
             </Show>
-            <Body text={r().body} />
+            <Show when={r().type === "memory_note"} fallback={<Body text={r().body} />}>
+              <MemoryPanel id={r().id} />
+            </Show>
             <Show when={r().type !== "comment"}>
               <Comments parentId={r().id} />
             </Show>

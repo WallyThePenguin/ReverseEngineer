@@ -1,6 +1,14 @@
 // Pane routes and how they're written in the URL: /inbox+task/0190...+note/0191...
 
-export type ListView = "inbox" | "tasks" | "notes" | "people" | "browser" | "activity" | "settings";
+export type ListView =
+  | "inbox"
+  | "tasks"
+  | "notes"
+  | "people"
+  | "memory"
+  | "browser"
+  | "activity"
+  | "settings";
 
 export type PaneRoute =
   | { view: ListView }
@@ -12,6 +20,7 @@ const LIST_VIEWS = new Set([
   "tasks",
   "notes",
   "people",
+  "memory",
   "browser",
   "activity",
   "settings",
