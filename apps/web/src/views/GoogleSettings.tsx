@@ -5,10 +5,11 @@ import { Badge, Button } from "../components/ui.tsx";
 import { ago } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
 import { act, useAction } from "../lib/query.ts";
-import type { CalendarSetup } from "../lib/types.ts";
+import type { CalendarSetup, MailAccount } from "../lib/types.ts";
 
 export function GoogleSettings() {
   const setup = useAction<CalendarSetup>("calendar.calendars");
+  const mail = useAction<MailAccount[]>("mail.accounts");
   onMount(() => {
     // Back from Google's sign-in: say how it went, then tidy the address.
     const msg = new URLSearchParams(location.search).get("google");
@@ -70,7 +71,31 @@ export function GoogleSettings() {
           >
             Connect Google Calendar
           </Button>
+          <Button onClick={() => location.assign("/api/google/connect?for=calendar,gmail")}>
+            Connect Gmail too
+          </Button>
         </div>
+        <Show when={(mail.data ?? []).length > 0}>
+          <ul class="space-y-1 text-sm">
+            <For each={mail.data}>
+              {(m) => (
+                <li class="flex items-center gap-3">
+                  <Badge tone={m.lastError ? "bad" : "ok"}>
+                    {m.lastError ? "mail failing" : "mail"}
+                  </Badge>
+                  <span class="flex-1">{m.address}</span>
+                  <span class="text-xs text-faint">
+                    {!m.firstSyncDone
+                      ? "bringing in the last 30 days…"
+                      : m.syncedAt
+                        ? `synced ${ago(m.syncedAt)}`
+                        : ""}
+                  </span>
+                </li>
+              )}
+            </For>
+          </ul>
+        </Show>
         <Show when={(setup.data?.calendars ?? []).length > 0}>
           <ul class="space-y-1">
             <For each={setup.data?.calendars}>

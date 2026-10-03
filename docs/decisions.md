@@ -423,3 +423,26 @@ read outside content, can write or change one.
 **Why:** Pausing stops Jarvis acting on its own. A routine is something you asked for, at a time
 you chose; skipping it silently would be a surprise. You can turn each one off on its own.
 
+
+## D32. Mail syncs into Hearth's own tables, threaded by headers, triaged locally first (2026-10-03)
+
+**Decision:** Each Gmail account you connect (Settings > Google, "Connect Gmail too") syncs into
+`mail_thread` and `mail_message` through a `MailProvider` (D15). The first sync brings in the last
+30 days, up to 1,000 messages, in pages; after that the worker asks Gmail's `history.list` what
+changed, every minute. Messages join conversations by Message-ID, In-Reply-To and References, never
+by Gmail's thread ids. The raw message is kept on disk under the data folder (`blobs/`, by its
+hash); the database keeps the text, sender, recipients, flags and attachment list. Archive, star,
+read and trash change Hearth at once and queue the same change for Gmail, which is rolled back (and
+you're told) if Gmail refuses it. Mail lands in Signal or Noise by your sender rules first, then
+whether you know the person, then Gmail's tabs; once you've written in a conversation it's Signal.
+Writing to someone makes them a person. Drafts, spam and chats stay out. Every email is outside
+content for Jarvis (D25); trashing mail waits for your yes, and the HTML view is yours only.
+
+**Alternatives:** Read Gmail live on every screen. Use Gmail's thread ids. Push notifications
+through Pub/Sub. Back up the raw messages with the database.
+
+**Why:** Hearth's own copy is what makes one inbox across accounts, search, people and Jarvis
+possible, and it keeps working when Google is slow. Header threading works the same for Outlook or
+IMAP later. Polling needs nothing on your PC open to the internet. Raw messages are still in
+Gmail, so they stay out of the nightly backup to keep it small; after a restore, older mail shows
+as text until it's synced again.

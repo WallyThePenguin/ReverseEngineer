@@ -1,0 +1,206 @@
+// One email conversation. HTML mail is shown in a sandboxed frame that runs no scripts and loads
+// nothing from the internet (so senders can't see you opened it) until you ask for images.
+
+import { createSignal, For, Show } from "solid-js";
+import { Backlinks } from "../components/Backlinks.tsx";
+import { Button, PaneHeader, Placeholder } from "../components/ui.tsx";
+import { ago } from "../lib/format.ts";
+import { useHotkeys } from "../lib/hotkeys.ts";
+import { toast } from "../lib/live.ts";
+import { layout } from "../lib/panes.ts";
+import { act, useAction } from "../lib/query.ts";
+import type { MailAddress, MailMessage, MailThreadView } from "../lib/types.ts";
+import { named } from "./Mail.tsx";
+
+const list = (xs: MailAddress[]) =>
+  xs.map((a) => (a.name ? `${a.name} <${a.address}>` : a.address)).join(", ");
+
+function frameDoc(html: string, images: boolean): string {
+  const img = images ? "data: cid: https: http:" : "data: cid:";
+  return `<!doctype html><html><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${img}; style-src 'unsafe-inline' ${images ? "https:" : ""}; font-src data:">
+<base target="_blank"><style>html{color-scheme:light}body{margin:0;padding:12px;font:14px/1.5 system-ui,sans-serif;color:#222;background:#fff;overflow-wrap:anywhere}img{max-width:100%;height:auto}</style>
+</head><body>${html}</body></html>`;
+}
+
+/** An HTML message, sized to fit its content. */
+function HtmlBody(props: { id: string }) {
+  const [images, setImages] = createSignal(false);
+  const html = useAction<{ html: string; remoteImages: boolean }>("mail.html", () => ({
+    id: props.id,
+  }));
+  let frame: HTMLIFrameElement | undefined;
+  const fit = () => {
+    const doc = frame?.contentDocument;
+    if (frame && doc?.body)
+      frame.style.height = `${Math.min(doc.documentElement.scrollHeight + 4, 20000)}px`;
+  };
+  return (
+    <Show
+      when={html.data}
+      fallback={
+        <p class="text-sm text-muted">
+          {html.isError ? "This message's original isn't on this PC." : "Loading…"}
+        </p>
+      }
+    >
+      {(h) => (
+        <div class="space-y-2">
+          <Show when={h().remoteImages && !images()}>
+            <p class="text-xs text-muted">
+              Pictures from the internet are hidden, so the sender can't tell you opened this.{" "}
+              <button type="button" class="underline" onClick={() => setImages(true)}>
+                Show them
+              </button>
+            </p>
+          </Show>
+          {/* No scripts: same-origin only lets Hearth measure the height. */}
+          <iframe
+            ref={frame}
+            title="Message"
+            class="w-full rounded-md border border-line bg-white"
+            style={{ height: "200px" }}
+            sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+            referrerpolicy="no-referrer"
+            srcdoc={frameDoc(h().html, images())}
+            onLoad={fit}
+          />
+        </div>
+      )}
+    </Show>
+  );
+}
+
+function Message(props: { m: MailMessage; open: boolean; onToggle: () => void }) {
+  const files = () => props.m.attachments.filter((a) => !a.inline);
+  return (
+    <article class="rounded-lg border border-line">
+      <button
+        type="button"
+        class="flex w-full items-baseline gap-3 px-4 py-2 text-left"
+        onClick={props.onToggle}
+      >
+        <span class="font-medium">{props.m.outbound ? "You" : named(props.m.from)}</span>
+        <span class="min-w-0 flex-1 truncate text-xs text-muted">
+          <Show
+            when={!props.open}
+            fallback={
+              <>
+                to {list(props.m.to)}
+                {props.m.cc.length ? `, cc ${list(props.m.cc)}` : ""}
+              </>
+            }
+          >
+            {props.m.text.slice(0, 140)}
+          </Show>
+        </span>
+        <span class="shrink-0 text-xs text-faint" title={new Date(props.m.sentAt).toLocaleString()}>
+          {ago(props.m.sentAt)}
+        </span>
+      </button>
+      <Show when={props.open}>
+        <div class="space-y-3 px-4 pb-4">
+          <Show
+            when={props.m.hasHtml}
+            fallback={<pre class="whitespace-pre-wrap font-sans text-sm">{props.m.text}</pre>}
+          >
+            <HtmlBody id={props.m.id} />
+          </Show>
+          <Show when={files().length > 0}>
+            <ul class="flex flex-wrap gap-2 text-xs">
+              <For each={files()}>
+                {(a) => (
+                  <li class="rounded border border-line bg-sunk px-2 py-1">
+                    📎 {a.filename}{" "}
+                    <span class="text-faint">({Math.max(1, Math.round(a.size / 1024))} KB)</span>
+                  </li>
+                )}
+              </For>
+            </ul>
+          </Show>
+        </div>
+      </Show>
+    </article>
+  );
+}
+
+export function MailThreadPane(props: { id: string; pane: number }) {
+  const t = useAction<MailThreadView>("mail.thread", () => ({ id: props.id }));
+  const [opened, setOpened] = createSignal<Set<string>>(new Set());
+  const focused = () => layout.focused() === props.pane;
+  // The newest message and any unread ones start open.
+  const isOpen = (m: MailMessage, last: boolean) => last || m.unread || opened().has(m.id);
+  const toggle = (id: string) =>
+    setOpened((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const run = async (name: string, input: Record<string, unknown>, done?: string) => {
+    if ((await act(name, input)) && done) toast.show(done);
+  };
+  useHotkeys([
+    {
+      keys: "e",
+      run: () =>
+        t.data &&
+        void run(
+          t.data.inInbox ? "mail.archive" : "mail.unarchive",
+          { ids: [t.data.id] },
+          t.data.inInbox ? "Archived." : "Back in the inbox.",
+        ),
+      when: focused,
+      label: "Archive",
+    },
+    {
+      keys: "s",
+      run: () => t.data && void run("mail.star", { ids: [t.data.id], starred: !t.data.starred }),
+      when: focused,
+      label: "Star",
+    },
+  ]);
+  return (
+    <Show when={t.data} fallback={<Placeholder missing={t.isError} what="conversation" />}>
+      {(v) => (
+        <div class="flex h-full flex-col">
+          <PaneHeader
+            title={v().subject}
+            sub={`${v().account} · ${v().messageCount} message${v().messageCount === 1 ? "" : "s"} · ${v().lane === "noise" ? "Noise" : "Signal"}`}
+          >
+            <Button
+              small
+              onClick={() =>
+                void run(
+                  v().inInbox ? "mail.archive" : "mail.unarchive",
+                  { ids: [v().id] },
+                  v().inInbox ? "Archived." : "Back in the inbox.",
+                )
+              }
+            >
+              {v().inInbox ? "Archive" : "Move to inbox"}
+            </Button>
+            <Button
+              small
+              onClick={() => void run("mail.star", { ids: [v().id], starred: !v().starred })}
+            >
+              {v().starred ? "Unstar" : "Star"}
+            </Button>
+          </PaneHeader>
+          <div class="flex-1 space-y-3 overflow-auto px-5 py-4">
+            <For each={v().messages}>
+              {(m, i) => (
+                <Message
+                  m={m}
+                  open={isOpen(m, i() === v().messages.length - 1)}
+                  onToggle={() => toggle(m.id)}
+                />
+              )}
+            </For>
+            <Backlinks id={v().id} />
+          </div>
+        </div>
+      )}
+    </Show>
+  );
+}

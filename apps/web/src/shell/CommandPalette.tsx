@@ -27,6 +27,7 @@ function commands(): Item[] {
   });
   return [
     go("inbox", "Inbox"),
+    go("mail", "Mail"),
     go("tasks", "Tasks"),
     go("notes", "Notes"),
     go("calendar", "Calendar"),

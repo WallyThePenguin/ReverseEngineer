@@ -2,7 +2,15 @@
 // calendar directly and asking before anything guests would see, prep packets each morning,
 // conflict warnings, and time blocks for big tasks (PLAN.md sections 6.1, 6.2 and 8.2).
 import { formatTime, localDate } from "@hearth/core";
-import { calendar, calendarEvent, entity, googleAccount } from "@hearth/db";
+import {
+  calendar,
+  calendarEvent,
+  entity,
+  googleAccount,
+  mailAccount,
+  mailMessage,
+  mailThread,
+} from "@hearth/db";
 import {
   type DigestItem,
   defineAction,
@@ -283,7 +291,7 @@ export const calendarModule = defineModule({
     }),
     defineAction({
       name: "google.disconnect",
-      description: "Forget a Google account: its tokens and its calendars leave Hearth.",
+      description: "Forget a Google account: its tokens, calendars and mail leave Hearth.",
       input: z.object({ email: z.string().email() }),
       risk: "internal",
       callers: ["owner"],
@@ -305,6 +313,21 @@ export const calendarModule = defineModule({
             );
           await ctx.tx.delete(entity).where(inArray(entity.id, events));
         }
+        // Its mail too: messages, conversations and the account (raw copies stay on disk).
+        const mailId = `gmail:${email}`;
+        for (const table of [mailMessage, mailThread] as const)
+          await ctx.tx
+            .delete(entity)
+            .where(
+              inArray(
+                entity.id,
+                ctx.tx
+                  .select({ id: table.entityId })
+                  .from(table)
+                  .where(eq(table.accountId, mailId)),
+              ),
+            );
+        await ctx.tx.delete(mailAccount).where(eq(mailAccount.id, mailId));
         const gone = await ctx.tx
           .delete(googleAccount)
           .where(eq(googleAccount.email, email))

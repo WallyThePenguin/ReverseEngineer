@@ -253,3 +253,55 @@ export interface CalendarSetup {
     lastError: string | null;
   }[];
 }
+
+export interface MailAddress {
+  address: string;
+  name?: string;
+}
+
+export interface MailThread {
+  id: string;
+  subject: string;
+  snippet: string;
+  account: string;
+  participants: MailAddress[];
+  lastMessageAt: string;
+  messageCount: number;
+  unread: boolean;
+  starred: boolean;
+  inInbox: boolean;
+  trashed: boolean;
+  lane: "signal" | "noise";
+}
+
+export interface MailMessage {
+  id: string;
+  from: MailAddress;
+  to: MailAddress[];
+  cc: MailAddress[];
+  sentAt: string;
+  text: string;
+  hasHtml: boolean;
+  outbound: boolean;
+  unread: boolean;
+  attachments: {
+    index: number;
+    filename: string;
+    mimeType: string;
+    size: number;
+    inline?: boolean;
+  }[];
+}
+
+export interface MailThreadView extends MailThread {
+  messages: MailMessage[];
+}
+
+export interface MailAccount {
+  address: string;
+  provider: string;
+  syncedAt: string | null;
+  lastError: string | null;
+  firstSyncDone: boolean;
+  pendingChanges: number;
+}

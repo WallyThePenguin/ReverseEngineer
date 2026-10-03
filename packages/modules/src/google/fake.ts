@@ -1,7 +1,8 @@
 // A fake Google for tests: sign-in, token refresh and the Calendar calls Hearth makes, kept in
 // memory. Hand `fake.fetch` to a GoogleClient.
 import type { GCalendar, GEvent } from "./calendar-api.ts";
-import { GoogleClient } from "./client.ts";
+import { GoogleClient, SCOPES } from "./client.ts";
+import { FakeGmail } from "./fake-gmail.ts";
 
 interface FakeCalendar extends GCalendar {
   events: Map<string, GEvent>;
@@ -13,10 +14,14 @@ export class FakeGoogle {
   readonly calls: { method: string; path: string; body?: unknown }[] = [];
   /** Set to make the next token refresh fail as if access was revoked. */
   revoked = false;
+  /** What a sign-in grants. */
+  grants: string[] = ["openid", "email", ...SCOPES.calendar];
+  readonly gmail: FakeGmail;
   private seq = 0;
 
   constructor(email = "owner@example.com") {
     this.email = email;
+    this.gmail = new FakeGmail(email);
     this.addCalendar({ id: email, summary: email, primary: true, accessRole: "owner" });
   }
 
@@ -71,12 +76,13 @@ export class FakeGoogle {
         ...(body?.grant_type === "authorization_code"
           ? {
               refresh_token: "rt",
-              scope: "openid email https://www.googleapis.com/auth/calendar",
+              scope: this.grants.join(" "),
             }
           : {}),
       });
     }
     if (u.hostname === "openidconnect.googleapis.com") return json(200, { email: this.email });
+    if (u.hostname === "gmail.googleapis.com") return this.gmail.handle(u, method, body);
 
     const path = u.pathname.replace("/calendar/v3", "");
     if (path === "/users/me/calendarList") {

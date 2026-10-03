@@ -75,6 +75,8 @@ export const TYPE_LABEL: Record<string, string> = {
   event: "Event",
   prep: "Prep",
   routine: "Routine",
+  email_thread: "Email",
+  email: "Email",
 };
 
 export function who(principal: string): string {

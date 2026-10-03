@@ -5,7 +5,9 @@ import type { Server } from "node:http";
 import { join } from "node:path";
 import { getSetting, type Kernel } from "@hearth/kernel";
 import {
+  BLOB_SERVICE,
   BROWSER_SERVICE,
+  blobsFromEnv,
   GOOGLE_SERVICE,
   googleFromEnv,
   VAULT_SERVICE,
@@ -62,6 +64,7 @@ export function createApp(opts: AppOptions) {
   opts.kernel.services[BROWSER_SERVICE] ??= bridge;
   opts.kernel.services[GOOGLE_SERVICE] ??= googleFromEnv();
   opts.kernel.services[VAULT_SERVICE] ??= vaultFromEnv();
+  opts.kernel.services[BLOB_SERVICE] ??= blobsFromEnv();
   const live = new LiveView(bridge);
   const deps: ServerDeps = {
     kernel: opts.kernel,

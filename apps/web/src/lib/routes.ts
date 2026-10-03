@@ -2,6 +2,7 @@
 
 export type ListView =
   | "inbox"
+  | "mail"
   | "tasks"
   | "notes"
   | "people"
@@ -13,11 +14,12 @@ export type ListView =
 
 export type PaneRoute =
   | { view: ListView }
-  | { view: "task" | "note" | "record" | "chat"; id: string };
+  | { view: "task" | "note" | "record" | "chat" | "thread"; id: string };
 
 export const MAX_PANES = 3;
 const LIST_VIEWS = new Set([
   "inbox",
+  "mail",
   "tasks",
   "notes",
   "people",
@@ -27,7 +29,7 @@ const LIST_VIEWS = new Set([
   "activity",
   "settings",
 ]);
-const RECORD_VIEWS = new Set(["task", "note", "record", "chat"]);
+const RECORD_VIEWS = new Set(["task", "note", "record", "chat", "thread"]);
 const ID = /^[0-9a-f-]{36}$/i;
 
 export function encodeRoute(r: PaneRoute): string {
@@ -60,5 +62,6 @@ export function routeFor(type: string, id: string): PaneRoute {
   if (type === "task") return { view: "task", id };
   if (type === "note") return { view: "note", id };
   if (type === "conversation") return { view: "chat", id };
+  if (type === "email_thread" || type === "email") return { view: "thread", id };
   return { view: "record", id };
 }
