@@ -74,6 +74,7 @@ export const TYPE_LABEL: Record<string, string> = {
   memory_note: "Memory",
   event: "Event",
   prep: "Prep",
+  routine: "Routine",
 };
 
 export function who(principal: string): string {

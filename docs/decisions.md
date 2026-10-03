@@ -369,3 +369,53 @@ clearest sign that something is driving your browser).
 **Why:** The browser stays yours and visible: your Chrome, your profile, a window you can see,
 never a hidden one. Hearth keeps working after you close Chrome, and you're told plainly when it
 can't open Chrome (usually because nobody is signed in to Windows).
+
+## D29. The sign-in vault is Hearth's own, encrypted with a key kept outside the database (2026-10-03)
+
+**Decision:** The logins Jarvis may use live in Hearth's database, in `vault_login`. Each
+password is encrypted (AES-256-GCM) with a key from `HEARTH_VAULT_KEY`, or from `vault.key` in the
+data folder, which Hearth makes the first time you save a sign-in. Each one is tied to its site
+and username, so it can't be moved to another site. You add them in Settings > Sign-ins; only you
+can, and the audit log keeps none of it. Jarvis sees sites and usernames, never a password:
+`browser.sign_in` decrypts one in code and types it into the password field of the matching site
+(that site or its subdomains, over HTTPS only). Database backups don't include the key, so a
+stolen backup gives nothing away, and after a rebuild you save the sign-ins again.
+
+**Alternatives:** KeePassXC through its browser protocol, as D26 suggested. Chrome's own saved
+passwords.
+
+**Why:** KeePassXC needs its app open and unlocked after every reboot, a pairing step, and its
+own encrypted message protocol, all for a handful of logins. Chrome doesn't let an extension read
+its saved passwords at all. Hearth's own vault needs no setup, works unattended after a reboot,
+and keeps the same promise: the model never sees a password and a look-alike site gets nothing.
+The key file is only as safe as the PC, the same trade KeePassXC's key file would make.
+
+## D30. After reading outside content, Jarvis types freely only where it went first (2026-10-03)
+
+**Decision:** Clicking, picking from lists and typing don't need your yes. Pressing anything that
+sends (a form's submit button, a button named Send, Buy, Post, Delete and the like, or Enter in
+most fields) is `browser.submit`, which always does. Once a turn has read outside content, typing
+goes freely only into sites the turn opened before that, or sites on your allowed list; anywhere
+else it waits for your yes. Passwords are typed only by `browser.sign_in`. Hearth refuses to
+click something covered by another element, and checks a submit button's name against what you
+approved before pressing it.
+
+**Alternatives:** Ask before every typing step after reading a page. Let typing go anywhere and
+rely on the submit approval.
+
+**Why:** Typing is how data could leave: a page could lead Jarvis somewhere and have it type your
+details into a box that sends as you type. A site Jarvis opened before reading anything was your
+choice, or its own from your request, so search boxes and forms there just work. Asking before
+every keystroke would make the browser useless; asking for none would leave D25 with a gap.
+
+## D31. Your routines run while Jarvis is paused (2026-10-03)
+
+**Decision:** Routines you make (Settings > Routines, or by asking Jarvis) run on their schedule
+even while Jarvis is paused, like a watch's follow-up. Only you, or Jarvis in a turn that hasn't
+read outside content, can write or change one.
+
+**Alternatives:** Treat routines as Jarvis's own initiative and stop them with the pause.
+
+**Why:** Pausing stops Jarvis acting on its own. A routine is something you asked for, at a time
+you chose; skipping it silently would be a surprise. You can turn each one off on its own.
+

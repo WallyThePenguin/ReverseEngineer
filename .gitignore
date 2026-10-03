@@ -6,3 +6,4 @@ dist/
 *.log
 .hearth/
 coverage/
+vault.key

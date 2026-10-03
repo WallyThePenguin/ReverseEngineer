@@ -11,6 +11,7 @@ import { inboxModule } from "./inbox/index.ts";
 import { memoryModule } from "./memory/index.ts";
 import { notesModule } from "./notes/index.ts";
 import { peopleModule } from "./people/index.ts";
+import { routinesModule } from "./routines/index.ts";
 import { systemModule } from "./system/index.ts";
 import { tasksModule } from "./tasks/index.ts";
 
@@ -27,6 +28,7 @@ export const ALL_MODULES: HearthModule[] = [
   browserModule,
   memoryModule,
   calendarModule,
+  routinesModule,
 ];
 
 export { renderBrief, renderDigest } from "./assistant/brief.ts";
@@ -41,6 +43,8 @@ export {
   serverUrl,
   type TabInfo,
 } from "./browser/client.ts";
+export { pacing } from "./browser/pace.ts";
+export { VAULT_SERVICE, Vault, vaultFromEnv } from "./browser/vault.ts";
 export type { EventView } from "./calendar/store.ts";
 export { appendLog, type LogEntry, type LogKind, routeLane } from "./chat/index.ts";
 export { GOOGLE_SERVICE, GoogleClient, googleFromEnv, SCOPES } from "./google/client.ts";
@@ -58,6 +62,7 @@ export {
   memoryModule,
   notesModule,
   peopleModule,
+  routinesModule,
   systemModule,
   tasksModule,
 };

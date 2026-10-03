@@ -1,5 +1,6 @@
-// Jarvis's browser, step 1 (D24, D25): open pages in your own Chrome, read them, look at them,
-// and close them again. It works in Jarvis's own window and in tabs you hand it. Pages are
+// Jarvis's browser (D24, D25): open pages in your own Chrome, read them, look at them, and close
+// them again (step 1); click, type, submit with your yes, and sign in from the vault (step 2,
+// act.ts, sign-in.ts). It works in Jarvis's own window and in tabs you hand it. Pages are
 // outside content, so reading one makes the rest of a turn untrusted. Sites on your blocked list
 // are off limits to everyone but you.
 import {
@@ -11,9 +12,14 @@ import {
   setSetting,
 } from "@hearth/kernel";
 import { z } from "zod";
+import { notesForSite } from "../memory/recall.ts";
 import { assertAllowed, browser, CALLERS } from "./access.ts";
+import { actActions } from "./act.ts";
 import type { TabInfo } from "./client.ts";
+import { pace } from "./pace.ts";
 import { findTab, forgetLinks, linkUrl, readPage, rememberLinks, waitForLoad } from "./page.ts";
+import { signInAction } from "./sign-in.ts";
+import { vaultActions } from "./vault.ts";
 import { describeWatch, watchActions, watchFollowUp } from "./watches.ts";
 
 /** The most of a page read at once; longer pages are cut off there. */
@@ -72,11 +78,23 @@ export const browserModule = defineModule({
       kind: "browser.sites_changed",
       description: "You changed the sites Jarvis may open freely or never opens. Payload: sites.",
     },
+    {
+      kind: "browser.signed_in",
+      description:
+        "Jarvis signed in to a site from the vault, or tried to. Payload: site, username, status.",
+    },
+    {
+      kind: "vault.changed",
+      description: "You saved, changed or removed a sign-in. Payload: site, username, removed.",
+    },
   ],
   knowledge: { page_watch: describeWatch },
   reflexes: [watchFollowUp],
   actions: [
     ...watchActions,
+    ...actActions,
+    ...vaultActions,
+    signInAction,
     defineAction({
       name: "browser.tabs",
       description:
@@ -103,7 +121,7 @@ export const browserModule = defineModule({
     defineAction({
       name: "browser.open",
       description:
-        "Open a web page in the owner's Chrome, signed in as them: an address, or a link from a page you read (by its reference, with tabId). Returns the tab; read it with browser_read.",
+        "Open a web page in the owner's Chrome, signed in as them: an address, or a link from a page you read (by its reference, with tabId). Returns the tab, and what you remember about the site (siteNotes); read the page with browser_read.",
       input: OpenInput,
       risk: "read",
       callers: CALLERS,
@@ -119,6 +137,7 @@ export const browserModule = defineModule({
             `There's no ${i.link} on the page last read in tab ${i.tabId}. Read the page first.`,
           );
         const url = await assertAllowed(ctx, raw);
+        await pace(ctx, url);
         const client = browser(ctx);
         let tab: TabInfo;
         if (i.tabId === undefined || (i.link && i.newTab)) {
@@ -132,13 +151,21 @@ export const browserModule = defineModule({
         const loaded = await waitForLoad(client, tab.tabId);
         ctx.emit({ kind: "browser.opened", payload: { tabId: tab.tabId, url } });
         // Only the address asked for: the page's own title and text come from browser_read.
-        return { tabId: tab.tabId, url, loaded: !loaded.loading };
+        const notes = await notesForSite(ctx.tx, new URL(url).hostname);
+        return {
+          tabId: tab.tabId,
+          url,
+          loaded: !loaded.loading,
+          ...(notes.length
+            ? { siteNotes: notes.map((n) => ({ id: n.id, title: n.title, body: n.body })) }
+            : {}),
+        };
       },
     }),
     defineAction({
       name: "browser.read",
       description:
-        "Read the page in a tab as text, the way a person sees it. Links show as references like [L4]; follow one with browser_open {tabId, link}. Long pages come in parts: pass offset to read on.",
+        "Read the page in a tab as text, the way a person sees it. Links show as references like [L4]; follow one with browser_open {tabId, link}. Things you can press or type into show as [button E3: Add to cart], [field E5: Search] and so on: use browser_click, browser_type, browser_choose and browser_submit with them. `sends` lists the ones that would send something (browser_submit, which asks the owner). Long pages come in parts: pass offset to read on.",
       input: z.object({
         tabId: z.number().int(),
         offset: z.number().int().min(0).default(0),
@@ -150,12 +177,14 @@ export const browserModule = defineModule({
       async handler(i, ctx) {
         const client = browser(ctx);
         await assertAllowed(ctx, (await findTab(client, i.tabId)).url);
-        const page = await readPage(client, i.tabId, Math.min(MAX_READ, i.offset + i.maxChars));
+        const upTo = Math.min(MAX_READ, i.offset + i.maxChars);
+        const page = await readPage(client, i.tabId, upTo, undefined, true);
         // The page may have moved on since the tab list was read.
         await assertAllowed(ctx, page.url);
-        rememberLinks(i.tabId, page.url, page.links);
+        rememberLinks(i.tabId, page.url, page.links, page.elements);
         const text = page.text.slice(i.offset, i.offset + i.maxChars);
         const refs = new Set([...text.matchAll(/\[L(\d+)\]/g)].map((m) => Number(m[1])));
+        const shown = new Set([...text.matchAll(/ (E\d+): /g)].map((m) => m[1]));
         const end = i.offset + text.length;
         const more = page.truncated || end < page.text.length;
         return {
@@ -164,6 +193,9 @@ export const browserModule = defineModule({
           title: page.title,
           text,
           links: [...refs].map((n) => `L${n} ${page.links[n - 1]}`),
+          sends: page.elements
+            .filter((e) => e.submits && shown.has(e.ref))
+            .map((e) => `${e.ref} ${e.label}`),
           next: more && end < MAX_READ ? { offset: end } : null,
         };
       },
@@ -217,6 +249,32 @@ export const browserModule = defineModule({
         ctx.emit({ kind: "browser.sites_changed", payload: { sites } });
         return sites;
       },
+    }),
+    defineAction({
+      name: "browser.set_pace",
+      description:
+        "Change how long Jarvis waits between steps on a site, so it doesn't look like a bot: a default, and any sites that need longer.",
+      input: z.object({
+        seconds: z.number().min(0).max(60),
+        sites: z.record(SITE, z.number().min(0).max(300)).default({}),
+      }),
+      risk: "internal",
+      callers: ["owner"],
+      async handler(i, ctx) {
+        const sites = Object.fromEntries(
+          Object.entries(i.sites).map(([s, n]) => [s.trim().toLowerCase(), n]),
+        );
+        await setSetting(ctx.tx, "browser.pace", { seconds: i.seconds, sites });
+        return { seconds: i.seconds, sites };
+      },
+    }),
+    defineAction({
+      name: "browser.pace",
+      description: "How long Jarvis waits between steps on a site.",
+      input: z.object({}),
+      risk: "read",
+      callers: CALLERS,
+      handler: (_i, ctx) => getSetting(ctx.tx, "browser.pace"),
     }),
     defineAction({
       name: "browser.close",

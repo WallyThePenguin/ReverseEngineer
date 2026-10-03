@@ -70,6 +70,11 @@ export interface ActionDef<S extends z.ZodType = z.ZodType, R = unknown> {
   external?: boolean;
   /** The web address this call would open, so an untrusted turn can be held to D25. */
   opensUrl?(input: z.output<S>): string | null;
+  /**
+   * The page this call types into, so a turn that read outside content can be held to D30:
+   * typing on a site nobody vouched for needs your yes. Null when there's nothing to check.
+   */
+  typesInto?(input: z.output<S>, services: { service<T>(name: string): T }): Promise<string | null>;
   /** One line for an approval card: "Send email to Ana: Friday's agenda". */
   summarize?(input: z.output<S>): string;
   handler(input: z.output<S>, ctx: ActionContext): Promise<R>;

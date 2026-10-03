@@ -9,5 +9,5 @@
     "strict": true,
     "skipLibCheck": true
   },
-  "include": ["src/browser/page-snapshot.js"]
+  "include": ["src/browser/page-*.js"]
 }

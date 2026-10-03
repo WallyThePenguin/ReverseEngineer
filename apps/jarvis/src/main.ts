@@ -10,6 +10,8 @@ import {
   GOOGLE_SERVICE,
   googleFromEnv,
   internalBrowserClient,
+  VAULT_SERVICE,
+  vaultFromEnv,
 } from "@hearth/modules";
 
 export async function runJarvis(): Promise<() => Promise<void>> {
@@ -21,6 +23,7 @@ export async function runJarvis(): Promise<() => Promise<void>> {
     services: {
       [BROWSER_SERVICE]: internalBrowserClient(database.db, PRINCIPAL.jarvis),
       [GOOGLE_SERVICE]: googleFromEnv(),
+      [VAULT_SERVICE]: vaultFromEnv(),
     },
   });
   const model = process.env.HEARTH_JARVIS_MODEL;

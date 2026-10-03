@@ -4,8 +4,25 @@ import { readFileSync } from "node:fs";
 import { ActionError } from "@hearth/kernel";
 import type { BrowserClient, TabInfo } from "./client.ts";
 
-const SOURCE = readFileSync(new URL("./page-snapshot.js", import.meta.url), "utf8");
-const SNAPSHOT = SOURCE.slice(SOURCE.indexOf("function pageSnapshot"));
+/** A page-side script's function, without the comments and type notes above it. */
+export function pageFunction(file: string, name: string): string {
+  const source = readFileSync(new URL(file, import.meta.url), "utf8");
+  const start = source.indexOf(`function ${name}`);
+  const end = source.indexOf("\n/**\n * @typedef", start);
+  return source.slice(start, end === -1 ? undefined : end);
+}
+
+const SNAPSHOT = pageFunction("./page-snapshot.js", "pageSnapshot");
+const ELEMENTS = pageFunction("./page-elements.js", "pageElements");
+
+/** Something on a page a person can press or type into, numbered "E1", "E2"... */
+export interface PageElement {
+  ref: string;
+  kind: string;
+  label: string;
+  /** Pressing it (or Enter in it) would send something, so it needs browser_submit. */
+  submits: boolean;
+}
 
 export interface PageSnapshot {
   url: string;
@@ -16,11 +33,18 @@ export interface PageSnapshot {
   truncated: boolean;
   /** A selector was given and nothing on the page matched it. */
   missing: boolean;
+  /** Numbered when asked for; empty otherwise. */
+  elements: PageElement[];
+}
+
+/** A page-side function called with its options and the element helpers. */
+export function pageCall(fn: string, opts: Record<string, unknown>): string {
+  return `(${fn})(${JSON.stringify(opts)}, (${ELEMENTS})())`;
 }
 
 /** The page-side reader as an expression, for Runtime.evaluate (and tests in a real browser). */
-export function snapshotExpression(maxChars: number, selector?: string): string {
-  return `(${SNAPSHOT})(${JSON.stringify({ maxChars, ...(selector ? { selector } : {}) })})`;
+export function snapshotExpression(maxChars: number, selector?: string, elements = false): string {
+  return pageCall(SNAPSHOT, { maxChars, ...(selector ? { selector } : {}), elements });
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -90,18 +114,24 @@ export function readPage(
   tabId: number,
   maxChars: number,
   selector?: string,
+  elements = false,
 ): Promise<PageSnapshot> {
-  return evaluate<PageSnapshot>(client, tabId, snapshotExpression(maxChars, selector));
+  return evaluate<PageSnapshot>(client, tabId, snapshotExpression(maxChars, selector, elements));
 }
 
-// The links of the last page read in each tab. Kept in this process only, which is the one
-// Jarvis runs in, so a reference is good until the tab is read again.
+// The links and elements of the last page read in each tab. Kept in this process only, which is
+// the one Jarvis runs in, so a reference is good until the tab is read again.
 const MAX_PAGES = 50;
-const pageLinks = new Map<number, { url: string; links: string[] }>();
+const pageLinks = new Map<number, { url: string; links: string[]; elements: PageElement[] }>();
 
-export function rememberLinks(tabId: number, url: string, links: string[]): void {
+export function rememberLinks(
+  tabId: number,
+  url: string,
+  links: string[],
+  elements: PageElement[] = [],
+): void {
   pageLinks.delete(tabId);
-  pageLinks.set(tabId, { url, links });
+  pageLinks.set(tabId, { url, links, elements });
   const oldest = pageLinks.keys().next().value;
   if (pageLinks.size > MAX_PAGES && oldest !== undefined) pageLinks.delete(oldest);
 }
@@ -111,6 +141,16 @@ export function linkUrl(tabId: number, ref: string): string | null {
   const n = /^L(\d+)$/i.exec(ref.trim());
   if (!n) return null;
   return pageLinks.get(tabId)?.links[Number(n[1]) - 1] ?? null;
+}
+
+/** What "E4" was on the page last read in a tab, and that page's address, if known here. */
+export function elementSeen(
+  tabId: number,
+  ref: string,
+): { url: string; element: PageElement | null } | null {
+  const page = pageLinks.get(tabId);
+  if (!page) return null;
+  return { url: page.url, element: page.elements.find((e) => e.ref === ref) ?? null };
 }
 
 export function forgetLinks(tabId: number): void {

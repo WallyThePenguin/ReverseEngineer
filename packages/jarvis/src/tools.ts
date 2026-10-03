@@ -13,7 +13,7 @@ import {
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { BrainTool } from "./brain.ts";
-import { checkOpen, readOutsideContent } from "./trust.ts";
+import { checkOpen, checkTyping, readOutsideContent, vouchFor } from "./trust.ts";
 
 const MAX_OUTPUT = 20_000;
 
@@ -34,6 +34,8 @@ export interface TurnState {
   postedToSubject: boolean;
   /** Web addresses that appeared in outside content this turn (D25). */
   seenUrls: Set<string>;
+  /** Sites opened before the turn read outside content (D30). */
+  vouchedHosts?: Set<string>;
   sites: SiteRules;
 }
 
@@ -101,6 +103,14 @@ export function buildTools(kernel: Kernel, state: TurnState, log: LogFn): BrainT
           }
           if (verdict.kind === "ask") askFirst = verdict.reason;
         }
+        if (def.typesInto && !askFirst) {
+          const where = await def
+            .typesInto(input as never, { service: (n) => kernel.services[n] as never })
+            .catch(() => null);
+          const verdict = where ? checkTyping(state, where, state.sites) : null;
+          if (verdict?.kind === "ask") askFirst = verdict.reason;
+        }
+        const trustedBefore = state.origin !== "untrusted";
         const res = await kernel.execute(
           def.name,
           input,
@@ -111,6 +121,7 @@ export function buildTools(kernel: Kernel, state: TurnState, log: LogFn): BrainT
           risk: def.risk,
           status: res.status === "ok" ? "ok" : res.status,
         });
+        if (res.status === "ok" && url && trustedBefore) vouchFor(state, url);
         if (
           res.status === "ok" &&
           def.name === "comment.create" &&

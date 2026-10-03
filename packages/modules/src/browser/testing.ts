@@ -1,6 +1,7 @@
 // A pretend Chrome for tests: tabs and pages from a table, with every request recorded.
 import { ActionError } from "@hearth/kernel";
 import { type BrowserClient, type BrowserStatus, OFFLINE_MESSAGE, type TabInfo } from "./client.ts";
+import { pacing } from "./pace.ts";
 import { loadTiming, type PageSnapshot } from "./page.ts";
 
 export interface FakePage {
@@ -9,9 +10,10 @@ export interface FakePage {
   links?: string[];
 }
 
-/** Pages load at once in tests. */
+/** Pages load at once in tests, and Jarvis doesn't pause between steps. */
 export function instantLoads(): void {
   Object.assign(loadTiming, { startMs: 0, pollMs: 0, settleMs: 0 });
+  pacing.enabled = false;
 }
 
 export class FakeBrowser implements BrowserClient {
@@ -108,6 +110,7 @@ export class FakeBrowser implements BrowserClient {
           links: page.links ?? [],
           truncated: page.text.length > max,
           missing: false,
+          elements: [],
         };
         return { result: { type: "object", value } };
       }

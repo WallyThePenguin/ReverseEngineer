@@ -2,16 +2,19 @@
 // Runs inside a web page, in an isolated world the page's own scripts can't see, and turns what a
 // person would see into text Jarvis can read: headings, paragraphs, lists, fields, and links as
 // numbered references ("Pricing [L4]"). Text a person can't see is left out, since hidden text is
-// a favourite place for instructions aimed at AI readers. This file is sent to Chrome as source,
-// so it must stay one self-contained function with no imports.
+// a favourite place for instructions aimed at AI readers. With `elements`, the things a person can
+// press or type into are numbered too ("[button E3: Add to cart]") and marked on the page, so the
+// browser's hands can find them again. This file is sent to Chrome as source, so it must stay one
+// self-contained function with no imports; `h` is page-elements.js, sent alongside.
 
 /**
- * @param {{ maxChars: number, selector?: string }} opts
+ * @param {{ maxChars: number, selector?: string, elements?: boolean }} opts
+ * @param {PageElements} h
  * @returns {{ url: string, title: string, text: string, links: string[], truncated: boolean,
- *   missing: boolean }}
+ *   missing: boolean, elements: { ref: string, kind: string, label: string, submits: boolean }[] }}
  */
 // biome-ignore lint/correctness/noUnusedVariables: sent to the page as source text.
-function pageSnapshot(opts) {
+function pageSnapshot(opts, h) {
   const SKIP = new Set([
     "SCRIPT",
     "STYLE",
@@ -71,6 +74,9 @@ function pageSnapshot(opts) {
   const links = [];
   /** @type {Map<string, number>} */
   const linkRefs = new Map();
+  /** @type {{ ref: string, kind: string, label: string, submits: boolean }[]} */
+  const elements = [];
+  if (opts.elements) for (const el of h.findAll("[data-hearth]")) el.removeAttribute("data-hearth");
   let size = 0;
   let full = false;
 
@@ -127,6 +133,21 @@ function pageSnapshot(opts) {
     return `L${n}`;
   }
 
+  /** Numbers something a person can press or type into, and marks it for the browser's hands. */
+  /** @param {Element} el @param {string} kind */
+  function mark(el, kind) {
+    const ref = `E${elements.length + 1}`;
+    el.setAttribute("data-hearth", ref);
+    elements.push({ ref, kind, label: h.labelOf(el), submits: h.submits(el) });
+    return ref;
+  }
+
+  /** @param {string} state */
+  function withState(state) {
+    if (!state) return "";
+    return state.startsWith("=") ? ` ${state}` : `, ${state}`;
+  }
+
   /** @param {Element} el */
   function fieldLabel(el) {
     const id = el.getAttribute("id");
@@ -158,10 +179,13 @@ function pageSnapshot(opts) {
       if (alt && alt.length <= 150) push(`[image: ${alt}]`);
       return;
     }
+    const kind = opts.elements ? h.kindOf(node) : null;
+    const eref = kind ? mark(node, kind) : null;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
       const type = (node.getAttribute("type") ?? "text").toLowerCase();
       if (type === "hidden") return;
       // Never what's typed in it: that's yours, and it may be a password.
+      if (eref) return push(` [${kind} ${eref}: ${h.labelOf(node)}${withState(h.stateOf(node))}] `);
       if (type === "submit" || type === "button")
         push(` [button: ${clean(node.getAttribute("value")).trim() || "submit"}] `);
       else push(` [${type === "password" ? "password field" : "field"}: ${fieldLabel(node)}] `);
@@ -174,10 +198,11 @@ function pageSnapshot(opts) {
     if (heading) push(`${"#".repeat(Number(heading[1]))} `);
     if (tag === "LI") push("- ");
     if (tag === "TD" || tag === "TH") push(" | ");
-    if (tag === "BUTTON") push(" [button: ");
+    if (eref) push(` [${kind} ${eref}: `);
+    else if (tag === "BUTTON") push(" [button: ");
 
     const isPre = pre || tag === "PRE";
-    const ref = tag === "A" ? linkRef(/** @type {HTMLAnchorElement} */ (node)) : null;
+    const ref = tag === "A" && !eref ? linkRef(/** @type {HTMLAnchorElement} */ (node)) : null;
     const before = size;
     for (const child of node.childNodes) walk(child, isPre);
     if (node.shadowRoot) for (const child of node.shadowRoot.childNodes) walk(child, isPre);
@@ -186,7 +211,10 @@ function pageSnapshot(opts) {
         push(clean(node.getAttribute("aria-label") || node.getAttribute("title") || "link"));
       push(` [${ref}]`);
     }
-    if (tag === "BUTTON") push("] ");
+    if (eref) {
+      if (size === before) push(h.labelOf(node) || kind || "");
+      push(`${withState(h.stateOf(node))}] `);
+    } else if (tag === "BUTTON") push("] ");
     if (block) breakLine();
   }
 
@@ -208,5 +236,6 @@ function pageSnapshot(opts) {
     links,
     truncated: full,
     missing: root === null,
+    elements,
   };
 }

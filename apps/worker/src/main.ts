@@ -8,6 +8,8 @@ import {
   GOOGLE_SERVICE,
   googleFromEnv,
   internalBrowserClient,
+  VAULT_SERVICE,
+  vaultFromEnv,
 } from "@hearth/modules";
 import { startWorker } from "./worker.ts";
 
@@ -19,6 +21,7 @@ export async function runWorker(): Promise<() => Promise<void>> {
     services: {
       [BROWSER_SERVICE]: internalBrowserClient(database.db, PRINCIPAL.system),
       [GOOGLE_SERVICE]: googleFromEnv(),
+      [VAULT_SERVICE]: vaultFromEnv(),
     },
   });
   const worker = startWorker({ kernel, dataDir: process.env.HEARTH_DATA_DIR ?? process.cwd() });

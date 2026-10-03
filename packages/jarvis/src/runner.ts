@@ -112,6 +112,7 @@ export class TurnRunner {
         calls: [],
         postedToSubject: false,
         seenUrls: new Set(),
+        vouchedHosts: new Set(),
         sites: await getSetting(this.kernel.db, "browser.sites"),
       };
       const cid = conversationId;

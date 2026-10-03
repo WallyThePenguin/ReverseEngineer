@@ -1,6 +1,6 @@
 # Plan: Hearth, a personal Macro with Jarvis built in
 
-Status: draft 4, 2026-10-01. M0 (the spine) and Jarvis's browser, step 1 (B1), are built; M1 (Jarvis's day and the calendar) is next. Research behind it: [Macro](docs/research/macro.md),
+Status: draft 4, 2026-10-03. M0 (the spine), M1 (Jarvis's day and the calendar) and Jarvis's browser (B1, B2) are built; M2 (email) is next. Research behind it: [Macro](docs/research/macro.md),
 [Twenty](docs/research/twenty.md), [Jarvis](docs/research/jarvis.md). Decisions and the
 alternatives we rejected: [docs/decisions.md](docs/decisions.md).
 

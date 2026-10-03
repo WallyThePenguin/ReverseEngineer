@@ -154,6 +154,18 @@ try {
     await p.getByRole("heading", { name: "Google" }).waitFor();
   });
 
+  await step("a sign-in for Jarvis and a routine, in Settings", async (p) => {
+    await p.getByLabel("Site").fill("example.com");
+    await p.getByLabel("Username").fill("me@example.com");
+    await p.getByLabel("Password", { exact: true }).fill("smoke-test-password");
+    await p.getByRole("button", { name: "Save sign-in" }).click();
+    await p.getByText("not used yet").waitFor();
+    await p.getByLabel("Routine name").fill("Smoke routine");
+    await p.getByLabel("What to do").fill("Check the weather and tell me.");
+    await p.getByRole("button", { name: "Add routine" }).click();
+    await p.getByText("weekdays at 7 a.m.").first().waitFor();
+  });
+
   await step("sign out and back in with the passkey", async (p) => {
     signedOut = true;
     await p.getByRole("button", { name: "Sign out" }).click();
