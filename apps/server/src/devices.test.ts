@@ -72,4 +72,20 @@ describe("device tokens", () => {
     expect((await post("conversation.get", { id })).status).toBe(404);
     expect((await post("chat.send", { conversationId: id, text: "hi" })).status).toBe(404);
   });
+
+  it("records meetings, but can't read them", async () => {
+    const token = await pairDevice(t.kernel.db, "desktop");
+    const post = (name: string, json: unknown) =>
+      t.api(`/api/actions/${name}`, token, { method: "POST", json });
+    const rec = await post("meeting.record", {});
+    expect(rec.status).toBe(200);
+    const { result } = (await rec.json()) as { result: { id: string; offsetMs: number } };
+    expect(result.offsetMs).toBe(0);
+    const segment = { id: "me:0", channel: "me", startMs: 0, endMs: 900, text: "Hello" };
+    expect(
+      (await post("meeting.add_segments", { id: result.id, segments: [segment] })).status,
+    ).toBe(200);
+    expect((await post("meeting.get", { id: result.id })).status).toBe(403);
+    expect((await post("meeting.end", { id: result.id })).status).toBe(200);
+  });
 });

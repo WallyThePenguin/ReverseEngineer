@@ -4,16 +4,21 @@ import { createMutation, createQuery } from "@tanstack/solid-query";
 import { action } from "./api.ts";
 import { queryClient, reportError } from "./live.ts";
 
-/** Reads an action's result. Re-runs when `input` changes or a live event arrives. */
+/**
+ * Reads an action's result. Re-runs when `input` changes or a live event arrives, and every
+ * `pollMs` while that returns a number (for things that change without an event).
+ */
 export function useAction<T>(
   name: string,
   input: () => unknown = () => ({}),
   enabled: () => boolean = () => true,
+  pollMs: (data: T | undefined) => number | false = () => false,
 ) {
   return createQuery(() => ({
     queryKey: [name, input()],
     queryFn: () => action<T>(name, input()),
     enabled: enabled(),
+    refetchInterval: (q: { state: { data?: T } }) => pollMs(q.state.data),
   }));
 }
 

@@ -293,6 +293,9 @@ fn initialize_core_logic(app_handle: &AppHandle) {
             "open_hearth" => {
                 hearth::open_window(app);
             }
+            "hearth_meeting" => {
+                hearth::meeting::toggle(app);
+            }
             "secure_input_warning" => {
                 // Full explanation lives in the settings-window banner
                 show_main_window(app);

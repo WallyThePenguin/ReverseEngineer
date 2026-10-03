@@ -13,10 +13,17 @@ import {
   type ReflexDef,
   updateEntity,
 } from "@hearth/kernel";
-import { desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { body, describeRow, id, isoDateTime, liveEntity, preview } from "../shared.ts";
-import { MAX_SEGMENTS, meetingView, startMeeting, taskTitles, transcriptText } from "./store.ts";
+import {
+  MAX_SEGMENTS,
+  meetingView,
+  recordMeeting,
+  startMeeting,
+  taskTitles,
+  transcriptText,
+} from "./store.ts";
 
 const MEETINGS_PRINCIPAL = "integration:meetings";
 
@@ -29,8 +36,9 @@ async function liveMeeting(db: Parameters<typeof liveEntity>[0], meetingId: stri
 const segment = z.object({
   id: z.string().min(1).max(100),
   channel: z.enum(["me", "them"]),
-  startMs: z.number().int().min(0),
-  endMs: z.number().int().min(0),
+  // Within Postgres's integer (about 24 days in).
+  startMs: z.number().int().min(0).max(2_000_000_000),
+  endMs: z.number().int().min(0).max(2_000_000_000),
   text: z.string().max(5000),
 });
 
@@ -114,6 +122,16 @@ export const meetingsModule = defineModule({
       handler: async (i, ctx) => ({ id: await startMeeting(ctx, i) }),
     }),
     defineAction({
+      name: "meeting.record",
+      description:
+        "The desktop recorder starts: the meeting for the calendar event that's on now, else notes you opened and haven't ended, else a new one (title). Returns its id, title and how far into it recording starts (offsetMs).",
+      input: z.object({ title: z.string().trim().min(1).max(300).optional() }),
+      risk: "self_external",
+      callers: ["owner", "integration"],
+      summarize: () => "Record a meeting",
+      handler: (i, ctx) => recordMeeting(ctx, i),
+    }),
+    defineAction({
       name: "meeting.get",
       description:
         "A meeting: the owner's notes, the transcript (Owner and Them), the summary, the event, the people and the tasks from it.",
@@ -172,11 +190,23 @@ export const meetingsModule = defineModule({
       callers: ["owner", "integration"],
       async handler(i, ctx) {
         await liveMeeting(ctx.tx, i.id);
+        const [m] = await ctx.tx
+          .select({ endedAt: meeting.endedAt })
+          .from(meeting)
+          .where(eq(meeting.entityId, i.id));
+        // An ended meeting's transcript is settled: nothing rewrites what was said.
+        if (m?.endedAt)
+          throw new ActionError("conflict", "This meeting has ended; its transcript can't change.");
+        const ids = [...new Set(i.segments.map((s) => s.id))];
         const [{ n } = { n: 0 }] = await ctx.tx
           .select({ n: sql<number>`count(*)::int` })
           .from(meetingSegment)
           .where(eq(meetingSegment.meetingId, i.id));
-        if (n + i.segments.length > MAX_SEGMENTS)
+        const [{ known } = { known: 0 }] = await ctx.tx
+          .select({ known: sql<number>`count(*)::int` })
+          .from(meetingSegment)
+          .where(and(eq(meetingSegment.meetingId, i.id), inArray(meetingSegment.id, ids)));
+        if (n + ids.length - known > MAX_SEGMENTS)
           throw new ActionError(
             "invalid_input",
             `A meeting keeps at most ${MAX_SEGMENTS} segments`,

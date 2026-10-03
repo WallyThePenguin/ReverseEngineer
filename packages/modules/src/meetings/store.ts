@@ -16,7 +16,7 @@ import {
   createEntity,
   type EntityRow,
 } from "@hearth/kernel";
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNull, lte, ne } from "drizzle-orm";
 
 export interface MeetingView {
   id: string;
@@ -39,7 +39,7 @@ export interface MeetingView {
 }
 
 /** The most transcript a meeting keeps. */
-export const MAX_SEGMENTS = 5000;
+export const MAX_SEGMENTS = 10_000;
 
 /** The people an event or meeting is linked to. */
 export async function peopleOn(db: DbOrTx, fromId: string) {
@@ -110,6 +110,83 @@ export async function startMeeting(
   }
   for (const p of people) await addLink(ctx, { fromId: row.id, toId: p, kind: "participant" });
   return row.id;
+}
+
+/** An event this close to starting counts as the one you're recording. */
+const EARLY_MS = 10 * 60_000;
+/** Notes you opened this recently, still running, are what you're recording. */
+const OPEN_MS = 3 * 60 * 60_000;
+
+/**
+ * The meeting the desktop recorder records into: the one for the calendar event that's on now,
+ * else notes you opened and haven't ended, else a new one. Returns how far into the meeting
+ * recording starts, so transcript times line up with the meeting's own clock.
+ */
+export async function recordMeeting(
+  ctx: ActionContext,
+  i: { title?: string },
+): Promise<{ id: string; title: string; offsetMs: number }> {
+  const [ev] = await ctx.tx
+    .select({ id: calendarEvent.entityId, title: entity.title })
+    .from(calendarEvent)
+    .innerJoin(entity, eq(entity.id, calendarEvent.entityId))
+    .where(
+      and(
+        isNull(entity.deletedAt),
+        eq(calendarEvent.allDay, false),
+        ne(calendarEvent.status, "cancelled"),
+        // A time block for a task isn't a meeting.
+        isNull(calendarEvent.taskId),
+        lte(calendarEvent.startsAt, new Date(ctx.now.getTime() + EARLY_MS)),
+        gt(calendarEvent.endsAt, ctx.now),
+      ),
+    )
+    .orderBy(desc(calendarEvent.startsAt))
+    .limit(1);
+  let id: string;
+  if (ev) {
+    const [known] = await ctx.tx
+      .select({ endedAt: meeting.endedAt })
+      .from(meeting)
+      .innerJoin(entity, eq(entity.id, meeting.entityId))
+      .where(and(eq(meeting.eventId, ev.id), isNull(entity.deletedAt)));
+    // Already ended: a second recording is its own meeting, with the same people.
+    id = known?.endedAt
+      ? await startMeeting(ctx, {
+          title: ev.title,
+          peopleIds: (await peopleOn(ctx.tx, ev.id)).map((p) => p.id),
+        })
+      : await startMeeting(ctx, { eventId: ev.id });
+  } else {
+    const [open] = await ctx.tx
+      .select({ id: meeting.entityId })
+      .from(meeting)
+      .innerJoin(entity, eq(entity.id, meeting.entityId))
+      .where(
+        and(
+          isNull(entity.deletedAt),
+          isNull(meeting.endedAt),
+          gte(meeting.startedAt, new Date(ctx.now.getTime() - OPEN_MS)),
+        ),
+      )
+      .orderBy(desc(meeting.startedAt))
+      .limit(1);
+    id = open?.id ?? (await startMeeting(ctx, { title: i.title ?? "Call" }));
+  }
+  const [m] = await ctx.tx
+    .select({ title: entity.title, startedAt: meeting.startedAt })
+    .from(meeting)
+    .innerJoin(entity, eq(entity.id, meeting.entityId))
+    .where(eq(meeting.entityId, id));
+  return {
+    id,
+    title: m?.title ?? "Meeting",
+    // Notes opened long before the call still start the recording near the beginning of the day.
+    offsetMs: Math.min(
+      86_400_000,
+      Math.max(0, ctx.now.getTime() - (m?.startedAt ?? ctx.now).getTime()),
+    ),
+  };
 }
 
 export async function meetingView(

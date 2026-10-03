@@ -33,14 +33,27 @@ export async function takeNotes(eventId: string, beside = false) {
 }
 
 export function MeetingPanel(props: { id: string }) {
-  const m = useAction<MeetingDetail>("meeting.get", () => ({ id: props.id, segments: true }));
-  const [showTranscript, setShowTranscript] = createSignal(false);
+  // While it's going, the desktop recorder adds to the transcript every few seconds.
+  const m = useAction<MeetingDetail>(
+    "meeting.get",
+    () => ({ id: props.id, segments: true }),
+    undefined,
+    (d) => (d && !d.endedAt ? 4000 : false),
+  );
+  const [opened, setShowTranscript] = createSignal<boolean | null>(null);
+  const showTranscript = () => opened() ?? !m.data?.endedAt;
   const open = (type: string, id: string, e: MouseEvent) =>
     layout.open(routeFor(type, id), { beside: e.shiftKey });
   return (
     <Show when={m.data}>
       {(v) => (
         <div class="space-y-5">
+          <Show when={!v().endedAt && v().segments.length > 0}>
+            <p class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">
+              ● Recording. The transcript fills in as people talk; stop from the desktop app's tray
+              menu.
+            </p>
+          </Show>
           <div class="space-y-1 rounded-md bg-sunk px-3 py-3 text-sm">
             <Show when={v().event}>
               {(ev) => (
