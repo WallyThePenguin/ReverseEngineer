@@ -4,6 +4,7 @@
 import { createSignal, For, lazy, Show } from "solid-js";
 import { Backlinks } from "../components/Backlinks.tsx";
 import { Comments, JarvisWorking } from "../components/Comments.tsx";
+import { DocHistory } from "../components/DocHistory.tsx";
 import { Button, Empty, PaneHeader, Placeholder } from "../components/ui.tsx";
 import { ago, who } from "../lib/format.ts";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
@@ -96,6 +97,7 @@ export function NoteView(props: { id: string; pane: number }) {
           : "No open checklist items to turn into tasks.",
       );
   };
+  const [history, setHistory] = createSignal(false);
   const hasChecklist = () => /^\s*[-*] \[ \] \S/m.test(note.data?.body ?? "");
 
   return (
@@ -112,6 +114,13 @@ export function NoteView(props: { id: string; pane: number }) {
                 Checklist → tasks
               </Button>
             </Show>
+            <Button
+              small
+              onClick={() => setHistory(!history())}
+              title="See and restore earlier versions"
+            >
+              {history() ? "Close history" : "History"}
+            </Button>
           </PaneHeader>
           <div class="flex-1 space-y-5 overflow-auto px-5 py-4">
             <input
@@ -125,10 +134,17 @@ export function NoteView(props: { id: string; pane: number }) {
               onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
             />
             <JarvisWorking subjectId={n().id} />
-            <DocEditor
-              id={n().id}
-              placeholder="Start writing… type @ to link anything, or @Jarvis to ask for help."
-            />
+            <Show
+              when={history()}
+              fallback={
+                <DocEditor
+                  id={n().id}
+                  placeholder="Start writing… type @ to link anything, or @Jarvis to ask for help."
+                />
+              }
+            >
+              <DocHistory id={n().id} onClose={() => setHistory(false)} />
+            </Show>
             <Comments parentId={n().id} />
             <Backlinks id={n().id} />
           </div>

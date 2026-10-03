@@ -2,10 +2,10 @@
 // merges, with the body column kept as the readable copy. Anything that writes the body directly
 // (Jarvis, the checklist) is taken into the doc as an edit the next time it's opened, so it merges
 // with typing instead of overwriting it.
-import { type DbOrTx, docState, docUpdate, entity } from "@hearth/db";
+import { type DbOrTx, docPeer, docState, docUpdate, entity } from "@hearth/db";
 import { type ActionContext, type EntityRow, updateEntity } from "@hearth/kernel";
 import { and, asc, eq, gt, lte, max } from "drizzle-orm";
-import { LoroDoc } from "loro-crdt";
+import { LoroDoc, type VersionVector } from "loro-crdt";
 
 /** Record types whose text is a live doc. */
 export const DOC_TYPES = new Set(["note"]);
@@ -21,8 +21,49 @@ function fresh(): LoroDoc {
   return doc;
 }
 
-async function append(ctx: ActionContext, id: string, data: Uint8Array, by: string) {
+/**
+ * Saves an update, and names who wrote it: each Loro peer whose edits it adds is recorded as
+ * theirs, so history can say who changed what. The first claim on a peer stands.
+ */
+async function append(
+  ctx: ActionContext,
+  id: string,
+  doc: LoroDoc,
+  before: VersionVector,
+  by: string,
+  data: Uint8Array = doc.export({ mode: "update", from: before }),
+) {
   await ctx.tx.insert(docUpdate).values({ entityId: id, data: Buffer.from(data), createdBy: by });
+  await recordPeers(ctx, id, doc, before, by);
+}
+
+async function recordPeers(
+  ctx: ActionContext,
+  id: string,
+  doc: LoroDoc,
+  before: VersionVector,
+  by: string,
+) {
+  const was = before.toJSON() as Map<string, number>;
+  const peers = [...(doc.oplogVersion().toJSON() as Map<string, number>)]
+    .filter(([peer, n]) => n > (was.get(peer) ?? 0))
+    .map(([peer]) => ({ entityId: id, peer, principal: by }));
+  if (peers.length) await ctx.tx.insert(docPeer).values(peers).onConflictDoNothing();
+}
+
+/** The doc as stored, without taking anything in (for reading its history). */
+export async function loadDoc(db: DbOrTx, id: string) {
+  const [state] = await db.select().from(docState).where(eq(docState.entityId, id));
+  if (!state) return null;
+  const doc = fresh();
+  doc.import(state.snapshot);
+  const updates = await db
+    .select({ data: docUpdate.data })
+    .from(docUpdate)
+    .where(and(eq(docUpdate.entityId, id), gt(docUpdate.seq, state.upto)))
+    .orderBy(asc(docUpdate.seq));
+  if (updates.length) doc.importBatch(updates.map((u) => u.data));
+  return { doc, state, pending: updates.length };
 }
 
 /**
@@ -33,9 +74,10 @@ export async function openDoc(
   ctx: ActionContext,
   row: EntityRow,
 ): Promise<{ doc: LoroDoc; pending: number }> {
-  const [state] = await ctx.tx.select().from(docState).where(eq(docState.entityId, row.id));
-  if (!state) {
+  const loaded = await loadDoc(ctx.tx, row.id);
+  if (!loaded) {
     const doc = fresh();
+    const before = doc.oplogVersion();
     if (row.body) doc.getText(TEXT).insert(0, row.body);
     doc.commit();
     await ctx.tx.insert(docState).values({
@@ -43,24 +85,19 @@ export async function openDoc(
       snapshot: Buffer.from(doc.export({ mode: "snapshot" })),
       revision: row.revision,
     });
+    // The text it starts from is the last writer's.
+    await recordPeers(ctx, row.id, doc, before, row.updatedBy);
     return { doc, pending: 0 };
   }
-  const doc = fresh();
-  doc.import(state.snapshot);
-  const updates = await ctx.tx
-    .select({ data: docUpdate.data })
-    .from(docUpdate)
-    .where(and(eq(docUpdate.entityId, row.id), gt(docUpdate.seq, state.upto)))
-    .orderBy(asc(docUpdate.seq));
-  if (updates.length) doc.importBatch(updates.map((u) => u.data));
-  let pending = updates.length;
+  const { doc, state } = loaded;
+  let pending = loaded.pending;
   if (state.revision !== row.revision) {
     const body = row.body ?? "";
     if (body !== textOf(doc)) {
       const before = doc.oplogVersion();
       doc.getText(TEXT).update(body);
       doc.commit();
-      await append(ctx, row.id, doc.export({ mode: "update", from: before }), row.updatedBy);
+      await append(ctx, row.id, doc, before, row.updatedBy);
       pending++;
     }
     await setRevision(ctx.tx, row.id, row.revision);
@@ -93,7 +130,7 @@ export async function writeDoc(
     const before = doc.oplogVersion();
     doc.getText(TEXT).update(patch.body);
     doc.commit();
-    await append(ctx, id, doc.export({ mode: "update", from: before }), ctx.caller.principal);
+    await append(ctx, id, doc, before, ctx.caller.principal);
     added = 1;
   }
   const out = await updateEntity(ctx, id, patch, opts);
@@ -113,10 +150,10 @@ export async function applyUpdate(
   doc: LoroDoc,
   data: Uint8Array,
 ): Promise<boolean> {
-  const before = doc.oplogVersion().encode();
+  const before = doc.oplogVersion();
   doc.import(data);
-  if (Buffer.from(doc.oplogVersion().encode()).equals(Buffer.from(before))) return false;
-  await append(ctx, id, data, ctx.caller.principal);
+  if (Buffer.from(doc.oplogVersion().encode()).equals(Buffer.from(before.encode()))) return false;
+  await append(ctx, id, doc, before, ctx.caller.principal, data);
   return true;
 }
 

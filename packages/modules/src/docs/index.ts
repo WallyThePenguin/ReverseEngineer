@@ -1,13 +1,43 @@
 // Live docs: notes every screen edits at once, offline included, merged by Loro (PLAN.md section
 // 8.5, D38). A screen syncs by sending what it changed and the version it has, and gets back
 // what it's missing; changes made anywhere else show up through the live event feed.
-import { entity } from "@hearth/db";
-import { ActionError, defineAction, updateEntity } from "@hearth/kernel";
-import { eq } from "drizzle-orm";
+import { docCheckpoint, entity } from "@hearth/db";
+import { type ActionContext, ActionError, defineAction, newId, updateEntity } from "@hearth/kernel";
+import { and, eq } from "drizzle-orm";
 import { VersionVector } from "loro-crdt";
 import { z } from "zod";
 import { id } from "../shared.ts";
-import { applyUpdate, DOC_TYPES, fold, openDoc, setRevision, textOf } from "./store.ts";
+import { checkpointsOf, frontiersInput, peersOf, textAt, versions } from "./history.ts";
+import {
+  applyUpdate,
+  DOC_TYPES,
+  fold,
+  loadDoc,
+  openDoc,
+  setRevision,
+  textOf,
+  writeDoc,
+} from "./store.ts";
+
+/** A live doc's record, or not_found. */
+async function docRow(ctx: Pick<ActionContext, "tx">, docId: string) {
+  const [row] = await ctx.tx.select().from(entity).where(eq(entity.id, docId));
+  if (!row || row.deletedAt || !DOC_TYPES.has(row.type))
+    throw new ActionError("not_found", "No such doc");
+  return row;
+}
+
+/** The stored doc, and its text at a version (invalid_input if it has no such version). */
+async function at(
+  ctx: Pick<ActionContext, "tx">,
+  docId: string,
+  frontiers: { peer: string; counter: number }[],
+) {
+  const loaded = await loadDoc(ctx.tx, docId);
+  const text = loaded ? textAt(loaded.doc, frontiers) : null;
+  if (text === null) throw new ActionError("invalid_input", "This note has no such version.");
+  return text;
+}
 
 const MAX_TEXT = 200_000;
 
@@ -68,6 +98,96 @@ export const docActions = [
         version: encode(doc.oplogVersion().encode()),
         revision,
       };
+    },
+  }),
+  defineAction({
+    name: "doc.history",
+    description:
+      "A doc's versions, newest first (one per stretch of editing, with who wrote them), and its named checkpoints.",
+    input: z.object({ id }),
+    risk: "read",
+    callers: ["owner"],
+    async handler(i, ctx) {
+      await docRow(ctx, i.id);
+      const loaded = await loadDoc(ctx.tx, i.id);
+      return {
+        versions: loaded ? versions(loaded.doc, await peersOf(ctx.tx, i.id)) : [],
+        checkpoints: await checkpointsOf(ctx.tx, i.id),
+      };
+    },
+  }),
+  defineAction({
+    name: "doc.version",
+    description: "A doc's text as it was at a version from doc.history.",
+    input: z.object({ id, frontiers: frontiersInput }),
+    risk: "read",
+    callers: ["owner"],
+    async handler(i, ctx) {
+      await docRow(ctx, i.id);
+      return { text: await at(ctx, i.id, i.frontiers) };
+    },
+  }),
+  defineAction({
+    name: "doc.restore",
+    description:
+      "Put a doc back the way it was at a version. It's a new edit, so the history keeps everything since.",
+    input: z.object({ id, frontiers: frontiersInput }),
+    risk: "internal",
+    callers: ["owner"],
+    async handler(i, ctx) {
+      await docRow(ctx, i.id);
+      const text = await at(ctx, i.id, i.frontiers);
+      const row = await writeDoc(ctx, i.id, { body: text }, { type: "note" });
+      return { revision: row.revision };
+    },
+  }),
+  defineAction({
+    name: "doc.checkpoint",
+    description: "Name a version of a doc (the current one unless given) so it's easy to find.",
+    input: z.object({
+      id,
+      name: z.string().trim().min(1).max(100),
+      frontiers: frontiersInput.optional(),
+    }),
+    risk: "internal",
+    callers: ["owner"],
+    async handler(i, ctx) {
+      const row = await docRow(ctx, i.id);
+      let frontiers = i.frontiers;
+      if (frontiers) await at(ctx, i.id, frontiers);
+      else {
+        // Takes in anything written directly first, so the checkpoint has it.
+        const [locked] = await ctx.tx
+          .select()
+          .from(entity)
+          .where(eq(entity.id, row.id))
+          .for("update");
+        frontiers = (await openDoc(ctx, locked!)).doc.oplogFrontiers();
+      }
+      const made = {
+        id: newId(),
+        entityId: i.id,
+        name: i.name,
+        frontiers,
+        createdBy: ctx.caller.principal,
+      };
+      await ctx.tx.insert(docCheckpoint).values(made);
+      return { id: made.id };
+    },
+  }),
+  defineAction({
+    name: "doc.checkpoint_delete",
+    description: "Remove a named checkpoint. The version itself stays in the history.",
+    input: z.object({ id }),
+    risk: "internal",
+    callers: ["owner"],
+    async handler(i, ctx) {
+      const gone = await ctx.tx
+        .delete(docCheckpoint)
+        .where(and(eq(docCheckpoint.id, i.id)))
+        .returning({ id: docCheckpoint.id });
+      if (!gone.length) throw new ActionError("not_found", "No such checkpoint");
+      return { id: i.id };
     },
   }),
 ];
