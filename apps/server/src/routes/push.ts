@@ -8,9 +8,26 @@ import { requireCaller } from "../auth/middleware.ts";
 import type { AppEnv } from "../env.ts";
 import { type PushSend, pushToAll, vapidKeys } from "../push.ts";
 
+// The browsers' push services. Hearth posts to the endpoint, so nothing else is accepted.
+const PUSH_HOSTS = [
+  /^fcm\.googleapis\.com$/,
+  /^([a-z0-9-]+\.)*push\.apple\.com$/,
+  /^([a-z0-9-]+\.)*push\.services\.mozilla\.com$/,
+  /^([a-z0-9-]+\.)*notify\.windows\.com$/,
+];
+const MAX_DEVICES = 20;
+
+export function isPushEndpoint(endpoint: string): boolean {
+  try {
+    const u = new URL(endpoint);
+    return u.protocol === "https:" && !u.port && PUSH_HOSTS.some((h) => h.test(u.hostname));
+  } catch {
+    return false;
+  }
+}
+
 const subscribe = z.object({
-  // Push services are public HTTPS endpoints.
-  endpoint: z.string().url().startsWith("https://").max(1000),
+  endpoint: z.string().max(1000).refine(isPushEndpoint),
   keys: z.object({ p256dh: z.string().min(1).max(200), auth: z.string().min(1).max(100) }),
   label: z.string().trim().min(1).max(80).default("A device"),
 });
@@ -36,6 +53,13 @@ export function pushRoutes(send: PushSend) {
     const parsed = subscribe.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "That isn't a push subscription." }, 400);
     const { endpoint, keys, label } = parsed.data;
+    const db = c.get("deps").kernel.db;
+    const [known] = await db
+      .select({ endpoint: pushSubscription.endpoint })
+      .from(pushSubscription)
+      .where(eq(pushSubscription.endpoint, endpoint));
+    if (!known && (await db.$count(pushSubscription)) >= MAX_DEVICES)
+      return c.json({ error: "Turn notifications off on a device you no longer use first." }, 409);
     await c
       .get("deps")
       .kernel.db.insert(pushSubscription)

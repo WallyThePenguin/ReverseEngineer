@@ -72,8 +72,12 @@ self.addEventListener("push", (e) => {
 
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
-  const path = e.notification.data?.url || "/inbox";
-  const target = new URL(path.startsWith("/") ? path : "/inbox", self.location.origin).href;
+  // Only ever a page of this app.
+  let target = new URL("/inbox", self.location.origin).href;
+  try {
+    const u = new URL(e.notification.data?.url || "/inbox", self.location.origin);
+    if (u.origin === self.location.origin) target = u.href;
+  } catch {}
   e.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
       for (const w of wins) {

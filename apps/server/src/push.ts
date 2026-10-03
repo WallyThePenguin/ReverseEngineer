@@ -1,8 +1,8 @@
 // Phone notifications (M6): approvals, the morning brief and interruptions Jarvis is allowed to
 // make are pushed to every device that turned notifications on. Messages are end-to-end
 // encrypted to the device (Web Push), so the push service only carries them.
-import { event, notification, pushSubscription } from "@hearth/db";
-import { getSetting, type Kernel, setSetting } from "@hearth/kernel";
+import { event, notification, pushSubscription, setting } from "@hearth/db";
+import { getSetting, type Kernel } from "@hearth/kernel";
 import { and, eq, gt, inArray, lte, max } from "drizzle-orm";
 import webpush from "web-push";
 import type { EventHub } from "./hub.ts";
@@ -48,9 +48,12 @@ export const webPushSend: PushSend = async (sub, message, vapid) => {
 export async function vapidKeys(kernel: Kernel) {
   const saved = await getSetting(kernel.db, "push.vapid");
   if (saved) return saved;
-  const keys = webpush.generateVAPIDKeys();
-  await setSetting(kernel.db, "push.vapid", keys);
-  return keys;
+  // Two first requests at once: the first key pair written wins, and both read it back.
+  await kernel.db
+    .insert(setting)
+    .values({ key: "push.vapid", value: webpush.generateVAPIDKeys() })
+    .onConflictDoNothing();
+  return (await getSetting(kernel.db, "push.vapid"))!;
 }
 
 /** Which inbox items are worth buzzing your phone for. */

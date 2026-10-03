@@ -43,7 +43,14 @@ describe("phone notifications", () => {
     t.server.start();
     await settle();
     expect((await subscribe(PHONE)).status).toBe(200);
-    expect((await subscribe("http://evil.example/x")).status).toBe(400);
+    for (const bad of [
+      "http://evil.example/x",
+      "https://127.0.0.1/x",
+      "https://169.254.169.254/latest",
+      "https://push.apple.com.evil.example/x",
+      "https://fcm.googleapis.com:8443/x",
+    ])
+      expect((await subscribe(bad)).status).toBe(400);
     const list = (await (await t.browser("/api/push")).json()) as {
       publicKey: string;
       devices: { label: string }[];
