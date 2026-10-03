@@ -9,3 +9,4 @@ export * from "./mail.ts";
 export * from "./memory.ts";
 export * from "./people.ts";
 export * from "./vault.ts";
+export * from "./voice.ts";

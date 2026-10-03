@@ -605,3 +605,21 @@ Opening `doc.edit` to memory notes.
 
 **Why:** Text anchors are what a model can get right, and refusing ambiguous ones beats editing
 the wrong place. Memory keeps its own trust rules.
+
+## D41. Dictation cleanup runs in Hearth: rules first, then an optional local model (2026-10-03)
+
+**Decision:** The desktop app sends what the speech engine heard (and the app and window) to
+`voice.clean`. Hearth tidies it with rules (fillers, "scratch that", repeated words), applies
+the dictionary, asks a small local model for punctuation and the app's style if one is set up
+(`HEARTH_CLEANUP_URL`, any OpenAI-style endpoint such as Ollama on the PC, 800 ms budget),
+applies the dictionary again, then expands snippets, so snippet text is never reworded. A model
+answer far longer or shorter than the input is thrown away. Every dictation is a `dictation`
+record with the raw text kept beside it; fixing one in the history learns short word swaps into
+the dictionary. Snippets are records; styles per app are a setting. All of it is yours only:
+Jarvis can read dictations but can't add words, snippets or styles.
+
+**Alternatives:** Clean up inside the desktop app (the dictionary and history would live in two
+places). A Claude turn for cleanup (too slow for the 1-second target). Rules only.
+
+**Why:** One place holds your words, so the desktop app, the phone and Jarvis share them, and
+the rules pass keeps dictation working when the model is off or slow.

@@ -63,7 +63,9 @@ export function Placeholder(props: { missing: boolean; what: string }) {
 }
 
 export function Button(props: {
-  onClick: (e: MouseEvent) => void;
+  onClick?: (e: MouseEvent) => void;
+  /** Submits its form (so Enter in any of the form's fields does too). */
+  submit?: boolean;
   children: JSX.Element;
   kind?: "primary" | "plain" | "danger" | "jarvis";
   disabled?: boolean;
@@ -79,11 +81,11 @@ export function Button(props: {
     })[props.kind ?? "plain"];
   return (
     <button
-      type="button"
+      type={props.submit ? "submit" : "button"}
       class={`rounded-md font-medium disabled:opacity-50 ${props.small ? "px-2 py-0.5 text-xs" : "px-3 py-1 text-sm"} ${tone()}`}
       disabled={props.disabled}
       title={props.title}
-      onClick={(e) => props.onClick(e)}
+      onClick={(e) => props.onClick?.(e)}
     >
       {props.children}
     </button>

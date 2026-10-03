@@ -2,6 +2,7 @@
 // Reflexes live in the modules that own each record type.
 import { entity, link } from "@hearth/db";
 import {
+  ActionError,
   addLink,
   defineAction,
   defineModule,
@@ -25,6 +26,9 @@ export interface LinkView {
   otherType: string;
   otherTitle: string;
 }
+
+/** Records only the owner may bring back from trash. */
+const OWNER_ONLY_TYPES = new Set(["snippet"]);
 
 export const graphModule = defineModule({
   name: "graph",
@@ -163,7 +167,16 @@ export const graphModule = defineModule({
       description: "Bring a record back from trash.",
       input: z.object({ id }),
       risk: "internal",
-      handler: async (input, ctx) => restoreEntity(ctx, input.id),
+      async handler(input, ctx) {
+        // A snippet is typed into whatever app you dictate into, so only you bring one back.
+        const [row] = await ctx.tx
+          .select({ type: entity.type })
+          .from(entity)
+          .where(eq(entity.id, input.id));
+        if (row && OWNER_ONLY_TYPES.has(row.type) && ctx.caller.kind !== "owner")
+          throw new ActionError("forbidden", "Only the owner can restore this.");
+        return restoreEntity(ctx, input.id);
+      },
     }),
     defineAction({
       name: "link.add",

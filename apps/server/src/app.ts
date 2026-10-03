@@ -10,6 +10,8 @@ import {
   blobsFromEnv,
   GOOGLE_SERVICE,
   googleFromEnv,
+  POLISH_SERVICE,
+  polisherFromEnv,
   VAULT_SERVICE,
   vaultFromEnv,
 } from "@hearth/modules";
@@ -67,6 +69,7 @@ export function createApp(opts: AppOptions) {
   opts.kernel.services[GOOGLE_SERVICE] ??= googleFromEnv();
   opts.kernel.services[VAULT_SERVICE] ??= vaultFromEnv();
   opts.kernel.services[BLOB_SERVICE] ??= blobsFromEnv();
+  opts.kernel.services[POLISH_SERVICE] ??= polisherFromEnv();
   const live = new LiveView(bridge);
   const deps: ServerDeps = {
     kernel: opts.kernel,
