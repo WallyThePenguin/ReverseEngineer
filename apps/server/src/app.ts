@@ -34,7 +34,8 @@ import { mailRoutes } from "./routes/mail.ts";
 
 const CSP = [
   "default-src 'self'",
-  "script-src 'self'",
+  // Docs run Loro, which is WebAssembly; this allows compiling it, not eval.
+  "script-src 'self' 'wasm-unsafe-eval'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "media-src 'self' blob:",

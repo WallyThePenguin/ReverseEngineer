@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS doc_update;
+DROP TABLE IF EXISTS doc_state;

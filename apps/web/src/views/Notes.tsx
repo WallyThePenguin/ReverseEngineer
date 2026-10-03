@@ -1,10 +1,9 @@
 // Notes: a list and a page per note. Checklists can become tasks in one click (Jarvis also
 // offers to, a few minutes after you stop editing).
 
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For, lazy, Show } from "solid-js";
 import { Backlinks } from "../components/Backlinks.tsx";
 import { Comments, JarvisWorking } from "../components/Comments.tsx";
-import { EditableBody, toggleLine } from "../components/EditableBody.tsx";
 import { Button, Empty, PaneHeader, Placeholder } from "../components/ui.tsx";
 import { ago, who } from "../lib/format.ts";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
@@ -12,6 +11,9 @@ import { toast } from "../lib/live.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
 import type { Entity, NoteRow } from "../lib/types.ts";
+
+// The editor and its CRDT are big, so they load when a note opens.
+const DocEditor = lazy(() => import("../components/DocEditor.tsx"));
 
 export async function newNote(pane: number) {
   const made = await act<Entity>("note.create", { title: "Untitled" });
@@ -78,10 +80,11 @@ export function Notes(props: { pane: number }) {
 export function NoteView(props: { id: string; pane: number }) {
   const note = useAction<Entity>("entity.get", () => ({ id: props.id }));
 
-  const save = async (fields: { title?: string; body?: string }) => {
+  // The text saves itself as you type; this is the title.
+  const save = async (fields: { title: string }) => {
     const n = note.data;
     if (!n) return false;
-    return (await act("note.update", { id: n.id, revision: n.revision, ...fields })) !== null;
+    return (await act("note.update", { id: n.id, ...fields })) !== null;
   };
   const extract = async () => {
     const r = await act<{ created: { title: string }[] }>("note.extract_tasks", { id: props.id });
@@ -122,12 +125,9 @@ export function NoteView(props: { id: string; pane: number }) {
               onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
             />
             <JarvisWorking subjectId={n().id} />
-            <EditableBody
-              body={n().body}
-              rows={18}
+            <DocEditor
+              id={n().id}
               placeholder="Start writing… type @ to link anything, or @Jarvis to ask for help."
-              save={(body) => save({ body })}
-              onToggleLine={(line) => void save({ body: toggleLine(n().body ?? "", line) })}
             />
             <Comments parentId={n().id} />
             <Backlinks id={n().id} />

@@ -13,6 +13,7 @@ import {
 } from "@hearth/kernel";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
+import { docActions } from "../docs/index.ts";
 import { body, describeRow, id, liveEntity, preview, title } from "../shared.ts";
 import { linkItemToTask, openUnlinkedItems } from "./checklist.ts";
 
@@ -32,6 +33,7 @@ export const notesModule = defineModule({
     },
   },
   actions: [
+    ...docActions,
     defineAction({
       name: "note.create",
       description:

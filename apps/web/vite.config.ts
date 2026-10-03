@@ -12,5 +12,6 @@ export default defineConfig({
       "/api": { target: "http://127.0.0.1:4400", changeOrigin: false, ws: true },
     },
   },
-  build: { outDir: "dist", target: "es2022", sourcemap: true },
+  // The doc editor (CodeMirror and Loro) loads on its own when a note opens.
+  build: { outDir: "dist", target: "es2022", sourcemap: true, chunkSizeWarningLimit: 800 },
 });
