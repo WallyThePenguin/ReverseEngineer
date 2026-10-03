@@ -271,7 +271,7 @@ try {
     await p.getByText(`Can you send the OtoPair${tag} update to the team today?`).waitFor();
   });
 
-  await step("the calendar, mail, Google and Slack in Settings", async (p) => {
+  await step("the calendar, mail, Google, Slack and GitHub in Settings", async (p) => {
     await p.locator("nav").click({ position: { x: 100, y: 600 } });
     await keys("g", "c");
     await p.getByRole("heading", { name: "Calendar" }).waitFor();

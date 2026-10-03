@@ -173,7 +173,8 @@ export const githubModule = defineModule({
       description: "Read pull requests in from GitHub now.",
       input: z.object({}),
       risk: "internal",
-      callers: ["owner", "system", "integration"],
+      // Only as the integration: pull requests are outside content, never the owner's (D49).
+      callers: ["integration"],
       handler: (_i, ctx) => syncGithub(ctx),
     }),
   ],

@@ -44,15 +44,13 @@ export function GithubSettings() {
     });
     if (!r) return;
     setToken("");
-    toast.show(`GitHub connected as ${r.login}.`);
-    void act("github.sync");
+    toast.show(`GitHub connected as ${r.login}. Pull requests come in within a few minutes.`);
   };
 
   const saveRepos = async (e: Event) => {
     e.preventDefault();
     if (await act("github.set_repos", { repos: repoList(repos()) })) {
       setEditing(false);
-      void act("github.sync");
     }
   };
 

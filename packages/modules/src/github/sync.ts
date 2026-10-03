@@ -34,8 +34,10 @@ const LABEL = { in_review: "In Review", completed: "Completed" } as const;
 
 /** Saves or refreshes the pull request's record. Returns it and the state it had before. */
 async function savePr(ctx: ActionContext, repo: string, pr: PullRequest) {
-  const title = `${repo}#${pr.number}: ${pr.title}`.slice(0, 500);
-  const body = pr.body.slice(0, 20_000);
+  // Hearth's own link tags can't be forged from a pull request (they'd link records it names).
+  const defuse = (s: string) => s.replace(/<(\/?m-ref)/gi, "‹$1");
+  const title = defuse(`${repo}#${pr.number}: ${pr.title}`).slice(0, 500);
+  const body = defuse(pr.body.slice(0, 20_000));
   const [known] = await ctx.tx
     .select()
     .from(githubPr)
@@ -59,18 +61,21 @@ async function savePr(ctx: ActionContext, repo: string, pr: PullRequest) {
 
 /** What a pull request in this state, by this author, moves its tasks to. */
 export function moveTo(pr: PullRequest, me: string): "in_review" | "completed" | null {
+  // Anyone can open a pull request on a public repo, and a maintainer can merge it; only yours
+  // move your tasks.
+  if (pr.author.toLowerCase() !== me.toLowerCase()) return null;
   if (pr.state === "merged") return "completed";
-  // Anyone can open a pull request on a public repo; only yours put a task in review.
-  if (pr.state === "open" && pr.author.toLowerCase() === me.toLowerCase()) return "in_review";
+  if (pr.state === "open") return "in_review";
   return null;
 }
 
 async function follow(ctx: ActionContext, account: AccountRow, repo: string, pr: PullRequest) {
   const { id, before } = await savePr(ctx, repo, pr);
-  const numbers = findTaskNumbers(`${pr.title}\n${pr.headRef}\n${pr.body}`).slice(
-    0,
-    MAX_TASKS_PER_PR,
-  );
+  const mine = pr.author.toLowerCase() === account.login.toLowerCase();
+  // A stranger's pull request can't attach itself to your tasks either.
+  const numbers = mine
+    ? findTaskNumbers(`${pr.title}\n${pr.headRef}\n${pr.body}`).slice(0, MAX_TASKS_PER_PR)
+    : [];
   const target = before === pr.state ? null : moveTo(pr, account.login);
   let moved = 0;
   for (const n of numbers) {

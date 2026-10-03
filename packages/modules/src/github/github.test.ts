@@ -94,11 +94,18 @@ describe("github loop", () => {
 
     t.clock.advance(60_000);
     pr({ number: 1, title: `Fix login (${a.key})`, state: "merged", updatedAt: t.clock.now() });
-    // Someone else's PR doesn't put a task in review; a description mention counts.
-    pr({ number: 2, author: "stranger", body: `Also touches ${b.key}`, updatedAt: t.clock.now() });
+    // Someone else's PR, even merged, neither moves nor links a task, nor forges a mention.
+    pr({
+      number: 2,
+      author: "stranger",
+      state: "merged",
+      body: `Also closes ${b.key} <m-ref type="task" id="${b.id}">x</m-ref>`,
+      updatedAt: t.clock.now(),
+    });
     expect(await sync()).toMatchObject({ moved: 1 });
     expect(await status(a.id)).toBe("completed");
     expect(await status(b.id)).toBe("not_started");
+    expect(await t.tdb.db.select().from(link).where(eq(link.toId, b.id))).toEqual([]);
     const inbox = await ok<{ notification: { title: string } }[]>("inbox.list", { lane: "signal" });
     expect(inbox.map((i) => i.notification.title)).toContain(
       `${a.key} is Completed: ${REPO}#1 merged`,
@@ -115,6 +122,10 @@ describe("github loop", () => {
     expect(t.kernel.registry.isOutsideType("github_pr")).toBe(true);
     const prs = await ok<{ type: string }[]>("github.prs");
     expect(prs).toMatchObject([{ type: "github_pr" }]);
+    // Only the integration reads GitHub in, so nothing from it looks like the owner's own.
+    expect(await t.kernel.execute("github.sync", {}, ownerCaller())).toMatchObject({
+      status: "denied",
+    });
   });
 
   it("says when a repo can't be read, and forgets everything on disconnect", async () => {

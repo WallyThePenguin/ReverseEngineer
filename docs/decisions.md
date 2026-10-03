@@ -786,9 +786,11 @@ token and a list of repos, both from Settings. The token is sealed with the vaul
 `github.connect` is a `secret` action, and Hearth never writes to GitHub. The worker reads each
 repo's 50 most recently updated pull requests every two minutes (the first look goes back two
 weeks). A pull request that names a task (T-123 in its title, branch or description) is saved as
-a `github_pr` record, an outside type, and linked to the task. When it changes state:
-- opened by you (the token's owner): the task moves to In Review;
-- merged, by anyone who could merge it: the task moves to Completed;
+a `github_pr` record, an outside type. Only your own pull requests (the token owner's) are linked
+to tasks and move them; anyone can open one on a public repo, and a maintainer can merge it. When
+one of yours changes state:
+- opened: the task moves to In Review;
+- merged: the task moves to Completed;
 - a Completed or Canceled task is never moved, and nothing happens while a pull request's state
   stays the same, so a task you move back by hand stays where you put it.
 
