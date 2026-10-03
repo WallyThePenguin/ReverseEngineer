@@ -120,6 +120,29 @@ try {
     await other.close();
   });
 
+  await step("a checkpoint in the note's history, restored after an edit", async (p) => {
+    await p.getByRole("button", { name: "History" }).click();
+    await p.getByRole("button", { name: "Save as checkpoint" }).click();
+    await p.getByPlaceholder("Name this version").fill("Before scratch");
+    await keys("Enter");
+    await p.getByRole("button", { name: "Before scratch" }).waitFor();
+    await p.getByRole("button", { name: "Back to editing" }).click();
+    const editor = p.locator(".cm-content");
+    await editor.getByText("cancel the gym").waitFor();
+    await editor.click();
+    await keys("Control+End");
+    await p.keyboard.type("\nScratch line");
+    await p.waitForTimeout(1500);
+    await p.getByRole("button", { name: "History" }).click();
+    await p.getByRole("button", { name: "Before scratch" }).click();
+    const preview = p.locator("section[aria-label=History] pre");
+    await preview.getByText("cancel the gym").waitFor();
+    if ((await preview.innerText()).includes("Scratch line")) throw new Error("wrong version");
+    await p.getByRole("button", { name: "Restore this version" }).click();
+    await editor.getByText("cancel the gym").waitFor();
+    await editor.getByText("Scratch line").waitFor({ state: "detached" });
+  });
+
   await step("the task lists the note as a backlink, and takes a subtask", async (p) => {
     // The status line moves while the other window's edit lands, so a mouse click can miss;
     // the chip opens on mousedown.

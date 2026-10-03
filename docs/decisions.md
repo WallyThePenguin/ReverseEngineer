@@ -574,3 +574,17 @@ of Loro. Keep last-write-wins bodies.
 
 **Why:** Same CRDT Macro uses, a small fraction of the code, and it rides the sync and event
 feed Hearth already has. Loro keeps the full history, which version history (next) needs.
+
+## D39. Note history is Loro's own log, grouped by session, with who wrote each part (2026-10-03)
+
+**Decision:** History stores nothing new for versions: `doc.history` reads the doc's change log
+and groups it into stretches of editing (a new version after 10 minutes without an edit). Who
+wrote each part comes from `doc_peer`, which records the principal behind each Loro peer when its
+edits are first saved (the first claim stands). Named checkpoints are frontiers in
+`doc_checkpoint`. Restoring writes the old text back as a new edit by you, so every later version
+stays in the history. History, preview, restore and checkpoints are yours only for now.
+
+**Alternatives:** Store a copy of the text per version. Restore by rewinding the doc (loses what
+came after). One version per change (too many to scrub).
+
+**Why:** Loro already keeps every edit, so this costs a small table, and restore can't lose work.
