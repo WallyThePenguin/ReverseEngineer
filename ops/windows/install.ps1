@@ -59,8 +59,11 @@ if ($hash -ne $WinSWSha256) {
   throw "WinSW download didn't match its expected checksum. Nothing was installed."
 }
 
-# LocalService needs to read the app and write its own logs.
-icacls $Root /grant "*S-1-5-19:(OI)(CI)RX" /T /C /Q | Out-Null
+# LocalService needs to read the app and write its own logs. The grant is inheritable, so
+# Windows passes it down to every file itself; /T would rewrite ~20,000 files one by one and
+# take minutes. (node_modules holds copies, not store links, so its files inherit too: .npmrc.)
+Write-Host "Letting Hearth's services read $Root..."
+icacls $Root /grant "*S-1-5-19:(OI)(CI)RX" /C /Q | Out-Null
 icacls $ServiceDir /grant "*S-1-5-19:(OI)(CI)M" /C /Q | Out-Null
 
 foreach ($svc in "server", "worker", "jarvis") {
