@@ -72,14 +72,21 @@ export function applyDictionary(text: string, entries: DictionaryEntry[]): strin
   return t;
 }
 
-/** Saying a snippet's words puts its text in their place. */
+/**
+ * Saying a snippet's words puts its text in their place. One pass, longest trigger first, so a
+ * snippet's own text is never expanded again.
+ */
 export function expandSnippets(text: string, snippets: Snippet[]): string {
-  let t = text;
-  for (const s of [...snippets].sort((a, b) => b.trigger.length - a.trigger.length)) {
-    if (!s.trigger.trim()) continue;
-    t = t.replace(phrase(s.trigger), () => s.text);
-  }
-  return t;
+  const used = snippets
+    .filter((s) => s.trigger.trim())
+    .sort((a, b) => b.trigger.length - a.trigger.length);
+  if (!used.length) return text;
+  const byTrigger = new Map(used.map((s) => [s.trigger.trim().toLowerCase(), s.text]));
+  const any = new RegExp(
+    `(?<![\\w-])(?:${used.map((s) => escapeRe(s.trigger.trim())).join("|")})(?![\\w-])`,
+    "gi",
+  );
+  return text.replace(any, (m) => byTrigger.get(m.toLowerCase()) ?? m);
 }
 
 /** The style for where you're dictating: the first whose match is in the app or window. */
@@ -116,6 +123,6 @@ export function learnedSwaps(before: string, after: string): { heard: string; wr
   const from = a.slice(start, endA).map(bare).join(" ").trim();
   const to = b.slice(start, endB).map(bare).join(" ").trim();
   if (!from || !to || (from.toLowerCase() === to.toLowerCase() && from === to)) return [];
-  if (endA - start > 3 || endB - start > 3) return [];
+  if (endA - start > 3 || endB - start > 3 || from.length > 200 || to.length > 200) return [];
   return [{ heard: from, write: to }];
 }

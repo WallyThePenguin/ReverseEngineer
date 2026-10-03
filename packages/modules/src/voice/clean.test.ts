@@ -35,6 +35,12 @@ describe("cleanup rules", () => {
       { trigger: "my calendar link", text: "https://cal.example/w?$1" },
     ]);
     expect(text).toBe("Here's https://cal.example/w?$1.");
+    // A snippet whose text says another's trigger isn't expanded again.
+    const loop = [
+      { trigger: "alpha", text: "beta beta" },
+      { trigger: "beta", text: "alpha alpha" },
+    ];
+    expect(expandSnippets("alpha", loop)).toBe("beta beta");
   });
 
   it("picks the style for the app you're in", () => {

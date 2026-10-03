@@ -87,6 +87,11 @@ describe("dictation", () => {
         status: "denied",
       });
     }
+    const gone = await ok<{ id: string }>("snippet.save", { trigger: "old one", text: "x" });
+    await ok("snippet.remove", { id: gone.id });
+    expect(
+      await t.kernel.execute("entity.restore", { id: gone.id }, jarvisCaller("agent")),
+    ).toMatchObject({ code: "forbidden" });
     await ok("snippet.save", { trigger: "Sign off", text: "Thanks" });
     expect(
       await t.kernel.execute("snippet.save", { trigger: "sign off", text: "x" }, ownerCaller()),

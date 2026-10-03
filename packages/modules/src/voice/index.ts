@@ -137,7 +137,9 @@ export const voiceModule = defineModule({
           text: e.body ?? "",
           raw: d.raw,
           app: d.app,
-          window: d.windowTitle,
+          // A window's title can come from a web page or an email subject: outside content, so
+          // only you see it (D25).
+          window: ctx.caller.kind === "owner" ? d.windowTitle : null,
           style: d.style,
           polished: d.polished,
           cleanupMs: d.cleanupMs,
