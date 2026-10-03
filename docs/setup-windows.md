@@ -97,8 +97,8 @@ task, and the task that opens Chrome (section 10):
 | Hearth worker (service) | LocalService | Schedules, reminders, health checks |
 | Hearth Jarvis (task) | You | Jarvis, using your Claude login |
 
-Jarvis is a scheduled task rather than a service so it can run as you without your password. It
-starts with Windows, whether or not you're signed in, and restarts if it stops.
+Jarvis is a scheduled task rather than a service so it can run as you without storing your
+password. It starts when you sign in to Windows and restarts if it stops.
 
 ## 7. Turn on off-site backups (Google Drive)
 

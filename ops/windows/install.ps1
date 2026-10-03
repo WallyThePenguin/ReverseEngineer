@@ -8,8 +8,8 @@
 
   - hearth-server and hearth-worker run as LocalService (no password, few rights).
   - Jarvis runs as your account, so it can use your Claude login: the "Hearth Jarvis" task starts
-    it when Windows starts, whether or not you're signed in. Like the backup task, it needs no
-    password (that's why it isn't a service: a service as you would need your password).
+    it when you sign in to Windows. Like the backup task, it needs no stored password (that's why
+    it isn't a service: a service as you would need your password).
   - The backup runs nightly at 2:30 a.m. as you, whether or not you're signed in.
   - The "Hearth Chrome" task opens your Chrome, as you, on your desktop: when you sign in, and
     when Jarvis needs it and it's closed (the server asks Windows to run it). Run this script from
@@ -107,8 +107,9 @@ Remove-Item (Join-Path $ServiceDir "hearth-jarvis.*") -ErrorAction SilentlyConti
 $jarvisLog = Join-Path $ServiceDir "hearth-jarvis.log"
 $action = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\cmd.exe" -WorkingDirectory $Root `
   -Argument "/d /c set HEARTH_AS_SERVICE=1&& `"$node`" --env-file-if-exists=`"$Root\.env`" `"$Root\apps\cli\src\main.ts`" jarvis >> `"$jarvisLog`" 2>&1"
-$atStartup = New-ScheduledTaskTrigger -AtStartup
-$atStartup.Delay = "PT1M"
+# When you sign in, not at boot: Jarvis waits until you're at the PC.
+$atSignIn = New-ScheduledTaskTrigger -AtLogOn -User $me
+$atSignIn.Delay = "PT30S"
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
   -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -StartWhenAvailable `
   -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)
@@ -120,7 +121,7 @@ if (Get-ScheduledTask -TaskName "Hearth Jarvis" -ErrorAction SilentlyContinue) {
 Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" |
   Where-Object { $_.CommandLine -match 'main\.ts"?\s+jarvis' } |
   ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-Register-ScheduledTask -TaskName "Hearth Jarvis" -TaskPath "\" -Action $action -Trigger $atStartup `
+Register-ScheduledTask -TaskName "Hearth Jarvis" -TaskPath "\" -Action $action -Trigger $atSignIn `
   -Settings $settings -Principal $user -Force `
   -Description "Runs Jarvis, Hearth's agent, as you so it can use your Claude login." | Out-Null
 Start-ScheduledTask -TaskName "Hearth Jarvis"
