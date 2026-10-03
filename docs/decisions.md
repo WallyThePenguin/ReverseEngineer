@@ -556,3 +556,21 @@ transcripts out of D25.
 **Why:** Your notes stay yours and the summary can be rewritten without touching them. The
 recorder (desktop app, M3) only has to post segments and end the meeting. Anything a guest says
 could be an instruction, so it's held to the same rules as email.
+
+## D38. Notes are live documents on Loro text, edited in CodeMirror (2026-10-03)
+
+**Decision:** A note's body is a Loro document (`doc_state` holds a snapshot, `doc_update` the
+edits since, folded in every 50). The web app edits it in CodeMirror through `loro-codemirror`,
+keeps a copy in IndexedDB so it opens and takes edits offline, and syncs with one action,
+`doc.sync` (send what the server hasn't seen, get back what you haven't). Other screens hear
+about a change through the live event feed and sync at once. The text stays markdown with
+`<m-ref>` mentions, so search, backlinks and Jarvis read it as before; the editor shows mentions
+as chips and `- [ ]` as checkboxes. When Jarvis (or anything else) changes the body with
+`note.update`, the next sync applies the difference as an edit by that writer, so it merges with
+typing it didn't see instead of replacing it.
+
+**Alternatives:** Lift Macro's Lexical editor and its packages (about 30,000 lines). Yjs instead
+of Loro. Keep last-write-wins bodies.
+
+**Why:** Same CRDT Macro uses, a small fraction of the code, and it rides the sync and event
+feed Hearth already has. Loro keeps the full history, which version history (next) needs.

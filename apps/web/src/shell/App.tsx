@@ -16,6 +16,7 @@ import { Kbd, PaneContext } from "../components/ui.tsx";
 import { ChatView } from "../jarvis/Conversation.tsx";
 import { JarvisPane, jarvis } from "../jarvis/JarvisPane.tsx";
 import { getMe, setSignedOutHandler } from "../lib/api.ts";
+import { forgetAllDocs } from "../lib/doc.ts";
 import { listHotkeys, useHotkeys } from "../lib/hotkeys.ts";
 import { live, queryClient, toast } from "../lib/live.ts";
 import { type ListView, layout, type PaneRoute } from "../lib/panes.ts";
@@ -226,6 +227,7 @@ export function App() {
               onSignOut={() => {
                 live.stop();
                 queryClient.clear();
+                forgetAllDocs();
                 void refetch();
               }}
             />

@@ -1,6 +1,7 @@
 // End-to-end check of the web app in a real browser, against a running Hearth server:
-// passkey setup and sign-in (with a virtual authenticator), tasks, a note that @mentions a task,
-// backlinks, subtasks, Cmd+K with split panes, chatting with Jarvis, memory, and the pause switch.
+// passkey setup and sign-in (with a virtual authenticator), tasks, a live note that @mentions a task
+// and syncs to a second window, backlinks, subtasks, Cmd+K with split panes, chatting with Jarvis,
+// memory, and the pause switch.
 //
 //   HEARTH_E2E_URL=http://localhost:4400 HEARTH_E2E_SETUP_CODE=<from hearth setup> \
 //     node apps/web/e2e/smoke.ts
@@ -82,7 +83,7 @@ try {
     await p.getByText(`Pack for the trip ${tag}`).waitFor();
   });
 
-  await step("a note that @mentions a task, saved once", async (p) => {
+  await step("a live note that @mentions a task", async (p) => {
     await keys("Escape");
     await p.locator("nav").click({ position: { x: 100, y: 600 } });
     await keys("g", "n");
@@ -90,24 +91,39 @@ try {
     const title = p.locator("input[placeholder=Untitled]");
     await title.fill(`Monthly money ${tag}`);
     await title.press("Enter");
-    await p.getByText("Start writing").click();
-    const editor = p.getByPlaceholder("Write… type @ to link");
+    const editor = p.locator(".cm-content");
+    await editor.click();
     await editor.pressSequentially(`Remember to @Pay rent ${tag}`);
     await p
-      .locator("ul button", { hasText: `Pay rent ${tag}` })
+      .locator(".cm-tooltip-autocomplete li", { hasText: `Pay rent ${tag}` })
       .first()
-      .waitFor();
-    await keys("Enter");
-    await editor.pressSequentially("before Friday.\n- [ ] cancel the gym");
-    await keys("Control+Enter");
-    await p.locator("button.mention", { hasText: `@Pay rent ${tag}` }).waitFor();
-    await p.waitForTimeout(1000);
-    if (await p.getByText("changed since you opened it").count())
-      throw new Error("false save conflict");
+      .click();
+    await editor.pressSequentially(" before Friday.\n- [ ] cancel the gym");
+    await editor.locator("span", { hasText: `@Pay rent ${tag}` }).waitFor();
+    await editor.locator("input[type=checkbox]").waitFor();
+    await p.waitForTimeout(1500);
+    if (await p.getByText("Not saved yet").count()) throw new Error("the note didn't save");
+  });
+
+  await step("the note syncs live to another window", async (p) => {
+    const other = await context.newPage();
+    await other.goto(p.url());
+    const there = other.locator(".cm-content");
+    await there.getByText("cancel the gym").waitFor();
+    await there.click();
+    await other.keyboard.press("Control+End");
+    await other.keyboard.type("\nAdded from the other window");
+    await p
+      .locator(".cm-content")
+      .getByText("Added from the other window")
+      .waitFor({ timeout: 10_000 });
+    await other.close();
   });
 
   await step("the task lists the note as a backlink, and takes a subtask", async (p) => {
-    await p.locator("button.mention", { hasText: `@Pay rent ${tag}` }).click();
+    // The status line moves while the other window's edit lands, so a mouse click can miss;
+    // the chip opens on mousedown.
+    await p.locator(".cm-content span", { hasText: `@Pay rent ${tag}` }).dispatchEvent("mousedown");
     const task = p.locator("section", { hasText: "Linked from" });
     await task.getByRole("button", { name: new RegExp(`Monthly money ${tag}`) }).waitFor();
     await task.getByPlaceholder("Add a subtask…").fill("Set up autopay");
