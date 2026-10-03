@@ -2,7 +2,7 @@
 // with what Hearth knows about it: the guests, the last time you met, linked records and open
 // tasks. Jarvis writes it up; if it can't, you get the plain facts (PLAN.md section 6.2).
 import { formatDateTime, localDate } from "@hearth/core";
-import { calendarEvent, entity, link, task } from "@hearth/db";
+import { calendarEvent, entity, link, personEmail, task } from "@hearth/db";
 import {
   addLink,
   createEntity,
@@ -75,6 +75,16 @@ export async function prepFacts(ctx: ReadContext, ev: EventView, tz: string): Pr
   const people = guests(ev);
   if (people.length) {
     lines.push(`- Guests: ${people.map((g) => g.name ?? g.email).join(", ")}`);
+    // Their addresses, else (for people you added by hand) their name or an address in the notes.
+    const byEmail = ctx.db
+      .select({ id: personEmail.personId })
+      .from(personEmail)
+      .where(
+        inArray(
+          personEmail.address,
+          people.map((g) => g.email),
+        ),
+      );
     const known = await ctx.db
       .select({ id: entity.id, title: entity.title, body: entity.body })
       .from(entity)
@@ -83,6 +93,7 @@ export async function prepFacts(ctx: ReadContext, ev: EventView, tz: string): Pr
           eq(entity.type, "person"),
           isNull(entity.deletedAt),
           or(
+            inArray(entity.id, byEmail),
             ...people.map((g) => ilike(entity.body, `%${g.email}%`)),
             ...people.filter((g) => g.name).map((g) => eq(entity.title, g.name!)),
           ),

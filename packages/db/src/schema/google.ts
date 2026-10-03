@@ -69,6 +69,8 @@ export const calendarEvent = pgTable(
     /** The iCalendar UID, shared with the invitation emails (0009_mail_invites). */
     icalUid: text("ical_uid"),
     taskId: uuid("task_id"),
+    /** Its guests are linked to people (0010_people). */
+    peopleLinked: boolean("people_linked").notNull().default(false),
   },
   (t) => [unique().on(t.calendarId, t.googleId)],
 );

@@ -1,0 +1,3 @@
+ALTER TABLE calendar_event DROP COLUMN IF EXISTS people_linked;
+DROP TABLE IF EXISTS person;
+DROP TABLE IF EXISTS company;

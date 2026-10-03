@@ -5,6 +5,7 @@ import { type Attendee, calendarEvent, type DbOrTx, type EventStatus, entity } f
 import { type ActionContext, createEntity, type EntityRow, updateEntity } from "@hearth/kernel";
 import { and, eq } from "drizzle-orm";
 import type { GEvent } from "../google/calendar-api.ts";
+import { ensurePerson, linkPerson, personFor } from "../people/store.ts";
 
 export type EventRow = typeof calendarEvent.$inferSelect;
 
@@ -67,7 +68,10 @@ export function guests(v: Pick<EventView, "attendees">): Attendee[] {
   return v.attendees.filter((a) => !a.self);
 }
 
-export type Mapped = Omit<EventRow, "entityId" | "taskId"> & { title: string; body: string };
+export type Mapped = Omit<EventRow, "entityId" | "taskId" | "peopleLinked"> & {
+  title: string;
+  body: string;
+};
 
 export function mapEvent(calendarId: string, g: GEvent, tz: string): Mapped | null {
   if (!g.start || !g.end) return null;
@@ -128,6 +132,26 @@ export async function loadEvent(db: DbOrTx, id: string): Promise<EventView | nul
   return row && !row.e.deletedAt ? toEventView(row.e, row.r) : null;
 }
 
+/** Meetings bigger than this are announcements; their guests don't all become people. */
+const MAX_GUESTS = 20;
+
+/**
+ * Links an event to the people on it. A meeting you organized or accepted makes its guests
+ * people (like mail you send); any other only links the people you already know.
+ */
+async function linkGuests(ctx: ActionContext, id: string, m: Mapped): Promise<void> {
+  if (m.status === "cancelled") return;
+  const list = m.attendees.filter((a) => !a.self).slice(0, MAX_GUESTS);
+  const yours =
+    m.attendees.length <= MAX_GUESTS + 1 && (m.selfOrganizer || m.selfResponse === "accepted");
+  for (const g of list) {
+    const personId = yours
+      ? await ensurePerson(ctx, { address: g.email, ...(g.name ? { name: g.name } : {}) })
+      : await personFor(ctx.tx, g.email);
+    if (personId) await linkPerson(ctx, id, personId);
+  }
+}
+
 export type Change = "added" | "updated" | "cancelled" | null;
 
 /** Saves Google's version of an event. Returns what changed, for the event log. */
@@ -143,12 +167,13 @@ export async function saveEvent(
     const row = await createEntity(ctx, { type: "event", title, body });
     await ctx.tx
       .insert(calendarEvent)
-      .values({ entityId: row.id, ...fields, taskId: extra.taskId ?? null });
+      .values({ entityId: row.id, ...fields, taskId: extra.taskId ?? null, peopleLinked: true });
+    await linkGuests(ctx, row.id, m);
     return { id: row.id, change: "added" };
   }
   const { e, r } = existing;
-  // Unchanged, unless it's from before Hearth kept UIDs.
-  if (r.etag && r.etag === m.etag && !e.deletedAt && (r.icalUid || !m.icalUid))
+  // Unchanged, unless it's from before Hearth kept UIDs or linked guests to people.
+  if (r.etag && r.etag === m.etag && !e.deletedAt && (r.icalUid || !m.icalUid) && r.peopleLinked)
     return { id: e.id, change: null };
   const moved =
     r.startsAt.getTime() !== m.startsAt.getTime() || r.endsAt.getTime() !== m.endsAt.getTime();
@@ -163,8 +188,13 @@ export async function saveEvent(
   if (!e.deletedAt) await updateEntity(ctx, e.id, { title, body });
   await ctx.tx
     .update(calendarEvent)
-    .set({ ...fields, ...(extra.taskId !== undefined ? { taskId: extra.taskId } : {}) })
+    .set({
+      ...fields,
+      peopleLinked: true,
+      ...(extra.taskId !== undefined ? { taskId: extra.taskId } : {}),
+    })
     .where(eq(calendarEvent.entityId, e.id));
+  if (!e.deletedAt) await linkGuests(ctx, e.id, m);
   return { id: e.id, change };
 }
 

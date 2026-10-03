@@ -163,10 +163,56 @@ export interface SystemStatus {
   schedules: { id: string; nextRunAt: string | null }[];
 }
 
+export interface LastContact {
+  at: string;
+  kind: "email" | "meeting";
+}
+
 export interface Person {
   id: string;
   name: string;
-  updatedAt: string;
+  company: string | null;
+  lastContact: LastContact | null;
+  followUpDays: number | null;
+  overdueDays: number | null;
+}
+
+export interface Linked {
+  id: string;
+  type: string;
+  title: string;
+  at: string;
+}
+
+export interface PersonDetail {
+  id: string;
+  name: string;
+  notes: string;
+  emails: string[];
+  company: { id: string; name: string; domain: string } | null;
+  followUpDays: number | null;
+  overdueDays: number | null;
+  fields: Record<string, string>;
+  lastContact: LastContact | null;
+  threads: (Linked & { messages: number })[];
+  upcoming: Linked[];
+  met: Linked[];
+  items: Linked[];
+}
+
+export interface Company {
+  id: string;
+  name: string;
+  domain: string;
+  people: number;
+}
+
+export interface CompanyDetail {
+  id: string;
+  name: string;
+  domain: string;
+  notes: string;
+  people: Person[];
 }
 
 export interface StandingRule {
