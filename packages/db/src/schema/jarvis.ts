@@ -42,7 +42,8 @@ export type TurnTrigger =
   | "approval"
   | "watch"
   | "reflex"
-  | "routine";
+  | "routine"
+  | "voice_command";
 export type TurnMode = "reactive" | "proactive";
 export type TurnLane = "fast" | "deep";
 export type TurnStatus = "queued" | "running" | "done" | "failed" | "skipped" | "canceled";

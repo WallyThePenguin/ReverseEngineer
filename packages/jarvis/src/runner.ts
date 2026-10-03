@@ -20,7 +20,7 @@ export interface RunnerOptions {
   log?: (msg: string, err?: unknown) => void;
 }
 
-const REPLY_IN_THREAD = new Set(["mention", "assignment", "watch", "approval"]);
+const REPLY_IN_THREAD = new Set(["mention", "assignment", "watch", "approval", "voice_command"]);
 const QUIET_ACTIONS = new Set(["inbox.notify", "jarvis.observe", "record.read"]);
 
 export function classifyOutcome(calls: ToolCallRecord[]): TurnOutcome {

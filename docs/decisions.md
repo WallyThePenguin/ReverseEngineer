@@ -623,3 +623,23 @@ places). A Claude turn for cleanup (too slow for the 1-second target). Rules onl
 
 **Why:** One place holds your words, so the desktop app, the phone and Jarvis share them, and
 the rules pass keeps dictation working when the model is off or slow.
+
+## D42. The desktop app pairs with a scoped token; voice commands are Jarvis turns (2026-10-03)
+
+**Decision:** The desktop app signs in with a device token made in Settings → Desktop app (or
+`hearth device pair desktop`). It acts as you, but the token may only call a fixed list of
+actions (`voice.clean`, `voice.command`, `voice.command_result`, `voice.styles`, `chat.send`,
+`conversation.get`); every other route answers 403. Pairing again signs the old code out.
+Command mode is `voice.command`: the selected text becomes a `voice_command` record kept as
+outside content, and a fast-lane Jarvis turn (trigger `voice_command`, untrusted when there's a
+selection) answers with only the replacement text, which the app fetches with
+`voice.command_result` and pastes.
+
+**Alternatives:** An MCP-client token (it isn't you, so `voice.clean` and your dictionary would
+be off limits). A full owner token on the desktop (anything that reads its settings file could
+then do everything you can). A separate rewrite model for commands (Jarvis's fast lane is what
+the plan names, and it can look things up in Hearth).
+
+**Why:** The desktop app runs beside every other program on the PC, so its token should be
+worth as little as possible if it leaks. Treating the selection as outside content means text
+copied from an email can't steer Jarvis into acting.

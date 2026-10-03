@@ -16,6 +16,7 @@ import { and, desc, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { describeRow, id, liveEntity, preview } from "../shared.ts";
 import { applyDictionary, learnedSwaps, pickStyle, rulesPass, tidy } from "./clean.ts";
+import { COMMAND_TYPE, commandActions, commandReflex } from "./command.ts";
 import { POLISH_SERVICE, type Polisher } from "./polish.ts";
 import { snippetActions, snippetsOf } from "./snippets.ts";
 
@@ -32,8 +33,17 @@ export const voiceModule = defineModule({
   name: "voice",
   description:
     "Dictation: everything you've said into other apps, cleaned up, plus your dictionary, snippets and per-app styles.",
-  entityTypes: ["dictation", "snippet"],
-  events: [{ kind: "voice.dictated", description: "You dictated something. Payload: app, chars." }],
+  entityTypes: ["dictation", "snippet", COMMAND_TYPE],
+  // What you select for a voice command may have come from anywhere.
+  outsideTypes: [COMMAND_TYPE],
+  events: [
+    { kind: "voice.dictated", description: "You dictated something. Payload: app, chars." },
+    {
+      kind: "voice.commanded",
+      description:
+        "You spoke a command about selected text. Payload: instruction, hasSelection, app.",
+    },
+  ],
   kernelEvents: ["entity.created", "entity.updated", "entity.deleted"],
   knowledge: {
     async dictation(entityId, ctx) {
@@ -45,6 +55,10 @@ export const voiceModule = defineModule({
     async snippet(entityId, ctx) {
       const row = await liveEntity(ctx.db, entityId, "snippet");
       return row ? describeRow(row, [`said as "${row.title}"`]) : null;
+    },
+    async [COMMAND_TYPE](entityId, ctx) {
+      const row = await liveEntity(ctx.db, entityId, COMMAND_TYPE);
+      return row ? describeRow(row, ["text you selected for a voice command"]) : null;
     },
   },
   actions: [
@@ -228,8 +242,7 @@ export const voiceModule = defineModule({
       },
     }),
     ...snippetActions,
+    ...commandActions,
   ],
-  reflexes: [],
-  noReflexesBecause:
-    "Dictation is you typing by voice: Jarvis reads it when asked, and has nothing to do each time you dictate.",
+  reflexes: [commandReflex],
 });

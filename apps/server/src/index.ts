@@ -1,4 +1,5 @@
 export { createApp } from "./app.ts";
+export { DEVICE_SCOPES, listDevices, pairDevice, revokeDevice } from "./auth/devices.ts";
 export { createSetupCode } from "./auth/passkeys.ts";
 export {
   createApiToken,

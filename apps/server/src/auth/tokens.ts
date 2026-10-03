@@ -3,7 +3,7 @@
 import { timingSafeEqual } from "node:crypto";
 import type { PrincipalKind } from "@hearth/core";
 import { createSession, type DbOrTx, hashToken, newToken, principal, session } from "@hearth/db";
-import { and, eq, gt, isNull, or } from "drizzle-orm";
+import { and, eq, gt, isNull, like, not, or } from "drizzle-orm";
 
 export { createSession, hashToken, newToken };
 
@@ -17,6 +17,8 @@ export interface SessionPrincipal {
   principal: string;
   kind: PrincipalKind;
   sessionKind: "browser" | "api";
+  /** A device's token may run only these actions; null for a full sign-in. */
+  scopes: string[] | null;
 }
 
 export async function resolveToken(
@@ -31,6 +33,7 @@ export async function resolveToken(
       sessionKind: session.kind,
       kind: principal.kind,
       disabled: principal.disabledAt,
+      scopes: session.scopes,
     })
     .from(session)
     .innerJoin(principal, eq(principal.id, session.principal))
@@ -46,7 +49,12 @@ export async function resolveToken(
     .update(session)
     .set({ lastSeenAt: now })
     .where(eq(session.tokenHash, hashToken(token)));
-  return { principal: row.principal, kind: row.kind, sessionKind: row.sessionKind };
+  return {
+    principal: row.principal,
+    kind: row.kind,
+    sessionKind: row.sessionKind,
+    scopes: row.scopes ?? null,
+  };
 }
 
 export async function revokeToken(db: DbOrTx, token: string, now = new Date()): Promise<void> {
@@ -88,7 +96,7 @@ export async function listApiTokens(db: DbOrTx) {
       revokedAt: session.revokedAt,
     })
     .from(session)
-    .where(eq(session.kind, "api"));
+    .where(and(eq(session.kind, "api"), not(like(session.label, "device:%"))));
 }
 
 /** Revokes every token for an outside agent and disables it. */

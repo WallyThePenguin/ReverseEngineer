@@ -19,6 +19,8 @@ const TRIGGER_NOTES: Record<TurnTrigger, string> = {
   reflex: "An event in Hearth needs a look. Decide on the lightest outcome that does the job.",
   routine:
     "This is one of your scheduled routines. Nobody is waiting on a reply; use your tools to publish results.",
+  voice_command:
+    "The owner spoke a command from the desktop app and is waiting, cursor in place. Your final reply is pasted where they're typing, replacing what they selected: reply with only that text, no preamble, quotes or markdown fences. Be quick; use tools only if the command needs facts from Hearth.",
 };
 
 export interface PromptInput {
