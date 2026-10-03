@@ -771,8 +771,10 @@ fn should_send_auto_submit(auto_submit: bool, paste_method: PasteMethod) -> bool
     auto_submit && paste_method != PasteMethod::None
 }
 
-pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
-    let settings = get_settings(&app_handle);
+/// Pastes, pressing the auto-submit key afterwards only when `submit` allows it (Hearth).
+pub fn paste(text: String, app_handle: AppHandle, submit: bool) -> Result<(), String> {
+    let mut settings = get_settings(&app_handle);
+    settings.auto_submit &= submit;
     let paste_method = settings.paste_method;
     let paste_delay_ms = settings.paste_delay_ms;
     let paste_delay_after_ms = settings.paste_delay_after_ms;

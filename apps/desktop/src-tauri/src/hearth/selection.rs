@@ -7,18 +7,46 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
-/// The selected text in the focused app, or an empty string when nothing is selected.
-pub fn copy_selection(app: &AppHandle) -> String {
+/// Programs where Ctrl+C stops what's running instead of copying.
+const TERMINALS: &[&str] = &[
+    "windowsterminal.exe",
+    "cmd.exe",
+    "powershell.exe",
+    "pwsh.exe",
+    "conhost.exe",
+    "wezterm-gui.exe",
+    "alacritty.exe",
+    "mintty.exe",
+    "putty.exe",
+    "wsl.exe",
+];
+
+pub fn is_terminal(program: Option<&str>) -> bool {
+    program.is_some_and(|p| TERMINALS.contains(&p.to_ascii_lowercase().as_str()))
+}
+
+/// The selected text in the focused app, or an empty string when nothing is selected or the app
+/// is a terminal.
+pub fn copy_selection(app: &AppHandle, program: Option<&str>) -> String {
+    if is_terminal(program) {
+        return String::new();
+    }
     let clipboard = app.clipboard();
+    // Text on the clipboard comes back afterwards. Anything else (an image, files) is left
+    // alone unless something was selected, since copying replaces it.
     let before = clipboard.read_text().ok();
-    // Cleared first, so "nothing selected" doesn't read back what was already there.
-    let _ = clipboard.write_text(String::new());
+    if before.is_some() {
+        // Cleared first, so "nothing selected" doesn't read back what was already there.
+        let _ = clipboard.write_text(String::new());
+    }
     if let Err(e) = send_copy(app) {
         log::warn!("Couldn't copy the selection: {e}");
     }
     std::thread::sleep(Duration::from_millis(150));
     let selected = clipboard.read_text().unwrap_or_default();
-    let _ = clipboard.write_text(before.unwrap_or_default());
+    if let Some(before) = before {
+        let _ = clipboard.write_text(before);
+    }
     selected
 }
 
@@ -44,4 +72,14 @@ fn send_copy(app: &AppHandle) -> Result<(), String> {
         .key(modifier, Direction::Release)
         .map_err(|e| e.to_string())?;
     clicked
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn leaves_terminals_alone() {
+        assert!(super::is_terminal(Some("WindowsTerminal.exe")));
+        assert!(!super::is_terminal(Some("slack.exe")));
+        assert!(!super::is_terminal(None));
+    }
 }

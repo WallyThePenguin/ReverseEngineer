@@ -29,15 +29,15 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v5
-      - uses: oven-sh/setup-bun@v2
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: swatinem/rust-cache@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+      - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: "apps/desktop/src-tauri -> target"
           cache-bin: false
 
       - name: Vulkan SDK
-        uses: humbletim/install-vulkan-sdk@v1.2
+        uses: humbletim/install-vulkan-sdk@30ba978f977e81b72d091fc8888feb1fb26f9aff # v1.2
         with:
           version: 1.4.309.0
           cache: true
@@ -56,6 +56,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $v = "1.24.2"
           Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v$v/onnxruntime-win-x64-$v.zip" -OutFile ort.zip
+          $sha = (Get-FileHash ort.zip -Algorithm SHA256).Hash.ToLower()
+          if ($sha -ne "8e3e9c826375352e29cb2614fe44f3d7a4b0ff7b8028ad7a456af9d949a7e8b0") { throw "ONNX Runtime download doesn't match its checksum" }
           Expand-Archive -Path ort.zip -DestinationPath ort-dist -Force
           $lib = (Resolve-Path "ort-dist/onnxruntime-win-x64-$v/lib").Path
           Add-Content $env:GITHUB_ENV "ORT_LIB_LOCATION=$lib"

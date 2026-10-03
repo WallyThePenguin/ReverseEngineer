@@ -5,11 +5,21 @@ import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { dictionaryEntry } from "@hearth/db";
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { requireCaller } from "../auth/middleware.ts";
 import type { AppEnv } from "../env.ts";
 
 const NAME = /^[a-z0-9-]{1,40}$/;
 const MAX_BYTES = 10 * 1024 * 1024;
+const MAX_SAID = 2000;
+
+const decoded = (s: string) => {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return null;
+  }
+};
 
 export const samplesDir = (env = process.env) =>
   join(env.HEARTH_DATA_DIR ?? process.cwd(), "voice-samples");
@@ -30,17 +40,22 @@ export function voiceRoutes(dir = samplesDir()) {
     return c.json({ names: names.sort(), folder: dir });
   });
 
-  app.put("/samples/:name", async (c) => {
+  const limit = bodyLimit({
+    maxSize: MAX_BYTES,
+    onError: (c) => c.json({ error: "That recording is too long." }, 413),
+  });
+
+  app.put("/samples/:name", limit, async (c) => {
     const name = c.req.param("name");
-    const said = (c.req.header("x-said") ?? "").trim();
+    const said = decoded((c.req.header("x-said") ?? "").trim())?.trim();
     if (!NAME.test(name)) return c.json({ error: "Sample names are like dictation-01." }, 400);
-    if (!said) return c.json({ error: "Say what was said in the X-Said header." }, 400);
+    if (!said || said.length > MAX_SAID)
+      return c.json({ error: "Say what was said in the X-Said header, URI-encoded." }, 400);
     const body = new Uint8Array(await c.req.arrayBuffer());
-    if (body.length > MAX_BYTES) return c.json({ error: "That recording is too long." }, 413);
     if (!isWav(body)) return c.json({ error: "Send a WAV recording." }, 400);
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, `${name}.wav`), body);
-    await writeFile(join(dir, `${name}.txt`), `${decodeURIComponent(said)}\n`);
+    await writeFile(join(dir, `${name}.txt`), `${said}\n`);
     // The bake-off scores how often your own words come out right.
     const words = await c
       .get("deps")

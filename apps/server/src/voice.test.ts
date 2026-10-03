@@ -55,6 +55,13 @@ describe("voice samples", () => {
       (await put("dictation-02", new TextEncoder().encode("not a wav file at all, nope"))).status,
     ).toBe(400);
     expect((await put("dictation-02", wav(), "")).status).toBe(400);
+    const badHeader = await t.browser("/api/voice/samples/dictation-02", {
+      method: "PUT",
+      headers: { "x-said": "%E0%A4%A" },
+      body: wav(),
+    });
+    expect(badHeader.status).toBe(400);
+    expect((await put("dictation-02", new Uint8Array(11 * 1024 * 1024))).status).toBe(413);
 
     expect((await t.browser("/api/voice/samples/dictation-01", { method: "DELETE" })).status).toBe(
       200,

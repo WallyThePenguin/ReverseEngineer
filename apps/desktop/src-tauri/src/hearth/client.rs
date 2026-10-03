@@ -36,7 +36,7 @@ pub struct LogEntry {
 }
 
 /// Where you were typing when you pressed the hotkey.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Target {
     pub app: Option<String>,
     pub window: Option<String>,

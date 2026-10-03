@@ -43,8 +43,9 @@ pub fn link(app: &AppHandle) -> Option<Hearth> {
     Hearth::new(&s.hearth_url, &token)
 }
 
-/// Call when the hotkey goes down, before the overlay takes focus.
+/// Call when the hotkey goes down, before the overlay takes focus. Jarvis stops talking.
 pub fn pressed() {
+    speak::stop();
     if let Ok(mut p) = PRESSED.lock() {
         *p = Some((foreground::current(), Instant::now()));
     }
@@ -65,11 +66,28 @@ fn tell(app: &AppHandle, message: &str) {
 }
 
 fn nothing() -> ProcessedTranscription {
+    pasted(String::new())
+}
+
+/// Text from Hearth, made safe to paste: no control characters but newlines and tabs, and not
+/// endlessly long. It's never submitted with Enter.
+fn pasted(text: String) -> ProcessedTranscription {
+    let text = plain(&text);
     ProcessedTranscription {
-        final_text: String::new(),
-        post_processed_text: None,
+        final_text: text.clone(),
+        post_processed_text: (!text.is_empty()).then_some(text),
         post_process_prompt: None,
+        no_submit: true,
     }
+}
+
+const MAX_PASTE: usize = 20_000;
+
+fn plain(text: &str) -> String {
+    text.chars()
+        .filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
+        .take(MAX_PASTE)
+        .collect()
 }
 
 /// What to paste for this transcription.
@@ -87,9 +105,8 @@ pub(crate) async fn finish(
             .await
         {
             Ok(text) => ProcessedTranscription {
-                final_text: text.clone(),
-                post_processed_text: Some(text),
-                post_process_prompt: None,
+                no_submit: false,
+                ..pasted(text)
             },
             Err(e) => {
                 log::warn!("Hearth cleanup failed, using Handy's own: {e}");
@@ -104,11 +121,17 @@ pub(crate) async fn finish(
             nothing()
         }
         (Mode::Command, Some(h)) => match command(app, &h, transcription, &target).await {
-            Ok(text) => ProcessedTranscription {
-                final_text: text.clone(),
-                post_processed_text: Some(text),
-                post_process_prompt: None,
-            },
+            // Pasted only where you asked; if you moved on, it waits on the clipboard.
+            Ok(text) if foreground::current() == target => pasted(text),
+            Ok(text) => {
+                use tauri_plugin_clipboard_manager::ClipboardExt;
+                let _ = app.clipboard().write_text(plain(&text));
+                tell(
+                    app,
+                    "You switched windows, so Jarvis's answer is on the clipboard.",
+                );
+                nothing()
+            }
             Err(e) => {
                 tell(app, &e);
                 nothing()
@@ -133,9 +156,12 @@ async fn command(
         return Err("Didn't catch a command.".into());
     }
     let ah = app.clone();
-    let selection = tauri::async_runtime::spawn_blocking(move || selection::copy_selection(&ah))
-        .await
-        .unwrap_or_default();
+    let program = target.app.clone();
+    let selection = tauri::async_runtime::spawn_blocking(move || {
+        selection::copy_selection(&ah, program.as_deref())
+    })
+    .await
+    .unwrap_or_default();
     let at = Target {
         app: target.app.as_deref().and_then(foreground::safe_app),
         window: None,
@@ -204,10 +230,16 @@ pub async fn change_hearth_settings(
     code: String,
 ) -> Result<String, String> {
     let url = url.trim().trim_end_matches('/').to_string();
-    if !(url.starts_with("http://") || url.starts_with("https://")) {
-        return Err("Hearth's address starts with http:// or https://".into());
-    }
+    let parsed = check_address(&url)?;
     let mut s = get_settings(&app);
+    // The code only goes to the Hearth it came from: a new address needs it entered again.
+    let same = s
+        .hearth_url
+        .parse::<tauri::Url>()
+        .is_ok_and(|old| old.origin() == parsed.origin());
+    if !same {
+        s.hearth_keys.remove(DESKTOP_KEY);
+    }
     s.hearth_url = url;
     if !code.trim().is_empty() {
         s.hearth_keys
@@ -223,6 +255,22 @@ pub async fn change_hearth_settings(
     )
     .await
     .map(|_| "Connected to Hearth.".to_string())
+}
+
+/// Hearth's address: plain http only on this PC, https anywhere else.
+fn check_address(url: &str) -> Result<tauri::Url, String> {
+    let parsed = url
+        .parse::<tauri::Url>()
+        .map_err(|_| "That isn't a web address.".to_string())?;
+    let local = matches!(parsed.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
+    match parsed.scheme() {
+        "https" => Ok(parsed),
+        "http" if local => Ok(parsed),
+        _ => Err(
+            "Use https:// for a Hearth on another computer (http:// only works for localhost)."
+                .into(),
+        ),
+    }
 }
 
 /// Forgets the pairing code; dictation goes back to Handy's own processing.
@@ -250,11 +298,42 @@ pub fn open_window(app: &AppHandle) {
         tell(app, "Set Hearth's address in Settings first.");
         return;
     };
+    let home = url.origin();
     if let Err(e) = WebviewWindowBuilder::new(app, "hearth", WebviewUrl::External(url))
+        // Links elsewhere open in the browser, not in this window.
+        .on_navigation(move |to| {
+            let ok = to.origin() == home;
+            if !ok && matches!(to.scheme(), "http" | "https") {
+                let _ = tauri_plugin_opener::open_url(to.as_str(), None::<&str>);
+            }
+            ok
+        })
         .title("Hearth")
         .inner_size(1280.0, 860.0)
         .build()
     {
         tell(app, &format!("Couldn't open Hearth: {e}"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pastes_plain_text_only() {
+        assert_eq!(plain("a\u{1b}[31mb\r\nc\td"), "a[31mb\nc\td");
+        assert_eq!(plain(&"x".repeat(30_000)).len(), MAX_PASTE);
+        assert!(pasted("hi".into()).no_submit);
+    }
+
+    #[test]
+    fn needs_https_away_from_this_pc() {
+        assert!(check_address("http://localhost:4400").is_ok());
+        assert!(check_address("http://127.0.0.1:4400").is_ok());
+        assert!(check_address("https://hearth.tail1234.ts.net").is_ok());
+        assert!(check_address("http://192.168.1.20:4400").is_err());
+        assert!(check_address("ftp://localhost").is_err());
+        assert!(check_address("localhost:4400").is_err());
     }
 }

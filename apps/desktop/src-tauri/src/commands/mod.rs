@@ -40,7 +40,12 @@ pub fn get_app_dir_path(app: AppHandle) -> Result<String, String> {
 #[tauri::command]
 #[specta::specta]
 pub fn get_app_settings(app: AppHandle) -> Result<AppSettings, String> {
-    Ok(get_settings(&app))
+    let mut settings = get_settings(&app);
+    // The screen only needs to know Hearth is paired, never the code itself.
+    for code in settings.hearth_keys.values_mut() {
+        *code = "paired".into();
+    }
+    Ok(settings)
 }
 
 #[tauri::command]
