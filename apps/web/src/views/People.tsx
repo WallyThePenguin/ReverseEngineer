@@ -12,10 +12,10 @@ type Tab = "people" | "companies" | "due";
 
 export function People(props: { pane: number }) {
   const [tab, setTab] = createSignal<Tab>("people");
-  const people = useAction<Person[]>("person.list", () => ({ limit: 1000 }));
+  const people = useAction<Person[]>("person.list", () => ({ limit: 200 }));
   const companies = useAction<Company[]>(
     "company.list",
-    () => ({ limit: 1000 }),
+    () => ({ limit: 200 }),
     () => tab() === "companies",
   );
   const [name, setName] = createSignal("");

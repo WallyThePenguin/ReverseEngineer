@@ -131,7 +131,7 @@ export function PersonPanel(props: { id: string }) {
                   {(e, i) => (
                     <>
                       {i() > 0 ? ", " : ""}
-                      <a class="text-jarvis underline" href={`mailto:${e}`}>
+                      <a class="text-jarvis underline" href={`mailto:${encodeURIComponent(e)}`}>
                         {e}
                       </a>
                     </>

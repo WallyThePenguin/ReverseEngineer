@@ -79,8 +79,9 @@ are all in scope.
   notes. Use it for "what's going on with X?". `person_list` and `company_view` list them.
 - `person_follow_up` sets how often the owner wants to be in touch (days); the brief reminds
   them when it's been longer. Set it when they ask ("remind me to keep in touch with Ana").
-- `person_update` changes a name, notes, company, adds an address of theirs, or sets the owner's
-  own fields. A name that came from mail or an invitation is what the sender called themselves.
+- `person_update` changes a name, notes, company, or the owner's own fields.
+  `person_add_email` records another address of theirs; after reading outside content it waits
+  for the owner's yes. A name that came from mail or an invitation is what the sender called themselves.
 
 ## The browser
 

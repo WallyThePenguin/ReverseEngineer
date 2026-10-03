@@ -12,7 +12,7 @@ import {
   personEmail,
 } from "@hearth/db";
 import { type ActionContext, addLink, createEntity } from "@hearth/kernel";
-import { and, asc, eq, inArray, isNull, lte, max, ne, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, lte, max, ne, or, sql } from "drizzle-orm";
 import { cleanName } from "../mail/mime.ts";
 import { companyDomain, companyName } from "./domains.ts";
 
@@ -81,7 +81,10 @@ export interface LastContact {
   kind: "email" | "meeting";
 }
 
-/** When you last emailed or met each person, up to now. Spam and declined meetings don't count. */
+/**
+ * When you last emailed or met each person, up to now: mail you sent them or they sent, and
+ * meetings you organized or accepted. Spam doesn't count.
+ */
 export async function lastContacts(
   db: DbOrTx,
   ids: string[],
@@ -89,11 +92,16 @@ export async function lastContacts(
 ): Promise<Map<string, LastContact>> {
   const out = new Map<string, LastContact>();
   if (ids.length === 0) return out;
+  // Mail you sent them, or mail from them; a stranger copying them in doesn't count.
   const mail = await db
     .select({ id: link.toId, at: max(mailMessage.sentAt) })
     .from(link)
     .innerJoin(mailMessage, eq(mailMessage.entityId, link.fromId))
     .innerJoin(entity, eq(entity.id, link.fromId))
+    .leftJoin(
+      personEmail,
+      and(eq(personEmail.address, mailMessage.fromAddress), eq(personEmail.personId, link.toId)),
+    )
     .where(
       and(
         inArray(link.toId, ids),
@@ -101,6 +109,10 @@ export async function lastContacts(
         isNull(entity.deletedAt),
         lte(mailMessage.sentAt, now),
         sql`NOT ('SPAM' = ANY(${mailMessage.labels}))`,
+        or(
+          and(eq(mailMessage.outbound, true), sql`'SENT' = ANY(${mailMessage.labels})`),
+          isNotNull(personEmail.address),
+        ),
       ),
     )
     .groupBy(link.toId);
@@ -116,7 +128,8 @@ export async function lastContacts(
         isNull(entity.deletedAt),
         lte(calendarEvent.startsAt, now),
         ne(calendarEvent.status, "cancelled"),
-        or(isNull(calendarEvent.selfResponse), ne(calendarEvent.selfResponse, "declined")),
+        // Meetings you set up or said yes to; an invitation you never answered doesn't count.
+        or(eq(calendarEvent.selfOrganizer, true), eq(calendarEvent.selfResponse, "accepted")),
       ),
     )
     .groupBy(link.toId);

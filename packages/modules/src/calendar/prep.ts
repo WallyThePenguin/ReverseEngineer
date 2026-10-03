@@ -32,6 +32,9 @@ import { type EventView, guests, toEventView, whenText } from "./store.ts";
 
 const HOUR_MS = 3600_000;
 
+/** An address as a LIKE pattern that matches only itself. */
+const likeEscape = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
+
 /** Events worth preparing for: not all-day, not declined, not a time block, with guests or long. */
 export async function eventsToPrep(ctx: ReadContext, hours = 48): Promise<EventView[]> {
   const min = await getSetting(ctx.db, "calendar.prepMinMinutes");
@@ -94,11 +97,12 @@ export async function prepFacts(ctx: ReadContext, ev: EventView, tz: string): Pr
           isNull(entity.deletedAt),
           or(
             inArray(entity.id, byEmail),
-            ...people.map((g) => ilike(entity.body, `%${g.email}%`)),
+            ...people.map((g) => ilike(entity.body, `%${likeEscape(g.email)}%`)),
             ...people.filter((g) => g.name).map((g) => eq(entity.title, g.name!)),
           ),
         ),
-      );
+      )
+      .limit(20);
     for (const p of known)
       lines.push(`- About ${p.title} (person ${p.id}): ${preview(p.body, 300) || "no notes"}`);
     if (known.length) {

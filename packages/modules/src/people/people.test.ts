@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { entity, personEmail } from "@hearth/db";
-import { type Caller, integrationCaller, ownerCaller } from "@hearth/kernel";
+import { type Caller, integrationCaller, jarvisCaller, ownerCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GOOGLE_SERVICE, SCOPES } from "../google/client.ts";
@@ -151,6 +151,44 @@ describe("people and companies", () => {
     expect(await digest()).toEqual([]);
   });
 
+  it("doesn't count a stranger's mail or an unanswered invitation as talking", async () => {
+    write([{ address: "ana@acme.example", name: "Ana" }]);
+    await sync();
+    const before = (await byName("Ana")).lastContact;
+    g.gmail.deliver({
+      from: { address: "x@evil.example" },
+      cc: [{ address: "ana@acme.example" }],
+      subject: "Hi all",
+      text: "Hi",
+      date: t.clock.now(),
+    });
+    g.put(ME, {
+      summary: "Pitch",
+      start: { dateTime: "2026-10-01T13:00:00Z" },
+      end: { dateTime: "2026-10-01T13:30:00Z" },
+      organizer: { email: "x@evil.example" },
+      attendees: [
+        { email: ME, self: true, responseStatus: "needsAction" },
+        { email: "ana@acme.example" },
+      ],
+    });
+    await sync();
+    expect((await byName("Ana")).lastContact).toEqual(before);
+  });
+
+  it("asks before a turn that read outside content records whose address is whose", async () => {
+    const eve = await ok<{ id: string }>("person.create", { name: "Eve" });
+    const untrusted = { ...jarvisCaller("agent"), origin: "untrusted" as const };
+    const res = await t.kernel.execute(
+      "person.add_email",
+      { id: eve.id, email: "attacker@evil.example" },
+      untrusted,
+    );
+    expect(res.status).toBe("pending_approval");
+    expect(await ok<PersonView>("person.view", { id: eve.id })).toMatchObject({ emails: [] });
+    await ok("person.add_email", { id: eve.id, email: "eve@x.example" }, jarvisCaller("agent"));
+  });
+
   it("gives people from before companies their company, and keeps addresses to one person", async () => {
     const [row] = await t.tdb.db
       .insert(entity)
@@ -167,14 +205,12 @@ describe("people and companies", () => {
     await ok("people.tidy");
     expect((await byName("Dee")).company).toBe("Gamma");
 
-    const eve = await ok<{ id: string }>("person.create", {
-      name: "Eve",
-      email: "Eve@Gamma.example",
-    });
+    const eve = await ok<{ id: string }>("person.create", { name: "Eve" });
+    await ok("person.add_email", { id: eve.id, email: "Eve@Gamma.example" });
     expect((await byName("Eve")).company).toBe("Gamma");
     const taken = await t.kernel.execute(
-      "person.update",
-      { id: eve.id, addEmail: "dee@gamma.example" },
+      "person.add_email",
+      { id: eve.id, email: "dee@gamma.example" },
       ownerCaller(),
     );
     expect(taken).toMatchObject({ status: "error", code: "conflict" });

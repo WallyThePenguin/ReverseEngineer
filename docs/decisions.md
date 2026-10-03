@@ -519,10 +519,13 @@ or accepted (up to 20 guests); mail you receive and invitations you haven't answ
 people you already know. A person's first work address makes a company (`company`, keyed by its
 domain, named from it), never a free-mail domain or a role account (info@, noreply@). A
 `person` row keeps the company, a follow-up in days and your own fields. When you last talked is
-worked out from linked mail (not spam) and meetings (not declined, not cancelled), never stored,
+worked out from mail you sent them or they sent (not spam, not a stranger copying them in) and
+meetings you organized or accepted (not cancelled), never stored,
 and the brief says "You haven't talked to X in N days" once a follow-up has passed. People from
 before this get their company from a nightly tidy; events get their guests linked on the next
-sync.
+sync. Recording whose an address is (`person.add_email`) waits for your yes in a turn that
+read outside content, and a record that names outside records (a person's email subjects) makes
+Jarvis's turn untrusted like the outside records themselves.
 
 **Alternatives:** Make people from every sender. Store a last-contact date and update it on each
 message. Look up companies online.

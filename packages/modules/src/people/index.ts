@@ -16,7 +16,8 @@ import {
 import { and, asc, count, eq, isNotNull, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { body, describeRow, id, liveEntity } from "../shared.ts";
-import { ensureProfile, lastContacts, personFor } from "./store.ts";
+import { companyDomain } from "./domains.ts";
+import { ensureCompany, ensureProfile, lastContacts, personFor } from "./store.ts";
 import { listPeople, overdue, personFacts, personView } from "./views.ts";
 
 const name = z.string().trim().min(1).max(200);
@@ -46,26 +47,46 @@ const personActions = [
   defineAction({
     name: "person.create",
     description:
-      "Add a person, with their email address if you know it. Put how you know them in the notes.",
-    input: z.object({ name, email: email.optional(), notes: body.optional() }),
+      "Add a person. Put how you know them in the notes; add their address with person_add_email.",
+    input: z.object({ name, notes: body.optional() }),
     risk: "internal",
     async handler(i, ctx) {
       const row = await createEntity(ctx, { type: "person", title: i.name, body: i.notes ?? "" });
-      if (i.email) await addEmail(ctx, row.id, i.email);
       await ensureProfile(ctx, row.id);
       return row;
     },
   }),
   defineAction({
+    name: "person.add_email",
+    description: "Record another email address as this person's.",
+    input: z.object({ id, email }),
+    // Whose an address is decides which lane their mail lands in and who mail to "them" goes
+    // to, so a turn that read outside content asks first.
+    risk: "self_external",
+    summarize: (i) => `Record ${i.email} as this person's email address`,
+    async handler(i, ctx) {
+      const row = await livePerson(ctx, i.id);
+      await addEmail(ctx, i.id, i.email);
+      await ensureProfile(ctx, i.id);
+      // Someone you added by name gets a company from their first work address.
+      const domain = companyDomain(i.email);
+      if (domain)
+        await ctx.tx
+          .update(person)
+          .set({ companyId: await ensureCompany(ctx, domain) })
+          .where(and(eq(person.entityId, i.id), isNull(person.companyId)));
+      return { id: row.id, email: i.email };
+    },
+  }),
+  defineAction({
     name: "person.update",
     description:
-      "Change a person: name, notes, company (a company id, or null for none), another email address of theirs, or your own fields (replaces them all).",
+      "Change a person: name, notes, company (a company id, or null for none), or the owner's own fields (replaces them all).",
     input: z.object({
       id,
       name: name.optional(),
       notes: body.optional(),
       companyId: id.nullable().optional(),
-      addEmail: email.optional(),
       fields: fields.optional(),
     }),
     risk: "internal",
@@ -73,7 +94,6 @@ const personActions = [
       await livePerson(ctx, i.id);
       if (i.companyId && !(await liveEntity(ctx.tx, i.companyId, "company")))
         throw new ActionError("not_found", "No such company");
-      if (i.addEmail) await addEmail(ctx, i.id, i.addEmail);
       await ensureProfile(ctx, i.id);
       const set = {
         ...(i.companyId !== undefined ? { companyId: i.companyId } : {}),
@@ -101,7 +121,7 @@ const personActions = [
     name: "person.list",
     description: "List people by name, with their company and when you last talked.",
     input: z.object({
-      limit: z.number().int().min(1).max(1000).default(200),
+      limit: z.number().int().min(1).max(200).default(200),
       companyId: id.optional(),
     }),
     risk: "read",
@@ -123,7 +143,7 @@ const companyActions = [
   defineAction({
     name: "company.list",
     description: "List companies, with how many of their people you know.",
-    input: z.object({ limit: z.number().int().min(1).max(1000).default(200) }),
+    input: z.object({ limit: z.number().int().min(1).max(200).default(200) }),
     risk: "read",
     handler: (i, ctx) =>
       ctx.tx
@@ -155,7 +175,7 @@ const companyActions = [
         name: row.title,
         notes: row.body ?? "",
         domain: c?.domain ?? "",
-        people: await listPeople(ctx.tx, ctx.now, { companyId: i.id, limit: 500 }),
+        people: await listPeople(ctx.tx, ctx.now, { companyId: i.id, limit: 200 }),
       };
     },
   }),
