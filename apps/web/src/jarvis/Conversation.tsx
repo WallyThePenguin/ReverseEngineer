@@ -8,6 +8,7 @@ import { MentionEditor } from "../components/MentionEditor.tsx";
 import { Button, PaneHeader } from "../components/ui.tsx";
 import { live } from "../lib/live.ts";
 import { act, useAction } from "../lib/query.ts";
+import { hush, mic, say } from "../lib/speech.ts";
 import type { LogRecord } from "../lib/types.ts";
 import { decide } from "../views/Inbox.tsx";
 
@@ -73,18 +74,44 @@ export function Conversation(props: {
     ),
   );
 
-  const send = async () => {
+  // Asked by voice: Jarvis's answers after this point are read aloud.
+  const [speakFrom, setSpeakFrom] = createSignal<number | null>(null);
+  createEffect(
+    on(
+      () => view().items.length,
+      (n) => {
+        const from = speakFrom();
+        if (from === null || n <= from) return;
+        for (const item of view().items.slice(from))
+          if (item.type === "message" && item.role === "jarvis") say(item.text);
+        setSpeakFrom(n);
+      },
+    ),
+  );
+
+  const talk = async () => {
+    if (mic.state() === "listening") return mic.stop();
+    hush();
+    const heard = await mic.listen();
+    if (!heard) return;
+    setDraft(heard);
+    if (await send(true)) setSpeakFrom(view().items.length);
+  };
+
+  const send = async (spoken = false) => {
     const text = fromEditForm(draft().trim());
-    if (!text || sending()) return;
+    if (!text || sending()) return false;
+    if (!spoken) setSpeakFrom(null);
     setSending(true);
     const r = await act<{ conversationId: string }>("chat.send", {
       text,
       ...(props.id ? { conversationId: props.id } : {}),
     });
     setSending(false);
-    if (!r) return;
+    if (!r) return false;
     setDraft("");
     if (!props.id) props.onCreated?.(r.conversationId);
+    return true;
   };
 
   return (
@@ -134,12 +161,21 @@ export function Conversation(props: {
         <MentionEditor
           value={draft()}
           onInput={setDraft}
-          onSubmit={send}
+          onSubmit={() => void send()}
           rows={props.compact ? 2 : 3}
           autofocus={!props.compact}
           placeholder="Ask Jarvis anything, or @ a task or note (Ctrl+Enter to send)"
         />
-        <div class="mt-2 flex justify-end">
+        <div class="mt-2 flex justify-end gap-2">
+          <Button
+            small
+            kind={mic.state() === "listening" ? "danger" : "plain"}
+            disabled={mic.state() === "working"}
+            title="Talk to Jarvis: tap, speak, tap again. The answer is read aloud."
+            onClick={() => void talk()}
+          >
+            {mic.state() === "listening" ? "Stop" : mic.state() === "working" ? "…" : "Talk"}
+          </Button>
           <Button
             kind="jarvis"
             small

@@ -86,6 +86,55 @@ impl Hearth {
         Ok(body["result"].clone())
     }
 
+    /// Waits for a recording from the phone to transcribe: its id and WAV bytes, or None when
+    /// nothing came in a while (D46).
+    pub async fn next_speech(&self) -> Result<Option<(String, Vec<u8>)>, String> {
+        let res = self
+            .http
+            .get(format!("{}/api/voice/jobs/next", self.base))
+            .bearer_auth(&self.token)
+            .timeout(Duration::from_secs(40))
+            .send()
+            .await
+            .map_err(|e| format!("Couldn't reach Hearth: {e}"))?;
+        match res.status().as_u16() {
+            204 => Ok(None),
+            200 => {
+                let id = res
+                    .headers()
+                    .get("x-job-id")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or_default()
+                    .to_string();
+                let audio = res.bytes().await.map_err(|e| e.to_string())?;
+                Ok((!id.is_empty()).then(|| (id, audio.to_vec())))
+            }
+            401 => Err("Hearth didn't accept the pairing code.".into()),
+            s => Err(format!("Hearth answered {s} when asked for speech.")),
+        }
+    }
+
+    /// Sends back the text for a recording, or why there's none.
+    pub async fn answer_speech(
+        &self,
+        id: &str,
+        text: Result<String, String>,
+    ) -> Result<(), String> {
+        let body = match text {
+            Ok(t) => json!({ "text": t }),
+            Err(e) => json!({ "error": e }),
+        };
+        self.http
+            .post(format!("{}/api/voice/jobs/{}", self.base, id))
+            .bearer_auth(&self.token)
+            .json(&body)
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|e| format!("Couldn't reach Hearth: {e}"))?;
+        Ok(())
+    }
+
     /// Cleans dictated text with your dictionary, snippets and the app's style.
     pub async fn clean(&self, raw: &str, at: &Target, duration_ms: u64) -> Result<String, String> {
         let mut input = json!({ "raw": raw, "durationMs": duration_ms.min(3_600_000) });

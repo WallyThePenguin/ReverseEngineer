@@ -709,3 +709,20 @@ for home-screen apps).
 
 **Why:** It reuses the whole web app, needs no app store or weekly re-signing, and the only
 outside party is Apple's or Google's push service, which sees encrypted bytes.
+
+## D46. Phone speech is transcribed by the desktop app, relayed through Hearth (2026-10-03)
+
+**Decision:** The phone and the web record with the browser, convert to 16 kHz WAV, and post
+it to `/api/voice/transcribe`. Hearth keeps it in memory until the desktop app on the PC, which
+long-polls `/api/voice/jobs/next` whenever it's paired, takes it, transcribes it with the engine
+it already has loaded, and posts the text back. If the desktop app isn't running, the phone is
+told so at once. Nothing is written to disk. The desktop token's scope gains exactly those two
+routes. Talking to Jarvis from the phone reads the answers aloud with the phone's own voice.
+
+**Alternatives:** A separate voice service with its own copy of the model (PLAN.md's sketch:
+a second model in the 8 GB GPU, and another Windows service to install and keep running).
+The browser's built-in speech recognition (Safari's goes to Apple's servers, against "all
+speech runs locally"). Running a speech model inside Node (no good local engine there).
+
+**Why:** One engine, the one the bake-off picks, serves dictation, meetings and the phone, and
+the desktop app is always running on the PC anyway.

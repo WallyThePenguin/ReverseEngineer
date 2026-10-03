@@ -17,6 +17,9 @@ export const DEVICE_SCOPES: Record<string, string[]> = {
     "meeting.record",
     "meeting.add_segments",
     "meeting.end",
+    // Speech for the phone: it takes recordings to transcribe and answers them (D46).
+    "GET /api/voice/jobs/next",
+    "POST /api/voice/jobs/:id",
   ],
 };
 
@@ -56,8 +59,17 @@ export async function listDevices(db: DbOrTx) {
   }));
 }
 
-/** Whether a device's token may make this request: only the actions it was given. */
+/**
+ * Whether a device's token may make this request: only the actions it was given, and the few
+ * routes named as "METHOD /path", where `:id` stands for one id.
+ */
 export function scopeAllows(scopes: string[], method: string, path: string): boolean {
   const m = /^\/api\/actions\/([a-z_.]+)$/.exec(path);
-  return method === "POST" && m !== null && scopes.includes(m[1]!);
+  if (method === "POST" && m !== null && scopes.includes(m[1]!)) return true;
+  return scopes.some((s) => {
+    const [verb, pattern] = s.split(" ");
+    if (verb !== method || !pattern) return false;
+    const re = new RegExp(`^${pattern.replace(/:id/g, "[0-9a-f-]{1,64}")}$`);
+    return re.test(path);
+  });
 }
