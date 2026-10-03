@@ -8,7 +8,7 @@ import { MentionEditor } from "../components/MentionEditor.tsx";
 import { Button, PaneHeader } from "../components/ui.tsx";
 import { live } from "../lib/live.ts";
 import { act, useAction } from "../lib/query.ts";
-import { hush, mic, say } from "../lib/speech.ts";
+import { hush, mic, say, talkTaken, talkWanted } from "../lib/speech.ts";
 import type { LogRecord } from "../lib/types.ts";
 import { decide } from "../views/Inbox.tsx";
 
@@ -97,6 +97,13 @@ export function Conversation(props: {
     setDraft(heard);
     if (await send(true)) setSpeakFrom(view().items.length);
   };
+
+  // The phone's tab bar mic: start listening as soon as this pane is up.
+  createEffect(() => {
+    if (!talkWanted()) return;
+    talkTaken();
+    void talk();
+  });
 
   const send = async (spoken = false) => {
     const text = fromEditForm(draft().trim());

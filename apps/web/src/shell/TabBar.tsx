@@ -3,6 +3,7 @@
 import { For, Show } from "solid-js";
 import { jarvis } from "../jarvis/JarvisPane.tsx";
 import { type ListView, layout } from "../lib/panes.ts";
+import { askToTalk, mic } from "../lib/speech.ts";
 
 const TABS: { view: ListView; label: string }[] = [
   { view: "inbox", label: "Inbox" },
@@ -43,6 +44,20 @@ export function TabBar(props: { waiting: number; onMenu: () => void }) {
         onClick={() => jarvis.toggle(!jarvis.open())}
       >
         Jarvis
+      </button>
+      <button
+        type="button"
+        class={tab(mic.state() !== "idle")}
+        classList={{ "!text-red-600": mic.state() === "listening" }}
+        aria-label={mic.state() === "listening" ? "Stop and send" : "Talk to Jarvis"}
+        disabled={mic.state() === "working"}
+        onClick={() => {
+          if (mic.state() === "listening") return mic.stop();
+          jarvis.toggle(true);
+          askToTalk();
+        }}
+      >
+        {mic.state() === "listening" ? "● Stop" : mic.state() === "working" ? "…" : "🎙 Talk"}
       </button>
       <button type="button" class={tab(false)} onClick={props.onMenu}>
         More

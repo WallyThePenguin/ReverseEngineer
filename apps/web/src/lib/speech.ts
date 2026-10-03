@@ -62,6 +62,16 @@ function createMic() {
 
 export const mic = createRoot(createMic);
 
+/** The phone's tab bar asks Jarvis's pane to start listening (it may not be open yet). */
+const [talkWanted, setTalkWanted] = createSignal(false);
+
+export { talkWanted };
+export function askToTalk() {
+  unlockVoice();
+  setTalkWanted(true);
+}
+export const talkTaken = () => setTalkWanted(false);
+
 async function transcribe(recording: Blob): Promise<string | null> {
   const res = await fetch("/api/voice/transcribe", {
     method: "POST",

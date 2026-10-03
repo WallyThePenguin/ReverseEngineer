@@ -17,9 +17,11 @@ if (!code) throw new Error("Set HEARTH_E2E_SETUP_CODE to the code `hearth setup`
 const shots = process.env.HEARTH_E2E_SHOTS;
 const tag = Date.now().toString(36).slice(-4);
 
-const browser = await chromium.launch(
-  process.env.HEARTH_E2E_CHROME ? { executablePath: process.env.HEARTH_E2E_CHROME } : {},
-);
+const browser = await chromium.launch({
+  ...(process.env.HEARTH_E2E_CHROME ? { executablePath: process.env.HEARTH_E2E_CHROME } : {}),
+  // A pretend microphone for Talk.
+  args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"],
+});
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 const page = await context.newPage();
 const problems: string[] = [];
@@ -284,8 +286,16 @@ try {
       // The task fills the screen; closing it goes back to the list.
       await p.getByTitle("Close pane (Alt+W)").click();
       await p.getByRole("heading", { name: "Tasks" }).waitFor();
-      await tabs.getByRole("button", { name: "Jarvis" }).click();
+      await tabs.getByRole("button", { name: "Jarvis", exact: true }).click();
       await p.locator("aside").getByText("Jarvis", { exact: true }).waitFor();
+      // Talk from the tab bar: Jarvis opens listening; the second tap sends what the PC heard.
+      await p.route("**/api/voice/transcribe", (r) =>
+        r.fulfill({ json: { text: `What is on today ${tag}` } }),
+      );
+      await tabs.getByRole("button", { name: "Talk to Jarvis" }).click();
+      await tabs.getByRole("button", { name: "Stop and send" }).click();
+      await p.locator("aside").getByText(`What is on today ${tag}`).waitFor();
+      await p.unroute("**/api/voice/transcribe");
       await tabs.getByRole("button", { name: "More" }).click();
       await p.getByRole("button", { name: "Settings" }).click();
       await p.getByRole("heading", { name: "Phone" }).waitFor();
