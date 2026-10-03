@@ -22,18 +22,19 @@ const AUTOMATED =
   /^(no-?reply|do-?not-?reply|notifications?|notify|mailer-daemon|postmaster|bounces?|alerts?|news(letter)?|updates?|info|hello|support|billing|receipts?|orders?|team|marketing)([+._-][^@]*)?@/i;
 
 /**
- * Who the conversation waits on, from its last message: "them" if you wrote last; "you" if a
- * person wrote to you directly (not a cc, a newsletter, a notification or a Gmail tab) in Signal.
+ * Who the conversation waits on, from its last message: "them" if you sent it (Gmail says so; a
+ * From line naming you can be forged); "you" if a person wrote to you directly (not a cc, a
+ * newsletter, a notification or a Gmail tab) in Signal.
  */
 export function waitingOn(
   last: Pick<MessageRow, "outbound" | "fromAddress" | "labels" | "toAddresses">,
   me: string,
   lane: MailLane,
 ): "you" | "them" | null {
-  if (last.outbound) return "them";
+  if (last.outbound) return last.labels.includes("SENT") ? "them" : null;
   if (lane !== "signal" || AUTOMATED.test(last.fromAddress)) return null;
   if (last.labels.some((l) => l.startsWith("CATEGORY_") && l !== "CATEGORY_PERSONAL")) return null;
-  return last.toAddresses.some((a) => a.address === me) ? "you" : null;
+  return last.toAddresses.some((a) => a.address.toLowerCase() === me.toLowerCase()) ? "you" : null;
 }
 
 /** Works the conversation's state out again from its messages. Removes it if none are left. */
@@ -44,7 +45,21 @@ export async function recomputeThread(ctx: ActionContext, threadId: string): Pro
     .where(eq(mailMessage.threadId, threadId))
     .orderBy(asc(mailMessage.sentAt));
   if (msgs.length === 0) {
-    await ctx.tx.delete(entity).where(eq(entity.id, threadId));
+    // Only ever a conversation: never another kind of record that was passed by mistake.
+    await ctx.tx
+      .delete(entity)
+      .where(
+        and(
+          eq(entity.id, threadId),
+          inArray(
+            entity.id,
+            ctx.tx
+              .select({ id: mailThread.entityId })
+              .from(mailThread)
+              .where(eq(mailThread.entityId, threadId)),
+          ),
+        ),
+      );
     return;
   }
   const live = msgs.filter((m) => !m.labels.includes("TRASH"));
@@ -67,7 +82,8 @@ export async function recomputeThread(ctx: ActionContext, threadId: string): Pro
   const thread = row?.thread;
   // Once you've written in a conversation, it's Signal.
   const lane = msgs.some((m) => m.outbound) ? "signal" : (thread?.lane ?? "signal");
-  const said = thread?.noReplyAt && thread.noReplyAt >= last.sentAt;
+  // Counted, not dated: a new message's date is whatever its sender's clock says.
+  const said = thread?.noReplyCount != null && thread.noReplyCount >= shown.length;
   // The conversation is named by its first message, whichever arrived first.
   const [first] = await ctx.tx
     .select({ title: entity.title })

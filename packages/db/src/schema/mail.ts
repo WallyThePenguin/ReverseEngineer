@@ -67,8 +67,8 @@ export const mailThread = pgTable(
     /** "you": it needs your reply. "them": you wrote last. */
     waiting: text("waiting").$type<"you" | "them">(),
     waitingSince: ts("waiting_since"),
-    /** You said it needs no reply; holds until a newer message. */
-    noReplyAt: ts("no_reply_at"),
+    /** You said it needs no reply when it had this many messages; holds until another arrives. */
+    noReplyCount: integer("no_reply_count"),
     /** When Jarvis last drafted a follow-up for it. */
     nudgedAt: ts("nudged_at"),
   },

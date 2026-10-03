@@ -64,18 +64,24 @@ export const waitingActions = [
     input: z.object({ ids: z.array(id).min(1).max(100), needed: z.boolean().default(false) }),
     risk: "internal",
     async handler(i, ctx) {
+      // Only conversations: any other id is ignored.
+      const rows = await ctx.tx
+        .select({ id: mailThread.entityId })
+        .from(mailThread)
+        .where(inArray(mailThread.entityId, i.ids));
+      const ids = rows.map((r) => r.id);
+      if (ids.length === 0) return { changed: 0 };
       await ctx.tx
         .update(mailThread)
-        // Up to the last message's date, so the next message (whatever its clock says) counts.
         .set(
           i.needed
-            ? { noReplyAt: null }
-            : { noReplyAt: sql`${mailThread.lastMessageAt}`, waiting: null },
+            ? { noReplyCount: null }
+            : { noReplyCount: sql`${mailThread.messageCount}`, waiting: null },
         )
-        .where(inArray(mailThread.entityId, i.ids));
-      if (i.needed) for (const t of i.ids) await recomputeThread(ctx, t);
-      ctx.emit({ kind: "mail.changed", payload: { noReply: !i.needed, count: i.ids.length } });
-      return { changed: i.ids.length };
+        .where(inArray(mailThread.entityId, ids));
+      if (i.needed) for (const t of ids) await recomputeThread(ctx, t);
+      ctx.emit({ kind: "mail.changed", payload: { noReply: !i.needed, count: ids.length } });
+      return { changed: ids.length };
     },
   }),
 ];

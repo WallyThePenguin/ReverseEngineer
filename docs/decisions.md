@@ -479,9 +479,11 @@ you ask to see, so the message gets a page of its own.
 ## D34. "Needs a reply" is a rule, and follow-ups are drafts (2026-10-03)
 
 **Decision:** Each conversation records who it waits on, worked out from its last message whenever
-it changes: "them" if you wrote last; "you" if a person wrote to you directly (you're in To, it's in
+it changes: "them" if you sent the last one (Gmail's SENT label, since a From line can be forged);
+"you" if a person wrote to you directly (you're in To, it's in
 Signal, it isn't in a Gmail tab other than Primary, and the sender isn't an address like
-no-reply@ or news@). Saying it needs no reply holds until a newer message. Mail shows these as "To
+no-reply@ or news@). Saying it needs no reply holds until another message arrives (counted, not dated, since a
+sender picks the date). Mail shows these as "To
 reply" and "Waiting", the brief counts what needs a reply, and on weekday mornings, for questions
 you asked that got no answer in 3 days (up to 30), Jarvis gets one untrusted turn to draft
 follow-ups, once per quiet spell. It never sends them.

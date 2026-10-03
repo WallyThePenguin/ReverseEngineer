@@ -125,6 +125,38 @@ describe("needs a reply, and waiting on them", () => {
   });
 });
 
+describe("what mail can't do to the rules", () => {
+  it("ignores ids that aren't conversations", async () => {
+    const task = await ok<{ id: string }>("task.create", { title: "Keep me" });
+    expect(await ok("mail.no_reply", { ids: [task.id], needed: true })).toEqual({ changed: 0 });
+    expect(await ok<{ id: string }>("task.get", { id: task.id })).toMatchObject({ id: task.id });
+  });
+
+  it("doesn't take a From line naming you as something you sent", async () => {
+    g.gmail.deliver({ from: { address: ME }, to: [ANA], subject: "Spoof", text: "Still there?" });
+    await sync();
+    expect(await waiting("them")).toEqual([]);
+  });
+
+  it("brings back a conversation you set aside when a backdated message arrives", async () => {
+    g.gmail.deliver({ from: ANA, subject: "Dinner?", text: "?", messageId: "d1@f" });
+    await sync();
+    const [x] = await ok<ThreadSummary[]>("mail.threads", { waiting: "you" });
+    await ok("mail.no_reply", { ids: [x!.id] });
+    g.gmail.deliver({
+      from: ANA,
+      subject: "Re: Dinner?",
+      text: "Hello?",
+      messageId: "d0@f",
+      references: ["d1@f"],
+      inReplyTo: "d1@f",
+      date: new Date("2020-01-01T00:00:00Z"),
+    });
+    await sync();
+    expect(await waiting("you")).toHaveLength(1);
+  });
+});
+
 describe("follow-ups", () => {
   const firing = () => ({
     scheduledFor: t.clock.now(),
