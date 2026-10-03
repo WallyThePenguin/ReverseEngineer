@@ -1,11 +1,25 @@
 // Writing your calendar. Your own events (no guests) change directly; anything guests would see
 // is a separate action that waits for your yes (PLAN.md section 5.5).
-import { type ActionContext, ActionError, defineAction, getSetting } from "@hearth/kernel";
+import {
+  type ActionContext,
+  ActionError,
+  defineAction,
+  getSetting,
+  type ReadContext,
+} from "@hearth/kernel";
 import { z } from "zod";
 import { CalendarApi, type GEvent, type SendUpdates } from "../google/calendar-api.ts";
 import { GOOGLE_SERVICE, type GoogleClient } from "../google/client.ts";
 import { id } from "../shared.ts";
-import { type EventView, emitChange, guests, loadEvent, mapEvent, saveEvent } from "./store.ts";
+import {
+  type EventView,
+  emitChange,
+  guests,
+  loadEvent,
+  mapEvent,
+  saveEvent,
+  whenText,
+} from "./store.ts";
 import { writableCalendar } from "./sync.ts";
 
 const when = z.union([
@@ -193,9 +207,21 @@ export const calendarWriteActions = [
   defineAction({
     name: "calendar.respond",
     description: "Answer an invitation: accepted, declined or tentative. The organizer sees it.",
-    input: z.object({ id, response: z.enum(["accepted", "declined", "tentative"]) }),
+    input: z.object({
+      id,
+      response: z.enum(["accepted", "declined", "tentative"]),
+      event: z.string().optional().describe("Filled in by Hearth: the event. Leave it out."),
+    }),
     risk: "outward",
-    summarize: (i) => `Answer an invitation: ${i.response}`,
+    // So the approval names the meeting, as the calendar has it.
+    async snapshot(i: { id: string }, ctx: ReadContext) {
+      const ev = await loadEvent(ctx.db, i.id);
+      if (!ev) return {};
+      const { timeZone } = await getSetting(ctx.db, "owner.dayRules");
+      return { event: `"${ev.title}", ${whenText(ev, timeZone)}` };
+    },
+    summarize: (i) =>
+      `Answer ${i.event ? `the invitation to ${i.event}` : "an invitation"}: ${i.response}`,
     async handler(i, ctx) {
       const ev = await loadEvent(ctx.tx, i.id);
       if (!ev) throw new ActionError("not_found", "Event not found");

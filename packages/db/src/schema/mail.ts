@@ -1,5 +1,5 @@
 // Mail and the people it comes from (M2). Mirrors migrations/0006_mail.up.sql and
-// 0007_mail_drafts.up.sql and 0008_mail_waiting.up.sql.
+// 0007_mail_drafts.up.sql, 0008_mail_waiting.up.sql and 0009_mail_invites.up.sql.
 import { sql } from "drizzle-orm";
 import {
   boolean,
@@ -32,6 +32,17 @@ export const mailAccount = pgTable(
 export interface MailAddress {
   address: string;
   name?: string;
+}
+
+/** A calendar invitation a message carries (its text/calendar part). Written by the sender. */
+export interface MailInvite {
+  uid: string;
+  /** REQUEST (an invitation or update) or CANCEL. */
+  method: string;
+  summary: string;
+  /** When the invitation says it starts, if Hearth could read it. */
+  start: string | null;
+  organizer: string | null;
 }
 
 export interface MailAttachment {
@@ -97,6 +108,7 @@ export const mailMessage = pgTable(
     hasHtml: boolean("has_html").notNull().default(false),
     attachments: jsonb("attachments").$type<MailAttachment[]>().notNull().default([]),
     snippet: text("snippet").notNull().default(""),
+    invite: jsonb("invite").$type<MailInvite>(),
   },
   (t) => [unique().on(t.accountId, t.providerId)],
 );

@@ -276,8 +276,24 @@ export interface MailThread {
   waitingSince: string | null;
 }
 
+export interface MailInvite {
+  method: string;
+  summary: string;
+  event: {
+    id: string;
+    title: string;
+    startsAt: string;
+    endsAt: string;
+    allDay: boolean;
+    cancelled: boolean;
+    response: string | null;
+    selfOrganizer: boolean;
+  } | null;
+}
+
 export interface MailMessage {
   id: string;
+  invite: MailInvite | null;
   from: MailAddress;
   to: MailAddress[];
   cc: MailAddress[];

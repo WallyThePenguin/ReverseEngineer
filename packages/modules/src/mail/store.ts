@@ -6,6 +6,7 @@ import { type ActionContext, createEntity } from "@hearth/kernel";
 import { and, eq, inArray } from "drizzle-orm";
 import { BLOB_SERVICE, type BlobStore } from "./blobs.ts";
 import { recomputeThread } from "./flags.ts";
+import { isCalendar, parseInvite } from "./invites.ts";
 import { type ParsedMail, parseMail, snippetOf } from "./mime.ts";
 import { laneFor, linkPeople } from "./people.ts";
 import type { RawMail } from "./provider.ts";
@@ -52,6 +53,12 @@ export interface Saved {
   added: boolean;
   outbound: boolean;
   parsed: ParsedMail | null;
+}
+
+/** The calendar invitation a message carries, if any. */
+function inviteIn(p: ParsedMail) {
+  const ics = p.attachments.find(isCalendar);
+  return ics ? parseInvite(ics.content.toString("utf8")) : null;
 }
 
 /** Saves one message from the provider. Returns null for mail Hearth leaves out. */
@@ -125,6 +132,7 @@ export async function saveMail(
     hasHtml: p.html !== null,
     attachments: p.attachments.map(({ content: _c, ...a }) => a),
     snippet: snippetOf(p.text),
+    invite: inviteIn(p),
   });
   await linkPeople(
     ctx,

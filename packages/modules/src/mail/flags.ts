@@ -27,12 +27,14 @@ const AUTOMATED =
  * newsletter, a notification or a Gmail tab) in Signal.
  */
 export function waitingOn(
-  last: Pick<MessageRow, "outbound" | "fromAddress" | "labels" | "toAddresses">,
+  last: Pick<MessageRow, "outbound" | "fromAddress" | "labels" | "toAddresses" | "invite">,
   me: string,
   lane: MailLane,
 ): "you" | "them" | null {
   if (last.outbound) return last.labels.includes("SENT") ? "them" : null;
   if (lane !== "signal" || AUTOMATED.test(last.fromAddress)) return null;
+  // An invitation is answered on the calendar, not by email.
+  if (last.invite) return null;
   if (last.labels.some((l) => l.startsWith("CATEGORY_") && l !== "CATEGORY_PERSONAL")) return null;
   return last.toAddresses.some((a) => a.address.toLowerCase() === me.toLowerCase()) ? "you" : null;
 }

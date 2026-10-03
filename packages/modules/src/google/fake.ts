@@ -110,7 +110,17 @@ export class FakeGoogle {
     const existing = eventId ? cal.events.get(eventId) : undefined;
     if (!existing) return json(404, { error: { message: "Not found" } });
     if (method === "PATCH") {
-      const next = { ...existing, ...body, etag: `"${++this.seq}"` };
+      const next = { ...existing, ...body, etag: `"${++this.seq}"` } as GEvent;
+      // Google works out who "self" and the organizer are; a patch doesn't send them.
+      if (next.attendees)
+        next.attendees = next.attendees.map((a) => {
+          const was = existing.attendees?.find((x) => x.email === a.email);
+          return {
+            ...a,
+            ...(was?.self ? { self: true } : {}),
+            ...(was?.organizer ? { organizer: true } : {}),
+          };
+        });
       cal.events.set(existing.id, next);
       return json(200, next);
     }

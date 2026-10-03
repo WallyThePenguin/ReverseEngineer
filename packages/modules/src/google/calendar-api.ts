@@ -45,6 +45,7 @@ export interface GEvent {
   organizer?: { email?: string; self?: boolean };
   attendees?: GAttendee[];
   recurringEventId?: string;
+  iCalUID?: string;
   extendedProperties?: { private?: Record<string, string> };
 }
 

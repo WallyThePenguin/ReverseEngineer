@@ -66,6 +66,8 @@ export const calendarEvent = pgTable(
     selfResponse: text("self_response"),
     attendees: jsonb("attendees").$type<Attendee[]>().notNull().default([]),
     recurringEventId: text("recurring_event_id"),
+    /** The iCalendar UID, shared with the invitation emails (0009_mail_invites). */
+    icalUid: text("ical_uid"),
     taskId: uuid("task_id"),
   },
   (t) => [unique().on(t.calendarId, t.googleId)],
