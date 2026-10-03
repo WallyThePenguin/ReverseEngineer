@@ -166,7 +166,8 @@ export async function loadThread(db: DbOrTx, id: string): Promise<ThreadView | n
     .where(eq(mailMessage.threadId, id))
     .orderBy(asc(mailMessage.sentAt));
   const invites = new Map<string, InviteView>();
-  for (const { m } of rows) {
+  // The newest few: a conversation full of invitations doesn't slow every view.
+  for (const { m } of rows.filter((r) => r.m.invite).slice(-10)) {
     if (!m.invite) continue;
     const eventId = await matchInvite(db, m.invite);
     const ev = eventId ? await loadEvent(db, eventId) : null;
@@ -206,7 +207,10 @@ export async function loadThread(db: DbOrTx, id: string): Promise<ThreadView | n
 export const who = (a: MailAddress) => (a.name ? `${a.name} <${a.address}>` : a.address);
 
 function inviteLine(i: InviteView): string {
-  if (i.method === "CANCEL") return `Cancels the invitation "${i.summary}".`;
+  if (i.method === "CANCEL")
+    return i.event?.cancelled
+      ? `Cancels calendar event ${i.event.id}, and the calendar shows it cancelled.`
+      : `The sender says "${i.summary}" is cancelled; the calendar doesn't show that.`;
   if (!i.event) return `Invitation "${i.summary}": not on the calendar yet.`;
   const answer = i.event.response ?? "not answered";
   return `Invitation: calendar event ${i.event.id} (owner's answer: ${answer}). Answer it with calendar_respond if the owner asks.`;

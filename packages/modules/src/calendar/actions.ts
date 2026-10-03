@@ -1,5 +1,6 @@
 // Writing your calendar. Your own events (no guests) change directly; anything guests would see
 // is a separate action that waits for your yes (PLAN.md section 5.5).
+import type { DbOrTx } from "@hearth/db";
 import {
   type ActionContext,
   ActionError,
@@ -140,6 +141,17 @@ export async function removeEvent(ctx: ActionContext, eventId: string, shared = 
 const describeTimes = (i: { title: string; start: string; end: string }) =>
   `"${i.title}" ${i.start} to ${i.end}`;
 
+/** A meeting on one line, as an approval shows it: its title can't pass for anything else. */
+async function meetingText(db: DbOrTx, ev: EventView): Promise<string> {
+  const { timeZone } = await getSetting(db, "owner.dayRules");
+  const title = ev.title
+    .replace(/[\p{Cc}\p{Cf}"]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120);
+  return `"${title}", ${whenText(ev, timeZone)}`;
+}
+
 export const calendarWriteActions = [
   defineAction({
     name: "calendar.create_event",
@@ -210,21 +222,33 @@ export const calendarWriteActions = [
     input: z.object({
       id,
       response: z.enum(["accepted", "declined", "tentative"]),
-      event: z.string().optional().describe("Filled in by Hearth: the event. Leave it out."),
+      snapshot: z
+        .object({ event: z.string() })
+        .optional()
+        .describe("Filled in by Hearth: the event. Leave it out."),
     }),
     risk: "outward",
-    // So the approval names the meeting, as the calendar has it.
+    // So the approval names the meeting as the calendar has it, and the answer goes only to
+    // that meeting as it was when you said yes.
     async snapshot(i: { id: string }, ctx: ReadContext) {
       const ev = await loadEvent(ctx.db, i.id);
-      if (!ev) return {};
-      const { timeZone } = await getSetting(ctx.db, "owner.dayRules");
-      return { event: `"${ev.title}", ${whenText(ev, timeZone)}` };
+      if (!ev) throw new Error("No event with that id.");
+      return { snapshot: { event: await meetingText(ctx.db, ev) } };
     },
     summarize: (i) =>
-      `Answer ${i.event ? `the invitation to ${i.event}` : "an invitation"}: ${i.response}`,
+      `Answer the invitation to ${i.snapshot?.event ?? `event ${i.id}`}: ${i.response}`,
     async handler(i, ctx) {
       const ev = await loadEvent(ctx.tx, i.id);
       if (!ev) throw new ActionError("not_found", "Event not found");
+      if (
+        i.snapshot
+          ? i.snapshot.event !== (await meetingText(ctx.tx, ev))
+          : ctx.caller.kind !== "owner"
+      )
+        throw new ActionError(
+          "conflict",
+          "The meeting changed since you were asked, so it wasn't answered.",
+        );
       const me = ev.attendees.find((a) => a.self);
       if (!me) throw new ActionError("invalid_input", "You're not a guest on this event.");
       const cal = await writableCalendar(ctx, ev.calendarId);

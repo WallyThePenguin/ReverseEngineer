@@ -90,7 +90,14 @@ function Invite(props: { invite: MailInvite }) {
     <div class="rounded-md border border-line bg-sunk px-3 py-2 text-sm">
       <Show
         when={props.invite.method !== "CANCEL"}
-        fallback={<span>📅 This invitation was cancelled.</span>}
+        fallback={
+          <span>
+            📅{" "}
+            {props.invite.event?.cancelled
+              ? `"${props.invite.event.title}" is cancelled on your calendar.`
+              : "The sender says a meeting is cancelled. Your calendar doesn't show that."}
+          </span>
+        }
       >
         <Show when={ev()} fallback={<span>📅 An invitation that isn't on your calendar yet.</span>}>
           {(e) => (

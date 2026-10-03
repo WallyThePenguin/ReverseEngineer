@@ -59,7 +59,8 @@ export function parseInvite(ics: string): MailInvite | null {
     ev.ORGANIZER?.value
       .replace(/^mailto:/i, "")
       .trim()
-      .toLowerCase() || null;
+      .toLowerCase()
+      .slice(0, 320) || null;
   return {
     uid,
     method,

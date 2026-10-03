@@ -58,7 +58,9 @@ export interface Saved {
 /** The calendar invitation a message carries, if any. */
 function inviteIn(p: ParsedMail) {
   const ics = p.attachments.find(isCalendar);
-  return ics ? parseInvite(ics.content.toString("utf8")) : null;
+  const invite = ics ? parseInvite(ics.content.toString("utf8")) : null;
+  // Only the meeting's organizer sends its invitations: one naming someone else is ignored.
+  return invite && invite.organizer === p.from?.address ? invite : null;
 }
 
 /** Saves one message from the provider. Returns null for mail Hearth leaves out. */

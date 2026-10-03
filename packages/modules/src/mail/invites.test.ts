@@ -1,7 +1,8 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Caller, integrationCaller, ownerCaller } from "@hearth/kernel";
+import { approval } from "@hearth/db";
+import { type Caller, integrationCaller, jarvisCaller, ownerCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GOOGLE_SERVICE, SCOPES } from "../google/client.ts";
@@ -153,5 +154,50 @@ describe("calendar invitations in mail", () => {
     );
     const view = await deliver(forged);
     expect(view.messages[0]!.invite).toMatchObject({ event: null });
+    // Naming the real organizer from another address isn't an invitation at all.
+    const posing = invitation(
+      "mallory@evil.example",
+      ics({ uid: `${ev.id}@google.com`, organizer: BOSS }),
+    );
+    const id = g.gmail.deliver({ from: { address: BOSS }, subject: "x", text: "x" });
+    g.gmail.messages.get(id)!.raw = posing;
+    await ok("mail.sync", {}, integrationCaller("google"));
+    const all = await ok<ThreadSummary[]>("mail.threads", { view: "all" });
+    const views = await Promise.all(all.map((x) => ok<ThreadView>("mail.thread", { id: x.id })));
+    expect(views.flatMap((v) => v.messages.map((m) => m.invite?.event ?? null))).toEqual([
+      null,
+      null,
+    ]);
+  });
+
+  it("asks before Jarvis answers, naming the meeting, and won't answer one that changed", async () => {
+    const ev = g.put(ME, {
+      summary: "Planning",
+      start: { dateTime: "2026-10-05T15:00:00Z" },
+      end: { dateTime: "2026-10-05T16:00:00Z" },
+      organizer: { email: BOSS },
+      attendees: [{ email: ME, self: true }],
+    });
+    const view = await deliver(
+      invitation(BOSS, ics({ uid: `${ev.id}@google.com`, organizer: BOSS })),
+    );
+    const eventId = view.messages[0]!.invite!.event!.id;
+    const respond = t.kernel.registry.action("calendar.respond")!;
+    const snap = await respond.snapshot!({ id: eventId }, { db: t.tdb.db, now: t.clock.now() });
+    const jarvis = jarvisCaller("untrusted");
+    const asked = await t.kernel.execute(
+      "calendar.respond",
+      { id: eventId, response: "accepted", ...snap },
+      jarvis,
+    );
+    expect(asked).toMatchObject({ status: "pending_approval" });
+    const [row] = await t.tdb.db.select().from(approval);
+    expect(row!.summary).toMatch(/^Answer the invitation to "Planning", .+: accepted$/);
+    g.put(ME, { ...ev, summary: "Planning (moved)", start: { dateTime: "2026-10-06T15:00:00Z" } });
+    await ok("calendar.sync", {}, integrationCaller("google"));
+    expect(await t.kernel.decideApproval(row!.id, "approve", ownerCaller())).toMatchObject({
+      status: "error",
+      code: "conflict",
+    });
   });
 });

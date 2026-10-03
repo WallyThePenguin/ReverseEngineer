@@ -5,3 +5,5 @@
 ALTER TABLE mail_message ADD COLUMN invite jsonb;
 ALTER TABLE calendar_event ADD COLUMN ical_uid text;
 CREATE INDEX calendar_event_ical_uid ON calendar_event (ical_uid);
+CREATE INDEX calendar_event_google_id ON calendar_event (google_id);
+CREATE INDEX calendar_event_series ON calendar_event (recurring_event_id);
