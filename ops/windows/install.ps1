@@ -90,7 +90,11 @@ foreach ($svc in "server", "worker") {
   & $exe install
   if ($LASTEXITCODE -ne 0) { throw "Installing $id failed (exit $LASTEXITCODE)." }
   & $exe start
-  Write-Host "Started $id."
+  if ($LASTEXITCODE -ne 0) {
+    Write-Warning "$id is installed but didn't start. Windows Event Viewer (Windows Logs > System) says why."
+  } else {
+    Write-Host "Started $id."
+  }
 }
 
 # Jarvis used to be a service as you, which meant typing your Windows password. Remove that one.
@@ -102,7 +106,7 @@ if ((Test-Path $oldJarvis) -and (Get-Service hearth-jarvis -ErrorAction Silently
 }
 Remove-Item (Join-Path $ServiceDir "hearth-jarvis.*") -ErrorAction SilentlyContinue
 
-# Jarvis: as you (S4U: no password, no window), from startup, restarted if it stops.
+# Jarvis: as you (S4U: no password, no window), restarted if it stops.
 # HEARTH_AS_SERVICE tells it to open Chrome through the "Hearth Chrome" task, on your desktop.
 $jarvisLog = Join-Path $ServiceDir "hearth-jarvis.log"
 $action = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\cmd.exe" -WorkingDirectory $Root `
@@ -125,7 +129,14 @@ Register-ScheduledTask -TaskName "Hearth Jarvis" -TaskPath "\" -Action $action -
   -Settings $settings -Principal $user -Force `
   -Description "Runs Jarvis, Hearth's agent, as you so it can use your Claude login." | Out-Null
 Start-ScheduledTask -TaskName "Hearth Jarvis"
-Write-Host "Started Jarvis (the `"Hearth Jarvis`" task). Its log: $jarvisLog"
+Start-Sleep -Seconds 5
+$running = Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" |
+  Where-Object { $_.CommandLine -match 'main\.ts"?\s+jarvis' }
+if ($running) {
+  Write-Host "Started Jarvis (the `"Hearth Jarvis`" task). Its log: $jarvisLog"
+} else {
+  Write-Warning "Jarvis didn't stay running. Its log says why: $jarvisLog"
+}
 
 function Find-Chrome {
   $paths = @(foreach ($key in "HKCU:", "HKLM:", "HKLM:\SOFTWARE\WOW6432Node") {
