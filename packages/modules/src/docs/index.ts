@@ -142,7 +142,7 @@ export const docActions = [
       if (text.length > spec.maxChars)
         throw new ActionError("invalid_input", "That version is too long to put back.");
       const step = await takeIntoDoc(ctx, i.id, text);
-      const revision = await spec.write(ctx, i.id, text);
+      const revision = await spec.write(ctx, i.id, text, true);
       await step.done(revision);
       return { revision };
     },

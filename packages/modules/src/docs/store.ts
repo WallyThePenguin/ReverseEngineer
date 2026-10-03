@@ -15,7 +15,8 @@ import { LoroDoc, type LoroText, type VersionVector } from "loro-crdt";
  */
 export interface DocType {
   maxChars: number;
-  write(ctx: ActionContext, id: string, body: string): Promise<number>;
+  /** Saves the text; `restored` when it puts back an earlier version rather than typing. */
+  write(ctx: ActionContext, id: string, body: string, restored?: boolean): Promise<number>;
 }
 
 /** Record types whose text is a live doc, by type. */

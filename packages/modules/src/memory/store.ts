@@ -206,8 +206,9 @@ export async function changeNote(
 // Typing on the Memory page saves through here, one version per stretch of typing.
 registerDocType("memory_note", {
   maxChars: 20_000,
-  async write(ctx, id, body) {
-    await changeNote(ctx, id, { body }, "Edited on the Memory page", undefined, true);
+  async write(ctx, id, body, restored) {
+    if (restored) await changeNote(ctx, id, { body }, "Put back an earlier version");
+    else await changeNote(ctx, id, { body }, "Edited on the Memory page", undefined, true);
     const [row] = await ctx.tx
       .select({ revision: entity.revision })
       .from(entity)
