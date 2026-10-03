@@ -27,6 +27,9 @@ export interface ThreadSummary {
   inInbox: boolean;
   trashed: boolean;
   lane: MailLane;
+  /** "you": it needs your reply. "them": you wrote last and are waiting. */
+  waiting: "you" | "them" | null;
+  waitingSince: Date | null;
 }
 
 export interface MessageView {
@@ -61,6 +64,8 @@ const summaryFields = {
   inInbox: mailThread.inInbox,
   trashed: mailThread.trashed,
   lane: mailThread.lane,
+  waiting: mailThread.waiting,
+  waitingSince: mailThread.waitingSince,
 };
 
 function viewFilter(view: MailView | "any"): SQL | undefined {
@@ -90,6 +95,8 @@ export async function listThreads(
     unread?: boolean;
     before?: Date;
     ids?: string[];
+    /** Only conversations waiting on you (or on them), longest-waiting first. */
+    waiting?: "you" | "them";
     limit: number;
   },
 ): Promise<ThreadSummary[]> {
@@ -106,9 +113,10 @@ export async function listThreads(
         q.unread !== undefined ? eq(mailThread.unread, q.unread) : undefined,
         q.before ? lt(mailThread.lastMessageAt, q.before) : undefined,
         q.ids ? inArray(mailThread.entityId, q.ids) : undefined,
+        q.waiting ? eq(mailThread.waiting, q.waiting) : undefined,
       ),
     )
-    .orderBy(desc(mailThread.lastMessageAt))
+    .orderBy(q.waiting ? asc(mailThread.waitingSince) : desc(mailThread.lastMessageAt))
     .limit(q.limit);
 }
 

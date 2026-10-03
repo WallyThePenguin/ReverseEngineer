@@ -1,5 +1,5 @@
 // Mail and the people it comes from (M2). Mirrors migrations/0006_mail.up.sql and
-// 0007_mail_drafts.up.sql.
+// 0007_mail_drafts.up.sql and 0008_mail_waiting.up.sql.
 import { sql } from "drizzle-orm";
 import {
   boolean,
@@ -64,6 +64,13 @@ export const mailThread = pgTable(
     inInbox: boolean("in_inbox").notNull().default(false),
     trashed: boolean("trashed").notNull().default(false),
     lane: text("lane").$type<MailLane>().notNull().default("signal"),
+    /** "you": it needs your reply. "them": you wrote last. */
+    waiting: text("waiting").$type<"you" | "them">(),
+    waitingSince: ts("waiting_since"),
+    /** You said it needs no reply when it had this many messages; holds until another arrives. */
+    noReplyCount: integer("no_reply_count"),
+    /** When Jarvis last drafted a follow-up for it. */
+    nudgedAt: ts("nudged_at"),
   },
   (t) => [unique().on(t.accountId, t.rootMessageId)],
 );

@@ -272,6 +272,8 @@ export interface MailThread {
   inInbox: boolean;
   trashed: boolean;
   lane: "signal" | "noise";
+  waiting: "you" | "them" | null;
+  waitingSince: string | null;
 }
 
 export interface MailMessage {

@@ -1,6 +1,6 @@
 # Plan: Hearth, a personal Macro with Jarvis built in
 
-Status: draft 4, 2026-10-03. M0 (the spine), M1 (Jarvis's day and the calendar) and Jarvis's browser (B1, B2) are built. M2 (email) is under way: Gmail sync, threading, the Mail page, Signal and Noise, people from mail, drafts, replies, sending with your yes, and attachments are built; needs-reply and follow-ups are next. Research behind it: [Macro](docs/research/macro.md),
+Status: draft 4, 2026-10-03. M0 (the spine), M1 (Jarvis's day and the calendar) and Jarvis's browser (B1, B2) are built. M2 (email) is under way: Gmail sync, threading, the Mail page, Signal and Noise, people from mail, drafts, replies, sending with your yes, attachments, needs-reply and follow-up drafts are built; calendar invitations in mail are next. Research behind it: [Macro](docs/research/macro.md),
 [Twenty](docs/research/twenty.md), [Jarvis](docs/research/jarvis.md). Decisions and the
 alternatives we rejected: [docs/decisions.md](docs/decisions.md).
 
