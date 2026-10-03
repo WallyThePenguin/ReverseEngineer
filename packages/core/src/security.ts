@@ -31,7 +31,7 @@ export const ORIGINS = ["owner", "agent", "untrusted", "system"] as const;
 export type Origin = (typeof ORIGINS)[number];
 
 /** The surface a call came through. */
-export const VIAS = ["ui", "cli", "mcp", "jarvis", "integration", "system"] as const;
+export const VIAS = ["ui", "cli", "device", "mcp", "jarvis", "integration", "system"] as const;
 export type Via = (typeof VIAS)[number];
 
 /** The weaker of two origins. Trust only ever goes down along a chain of causes. */

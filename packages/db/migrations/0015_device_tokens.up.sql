@@ -7,3 +7,6 @@ ALTER TABLE jarvis_turn DROP CONSTRAINT jarvis_turn_trigger_check;
 ALTER TABLE jarvis_turn ADD CONSTRAINT jarvis_turn_trigger_check CHECK (trigger IN (
   'chat', 'mention', 'assignment', 'approval', 'watch', 'reflex', 'routine', 'voice_command'
 ));
+
+-- A paired device can only read the conversations it started.
+ALTER TABLE conversation ADD COLUMN started_via text;

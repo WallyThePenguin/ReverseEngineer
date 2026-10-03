@@ -12,6 +12,9 @@ import { resolveToken, type SessionPrincipal } from "./tokens.ts";
 export const SESSION_COOKIE = "hearth_session";
 
 export function callerFor(s: SessionPrincipal): Caller {
+  // A paired device acts as you, but what it starts is held to the rules for outside content:
+  // Jarvis asks before changing your accounts or acting for you on its say-so (D42).
+  if (s.kind === "owner" && s.scopes) return ownerCaller("device", { origin: "untrusted" });
   if (s.kind === "owner") return ownerCaller(s.sessionKind === "browser" ? "ui" : "cli");
   return {
     principal: s.principal,

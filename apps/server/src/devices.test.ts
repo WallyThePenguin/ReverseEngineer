@@ -1,3 +1,6 @@
+import { event } from "@hearth/db";
+import { ownerCaller } from "@hearth/kernel";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { listDevices, pairDevice, revokeDevice } from "./auth/devices.ts";
 import { createTestServer, type TestServer } from "./testing/server.ts";
@@ -43,5 +46,30 @@ describe("device tokens", () => {
     expect((await styles(second)).status).toBe(401);
     expect(await listDevices(t.kernel.db)).toEqual([]);
     await expect(pairDevice(t.kernel.db, "toaster")).rejects.toThrow();
+  });
+
+  it("talks to Jarvis as outside content, and sees only its own conversations", async () => {
+    const token = await pairDevice(t.kernel.db, "desktop");
+    const post = (name: string, json: unknown) =>
+      t.api(`/api/actions/${name}`, token, { method: "POST", json });
+    const sent = await post("chat.send", { text: "what's on today" });
+    expect(sent.status).toBe(200);
+    const { result } = (await sent.json()) as { result: { conversationId: string; idx: number } };
+    const [posted] = await t.kernel.db
+      .select()
+      .from(event)
+      .where(eq(event.kind, "chat.message_posted"));
+    expect(posted?.origin).toBe("untrusted");
+    expect((await post("conversation.get", { id: result.conversationId })).status).toBe(200);
+
+    const mine = await t.kernel.execute<{ conversationId: string }>(
+      "chat.send",
+      { text: "private" },
+      ownerCaller(),
+    );
+    if (mine.status !== "ok") throw new Error("chat.send failed");
+    const id = mine.result.conversationId;
+    expect((await post("conversation.get", { id })).status).toBe(404);
+    expect((await post("chat.send", { conversationId: id, text: "hi" })).status).toBe(404);
   });
 });

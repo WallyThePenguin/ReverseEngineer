@@ -20,6 +20,8 @@ export const conversation = pgTable("conversation", {
   subjectId: uuid("subject_id"),
   agentSessionId: text("agent_session_id"),
   lastTurnAt: ts("last_turn_at"),
+  /** "device" when the desktop app started it; a device can only read its own conversations. */
+  startedVia: text("started_via"),
 });
 
 export const conversationLog = pgTable(
