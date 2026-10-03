@@ -56,6 +56,9 @@ export function plainText(text: string, names: Map<string, string>): string {
   );
 }
 
+/** A name someone else chose (a person, a channel), safe to put in Hearth's text. */
+const named = (s: string) => s.replace(/<(\/?m-ref)/gi, "‹$1");
+
 /** A Slack user's name, asked of Slack once and kept (with the person they are, by email). */
 async function userName(ctx: ActionContext, ws: WorkspaceRow, token: string, id: string) {
   const [known] = await ctx.tx.select().from(slackUser).where(eq(slackUser.id, id));
@@ -87,7 +90,7 @@ async function names(ctx: ActionContext, ws: WorkspaceRow, token: string, text: 
 function where(channel: ChannelRow, dmWith?: string) {
   if (channel.kind === "dm") return `a direct message${dmWith ? ` from ${dmWith}` : ""}`;
   if (channel.kind === "group") return "a group message";
-  return `#${channel.name}`;
+  return `#${named(channel.name)}`;
 }
 
 /** Saves one message unless it's already here. Returns its record id when it was new. */
@@ -107,7 +110,7 @@ export async function saveMessage(
   if (seen) return null;
 
   const author = m.user ? await userName(ctx, ws, token, m.user) : null;
-  const who = author?.name ?? (m.botId ? "An app" : "Someone");
+  const who = author ? named(author.name) : m.botId ? "An app" : "Someone";
   const mine = m.user === ws.userId;
   const mentionsMe =
     !mine &&

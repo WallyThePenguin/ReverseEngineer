@@ -166,6 +166,13 @@ describe("slack", () => {
     await ok("slack.disconnect");
     expect(await ok("slack.messages")).toEqual([]);
     expect(await ok("slack.status")).toMatchObject({ connected: false });
+    // Only the integration reads Slack in, so nothing from it looks like the owner's own.
+    expect(await t.kernel.execute("slack.sync", {}, ownerCaller())).toMatchObject({
+      status: "denied",
+    });
+    expect(await t.kernel.execute("slack.channels", {}, jarvisCaller("agent"))).toMatchObject({
+      status: "denied",
+    });
   });
 
   it("turns Slack markup into plain text", () => {

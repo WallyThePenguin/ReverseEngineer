@@ -167,6 +167,7 @@ export const slackModule = defineModule({
       description: "Whether Slack is connected, which workspace, and how syncing is going.",
       input: z.object({}),
       risk: "read",
+      callers: ["owner"],
       async handler(_i, ctx) {
         const [ws] = await ctx.tx
           .select({
@@ -199,6 +200,8 @@ export const slackModule = defineModule({
       description: "The Slack channels and direct messages you're in, and which are read in.",
       input: z.object({}),
       risk: "read",
+      // Channel and DM names are written by other people; Settings is the only reader.
+      callers: ["owner"],
       handler: (_i, ctx) =>
         ctx.tx
           .select({
@@ -279,7 +282,8 @@ export const slackModule = defineModule({
       description: "Read new Slack messages in now.",
       input: z.object({}),
       risk: "internal",
-      callers: ["owner", "system", "integration"],
+      // Only as the integration: what it reads in is outside content, never the owner's (D48).
+      callers: ["integration"],
       handler: (_i, ctx) => syncSlack(ctx),
     }),
   ],

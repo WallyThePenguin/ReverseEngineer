@@ -52,7 +52,6 @@ export function SlackSettings() {
     if (!r) return;
     setToken("");
     toast.show(`Slack connected: ${r.team}. Messages start coming in within a few minutes.`);
-    void act("slack.sync");
   };
 
   const disconnect = async () => {
