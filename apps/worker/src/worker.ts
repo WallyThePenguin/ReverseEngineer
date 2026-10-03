@@ -1,7 +1,7 @@
 // The worker: fires schedules (routines, reminders, checks), checks watched pages, syncs
-// Google Calendar and mail, and keeps an eye on Hearth's health.
+// Google Calendar, mail and Slack, and keeps an eye on Hearth's health.
 
-import { googleAccount } from "@hearth/db";
+import { googleAccount, slackWorkspace } from "@hearth/db";
 import { integrationCaller, type Kernel, startScheduler } from "@hearth/kernel";
 import { checkHealth, type HealthOptions, reportHealth } from "./health.ts";
 import { checkDueWatches } from "./watches.ts";
@@ -13,6 +13,7 @@ export interface WorkerOptions extends HealthOptions {
   watchIntervalMs?: number;
   calendarIntervalMs?: number;
   mailIntervalMs?: number;
+  slackIntervalMs?: number;
   log?: (msg: string, err?: unknown) => void;
 }
 
@@ -107,8 +108,31 @@ export function startWorker(opts: WorkerOptions) {
   const mailTimer = setInterval(mail, opts.mailIntervalMs ?? 60_000);
   void mail();
 
+  // Slack, every two minutes once a workspace is connected (a few channels per round).
+  let slacking = false;
+  const slack = async () => {
+    if (slacking) return;
+    slacking = true;
+    try {
+      const [any] = await kernel.db
+        .select({ team: slackWorkspace.teamId })
+        .from(slackWorkspace)
+        .limit(1);
+      if (!any) return;
+      const res = await kernel.execute("slack.sync", {}, integrationCaller("slack"));
+      if (res.status !== "ok") log(`slack sync: ${JSON.stringify(res)}`);
+    } catch (err) {
+      log("slack sync failed", err);
+    } finally {
+      slacking = false;
+    }
+  };
+  const slackTimer = setInterval(slack, opts.slackIntervalMs ?? 2 * 60_000);
+  void slack();
+
   return {
     health,
+    slack,
     watches,
     calendars,
     mail,
@@ -118,6 +142,7 @@ export function startWorker(opts: WorkerOptions) {
       clearInterval(watchTimer);
       clearInterval(calendarTimer);
       clearInterval(mailTimer);
+      clearInterval(slackTimer);
       scheduler.stop();
     },
   };

@@ -15,6 +15,7 @@ import { GoogleSettings } from "./GoogleSettings.tsx";
 import { PhoneSettings } from "./PhoneSettings.tsx";
 import { RoutineSettings } from "./RoutineSettings.tsx";
 import { SignInSettings } from "./SignInSettings.tsx";
+import { SlackSettings } from "./SlackSettings.tsx";
 
 export async function setPaused(paused: boolean) {
   if (await act(paused ? "jarvis.pause" : "jarvis.resume")) {
@@ -115,6 +116,8 @@ export function Settings() {
         <PhoneSettings />
 
         <GoogleSettings />
+
+        <SlackSettings />
 
         <SignInSettings />
 

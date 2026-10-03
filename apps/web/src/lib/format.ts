@@ -80,6 +80,7 @@ export const TYPE_LABEL: Record<string, string> = {
   routine: "Routine",
   email_thread: "Email",
   email: "Email",
+  slack_message: "Slack",
 };
 
 export function who(principal: string): string {

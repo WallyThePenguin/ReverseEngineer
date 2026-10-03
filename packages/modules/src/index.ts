@@ -15,6 +15,7 @@ import { memoryModule } from "./memory/index.ts";
 import { notesModule } from "./notes/index.ts";
 import { peopleModule } from "./people/index.ts";
 import { routinesModule } from "./routines/index.ts";
+import { slackModule } from "./slack/index.ts";
 import { systemModule } from "./system/index.ts";
 import { tasksModule } from "./tasks/index.ts";
 import { voiceModule } from "./voice/index.ts";
@@ -37,6 +38,7 @@ export const ALL_MODULES: HearthModule[] = [
   meetingsModule,
   voiceModule,
   canvasModule,
+  slackModule,
 ];
 
 export { renderBrief, renderDigest } from "./assistant/brief.ts";
@@ -69,6 +71,13 @@ export {
 } from "./mail/index.ts";
 export { recallMemory, renderMemory } from "./memory/index.ts";
 export { parseChecklist } from "./notes/checklist.ts";
+export {
+  FakeSlack,
+  httpSlack,
+  SLACK_SCOPES,
+  SLACK_SERVICE,
+  type SlackApi,
+} from "./slack/index.ts";
 export { loadTask, type TaskView } from "./tasks/index.ts";
 export { POLISH_SERVICE, type Polisher, polisherFromEnv } from "./voice/polish.ts";
 export {
@@ -85,6 +94,7 @@ export {
   notesModule,
   peopleModule,
   routinesModule,
+  slackModule,
   systemModule,
   tasksModule,
   voiceModule,

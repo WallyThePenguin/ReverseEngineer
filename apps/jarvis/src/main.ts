@@ -11,7 +11,9 @@ import {
   blobsFromEnv,
   GOOGLE_SERVICE,
   googleFromEnv,
+  httpSlack,
   internalBrowserClient,
+  SLACK_SERVICE,
   VAULT_SERVICE,
   vaultFromEnv,
 } from "@hearth/modules";
@@ -26,6 +28,7 @@ export async function runJarvis(): Promise<() => Promise<void>> {
       [BROWSER_SERVICE]: internalBrowserClient(database.db, PRINCIPAL.jarvis),
       [GOOGLE_SERVICE]: googleFromEnv(),
       [VAULT_SERVICE]: vaultFromEnv(),
+      [SLACK_SERVICE]: httpSlack(),
       [BLOB_SERVICE]: blobsFromEnv(),
     },
   });
