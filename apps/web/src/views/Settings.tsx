@@ -11,6 +11,7 @@ import { act, useAction } from "../lib/query.ts";
 import type { StandingRule, SystemStatus } from "../lib/types.ts";
 import { ChromeSettings } from "./ChromeSettings.tsx";
 import { DesktopSettings } from "./DesktopSettings.tsx";
+import { GithubSettings } from "./GithubSettings.tsx";
 import { GoogleSettings } from "./GoogleSettings.tsx";
 import { PhoneSettings } from "./PhoneSettings.tsx";
 import { RoutineSettings } from "./RoutineSettings.tsx";
@@ -118,6 +119,7 @@ export function Settings() {
         <GoogleSettings />
 
         <SlackSettings />
+        <GithubSettings />
 
         <SignInSettings />
 

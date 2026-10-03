@@ -284,6 +284,8 @@ try {
     const create = p.getByRole("link", { name: "Create Hearth's Slack app" });
     if (!(await create.getAttribute("href"))?.includes("search%3Aread"))
       throw new Error("the Slack app link doesn't ask for its scopes");
+    await p.getByRole("heading", { name: "GitHub" }).waitFor();
+    await p.getByRole("link", { name: "Make a read-only token" }).waitFor();
   });
 
   await step("pair the desktop app, whose code runs only voice actions", async (p) => {

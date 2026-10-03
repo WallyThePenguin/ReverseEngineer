@@ -1,7 +1,7 @@
 // The worker: fires schedules (routines, reminders, checks), checks watched pages, syncs
-// Google Calendar, mail and Slack, and keeps an eye on Hearth's health.
+// Google Calendar, mail, Slack and GitHub, and keeps an eye on Hearth's health.
 
-import { googleAccount, slackWorkspace } from "@hearth/db";
+import { githubAccount, googleAccount, slackWorkspace } from "@hearth/db";
 import { integrationCaller, type Kernel, startScheduler } from "@hearth/kernel";
 import { checkHealth, type HealthOptions, reportHealth } from "./health.ts";
 import { checkDueWatches } from "./watches.ts";
@@ -14,6 +14,7 @@ export interface WorkerOptions extends HealthOptions {
   calendarIntervalMs?: number;
   mailIntervalMs?: number;
   slackIntervalMs?: number;
+  githubIntervalMs?: number;
   log?: (msg: string, err?: unknown) => void;
 }
 
@@ -130,9 +131,32 @@ export function startWorker(opts: WorkerOptions) {
   const slackTimer = setInterval(slack, opts.slackIntervalMs ?? 2 * 60_000);
   void slack();
 
+  // GitHub pull requests, every two minutes once a token is connected.
+  let pulling = false;
+  const github = async () => {
+    if (pulling) return;
+    pulling = true;
+    try {
+      const [any] = await kernel.db
+        .select({ login: githubAccount.login })
+        .from(githubAccount)
+        .limit(1);
+      if (!any) return;
+      const res = await kernel.execute("github.sync", {}, integrationCaller("github"));
+      if (res.status !== "ok") log(`github sync: ${JSON.stringify(res)}`);
+    } catch (err) {
+      log("github sync failed", err);
+    } finally {
+      pulling = false;
+    }
+  };
+  const githubTimer = setInterval(github, opts.githubIntervalMs ?? 2 * 60_000);
+  void github();
+
   return {
     health,
     slack,
+    github,
     watches,
     calendars,
     mail,
@@ -143,6 +167,7 @@ export function startWorker(opts: WorkerOptions) {
       clearInterval(calendarTimer);
       clearInterval(mailTimer);
       clearInterval(slackTimer);
+      clearInterval(githubTimer);
       scheduler.stop();
     },
   };

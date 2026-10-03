@@ -81,6 +81,7 @@ export const TYPE_LABEL: Record<string, string> = {
   email_thread: "Email",
   email: "Email",
   slack_message: "Slack",
+  github_pr: "Pull request",
 };
 
 export function who(principal: string): string {
