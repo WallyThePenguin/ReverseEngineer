@@ -30,6 +30,7 @@ import { EventHub } from "./hub.ts";
 import { mcpRoutes } from "./mcp.ts";
 import { actionRoutes } from "./routes/actions.ts";
 import { authRoutes } from "./routes/auth.ts";
+import { deviceRoutes } from "./routes/devices.ts";
 import { eventRoutes } from "./routes/events.ts";
 import { googleRoutes } from "./routes/google.ts";
 import { mailRoutes } from "./routes/mail.ts";
@@ -97,6 +98,7 @@ export function createApp(opts: AppOptions) {
   app.route("/api/browser", browserRoutes(bridge));
   app.route("/api/google", googleRoutes());
   app.route("/api/mail", mailRoutes());
+  app.route("/api/devices", deviceRoutes());
   app.route("/api", actionRoutes());
   app.route("/mcp", mcpRoutes());
   app.all("/api/*", (c) => c.json({ error: "Not found." }, 404));

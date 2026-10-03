@@ -25,6 +25,8 @@ export const session = pgTable("session", {
   lastSeenAt: ts("last_seen_at"),
   expiresAt: ts("expires_at"),
   revokedAt: ts("revoked_at"),
+  /** The only actions a device's token may run; null for a full sign-in. */
+  scopes: text("scopes").array(),
 });
 
 export const authChallenge = pgTable("auth_challenge", {

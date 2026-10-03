@@ -21,6 +21,8 @@ export interface RunnerOptions {
 }
 
 const REPLY_IN_THREAD = new Set(["mention", "assignment", "watch", "approval"]);
+/** Turns whose answer is pasted where nothing can approve it: they only rewrite text (D42). */
+const NO_TOOLS = new Set(["voice_command"]);
 const QUIET_ACTIONS = new Set(["inbox.notify", "jarvis.observe", "record.read"]);
 
 export function classifyOutcome(calls: ToolCallRecord[]): TurnOutcome {
@@ -143,9 +145,11 @@ export class TurnRunner {
       // A turn about something an outside tool wrote starts untrusted.
       if (record?.fromOutside) readOutsideContent(state, record.text);
       const subject = record?.text ?? null;
-      const memory = renderMemory(
-        await recallMemory(this.kernel.db, `${turn.prompt}\n${subject ?? ""}`),
-      );
+      // A tool-less turn's answer leaves Hearth unseen, so it gets no memory either.
+      const bare = NO_TOOLS.has(turn.trigger);
+      const memory = bare
+        ? null
+        : renderMemory(await recallMemory(this.kernel.db, `${turn.prompt}\n${subject ?? ""}`));
       const system = buildSystemPrompt({
         now,
         rules: await getSetting(this.kernel.db, "owner.dayRules"),
@@ -159,9 +163,11 @@ export class TurnRunner {
         .select()
         .from(conversation)
         .where(eq(conversation.entityId, cid));
-      const tools = buildTools(this.kernel, state, (kind, payload) =>
-        log([{ kind, payload, turnId: turn.id }]),
-      );
+      const tools = bare
+        ? []
+        : buildTools(this.kernel, state, (kind, payload) =>
+            log([{ kind, payload, turnId: turn.id }]),
+          );
       const stream = streamer(this.pool, cid, turn.id);
       const abort = new AbortController();
       this.aborts.set(turn.id, abort);
@@ -172,6 +178,7 @@ export class TurnRunner {
             prompt: turn.prompt,
             lane: turn.lane,
             tools,
+            ...(bare ? { web: false } : {}),
             sessionId: conv?.agentSessionId ?? null,
             signal: abort.signal,
           },

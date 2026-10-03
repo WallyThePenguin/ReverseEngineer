@@ -221,6 +221,24 @@ try {
     await p.getByRole("heading", { name: "Google" }).waitFor();
   });
 
+  await step("pair the desktop app, whose code runs only voice actions", async (p) => {
+    await p.getByRole("button", { name: "Pair the desktop app" }).click();
+    const code = (await p.locator("code.truncate").last().textContent()) ?? "";
+    // Sent from outside the page, as the desktop app would.
+    const asDevice = async (name: string) =>
+      (
+        await fetch(`${base}/api/actions/${name}`, {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${code}` },
+          body: JSON.stringify({ raw: "um hi", save: false }),
+        })
+      ).status;
+    if ((await asDevice("voice.clean")) !== 200) throw new Error("the desktop code can't dictate");
+    if ((await asDevice("task.list")) !== 403) throw new Error("the desktop code can do too much");
+    await p.getByRole("button", { name: "Unpair" }).last().click();
+    await p.getByRole("button", { name: "Pair the desktop app" }).waitFor();
+  });
+
   await step("a sign-in for Jarvis and a routine, in Settings", async (p) => {
     await p.getByLabel("Site").fill("example.com");
     await p.getByLabel("Username").fill("me@example.com");

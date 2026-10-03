@@ -17,6 +17,10 @@ import { appendLog, routeLane } from "./log.ts";
 
 const lane = z.enum(["fast", "deep"]);
 
+/** A paired device (the desktop app) only sees the conversations it started (D42). */
+const deviceMay = (via: string, startedVia: string | null | undefined) =>
+  via !== "device" || startedVia === "device";
+
 export const chatModule = defineModule({
   name: "chat",
   description: "Conversations with Jarvis and comment threads on any record.",
@@ -106,6 +110,7 @@ export const chatModule = defineModule({
       async handler(i, ctx) {
         const e = await requireEntity(ctx.tx, i.id, "conversation");
         const [c] = await ctx.tx.select().from(conversation).where(eq(conversation.entityId, i.id));
+        if (!deviceMay(ctx.caller.via, c?.startedVia)) throw notFound("Conversation");
         const log = await ctx.tx
           .select()
           .from(conversationLog)
@@ -132,12 +137,19 @@ export const chatModule = defineModule({
         let conversationId = i.conversationId;
         if (conversationId) {
           await requireEntity(ctx.tx, conversationId, "conversation");
+          const [c] = await ctx.tx
+            .select({ startedVia: conversation.startedVia })
+            .from(conversation)
+            .where(eq(conversation.entityId, conversationId));
+          if (!deviceMay(ctx.caller.via, c?.startedVia)) throw notFound("Conversation");
         } else {
           const e = await createEntity(ctx, {
             type: "conversation",
             title: preview(i.text, 60) || "New conversation",
           });
-          await ctx.tx.insert(conversation).values({ entityId: e.id });
+          await ctx.tx
+            .insert(conversation)
+            .values({ entityId: e.id, startedVia: ctx.caller.via === "device" ? "device" : null });
           conversationId = e.id;
         }
         const chosen = i.lane ?? routeLane(i.text);

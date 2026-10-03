@@ -10,6 +10,7 @@ import { toast } from "../lib/live.ts";
 import { act, useAction } from "../lib/query.ts";
 import type { StandingRule, SystemStatus } from "../lib/types.ts";
 import { ChromeSettings } from "./ChromeSettings.tsx";
+import { DesktopSettings } from "./DesktopSettings.tsx";
 import { GoogleSettings } from "./GoogleSettings.tsx";
 import { RoutineSettings } from "./RoutineSettings.tsx";
 import { SignInSettings } from "./SignInSettings.tsx";
@@ -107,6 +108,8 @@ export function Settings() {
         </section>
 
         <ChromeSettings />
+
+        <DesktopSettings />
 
         <GoogleSettings />
 

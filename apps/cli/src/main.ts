@@ -5,7 +5,15 @@ import { parseArgs } from "node:util";
 import { connect, databaseUrl, migrateDown, migrateUp } from "@hearth/db";
 import { Kernel, ownerCaller, Registry, systemCaller } from "@hearth/kernel";
 import { ALL_MODULES } from "@hearth/modules";
-import { createApiToken, createSetupCode, listApiTokens, revokeApiTokens } from "@hearth/server";
+import {
+  createApiToken,
+  createSetupCode,
+  listApiTokens,
+  listDevices,
+  pairDevice,
+  revokeApiTokens,
+  revokeDevice,
+} from "@hearth/server";
 import { runBackup } from "./backup.ts";
 import {
   checkBackupTools,
@@ -35,6 +43,9 @@ const HELP = `hearth: your personal workspace, with Jarvis.
   hearth token create <name>   Make a token for an outside agent (Claude Code, Claude Desktop)
   hearth token list
   hearth token revoke <name>
+  hearth device pair desktop   Make a pairing code for the desktop app (shown once)
+  hearth device list
+  hearth device unpair desktop
 `;
 
 function withDatabase<T>(fn: (db: ReturnType<typeof connect>) => Promise<T>): Promise<T> {
@@ -202,6 +213,29 @@ async function main(argv: string[]): Promise<number> {
           return 0;
         }
         console.error("Usage: hearth token create|list|revoke <name>");
+        return 2;
+      });
+
+    case "device":
+      return withDatabase(async ({ db }) => {
+        const [sub, name] = rest;
+        if (sub === "pair" && name) {
+          const token = await pairDevice(db, name);
+          console.log(
+            `Pairing code for ${name} (shown once; paste it into its settings):\n\n    ${token}\n`,
+          );
+          return 0;
+        }
+        if (sub === "list") {
+          for (const d of await listDevices(db))
+            console.log(`${d.name.padEnd(12)} last seen ${d.lastSeenAt?.toISOString() ?? "never"}`);
+          return 0;
+        }
+        if (sub === "unpair" && name) {
+          console.log(`Signed out ${await revokeDevice(db, name)} pairing(s) for ${name}.`);
+          return 0;
+        }
+        console.error("Usage: hearth device pair|list|unpair <name>");
         return 2;
       });
 

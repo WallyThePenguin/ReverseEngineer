@@ -14,7 +14,13 @@ export function hashToken(token: string): string {
 
 export async function createSession(
   db: DbOrTx,
-  input: { principal: string; kind: "browser" | "api"; label?: string; ttlDays?: number | null },
+  input: {
+    principal: string;
+    kind: "browser" | "api";
+    label?: string;
+    ttlDays?: number | null;
+    scopes?: string[] | null;
+  },
   now = new Date(),
 ): Promise<string> {
   const token = newToken();
@@ -25,6 +31,7 @@ export async function createSession(
     label: input.label ?? "",
     createdAt: now,
     expiresAt: input.ttlDays ? new Date(now.getTime() + input.ttlDays * 86_400_000) : null,
+    scopes: input.scopes ?? null,
   });
   return token;
 }

@@ -26,6 +26,8 @@ export interface BrainRequest {
   prompt: string;
   lane: Lane;
   tools: BrainTool[];
+  /** False to keep the web tools off for this turn, whatever the brain allows. */
+  web?: boolean;
   /** Agent session to resume, so a conversation keeps its context across turns. */
   sessionId: string | null;
   signal: AbortSignal;

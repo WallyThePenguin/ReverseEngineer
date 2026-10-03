@@ -123,7 +123,7 @@ export class ClaudeBrain implements Brain {
         }),
       ),
     });
-    const builtIn = this.opts.web ? WEB_TOOLS : [];
+    const builtIn = this.opts.web && req.web !== false ? WEB_TOOLS : [];
     const abort = new AbortController();
     req.signal.addEventListener("abort", () => abort.abort(), { once: true });
     const started = performance.now();

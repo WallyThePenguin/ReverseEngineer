@@ -6,11 +6,15 @@ import { ownerCaller } from "@hearth/kernel";
 import type { Context, MiddlewareHandler } from "hono";
 import { getCookie } from "hono/cookie";
 import type { AppEnv } from "../env.ts";
+import { scopeAllows } from "./devices.ts";
 import { resolveToken, type SessionPrincipal } from "./tokens.ts";
 
 export const SESSION_COOKIE = "hearth_session";
 
 export function callerFor(s: SessionPrincipal): Caller {
+  // A paired device acts as you, but what it starts is held to the rules for outside content:
+  // Jarvis asks before changing your accounts or acting for you on its say-so (D42).
+  if (s.kind === "owner" && s.scopes) return ownerCaller("device", { origin: "untrusted" });
   if (s.kind === "owner") return ownerCaller(s.sessionKind === "browser" ? "ui" : "cli");
   return {
     principal: s.principal,
@@ -35,6 +39,8 @@ export function authenticate(): MiddlewareHandler<AppEnv> {
     if (token) {
       const s = await resolveToken(kernel.db, token);
       if (!s) return c.json({ error: "That token isn't valid." }, 401);
+      if (s.scopes && !scopeAllows(s.scopes, c.req.method, c.req.path))
+        return c.json({ error: "This device's token can't do that." }, 403);
       c.set("caller", callerFor(s));
       c.set("token", token);
     } else {
