@@ -9,12 +9,11 @@ import {
   getEntity,
   notFound,
   removeLink,
-  restoreEntity,
-  trashEntity,
 } from "@hearth/kernel";
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { id, preview } from "../shared.ts";
+import { listTrash, restoreTree, trashTree } from "./trash.ts";
 
 const LINKABLE = ["attachment", "related", "participant", "derived_from", "reply"] as const;
 
@@ -156,15 +155,17 @@ export const graphModule = defineModule({
     }),
     defineAction({
       name: "entity.trash",
-      description: "Move a record to trash. It can be restored.",
+      description:
+        "Move a record to trash, with its comments, subtasks and subpages. It can be restored.",
       input: z.object({ id }),
       risk: "destructive",
       summarize: (i) => `Move record ${i.id} to trash`,
-      handler: async (input, ctx) => trashEntity(ctx, input.id),
+      handler: async (input, ctx) => trashTree(ctx, input.id),
     }),
     defineAction({
       name: "entity.restore",
-      description: "Bring a record back from trash.",
+      description:
+        "Bring a record back from trash, with whatever went to the trash with it (its subtasks, subpages, comments).",
       input: z.object({ id }),
       risk: "internal",
       async handler(input, ctx) {
@@ -175,8 +176,16 @@ export const graphModule = defineModule({
           .where(eq(entity.id, input.id));
         if (row && OWNER_ONLY_TYPES.has(row.type) && ctx.caller.kind !== "owner")
           throw new ActionError("forbidden", "Only the owner can restore this.");
-        return restoreEntity(ctx, input.id);
+        return restoreTree(ctx, input.id);
       },
+    }),
+    defineAction({
+      name: "entity.trashed",
+      description:
+        "List what's in the trash, most recently trashed first. Records that went with another (subtasks, subpages) are counted on its row.",
+      input: z.object({ limit: z.number().int().min(1).max(200).default(100) }),
+      risk: "read",
+      handler: async (input, ctx) => listTrash(ctx.tx, input.limit),
     }),
     defineAction({
       name: "link.add",
