@@ -2,7 +2,7 @@
 // Google Calendar, mail, Slack and GitHub, and keeps an eye on Hearth's health.
 
 import { githubAccount, googleAccount, slackWorkspace } from "@hearth/db";
-import { integrationCaller, type Kernel, startScheduler } from "@hearth/kernel";
+import { integrationCaller, type Kernel, pruneAudit, startScheduler } from "@hearth/kernel";
 import { checkHealth, type HealthOptions, reportHealth } from "./health.ts";
 import { jarvisWatchdog } from "./jarvis-watchdog.ts";
 import { type MailRoundOptions, mailRound } from "./mail-loop.ts";
@@ -158,8 +158,21 @@ export function startWorker(opts: WorkerOptions) {
   const githubTimer = setInterval(github, opts.githubIntervalMs ?? 2 * 60_000);
   void github();
 
+  // Routine audit rows (reads, check-ins, syncs) are let go after a while (AUDIT_KEEP).
+  const prune = async () => {
+    try {
+      const n = await pruneAudit(kernel.db, kernel.clock.now());
+      if (n) log(`let go of ${n} old routine audit rows`);
+    } catch (err) {
+      log("pruning the audit log failed", err);
+    }
+  };
+  const pruneTimer = setInterval(prune, 6 * 3_600_000);
+  void prune();
+
   return {
     health,
+    prune,
     slack,
     github,
     watches,
@@ -173,6 +186,7 @@ export function startWorker(opts: WorkerOptions) {
       clearInterval(mailTimer);
       clearInterval(slackTimer);
       clearInterval(githubTimer);
+      clearInterval(pruneTimer);
       scheduler.stop();
     },
   };

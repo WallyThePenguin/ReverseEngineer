@@ -87,6 +87,12 @@ export interface ActionDef<S extends z.ZodType = z.ZodType, R = unknown> {
   snapshot?(input: z.output<S>, ctx: ReadContext): Promise<Record<string, unknown>>;
   /** One line for an approval card: "Send email to Ana: Friday's agenda". */
   summarize?(input: z.output<S>): string;
+  /**
+   * Whether a call that worked gets its audit row, judged by its result. For a check-in that
+   * mostly changes nothing (system.report, every minute per component), only the calls that
+   * changed something are kept. Failures, refusals and approved calls are always kept.
+   */
+  auditWhen?(result: R): boolean;
   handler(input: z.output<S>, ctx: ActionContext): Promise<R>;
 }
 

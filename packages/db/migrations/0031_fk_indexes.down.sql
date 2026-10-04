@@ -1,0 +1,17 @@
+DROP INDEX slack_user_person;
+DROP INDEX slack_user_team;
+DROP INDEX slack_channel_team;
+DROP INDEX mail_draft_account;
+DROP INDEX mail_op_thread;
+DROP INDEX mail_op_account;
+DROP INDEX calendar_account;
+DROP INDEX watch_subject;
+DROP INDEX watch_conversation;
+DROP INDEX heartbeat_item_about;
+DROP INDEX observation_supersedes;
+DROP INDEX observation_about;
+DROP INDEX jarvis_turn_subject;
+DROP INDEX jarvis_turn_conversation;
+DROP INDEX task_project;
+DROP INDEX notification_entity;
+DROP INDEX notification_approval;

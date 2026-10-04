@@ -1,11 +1,14 @@
 // What the audit log keeps (D56), and how failures are worded: your own reads leave no row,
 // everything an agent or integration does still does, and no failure carries a query's values.
+// Check-ins are kept only when they changed something, and routine rows are let go in time.
 import { audit } from "@hearth/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
+import { AUDIT_KEEP, pruneAudit } from "./audit.ts";
 import { integrationCaller, jarvisCaller, ownerCaller } from "./callers.ts";
 import { DATABASE_DOWN, describeError, isDatabaseDown, logLine } from "./errors.ts";
+import { newId } from "./ids.ts";
 import { Kernel } from "./kernel.ts";
 import { Registry } from "./registry.ts";
 import { createTestKernel, type TestKernel } from "./testing.ts";
@@ -33,6 +36,17 @@ const probe = defineModule({
       input: z.object({}),
       risk: "internal",
       handler: async (_i, ctx) => ctx.call("peek.look", {}),
+    }),
+    defineAction({
+      name: "peek.checkin",
+      description: "A check-in that's only audited when it changed something",
+      input: z.object({ changed: z.boolean(), fail: z.boolean().default(false) }),
+      risk: "internal",
+      auditWhen: (r: { changed: boolean }) => r.changed,
+      async handler(i) {
+        if (i.fail) throw new Error("check-in failed");
+        return { changed: i.changed };
+      },
     }),
     defineAction({
       name: "peek.broken",
@@ -98,6 +112,55 @@ describe("the audit log", () => {
       error: 'relation "nope" does not exist (42P01)',
     });
     expect(JSON.stringify(row)).not.toContain("params");
+  });
+
+  it("keeps a check-in's row only when it changed something, and always when it failed", async () => {
+    const quiet = { log: () => {} };
+    const k = new Kernel({ db: t.tdb.db, registry: new Registry([probe]), ...quiet });
+    await k.execute("peek.checkin", { changed: false }, jarvisCaller("system"));
+    await k.execute("peek.checkin", { changed: false }, jarvisCaller("system"));
+    await k.execute("peek.checkin", { changed: true }, jarvisCaller("system"));
+    await k.execute("peek.checkin", { changed: false, fail: true }, jarvisCaller("system"));
+    expect((await rows("peek.checkin")).map((r) => r.outcome).sort()).toEqual(["error", "ok"]);
+  });
+
+  it("lets go of old routine rows, never changes or failures", async () => {
+    const day = 24 * 3_600_000;
+    const now = new Date("2026-10-01T14:00:00Z");
+    const ago = (days: number) => new Date(now.getTime() - days * day);
+    const row = (action: string, at: Date, more: Partial<typeof audit.$inferInsert> = {}) => ({
+      id: newId(),
+      at,
+      principal: "jarvis",
+      origin: "owner",
+      via: "jarvis",
+      action,
+      risk: "internal",
+      outcome: "ok" as const,
+      ...more,
+    });
+    await t.tdb.db.delete(audit);
+    await t.tdb.db
+      .insert(audit)
+      .values([
+        row("task.get", ago(100), { risk: "read" }),
+        row("task.get", ago(60), { risk: "read" }),
+        row("system.report", ago(20), { principal: "system" }),
+        row("system.report", ago(5), { principal: "system" }),
+        row("mail.sync", ago(20), { principal: "integration:google" }),
+        row("task.create", ago(400)),
+        row("task.get", ago(400), { risk: "read", outcome: "error" }),
+        row("system.report", ago(400), { principal: "system", outcome: "error" }),
+      ]);
+    expect(await pruneAudit(t.tdb.db, now, AUDIT_KEEP, 1)).toBe(3);
+    const left = await t.tdb.db.select().from(audit);
+    expect(left.map((r) => `${r.action} ${r.outcome}`).sort()).toEqual([
+      "system.report error",
+      "system.report ok",
+      "task.create ok",
+      "task.get error",
+      "task.get ok",
+    ]);
   });
 
   it("logs where a failure happened, without the values it carried", async () => {

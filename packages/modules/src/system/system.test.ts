@@ -1,5 +1,5 @@
 // system.status: what's set up so far, for the "Set up Hearth" checklist; and system alerts.
-import { googleAccount, notification, pushSubscription, session } from "@hearth/db";
+import { audit, googleAccount, notification, pushSubscription, session } from "@hearth/db";
 import { ownerCaller, setSetting, systemCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { eq } from "drizzle-orm";
@@ -84,6 +84,12 @@ describe("system alerts", () => {
     await report("sync.slack", "ok");
     await report("sync.slack", "failing", "Acme: invalid_auth");
     expect(await alerts()).toHaveLength(2);
+  });
+
+  it("keeps an audit row for a check-in only when its status changed", async () => {
+    for (const s of ["ok", "ok", "ok", "degraded", "degraded", "ok"]) await report("disk", s);
+    const rows = await t.tdb.db.select().from(audit).where(eq(audit.action, "system.report"));
+    expect(rows).toHaveLength(3);
   });
 
   it("leaves Jarvis's own failures to Jarvis, and says when a backup failed", async () => {

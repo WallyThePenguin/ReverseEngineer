@@ -114,6 +114,8 @@ export const systemModule = defineModule({
       }),
       risk: "internal",
       callers: ["system", "owner"],
+      // Every component reports every minute; only a change of status is worth an audit row.
+      auditWhen: (r: { changed: boolean }) => r.changed,
       async handler(i, ctx) {
         const key = `health.${i.component}`;
         const [prev] = await ctx.tx.select().from(setting).where(eq(setting.key, key));
