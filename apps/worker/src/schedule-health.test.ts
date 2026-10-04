@@ -3,7 +3,7 @@ import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { ALL_MODULES } from "@hearth/modules";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { checkSchedules } from "./schedule-health.ts";
+import { checkSchedules, scheduleWatch } from "./schedule-health.ts";
 
 let t: TestKernel;
 beforeEach(async () => {
@@ -25,7 +25,7 @@ describe("schedule health", () => {
     expect(await checkSchedules(t.kernel, up)).toEqual({
       component: "schedules",
       status: "ok",
-      detail: "Starting",
+      detail: "Catching up",
     });
     t.clock.advance(11 * 60_000);
     const late = await checkSchedules(t.kernel, up);
@@ -51,7 +51,28 @@ describe("schedule health", () => {
     expect(await checkSchedules(t.kernel, t.kernel.clock.now())).toEqual({
       component: "schedules",
       status: "failing",
-      detail: "routine:typo can't run (error: Invalid time zone)",
+      detail: "routine:typo can't run: Invalid time zone. Hearth tries again every hour.",
     });
+  });
+
+  it("gives the scheduler time to catch up after the PC wakes, as after a start", async () => {
+    const watch = scheduleWatch(t.kernel, 60_000);
+    // The brief was due at 8:15; the PC slept from 2 a.m. until now (10 a.m.).
+    await t.tdb.db.insert(schedule).values({
+      id: "routine:assistant.brief",
+      kind: "routine",
+      cron: "15 8 * * *",
+      nextRunAt: at("2026-10-01T12:15:00Z"),
+    });
+    expect((await watch()).status).toBe("ok");
+    // Awake for good, a check a minute: after ten minutes it counts as overdue.
+    for (let i = 0; i < 11; i++) {
+      t.clock.advance(60_000);
+      await watch();
+    }
+    expect((await watch()).status).toBe("failing");
+    // Asleep again for hours: on waking, the first check doesn't call it stuck.
+    t.clock.advance(3 * 3_600_000);
+    expect(await watch()).toMatchObject({ status: "ok", detail: "Catching up" });
   });
 });

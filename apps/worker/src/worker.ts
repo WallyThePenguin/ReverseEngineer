@@ -6,7 +6,7 @@ import { integrationCaller, type Kernel, pruneAudit, startScheduler } from "@hea
 import { checkHealth, type HealthOptions, reportHealth } from "./health.ts";
 import { jarvisWatchdog } from "./jarvis-watchdog.ts";
 import { type MailRoundOptions, mailRound } from "./mail-loop.ts";
-import { checkSchedules } from "./schedule-health.ts";
+import { scheduleWatch } from "./schedule-health.ts";
 import { checkSyncs, ErrorClock } from "./sync-health.ts";
 import { checkDueWatches } from "./watches.ts";
 
@@ -32,7 +32,8 @@ export function startWorker(opts: WorkerOptions) {
   });
   const watchdog = jarvisWatchdog(kernel, { log });
   const syncErrors = new ErrorClock();
-  const upSince = kernel.clock.now();
+  const healthEvery = opts.healthIntervalMs ?? 60_000;
+  const schedulesNow = scheduleWatch(kernel, healthEvery);
   let checking = false;
   const health = async () => {
     if (checking) return;
@@ -43,7 +44,7 @@ export function startWorker(opts: WorkerOptions) {
         log("checking the syncs failed", err);
         return [];
       });
-      const schedules = await checkSchedules(kernel, upSince).then(
+      const schedules = await schedulesNow().then(
         (r) => [r],
         (err) => {
           log("checking the schedules failed", err);
@@ -58,7 +59,7 @@ export function startWorker(opts: WorkerOptions) {
       checking = false;
     }
   };
-  const timer = setInterval(health, opts.healthIntervalMs ?? 60_000);
+  const timer = setInterval(health, healthEvery);
   void health();
 
   let watching = false;

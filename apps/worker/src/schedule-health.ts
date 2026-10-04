@@ -12,8 +12,8 @@ import type { HealthReport } from "./health.ts";
 export const OVERDUE_MS = 10 * 60_000;
 
 /**
- * The schedules' report. `upSince` is when this worker started: until it has been up as long as
- * OVERDUE_MS, what's late may just be the backlog it's still firing.
+ * The schedules' report. `upSince` is when this worker started, or the PC last woke: until then
+ * is as long ago as OVERDUE_MS, what's late may just be the backlog it's still firing.
  */
 export async function checkSchedules(kernel: Kernel, upSince: Date): Promise<HealthReport> {
   const now = kernel.clock.now();
@@ -25,11 +25,17 @@ export async function checkSchedules(kernel: Kernel, upSince: Date): Promise<Hea
     .orderBy(asc(schedule.id))
     .limit(3);
   if (broken.length) {
-    const named = broken.map((b) => `${b.id} can't run (${b.outcome})`).join("; ");
-    return { component: "schedules", status: "failing", detail: named };
+    const named = broken
+      .map((b) => `${b.id} can't run: ${(b.outcome ?? "").replace(/^error: /, "")}`)
+      .join("; ");
+    return {
+      component: "schedules",
+      status: "failing",
+      detail: `${named}. Hearth tries again every hour.`,
+    };
   }
   if (now.getTime() - upSince.getTime() < OVERDUE_MS)
-    return { component: "schedules", status: "ok", detail: "Starting" };
+    return { component: "schedules", status: "ok", detail: "Catching up" };
   const [late] = await kernel.db
     .select({ n: count(), oldest: min(schedule.nextRunAt) })
     .from(schedule)
@@ -49,4 +55,21 @@ export async function checkSchedules(kernel: Kernel, upSince: Date): Promise<Hea
     };
   }
   return { component: "schedules", status: "ok", detail: "On time" };
+}
+
+/**
+ * The schedules' report for a worker that checks every `everyMs`: a check far later than it was
+ * due means the PC was asleep, and the scheduler gets the same grace to catch up as at a start.
+ * On waking the health check's timer and the scheduler's are both overdue, and the check may
+ * read before the scheduler has fired the morning's brief.
+ */
+export function scheduleWatch(kernel: Kernel, everyMs: number) {
+  let awakeSince = kernel.clock.now();
+  let lastLook: number | null = null;
+  return () => {
+    const now = kernel.clock.now();
+    if (lastLook !== null && now.getTime() - lastLook > 3 * everyMs) awakeSince = now;
+    lastLook = now.getTime();
+    return checkSchedules(kernel, awakeSince);
+  };
 }
