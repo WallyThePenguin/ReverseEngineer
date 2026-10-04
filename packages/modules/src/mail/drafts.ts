@@ -362,10 +362,12 @@ function sendError(err: unknown, from: string): unknown {
     const seconds = Math.max(5, Math.ceil((err.retryAfterMs ?? 60_000) / 1000));
     const when =
       seconds < 90 ? `in about ${seconds} seconds` : `in ${Math.ceil(seconds / 60)} minutes`;
-    return new ActionError(
-      "unavailable",
-      `Gmail asked Hearth to slow down, so nothing was sent. Try again ${when}.`,
-    );
+    // "paced": Hearth held it back itself, to keep Gmail from turning it away.
+    const why =
+      err.kind === "paced"
+        ? "Hearth is spacing out its Gmail calls"
+        : "Gmail asked Hearth to slow down";
+    return new ActionError("unavailable", `${why}, so nothing was sent. Try again ${when}.`);
   }
   if (err.kind === "auth")
     return new ActionError(

@@ -61,9 +61,14 @@ const enc = encodeURIComponent;
 function plain(err: unknown): never {
   if (err instanceof GoogleApiError && err.slowDown) {
     const secs = Math.max(1, Math.ceil((err.retryAfterMs ?? 60_000) / 1000));
+    // "paced": Hearth held it back itself, to keep Google from turning it away.
+    const why =
+      err.kind === "paced"
+        ? "Hearth is spacing out its Google Calendar calls"
+        : "Google Calendar asked Hearth to slow down";
     throw new ActionError(
       "unavailable",
-      `Google Calendar asked Hearth to slow down, so nothing changed. Try again in about ${secs} seconds.`,
+      `${why}, so nothing changed. Try again in about ${secs} seconds.`,
     );
   }
   throw err;
