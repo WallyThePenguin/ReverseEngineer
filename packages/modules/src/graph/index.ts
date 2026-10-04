@@ -12,9 +12,15 @@ import {
   restoreEntity,
   trashEntity,
 } from "@hearth/kernel";
-import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { id, preview } from "../shared.ts";
+import { hiddenTypes, id, preview } from "../shared.ts";
+
+/** Leaves out the record types this caller can't read (memory, for outside agents: D58). */
+const readable = (ctx: { caller: Parameters<typeof hiddenTypes>[0] }) => {
+  const hidden = hiddenTypes(ctx.caller);
+  return hidden.length ? notInArray(entity.type, hidden) : undefined;
+};
 
 const LINKABLE = ["attachment", "related", "participant", "derived_from", "reply"] as const;
 
@@ -48,7 +54,7 @@ export const graphModule = defineModule({
       risk: "read",
       async handler(input, ctx) {
         const row = await getEntity(ctx.tx, input.id);
-        if (!row) throw notFound("Record");
+        if (!row || hiddenTypes(ctx.caller).includes(row.type)) throw notFound("Record");
         return row;
       },
     }),
@@ -80,6 +86,7 @@ export const graphModule = defineModule({
             and(
               isNull(entity.deletedAt),
               input.types?.length ? inArray(entity.type, input.types) : undefined,
+              readable(ctx),
               or(
                 sql`${sql.raw("search")} @@ ${tsq}`,
                 sql`${entity.title} % ${q}`,
@@ -121,6 +128,7 @@ export const graphModule = defineModule({
               input.types?.length
                 ? inArray(entity.type, input.types)
                 : sql`${entity.type} NOT IN ('comment', 'conversation', 'agent')`,
+              readable(ctx),
             ),
           )
           .orderBy(desc(entity.updatedAt))
@@ -146,7 +154,7 @@ export const graphModule = defineModule({
               otherTitle: entity.title,
             })
             .from(link)
-            .innerJoin(entity, and(eq(entity.id, other), isNull(entity.deletedAt)))
+            .innerJoin(entity, and(eq(entity.id, other), isNull(entity.deletedAt), readable(ctx)))
             .where(eq(dir === "out" ? link.fromId : link.toId, input.id))
             .orderBy(desc(link.createdAt));
           return rows;

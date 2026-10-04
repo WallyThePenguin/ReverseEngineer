@@ -53,4 +53,35 @@ describe("database connections", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("run a migration's code steps in its transaction: up after the SQL, down before it", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "hearth-migrations-"));
+    writeFileSync(join(dir, "9998_code.up.sql"), "CREATE TABLE code_step (v text);");
+    writeFileSync(join(dir, "9998_code.down.sql"), "DROP TABLE code_step;");
+    const seen: unknown[] = [];
+    const steps = (fail = false) => ({
+      "9998_code": {
+        async up(c: { query: (q: string) => Promise<unknown> }) {
+          await c.query("INSERT INTO code_step VALUES ('sealed')");
+          if (fail) throw new Error("no key");
+        },
+        async down(c: { query: (q: string) => Promise<{ rows: unknown[] }> }) {
+          seen.push(...(await c.query("SELECT v FROM code_step")).rows);
+        },
+      },
+    });
+    const one = connect(tdb.url, { max: 1 });
+    try {
+      // A step that fails leaves the migration undone, its SQL included.
+      await expect(migrateUp(one.pool, dir, steps(true))).rejects.toThrow(/9998_code failed/);
+      const table = await one.pool.query("SELECT to_regclass('code_step') AS t");
+      expect(table.rows[0]).toEqual({ t: null });
+      expect(await migrateUp(one.pool, dir, steps())).toEqual(["9998_code"]);
+      expect(await migrateDown(one.pool, 1, dir, steps())).toEqual(["9998_code"]);
+      expect(seen).toEqual([{ v: "sealed" }]);
+    } finally {
+      await one.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

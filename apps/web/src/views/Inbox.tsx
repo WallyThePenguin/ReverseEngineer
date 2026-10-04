@@ -1,29 +1,26 @@
 // One inbox: Jarvis's results, approvals, due dates and alerts, split into Signal and Noise.
-// j/k to move, Enter to open, e done, s snooze, a/d approve or deny.
+// j/k to move, Enter to open, e done, s snooze, a/d approve or deny. An approval waiting for
+// you can't be put away with e or s: it needs a yes or a no.
 
 import { createSignal, For, Match, Show, Switch } from "solid-js";
 import { Body } from "../components/Body.tsx";
 import { Badge, Button, Empty, Kbd, PaneHeader } from "../components/ui.tsx";
-import { decideApproval } from "../lib/api.ts";
+import { approvalStateText, decide, deciding, isDecided } from "../lib/approvals.ts";
 import { ago, due, snoozeOptions, who } from "../lib/format.ts";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
-import { affectedByChange } from "../lib/invalidate.ts";
-import { live, toast } from "../lib/live.ts";
+import { toast } from "../lib/live.ts";
 import { layout, routeFor } from "../lib/panes.ts";
 import { act, inboxInput, useAction } from "../lib/query.ts";
 import type { InboxRow } from "../lib/types.ts";
 
 type View = "live" | "snoozed" | "done";
 
-export async function decide(approvalId: string, decision: "approve" | "deny") {
-  const r = await decideApproval(approvalId, decision).catch((err: Error) => err);
-  if (r instanceof Error) toast.show(r.message, "error");
-  else if (r.status === "ok") toast.show(decision === "approve" ? "Approved and done." : "Denied.");
-  else if (r.status === "error") toast.show(r.message, "error");
-  else if (r.status === "denied") toast.show(r.reason, "error");
-  // What the approved action changed arrives as its own live events.
-  live.refresh(live.connected() ? affectedByChange("approval.decide") : null);
-}
+/** An approval card still waiting for your yes or no (and not decided here a moment ago). */
+const waitingOnYou = (row: InboxRow | undefined) =>
+  !!row?.notification.approvalId &&
+  row.approvalStatus === "pending" &&
+  !isDecided(row.notification.approvalId);
+const NEEDS_DECISION = "This one needs a yes or a no first: press a or d.";
 
 export function Inbox(props: { pane: number }) {
   const [view, setView] = createSignal<View>("live");
@@ -44,12 +41,18 @@ export function Inbox(props: { pane: number }) {
     if (beside) layout.open(route, { beside: true });
     else layout.show(route, props.pane);
   };
-  const done = (row: InboxRow | undefined) =>
-    row &&
+  const done = (row: InboxRow | undefined) => {
+    if (!row) return;
+    if (waitingOnYou(row)) return toast.show(NEEDS_DECISION);
     void act("inbox.mark", {
       ids: [row.notification.id],
       state: view() === "done" ? "seen" : "done",
     });
+  };
+  const startSnooze = (row: InboxRow | undefined) => {
+    if (waitingOnYou(row)) return toast.show(NEEDS_DECISION);
+    setSnoozing(row?.notification.id ?? null);
+  };
   const snooze = async (id: string, until: Date) => {
     setSnoozing(null);
     if (await act("inbox.snooze", { id, until: until.toISOString() })) toast.show("Snoozed.");
@@ -60,25 +63,18 @@ export function Inbox(props: { pane: number }) {
     { keys: "enter", run: () => open(current()), when: focused, label: "Open" },
     { keys: "o", run: () => open(current()), when: focused },
     { keys: "e", run: () => done(current()), when: focused, label: "Done" },
-    {
-      keys: "s",
-      run: () => setSnoozing(current()?.notification.id ?? null),
-      when: focused,
-      label: "Snooze",
-    },
+    { keys: "s", run: () => startSnooze(current()), when: focused, label: "Snooze" },
     {
       keys: "a",
       run: () =>
-        current()?.notification.approvalId &&
-        void decide(current()!.notification.approvalId!, "approve"),
+        waitingOnYou(current()) && void decide(current()!.notification.approvalId!, "approve"),
       when: focused,
       label: "Approve",
     },
     {
       keys: "d",
       run: () =>
-        current()?.notification.approvalId &&
-        void decide(current()!.notification.approvalId!, "deny"),
+        waitingOnYou(current()) && void decide(current()!.notification.approvalId!, "deny"),
       when: focused,
       label: "Deny",
     },
@@ -165,7 +161,7 @@ export function Inbox(props: { pane: number }) {
                           </div>
                           <Show when={n.body && n.kind !== "brief"}>
                             <Show
-                              when={n.approvalId && row.approvalStatus === "pending"}
+                              when={waitingOnYou(row)}
                               fallback={
                                 <div class="mt-0.5 line-clamp-3 text-sm text-muted">
                                   <Body text={n.body} />
@@ -179,11 +175,12 @@ export function Inbox(props: { pane: number }) {
                             </Show>
                           </Show>
                           <Switch>
-                            <Match when={n.approvalId && row.approvalStatus === "pending"}>
+                            <Match when={waitingOnYou(row)}>
                               <div class="mt-2 flex gap-2" onClick={(e) => e.stopPropagation()}>
                                 <Button
                                   kind="primary"
                                   small
+                                  disabled={deciding(n.approvalId!)}
                                   onClick={() => decide(n.approvalId!, "approve")}
                                 >
                                   Approve <Kbd>a</Kbd>
@@ -191,6 +188,7 @@ export function Inbox(props: { pane: number }) {
                                 <Button
                                   kind="danger"
                                   small
+                                  disabled={deciding(n.approvalId!)}
                                   onClick={() => decide(n.approvalId!, "deny")}
                                 >
                                   Deny <Kbd>d</Kbd>
@@ -198,7 +196,9 @@ export function Inbox(props: { pane: number }) {
                               </div>
                             </Match>
                             <Match when={n.approvalId && row.approvalStatus}>
-                              <p class="mt-1 text-xs text-muted">Approval {row.approvalStatus}</p>
+                              <p class="mt-1 text-xs text-muted">
+                                {approvalStateText(row.approvalStatus!)}
+                              </p>
                             </Match>
                           </Switch>
                           <Show when={snoozing() === n.id}>

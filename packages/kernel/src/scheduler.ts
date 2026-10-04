@@ -3,6 +3,7 @@
 import { isStaleFiring, nextCronRun } from "@hearth/core";
 import { type Db, type DbOrTx, schedule } from "@hearth/db";
 import { and, asc, eq, isNotNull, lte, sql } from "drizzle-orm";
+import { expireApprovals } from "./approval-life.ts";
 import type { Clock } from "./clock.ts";
 import { appendEvents } from "./events.ts";
 import type { Registry } from "./registry.ts";
@@ -134,7 +135,7 @@ export async function runDueSchedules(db: Db, clock: Clock, limit = 50): Promise
   return fired;
 }
 
-/** Polls for due schedules until stopped. */
+/** Polls for due schedules, and runs out approvals past their time (D58), until stopped. */
 export function startScheduler(
   db: Db,
   clock: Clock,
@@ -146,6 +147,11 @@ export function startScheduler(
     running = true;
     try {
       await runDueSchedules(db, clock);
+    } catch (err) {
+      opts.log?.(err);
+    }
+    try {
+      await expireApprovals(db, clock);
     } catch (err) {
       opts.log?.(err);
     } finally {

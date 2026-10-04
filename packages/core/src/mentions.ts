@@ -1,5 +1,6 @@
 // Mentions inside markdown bodies: <m-ref type="task" id="...">Label</m-ref>.
 // The server re-derives links from these on every save (PLAN.md section 5.3).
+import { isUuid } from "./ids.ts";
 
 export interface Mention {
   type: string;
@@ -39,7 +40,8 @@ export function parseMentions(body: string): Mention[] {
       attrs[a[1]!] = unescapeText((a[2] ?? "").replaceAll("&quot;", '"'));
     }
     const { type, id } = attrs;
-    if (!type || !id) continue;
+    // Only a record's id can be mentioned: anything else (in pasted or outside text) is text.
+    if (!type || !id || !isUuid(id)) continue;
     const key = `${type}:${id}`;
     const occurrence = seen.get(key) ?? 0;
     seen.set(key, occurrence + 1);

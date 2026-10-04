@@ -15,7 +15,7 @@ import {
 } from "@hearth/kernel";
 import { and, asc, count, eq, isNotNull, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { body, describeRow, id, liveEntity } from "../shared.ts";
+import { body, describeRow, id, isOutside, liveEntity } from "../shared.ts";
 import { companyDomain } from "./domains.ts";
 import { ensureCompany, ensureProfile, lastContacts, personFor } from "./store.ts";
 import { listPeople, overdue, personFacts, personView } from "./views.ts";
@@ -273,7 +273,7 @@ export const peopleModule = defineModule({
             : `You haven't talked to ${e.title} since adding them ${late} days ago.`,
           entityId: e.id,
           // A name from mail or an invitation is what the sender called themselves.
-          outside: e.createdBy.startsWith("integration:") || e.createdBy.startsWith("mcp:"),
+          outside: isOutside(e),
         },
       ];
     });

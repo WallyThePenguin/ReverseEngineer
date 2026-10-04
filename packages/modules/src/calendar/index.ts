@@ -22,7 +22,7 @@ import {
 import { and, asc, eq, gt, gte, inArray, isNull, lt, ne } from "drizzle-orm";
 import { z } from "zod";
 import { GOOGLE_SERVICE, type GoogleClient } from "../google/client.ts";
-import { describeRow, id, isoDateTime, liveEntity } from "../shared.ts";
+import { describeRow, id, isOutside, isoDateTime, liveEntity } from "../shared.ts";
 import { calendarWriteActions } from "./actions.ts";
 import { blockAction, blockReflex, blockRoutine } from "./blocks.ts";
 import { freeSlots } from "./free.ts";
@@ -337,7 +337,7 @@ export const calendarModule = defineModule({
         try {
           google = ctx.service<GoogleClient>(GOOGLE_SERVICE);
         } catch {}
-        for (const g of gone) await google?.revoke(g.token);
+        for (const g of gone) await google?.revoke(g.token, g.email);
         return { removed: gone.length };
       },
     }),
@@ -376,15 +376,23 @@ export const calendarModule = defineModule({
               v.selfResponse === "needsAction" ? " (not answered yet)" : ""
             }`,
         entityId: v.id,
+        // Someone else's invitation is titled by them, so it's outside content (D58).
+        outside: !v.selfOrganizer,
       }));
     const preps = await ctx.db
-      .select({ id: entity.id, title: entity.title })
+      .select({
+        id: entity.id,
+        title: entity.title,
+        createdBy: entity.createdBy,
+        outside: entity.outside,
+      })
       .from(entity)
       .where(
         and(eq(entity.type, "prep"), isNull(entity.deletedAt), gte(entity.createdAt, ctx.since)),
       )
       .limit(20);
-    for (const p of preps) items.push({ bucket: "prepared", text: p.title, entityId: p.id });
+    for (const p of preps)
+      items.push({ bucket: "prepared", text: p.title, entityId: p.id, outside: isOutside(p) });
     return items;
   },
 });

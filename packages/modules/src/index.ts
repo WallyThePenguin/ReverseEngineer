@@ -100,6 +100,13 @@ export {
   type Uploads,
 } from "./notion/index.ts";
 export {
+  isSealed,
+  openGoogleTokens,
+  type Sealer,
+  sealGoogleTokens,
+  secretMigrations,
+} from "./secrets.ts";
+export {
   FakeSlack,
   httpSlack,
   SLACK_SCOPES,

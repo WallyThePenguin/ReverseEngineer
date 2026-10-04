@@ -98,7 +98,7 @@ export interface Approval {
   reason: string;
   requestedBy: string;
   origin: string;
-  status: "pending" | "denied" | "executed" | "failed" | "expired";
+  status: "pending" | "executing" | "denied" | "executed" | "failed" | "expired";
   error: string | null;
   conversationId: string | null;
   createdAt: string;
