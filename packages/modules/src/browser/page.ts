@@ -2,6 +2,7 @@
 // and remember its links so Jarvis can follow one by reference ("L4") instead of retyping it.
 import { readFileSync } from "node:fs";
 import { ActionError } from "@hearth/kernel";
+import { PAGE_RULES } from "./classify.ts";
 import type { BrowserClient, TabInfo } from "./client.ts";
 
 /** A page-side script's function, without the comments and type notes above it. */
@@ -39,7 +40,7 @@ export interface PageSnapshot {
 
 /** A page-side function called with its options and the element helpers. */
 export function pageCall(fn: string, opts: Record<string, unknown>): string {
-  return `(${fn})(${JSON.stringify(opts)}, (${ELEMENTS})())`;
+  return `(${fn})(${JSON.stringify(opts)}, (${ELEMENTS})(${JSON.stringify(PAGE_RULES)}))`;
 }
 
 /** The page-side reader as an expression, for Runtime.evaluate (and tests in a real browser). */
@@ -52,9 +53,15 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** How long to wait for pages: before a navigation shows, between checks, and after a load. */
 export const loadTiming = { startMs: 400, pollMs: 300, settleMs: 500 };
 
-export async function findTab(client: BrowserClient, tabId: number): Promise<TabInfo> {
-  const tabs = await client.call<TabInfo[]>("tabs.list");
-  const tab = tabs.find((t) => t.tabId === tabId);
+/** The tabs Jarvis may use. */
+export const listTabs = (client: BrowserClient) => client.call<TabInfo[]>("tabs.list");
+
+export async function findTab(
+  client: BrowserClient,
+  tabId: number,
+  tabs?: TabInfo[],
+): Promise<TabInfo> {
+  const tab = (tabs ?? (await listTabs(client))).find((t) => t.tabId === tabId);
   if (!tab)
     throw new ActionError("not_found", `Tab ${tabId} is closed, or isn't one Jarvis may use.`);
   return tab;
@@ -71,6 +78,8 @@ export async function waitForLoad(
   await sleep(loadTiming.startMs);
   for (;;) {
     const tab = await findTab(client, tabId);
+    // A dialog stops the page where it is until it's answered.
+    if (tab.dialog) return tab;
     if (!tab.loading) {
       await sleep(loadTiming.settleMs);
       return tab;

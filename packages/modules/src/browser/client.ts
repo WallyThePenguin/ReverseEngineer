@@ -1,7 +1,7 @@
 // How Hearth reaches your Chrome (D24): the Hearth extension connects to the server, the server
 // holds that connection, and every other process talks to it over HTTP through this interface.
 import { createSession, type Db, session } from "@hearth/db";
-import { ActionError } from "@hearth/kernel";
+import { ActionError, type ActionErrorCode } from "@hearth/kernel";
 import { and, eq, lt } from "drizzle-orm";
 
 /** The kernel service name actions use: ctx.service<BrowserClient>(BROWSER_SERVICE). */
@@ -17,6 +17,20 @@ export interface TabInfo {
   /** One of your tabs you handed to Jarvis, rather than one Jarvis opened. */
   handed: boolean;
   loading: boolean;
+  /** The tab that opened it (a pop-up, or a link that opens in a new tab), if any. */
+  openerTabId?: number | null;
+  /** An alert, confirm, prompt or "leave site?" dialog waiting for an answer. */
+  dialog?: DialogInfo | null;
+  /** Why the last page the tab tried to load didn't, like net::ERR_NAME_NOT_RESOLVED. */
+  error?: string | null;
+}
+
+/** A page's dialog. Its message is the page's own words, so it's outside content. */
+export interface DialogInfo {
+  type: string;
+  message: string;
+  url: string;
+  defaultPrompt?: string;
 }
 
 export interface BrowserStatus {
@@ -34,6 +48,72 @@ export interface BrowserStatus {
   openError?: string | null;
   /** Whether an extension is paired, once the server knows. */
   paired?: boolean;
+  /** The link's protocol the connected extension speaks (1 before it said). */
+  protocol?: number | null;
+  /** The connected extension's ID, and the one Hearth's own extension has. */
+  extensionId?: string | null;
+  expectedId?: string;
+  /** Something wrong with the connected extension, in a sentence for the owner. */
+  problem?: string | null;
+}
+
+/**
+ * A failure Chrome reported with a reason Hearth acts on: "dialog_open" (a dialog is waiting),
+ * "not_allowed" (a command Hearth may not send) or "not_yours" (a tab Jarvis may not use).
+ */
+export class BrowserError extends ActionError {
+  readonly reason: string;
+  constructor(code: ActionErrorCode, message: string, reason: string) {
+    super(code, message);
+    this.reason = reason;
+  }
+}
+
+/**
+ * A failure the extension reported, as Hearth passes it on: with its reason when it has one
+ * ("dialog_open" is a conflict to resolve, a refused command or tab is forbidden), otherwise as
+ * Chrome's own words.
+ */
+export function chromeError(message: string, reason?: string | null): ActionError {
+  if (!reason) return new ActionError("failed", `Chrome: ${message}`);
+  const code: ActionErrorCode =
+    reason === "dialog_open"
+      ? "conflict"
+      : reason === "not_allowed" || reason === "not_yours"
+        ? "forbidden"
+        : "failed";
+  return new BrowserError(code, message, reason);
+}
+
+/** The reason on a browser failure, if it has one. */
+export function reasonOf(err: unknown): string | null {
+  return err instanceof BrowserError ? err.reason : null;
+}
+
+const CODES = new Set<string>([
+  "unknown_action",
+  "invalid_input",
+  "not_found",
+  "conflict",
+  "forbidden",
+  "unavailable",
+  "failed",
+]);
+
+/** Rebuilds an error the bridge sent over HTTP, with its code and reason. */
+export function bridgeError(
+  body: { error?: string; code?: string; reason?: string },
+  status: number,
+) {
+  const code = (
+    CODES.has(body.code ?? "") ? body.code : status === 503 ? "unavailable" : "failed"
+  ) as ActionErrorCode;
+  const message =
+    body.error ??
+    (code === "unavailable" ? OFFLINE_MESSAGE : `The browser bridge answered ${status}.`);
+  return body.reason
+    ? new BrowserError(code, message, body.reason)
+    : new ActionError(code, message);
 }
 
 /** One request to the extension: tabs.list, tabs.open, tabs.close, tabs.release, tabs.show, cdp. */
@@ -100,10 +180,13 @@ export class HttpBrowserClient implements BrowserClient {
         );
       }
       if (res.status === 401 && !fresh) continue;
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        code?: string;
+        reason?: string;
+      };
       if (res.ok) return body as T;
-      if (res.status === 503) throw new ActionError("unavailable", body.error ?? OFFLINE_MESSAGE);
-      throw new ActionError("failed", body.error ?? `The browser bridge answered ${res.status}.`);
+      throw bridgeError(body, res.status);
     }
     throw new ActionError("failed", "The browser bridge refused Hearth's own token.");
   }

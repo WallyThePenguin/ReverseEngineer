@@ -31,9 +31,9 @@ describe("typing after reading a page", () => {
       return [
         { call: "browser_open", input: { url: SHOP } },
         { call: "browser_read", input: { tabId: 1 } },
-        { call: "browser_type", input: { tabId: 1, element: "E1", text: "kettle" } },
+        { call: "browser_type", input: { tabId: 1, ref: "E1", text: "kettle" } },
         { call: "browser_open", input: { url: OTHER } },
-        { call: "browser_type", input: { tabId: 2, element: "E1", text: "me@example.com" } },
+        { call: "browser_type", input: { tabId: 2, ref: "E1", text: "me@example.com" } },
         { say: "done" },
       ];
     });
@@ -57,8 +57,8 @@ describe("typing after reading a page", () => {
         { call: "browser_open", input: { url: SHOP } },
         { call: "browser_read", input: { tabId: 1 } },
         { call: "browser_open", input: { url: OTHER } },
-        { call: "browser_click", input: { tabId: 2, element: "E1" } },
-        { call: "browser_key", input: { tabId: 2, key: "Tab" } },
+        { call: "browser_click", input: { tabId: 2, ref: "E1" } },
+        { call: "browser_key", input: { tabId: 2, keys: "Tab" } },
         { say: "done" },
       ];
     });
@@ -77,7 +77,7 @@ describe("typing after reading a page", () => {
       { call: "browser_open", input: { url: SHOP } },
       { call: "browser_read", input: { tabId: 1 } },
       { call: "browser_open", input: { url: OTHER } },
-      { call: "browser_type", input: { tabId: 2, element: "E1", text: "me@example.com" } },
+      { call: "browser_type", input: { tabId: 2, ref: "E1", text: "me@example.com" } },
       { say: "done" },
     ]);
     await h.kernel.execute("chat.send", { text: "fill the form" }, ownerCaller());

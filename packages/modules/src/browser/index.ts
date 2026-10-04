@@ -1,29 +1,23 @@
-// Jarvis's browser (D24, D25): open pages in your own Chrome, read them, look at them, and close
-// them again (step 1); click, type, submit with your yes, and sign in from the vault (step 2,
-// act.ts, sign-in.ts). It works in Jarvis's own window and in tabs you hand it. Pages are
-// outside content, so reading one makes the rest of a turn untrusted. Sites on your blocked list
-// are off limits to everyone but you.
-import {
-  ActionError,
-  defineAction,
-  defineModule,
-  getSetting,
-  type ModelImage,
-  setSetting,
-} from "@hearth/kernel";
+// Jarvis's browser (D24, D25, D52): open pages in your own Chrome, read them, look at them, and
+// close them again (look.ts, navigate.ts); click, type, press keys, answer dialogs, submit with
+// your yes, and sign in from the vault (act.ts, steps.ts, sign-in.ts). It works in Jarvis's own
+// window, in tabs you hand it, and in the pop-ups those open. Pages are outside content, so
+// reading one makes the rest of a turn untrusted. Sites on your blocked list are off limits to
+// everyone but you; sites you trust let Jarvis act without asking, above the floor (D52).
+import { ActionError, defineAction, defineModule, getSetting, setSetting } from "@hearth/kernel";
 import { z } from "zod";
 import { notesForSite } from "../memory/recall.ts";
 import { assertAllowed, browser, CALLERS } from "./access.ts";
 import { actActions } from "./act.ts";
 import type { TabInfo } from "./client.ts";
+import { lookActions } from "./look.ts";
+import { navigateActions } from "./navigate.ts";
 import { pace } from "./pace.ts";
-import { findTab, forgetLinks, linkUrl, readPage, rememberLinks, waitForLoad } from "./page.ts";
+import { findTab, forgetLinks, linkUrl, waitForLoad } from "./page.ts";
 import { signInAction } from "./sign-in.ts";
+import { stepActions } from "./steps.ts";
 import { vaultActions } from "./vault.ts";
 import { describeWatch, watchActions, watchFollowUp } from "./watches.ts";
-
-/** The most of a page read at once; longer pages are cut off there. */
-const MAX_READ = 300_000;
 
 /** A site as written in the lists: a host name like "bank.example", subdomains included. */
 const SITE = z
@@ -43,7 +37,7 @@ const OpenInput = z.object({
     .int()
     .optional()
     .describe("Open it in this tab. Without one, a new tab opens in Jarvis's window."),
-  newTab: z.boolean().default(false).describe("Open a link in a new tab instead of tabId."),
+  newTab: z.boolean().default(false).describe("Open it in a new tab instead of tabId."),
 });
 type OpenInput = z.output<typeof OpenInput>;
 
@@ -76,7 +70,8 @@ export const browserModule = defineModule({
     },
     {
       kind: "browser.sites_changed",
-      description: "You changed the sites Jarvis may open freely or never opens. Payload: sites.",
+      description:
+        "You changed the sites you trust Jarvis to act on, or that it never opens. Payload: sites.",
     },
     {
       kind: "browser.signed_in",
@@ -93,12 +88,15 @@ export const browserModule = defineModule({
   actions: [
     ...watchActions,
     ...actActions,
+    ...lookActions,
+    ...navigateActions,
+    ...stepActions,
     ...vaultActions,
     signInAction,
     defineAction({
       name: "browser.tabs",
       description:
-        "List the Chrome tabs Jarvis may use (its own window, and tabs the owner handed it), and whether Chrome is connected.",
+        "List the Chrome tabs Jarvis may use (its own window, tabs the owner handed it, and pop-ups those opened), whether Chrome is connected, and any dialog waiting for an answer.",
       input: z.object({}),
       risk: "read",
       callers: CALLERS,
@@ -114,6 +112,10 @@ export const browserModule = defineModule({
             title: t.title,
             yours: t.handed,
             loading: t.loading,
+            active: t.active,
+            ...(t.openerTabId ? { openedFrom: t.openerTabId } : {}),
+            ...(t.dialog ? { dialog: { type: t.dialog.type, message: t.dialog.message } } : {}),
+            ...(t.error ? { error: t.error } : {}),
           })),
         };
       },
@@ -126,6 +128,18 @@ export const browserModule = defineModule({
       risk: "read",
       callers: CALLERS,
       opensUrl: target,
+      // A link reference is good only in the process that read the page, so it's turned into its
+      // address before the call runs or waits for a yes.
+      async snapshot(i) {
+        if (!i.link) return {};
+        const url = target(i);
+        if (!url)
+          throw new ActionError(
+            "not_found",
+            `There's no ${i.link} on the page last read in tab ${i.tabId}. Read the page first.`,
+          );
+        return { url, link: undefined };
+      },
       summarize: (i) => `Open ${target(i) ?? i.link ?? "a page"} in Chrome`,
       async handler(i, ctx) {
         if (!i.url === !i.link)
@@ -140,11 +154,17 @@ export const browserModule = defineModule({
         await pace(ctx, url);
         const client = browser(ctx);
         let tab: TabInfo;
-        if (i.tabId === undefined || (i.link && i.newTab)) {
+        let errorText: string | null = null;
+        if (i.tabId === undefined || i.newTab) {
           tab = await client.call<TabInfo>("tabs.open", { url });
         } else {
           await findTab(client, i.tabId);
-          await client.call("cdp", { tabId: i.tabId, method: "Page.navigate", params: { url } });
+          const res = await client.call<{ errorText?: string } | null>("cdp", {
+            tabId: i.tabId,
+            method: "Page.navigate",
+            params: { url },
+          });
+          errorText = res?.errorText || null;
           tab = await findTab(client, i.tabId);
         }
         forgetLinks(tab.tabId);
@@ -152,10 +172,13 @@ export const browserModule = defineModule({
         ctx.emit({ kind: "browser.opened", payload: { tabId: tab.tabId, url } });
         // Only the address asked for: the page's own title and text come from browser_read.
         const notes = await notesForSite(ctx.tx, new URL(url).hostname);
+        // Why it didn't load, from Chrome (net::ERR_NAME_NOT_RESOLVED), not from the page.
+        const failed = errorText ?? loaded.error ?? null;
         return {
           tabId: tab.tabId,
           url,
           loaded: !loaded.loading,
+          ...(failed ? { errorText: failed } : {}),
           ...(notes.length
             ? { siteNotes: notes.map((n) => ({ id: n.id, title: n.title, body: n.body })) }
             : {}),
@@ -163,70 +186,9 @@ export const browserModule = defineModule({
       },
     }),
     defineAction({
-      name: "browser.read",
-      description:
-        "Read the page in a tab as text, the way a person sees it. Links show as references like [L4]; follow one with browser_open {tabId, link}. Things you can press or type into show as [button E3: Add to cart], [field E5: Search] and so on: use browser_click, browser_type, browser_choose and browser_submit with them. `sends` lists the ones that would send something (browser_submit, which asks the owner). Long pages come in parts: pass offset to read on.",
-      input: z.object({
-        tabId: z.number().int(),
-        offset: z.number().int().min(0).default(0),
-        maxChars: z.number().int().min(500).max(15_000).default(12_000),
-      }),
-      risk: "read",
-      callers: CALLERS,
-      external: true,
-      async handler(i, ctx) {
-        const client = browser(ctx);
-        await assertAllowed(ctx, (await findTab(client, i.tabId)).url);
-        const upTo = Math.min(MAX_READ, i.offset + i.maxChars);
-        const page = await readPage(client, i.tabId, upTo, undefined, true);
-        // The page may have moved on since the tab list was read.
-        await assertAllowed(ctx, page.url);
-        rememberLinks(i.tabId, page.url, page.links, page.elements);
-        const text = page.text.slice(i.offset, i.offset + i.maxChars);
-        const refs = new Set([...text.matchAll(/\[L(\d+)\]/g)].map((m) => Number(m[1])));
-        const shown = new Set([...text.matchAll(/ (E\d+): /g)].map((m) => m[1]));
-        const end = i.offset + text.length;
-        const more = page.truncated || end < page.text.length;
-        return {
-          tabId: i.tabId,
-          url: page.url,
-          title: page.title,
-          text,
-          links: [...refs].map((n) => `L${n} ${page.links[n - 1]}`),
-          sends: page.elements
-            .filter((e) => e.submits && shown.has(e.ref))
-            .map((e) => `${e.ref} ${e.label}`),
-          next: more && end < MAX_READ ? { offset: end } : null,
-        };
-      },
-    }),
-    defineAction({
-      name: "browser.screenshot",
-      description:
-        "Look at a tab: a picture of what it shows now. Use it when the page's look matters (a chart, a layout, a captcha) or reading it as text wasn't enough.",
-      input: z.object({ tabId: z.number().int() }),
-      risk: "read",
-      callers: CALLERS,
-      external: true,
-      async handler(i, ctx) {
-        const client = browser(ctx);
-        const tab = await findTab(client, i.tabId);
-        await assertAllowed(ctx, tab.url);
-        // Chrome only draws the tab showing in its window.
-        if (!tab.handed) await client.call("tabs.show", { tabId: i.tabId });
-        const shot = await client.call<{ data: string }>("cdp", {
-          tabId: i.tabId,
-          method: "Page.captureScreenshot",
-          params: { format: "jpeg", quality: 60 },
-        });
-        const modelImages: ModelImage[] = [{ mimeType: "image/jpeg", data: shot.data }];
-        return { tabId: i.tabId, url: tab.url, modelImages };
-      },
-    }),
-    defineAction({
       name: "browser.sites",
       description:
-        "The owner's site lists: sites Jarvis may open even after reading outside content, and sites it never opens.",
+        "The owner's site lists: trusted sites (allowed), where Jarvis may open, click, type and send without asking, even after reading outside content, except for payments, passwords and security settings, moving money and deleting an account; and sites it never opens (blocked).",
       input: z.object({}),
       risk: "read",
       callers: CALLERS,
@@ -234,7 +196,8 @@ export const browserModule = defineModule({
     }),
     defineAction({
       name: "browser.set_sites",
-      description: "Change which sites Jarvis may open freely, and which it never opens.",
+      description:
+        "Change which sites the owner trusts Jarvis to act on without asking (allowed), and which it never opens (blocked).",
       input: z.object({
         allowed: z.array(SITE).max(200),
         blocked: z.array(SITE).max(200),

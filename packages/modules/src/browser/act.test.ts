@@ -4,7 +4,7 @@ import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { ALL_MODULES } from "../index.ts";
-import { ChromiumBrowser, chromiumPath } from "./chromium.ts";
+import { ChromiumBrowser, chromiumForTests } from "./chromium.ts";
 import { BROWSER_SERVICE } from "./client.ts";
 import { pacing } from "./pace.ts";
 import { loadTiming } from "./page.ts";
@@ -33,7 +33,7 @@ const PAGES: Record<string, string> = {
   "https://shop.example/order": "<title>Thanks</title><p>Order placed</p>",
 };
 
-const hasChromium = chromiumPath() !== null;
+const hasChromium = chromiumForTests();
 let t: TestKernel;
 let chrome: ChromiumBrowser;
 const jarvis = jarvisCaller("agent");
@@ -88,49 +88,45 @@ describe.skipIf(!hasChromium)("Jarvis's hands in Chrome", () => {
 
   it("clicks, ticks, picks and searches without asking", async () => {
     const { tabId } = await openShop();
-    await ok("browser.click", { tabId, element: "E5" });
+    await ok("browser.click", { tabId, ref: "E5" });
     expect(await chrome.page(tabId).isVisible("#extra")).toBe(true);
-    await ok("browser.choose", { tabId, element: "E3", value: "on" });
+    await ok("browser.choose", { tabId, ref: "E3", value: "on" });
     expect(await chrome.page(tabId).isChecked("input[name=gift]")).toBe(true);
-    expect(await ok("browser.choose", { tabId, element: "E4", value: "large" })).toMatchObject({
+    expect(await ok("browser.choose", { tabId, ref: "E4", value: "large" })).toMatchObject({
       now: "= Large",
     });
-    await ok("browser.type", { tabId, element: "E1", text: "kettle" });
-    const res = await ok<{ url: string }>("browser.click", { tabId, element: "E2" });
+    await ok("browser.type", { tabId, ref: "E1", text: "kettle" });
+    const res = await ok<{ url: string }>("browser.click", { tabId, ref: "E2" });
     expect(res.url).toBe("https://shop.example/search?q=kettle");
   });
 
   it("won't press what sends, type a password, or click through a banner", async () => {
     const { tabId } = await openShop();
-    const order = await t.kernel.execute("browser.click", { tabId, element: "E8" }, jarvis);
+    const order = await t.kernel.execute("browser.click", { tabId, ref: "E8" }, jarvis);
     expect(order).toMatchObject({ status: "error", code: "forbidden" });
-    const pin = await t.kernel.execute(
-      "browser.type",
-      { tabId, element: "E7", text: "1234" },
-      jarvis,
-    );
+    const pin = await t.kernel.execute("browser.type", { tabId, ref: "E7", text: "1234" }, jarvis);
     expect(pin).toMatchObject({ status: "error", code: "forbidden" });
     const shared = await t.kernel.execute(
       "browser.choose",
-      { tabId, element: "E9", value: "on" },
+      { tabId, ref: "E9", value: "on" },
       jarvis,
     );
     expect(shared).toMatchObject({ status: "error", code: "forbidden" });
-    const covered = await t.kernel.execute("browser.click", { tabId, element: "E10" }, jarvis);
+    const covered = await t.kernel.execute("browser.click", { tabId, ref: "E10" }, jarvis);
     expect(covered).toMatchObject({ status: "error", message: expect.stringMatching(/covers/) });
     // Arrows on a list change the choice, so they go through browser_choose.
     await chrome.page(tabId).focus("select");
-    const arrow = await t.kernel.execute("browser.key", { tabId, key: "ArrowDown" }, jarvis);
+    const arrow = await t.kernel.execute("browser.key", { tabId, keys: "ArrowDown" }, jarvis);
     expect(arrow).toMatchObject({ status: "error", code: "forbidden" });
     expect(chrome.posts).toEqual([]);
   });
 
   it("submits only with the owner's yes, and only what it said it would press", async () => {
     const { tabId } = await openShop();
-    await ok("browser.type", { tabId, element: "E6", text: "leave at door" });
+    await ok("browser.type", { tabId, ref: "E6", text: "leave at door" });
     const asked = await t.kernel.execute(
       "browser.submit",
-      { tabId, element: "E8", label: "Place order", site: "shop.example" },
+      { tabId, ref: "E8", label: "Place order", site: "shop.example" },
       jarvis,
     );
     expect(asked).toMatchObject({
@@ -147,10 +143,10 @@ describe.skipIf(!hasChromium)("Jarvis's hands in Chrome", () => {
 
     // Pinned to what it sends: the card shows it, and a page that changed it gets nothing.
     const again0 = await openShop();
-    await ok("browser.type", { tabId: again0.tabId, element: "E6", text: "ring twice" });
+    await ok("browser.type", { tabId: again0.tabId, ref: "E6", text: "ring twice" });
     const submit = t.kernel.registry.action("browser.submit")!;
     const services = { service: <T>(n: string) => t.kernel.services[n] as T };
-    const base = { tabId: again0.tabId, element: "E8", label: "Place order", site: "shop.example" };
+    const base = { tabId: again0.tabId, ref: "E8", label: "Place order", site: "shop.example" };
     const pinned = await submit.pin!(base, services);
     expect(pinned?.extra).toEqual({
       sends: { url: SHOP, fields: [{ label: "Note", value: "ring twice" }] },
@@ -167,14 +163,14 @@ describe.skipIf(!hasChromium)("Jarvis's hands in Chrome", () => {
     const again = await openShop();
     const wrong = await t.kernel.execute(
       "browser.submit",
-      { tabId: again.tabId, element: "E8", label: "Search", site: "shop.example" },
+      { tabId: again.tabId, ref: "E8", label: "Search", site: "shop.example" },
       ownerCaller(),
     );
     expect(wrong).toMatchObject({ status: "error", code: "conflict" });
     // Approved for one site, never pressed on another.
     const elsewhere = await t.kernel.execute(
       "browser.submit",
-      { tabId: again.tabId, element: "E8", label: "Place order", site: "other.example" },
+      { tabId: again.tabId, ref: "E8", label: "Place order", site: "other.example" },
       ownerCaller(),
     );
     expect(elsewhere).toMatchObject({ status: "error", code: "conflict" });
@@ -182,7 +178,7 @@ describe.skipIf(!hasChromium)("Jarvis's hands in Chrome", () => {
 
   it("keeps what's typed out of the logs", async () => {
     const { tabId } = await openShop();
-    await ok("browser.type", { tabId, element: "E1", text: "kettle" });
+    await ok("browser.type", { tabId, ref: "E1", text: "kettle" });
     const events = await t.tdb.db.select().from(event);
     expect(JSON.stringify(events)).not.toContain("kettle");
     // The audit log keeps the input of ordinary actions; typed text is the owner's to see.

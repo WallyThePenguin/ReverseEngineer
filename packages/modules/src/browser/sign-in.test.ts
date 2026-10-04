@@ -4,7 +4,7 @@ import { type Caller, jarvisCaller, ownerCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { ALL_MODULES } from "../index.ts";
-import { ChromiumBrowser, chromiumPath } from "./chromium.ts";
+import { ChromiumBrowser, chromiumForTests } from "./chromium.ts";
 import { BROWSER_SERVICE } from "./client.ts";
 import { pacing } from "./pace.ts";
 import { loadTiming } from "./page.ts";
@@ -41,7 +41,7 @@ const PAGES: Record<string, string> = {
     <input type="email" name="email"><input type="password" name="password"></form>`,
 };
 
-const hasChromium = chromiumPath() !== null;
+const hasChromium = chromiumForTests();
 let t: TestKernel;
 let chrome: ChromiumBrowser;
 const jarvis = jarvisCaller("agent");
