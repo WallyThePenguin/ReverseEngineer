@@ -2,10 +2,10 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { jarvisTurn, loadMigrations } from "@hearth/db";
+import { connect, jarvisTurn, loadMigrations } from "@hearth/db";
 import { systemCaller } from "@hearth/kernel";
 import { afterEach, describe, expect, it } from "vitest";
-import type { DeepHealth } from "./deep-health.ts";
+import { type DeepHealth, deepHealth } from "./deep-health.ts";
 import { createTestServer, type TestServer } from "./testing/server.ts";
 
 let t: TestServer | null = null;
@@ -124,5 +124,23 @@ describe("deep health", () => {
     const report = (await (await local(t)).json()) as DeepHealth;
     expect(report.status).toBe("degraded");
     expect(report.problems[0]).toMatch(/built from other code/);
+  });
+
+  it("says the database can't be reached, in words", async () => {
+    // pg refuses with an AggregateError that has a code but no message.
+    const nowhere = connect("postgres://hearth@localhost:1/hearth", { max: 1 });
+    try {
+      const report = await deepHealth({
+        db: nowhere.db,
+        now: new Date(),
+        version: null,
+        startedAt: null,
+        browser: null,
+      });
+      expect(report).toMatchObject({ status: "failing", db: { ok: false }, migrations: null });
+      expect(report.problems[0]).toMatch(/^Can't reach the database: .*ECONNREFUSED/);
+    } finally {
+      await nowhere.close();
+    }
   });
 });

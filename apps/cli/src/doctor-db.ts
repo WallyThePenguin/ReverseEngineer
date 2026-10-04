@@ -1,7 +1,7 @@
 // `hearth doctor`, what the database says: migrations both ways, sign-in, every component's
 // health judged by how fresh it is (a stale "ok" fails), and how Jarvis's turns went today.
 import { credential, type Database, type MigrationState, migrationState } from "@hearth/db";
-import { type DeepHealth, deepHealth, type TurnStats } from "@hearth/server";
+import { type DeepHealth, deepHealth, type TurnStats, whyFailed } from "@hearth/server";
 import type { Check, Mark } from "./doctor.ts";
 
 /** More than this share of the last day's turns failing is a fail; any failure is a warning. */
@@ -58,7 +58,7 @@ export async function checkDatabase(database: Database, now = new Date()): Promi
     await database.pool.query("SELECT 1");
     checks.push({ name: "Database", mark: "ok", detail: "Connected" });
   } catch (err) {
-    return [{ name: "Database", mark: "fail", detail: `Can't connect: ${(err as Error).message}` }];
+    return [{ name: "Database", mark: "fail", detail: `Can't connect: ${whyFailed(err)}` }];
   }
 
   const state = await migrationState(database.pool);

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { jarvisTurn, loadMigrations } from "@hearth/db";
+import { connect, jarvisTurn, loadMigrations } from "@hearth/db";
 import { systemCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { ALL_MODULES } from "@hearth/modules";
@@ -63,6 +63,17 @@ describe("hearth doctor, what the database says", () => {
     const checks = await checkDatabase(t.tdb, t.clock.now());
     expect(checks.at(-1)).toMatchObject({ name: "Migrations", mark: "fail" });
     expect(checks.at(-1)?.detail).toContain(last);
+  });
+
+  it("says why it can't connect when Postgres isn't running", async () => {
+    const nowhere = connect("postgres://hearth@localhost:1/hearth", { max: 1 });
+    try {
+      const [check] = await checkDatabase(nowhere, t.clock.now());
+      expect(check).toMatchObject({ name: "Database", mark: "fail" });
+      expect(check?.detail).toMatch(/^Can't connect: .*ECONNREFUSED/);
+    } finally {
+      await nowhere.close();
+    }
   });
 
   it("judges a day of turns: a few failures warn, many fail", () => {

@@ -1,6 +1,7 @@
 // `hearth doctor` put together: the setup, the running install, then the database. Every check
 // runs even when an earlier one fails, so one run shows everything that's wrong.
 import { connect, type Database, databaseUrl } from "@hearth/db";
+import { whyFailed } from "@hearth/server";
 import { type Runner, runProgram } from "./backup.ts";
 import {
   type Check,
@@ -67,7 +68,7 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<DoctorResult>
     checks.push({
       name: "Database",
       mark: "fail",
-      detail: `Couldn't check: ${(err as Error).message}`,
+      detail: `Couldn't check: ${whyFailed(err)}`,
     });
   } finally {
     await database?.close();

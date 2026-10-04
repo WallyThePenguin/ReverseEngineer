@@ -70,6 +70,15 @@ const RANK: Record<HealthStatus, number> = { ok: 0, degraded: 1, failing: 2 };
 
 const firstLine = (text: string | null) => (text ? text.split("\n")[0]!.slice(0, 200) : null);
 
+/**
+ * Why a query failed, in words. Drizzle wraps pg's error ("Failed query: SELECT 1"), and a refused
+ * connection is an AggregateError with an empty message but a code (ECONNREFUSED).
+ */
+export function whyFailed(err: unknown): string {
+  const e = ((err as { cause?: unknown })?.cause ?? err) as { message?: string; code?: string };
+  return firstLine(e?.message || e?.code || String(err)) ?? String(err);
+}
+
 /** SQL text through Drizzle, for helpers written against a pool. */
 export const sqlRunner = (db: Db): SqlRunner => ({
   query: async <R>(text: string) => ({ rows: (await db.execute(sql.raw(text))).rows as R[] }),
@@ -133,7 +142,7 @@ export async function deepHealth(input: DeepHealthInput): Promise<DeepHealth> {
     return {
       ...base,
       status: "failing",
-      problems: [`Can't reach the database: ${firstLine(String((err as Error).message ?? err))}`],
+      problems: [`Can't reach the database: ${whyFailed(err)}`],
       db: { ok: false, ms: null },
       migrations: null,
       components: {},

@@ -69,5 +69,14 @@ describe("starting a service against the database", () => {
     };
     await expect(stateOnceUp(wrongPassword, 60_000, sleep)).rejects.toThrow("password");
     expect(slept).toHaveLength(2);
+
+    // Still down when the wait is over: pg's refusal has no message of its own.
+    const down: SqlRunner = {
+      query: () =>
+        Promise.reject(Object.assign(new AggregateError([], ""), { code: "ECONNREFUSED" })),
+    };
+    await expect(stateOnceUp(down, 0, sleep)).rejects.toThrow(
+      "Can't reach the database (ECONNREFUSED) after 0 seconds. Is PostgreSQL running?",
+    );
   });
 });

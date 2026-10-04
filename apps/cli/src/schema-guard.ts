@@ -34,7 +34,13 @@ export async function stateOnceUp(
     try {
       return await migrationState(pool);
     } catch (err) {
-      if (!starting(err) || Date.now() >= deadline) throw err;
+      if (!starting(err)) throw err;
+      // A refused connection comes as an AggregateError with no message: say it in words, or
+      // the service log gets an empty line.
+      if (Date.now() >= deadline)
+        throw new Error(
+          `Can't reach the database (${(err as { code?: string }).code ?? "still starting"}) after ${Math.round(waitMs / 1000)} seconds. Is PostgreSQL running?`,
+        );
       await sleep(2_000);
     }
   }
