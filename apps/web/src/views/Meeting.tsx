@@ -7,11 +7,13 @@ import { Button } from "../components/ui.tsx";
 import { day } from "../lib/format.ts";
 import { layout, routeFor } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
+import { MeetingNotes } from "./MeetingNotes.tsx";
 
 interface MeetingDetail {
   id: string;
   title: string;
   notes: string;
+  revision: number;
   startedAt: string;
   endedAt: string | null;
   summary: string | null;
@@ -102,15 +104,7 @@ export function MeetingPanel(props: { id: string }) {
 
           <div>
             <h3 class="mb-1 text-xs font-medium uppercase tracking-wide text-faint">Your notes</h3>
-            <textarea
-              class="min-h-32 w-full resize-y rounded-md border border-line bg-panel px-3 py-2 text-sm outline-none"
-              placeholder="What matters in this meeting…"
-              value={v().notes}
-              onBlur={(e) => {
-                const notes = e.currentTarget.value;
-                if (notes !== v().notes) void act("meeting.update", { id: v().id, notes });
-              }}
-            />
+            <MeetingNotes id={v().id} notes={v().notes} revision={v().revision} />
           </div>
 
           <Show

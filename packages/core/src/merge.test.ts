@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Canvas } from "./canvas.ts";
-import { mergeCanvas, mergeRecord, mergeWorkbook } from "./merge.ts";
+import { mergeCanvas, mergeRecord, mergeText, mergeWorkbook } from "./merge.ts";
 import type { Workbook } from "./sheet.ts";
 
 const card = (id: string, text: string, y = 0) =>
@@ -93,5 +93,14 @@ describe("merging a workbook", () => {
       B1: "z",
     });
     expect(mergeRecord({ A1: "x" }, {}, { A1: "changed" })).toEqual({ A1: "changed" });
+  });
+});
+
+describe("merging text", () => {
+  it("takes whichever side changed, and keeps both sides' new lines when both did", () => {
+    expect(mergeText("a", "a b", "a")).toBe("a b");
+    expect(mergeText("a", "a", "a c")).toBe("a c");
+    expect(mergeText("intro\n", "intro\nmine\n", "intro\ntheirs\n")).toBe("intro\nmine\ntheirs");
+    expect(mergeText("x", "y", "y")).toBe("y");
   });
 });

@@ -37,6 +37,8 @@ export interface SaverOptions<T> {
   show(data: T, title?: string): void;
   /** What it is, for messages: "board", "spreadsheet". */
   noun: string;
+  /** The version a save's result says it saved as (by default its `version`). */
+  savedAs?(result: unknown): number;
 }
 
 /** Errors that say nothing about the save itself: try again later. */
@@ -129,7 +131,7 @@ export function createSaver<T>(o: SaverOptions<T>) {
             timeoutMs: TIMEOUT_MS,
             keepalive: small,
           });
-          version = r.version;
+          version = o.savedAs ? o.savedAs(r) : r.version;
           base = data;
           attempt = 0;
           setProblem(null);

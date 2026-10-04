@@ -98,3 +98,16 @@ export function mergeWorkbook(base: Workbook, mine: Workbook, theirs: Workbook):
   }
   return { sheets: sheets.length ? sheets : theirs.sheets };
 }
+
+/**
+ * Plain text both sides changed (a meeting's notes typed on two screens): this screen's text,
+ * then the lines only the other side wrote, so neither side's writing is lost. A line the other
+ * side deleted may come back; that's the price of never dropping one.
+ */
+export function mergeText(base: string, mine: string, theirs: string): string {
+  if (theirs === base || theirs === mine) return mine;
+  if (mine === base) return theirs;
+  const known = new Set([...base.split("\n"), ...mine.split("\n")]);
+  const added = theirs.split("\n").filter((line) => line.trim() && !known.has(line));
+  return added.length ? `${mine.replace(/\n+$/, "")}\n${added.join("\n")}` : mine;
+}
