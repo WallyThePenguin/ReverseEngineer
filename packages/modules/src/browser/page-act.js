@@ -29,14 +29,20 @@ function pageAct(opts, h) {
   const labelFor = top instanceof HTMLLabelElement && top.control === el;
   const covered =
     r.width === 0 || r.height === 0 || (top !== null && !el.contains(top) && !labelFor);
-  const anchor = el instanceof HTMLAnchorElement ? el : null;
-  const rawHref = anchor?.getAttribute("href") ?? "";
+  const kind = h.kindOf(el);
+  const typing = kind === "field" || kind === "password field";
+  const verdict = h.classify(el, typing ? "enter" : "click");
 
   const info = {
     missing: false,
-    kind: h.kindOf(el) ?? "element",
+    kind: kind ?? "element",
     label: h.labelOf(el),
-    submits: h.submits(el),
+    /** Pressing it (Enter, for a field) would send something; floor and why say more. */
+    submits: verdict.sends,
+    floor: verdict.floor,
+    why: verdict.why,
+    /** A field for card or bank details, which Jarvis never types. */
+    card: h.isCard(el),
     state: h.stateOf(el),
     disabled:
       Boolean(/** @type {any} */ (el).disabled) || el.getAttribute("aria-disabled") === "true",
@@ -44,7 +50,9 @@ function pageAct(opts, h) {
     y,
     covered,
     coveredBy: covered && top ? h.labelOf(top) || top.tagName.toLowerCase() : null,
-    isLink: anchor !== null && /^https?:/i.test(anchor.href) && !rawHref.startsWith("#"),
+    // A plain link to a page is opened by its address. Tabs and menu items are clicked like any
+    // button, even when they're links underneath.
+    isLink: el instanceof HTMLAnchorElement && kind === null,
     focused: false,
     /** For "choose": the checkbox must be clicked to reach the state asked for. */
     toggle: false,

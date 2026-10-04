@@ -12,6 +12,16 @@ export interface BrowserTab {
   /** One of your tabs you handed to Jarvis. */
   handed: boolean;
   loading: boolean;
+  /** A dialog the page opened (an alert, a confirm, a "leave site?"), waiting for an answer. */
+  dialog?: PageDialog | null;
+}
+
+/** A page's dialog. Its message is the page's own words. */
+export interface PageDialog {
+  type: string;
+  message: string;
+  url: string;
+  defaultPrompt?: string;
 }
 
 export interface Frame {
@@ -33,6 +43,38 @@ export interface BrowserStatus {
   opening?: boolean;
   /** Why the last try to open Chrome failed. */
   openError?: string | null;
+  /** Something wrong with the connected extension, like an out-of-date one, in a sentence. */
+  problem?: string | null;
+  extensionId?: string | null;
+}
+
+export interface SelfTestStep {
+  step: string;
+  label: string;
+  ok: boolean;
+  ms: number;
+  detail?: string;
+}
+
+export interface SelfTestResult {
+  ok: boolean;
+  steps: SelfTestStep[];
+  totalMs: number;
+}
+
+export interface LinkEntry {
+  at: string;
+  kind: "connect" | "disconnect" | "replaced" | "reject" | "error" | "timeout";
+  message: string;
+  method?: string;
+  ms?: number;
+}
+
+export interface LinkStats {
+  calls: number;
+  failed: number;
+  averageMs: number | null;
+  slowestMs: number | null;
 }
 
 /** Whether Chrome is connected and paired. */
@@ -56,6 +98,29 @@ export async function openChrome(): Promise<void> {
   if (res.ok) return;
   const body = (await res.json().catch(() => ({}))) as { error?: string };
   throw new Error(body.error ?? "Couldn't open Chrome.");
+}
+
+/** "Test Jarvis's Chrome": a few timed steps on a test page, as Jarvis. */
+export async function testChrome(): Promise<SelfTestResult> {
+  const res = await fetch("/api/browser/self-test", {
+    method: "POST",
+    credentials: "same-origin",
+  }).catch(() => null);
+  if (!res)
+    throw new Error("Couldn't reach Hearth to run the test. Check it's running, then try again.");
+  const body = (await res.json().catch(() => ({}))) as Partial<SelfTestResult> & { error?: string };
+  if (!res.ok || !body.steps) throw new Error(body.error ?? "Couldn't run the test.");
+  return body as SelfTestResult;
+}
+
+/**
+ * What happened on the link to Chrome lately, newest first, and how fast Chrome answers; null
+ * when Hearth couldn't be asked.
+ */
+export async function browserLog(): Promise<{ entries: LinkEntry[]; stats: LinkStats } | null> {
+  const res = await fetch("/api/browser/log", { credentials: "same-origin" }).catch(() => null);
+  if (!res?.ok) return null;
+  return (await res.json().catch(() => null)) as { entries: LinkEntry[]; stats: LinkStats } | null;
 }
 
 export async function unpairBrowser(): Promise<void> {
@@ -103,6 +168,7 @@ export function createLiveBrowser() {
     openError: null as string | null,
     paired: true,
   });
+  const [problem, setProblem] = createSignal<string | null>(null);
   let ws: WebSocket | null = null;
   let stopped = false;
   let retry: ReturnType<typeof setTimeout> | undefined;
@@ -129,6 +195,7 @@ export function createLiveBrowser() {
           openError: typeof msg.openError === "string" ? msg.openError : null,
           paired: msg.paired !== false,
         });
+        setProblem(typeof msg.problem === "string" ? msg.problem : null);
         setTabs(list);
         const current = tabId();
         if (current === null || !list.some((t) => t.tabId === current)) {
@@ -180,6 +247,8 @@ export function createLiveBrowser() {
     connected,
     /** Whether Hearth can open Chrome, is opening it, and why it last couldn't. */
     opener,
+    /** Something wrong with the connected extension, or null. */
+    problem,
     tabs,
     tabId,
     frame,

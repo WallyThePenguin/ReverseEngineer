@@ -8,11 +8,11 @@ import { type ActionContext, ActionError, defineAction } from "@hearth/kernel";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { assertAllowed, browser, CALLERS } from "./access.ts";
-import { afterStep } from "./act.ts";
 import type { BrowserClient } from "./client.ts";
 import { insertText, pressKey } from "./input.ts";
 import { pace } from "./pace.ts";
 import { evaluate, findTab, loadTiming, pageCall, pageFunction } from "./page.ts";
+import { afterStep } from "./step.ts";
 import { loginsFor, VAULT_SERVICE, type Vault, type VaultRow } from "./vault.ts";
 
 const LOGIN = pageFunction("./page-login.js", "pageLogin");

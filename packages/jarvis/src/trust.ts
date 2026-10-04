@@ -30,10 +30,29 @@ export function extractUrls(text: string): string[] {
   return [...found];
 }
 
-/** Marks the turn untrusted and remembers the addresses it just read. */
-export function readOutsideContent(state: TrustState, text: string): void {
+/**
+ * Whole web addresses among the strings in a result, exactly as they are: a page's links come
+ * as data, and finding them in text would cut one short at a "[" or a "|" (D52).
+ */
+export function exactUrls(value: unknown, limit = 5000): string[] {
+  const found = new Set<string>();
+  const walk = (v: unknown, depth: number): void => {
+    if (found.size >= limit || depth > 8) return;
+    if (typeof v === "string") {
+      const url = /^https?:\/\/\S+$/i.test(v) ? normalizeUrl(v) : null;
+      if (url) found.add(url);
+    } else if (Array.isArray(v)) for (const x of v) walk(x, depth + 1);
+    else if (v && typeof v === "object") for (const x of Object.values(v)) walk(x, depth + 1);
+  };
+  walk(value, 0);
+  return [...found];
+}
+
+/** Marks the turn untrusted and remembers the addresses it just read, in its text and its data. */
+export function readOutsideContent(state: TrustState, text: string, value?: unknown): void {
   state.origin = "untrusted";
   for (const url of extractUrls(text)) state.seenUrls.add(url);
+  if (value !== undefined) for (const url of exactUrls(value)) state.seenUrls.add(url);
 }
 
 export function checkOpen(state: TrustState, raw: string, sites: SiteRules): OpenVerdict {
@@ -66,7 +85,7 @@ export function checkActing(state: TrustState, raw: string, sites: SiteRules): O
   if (state.vouchedHosts?.has(host) || onSiteList(host, sites.allowed)) return { kind: "ok" };
   return {
     kind: "ask",
-    reason: `This turn read outside content and then went to ${host}, so acting there needs your yes. Adding ${host} to the sites Jarvis may use freely skips this.`,
+    reason: `This turn read outside content and then went to ${host}, so acting there needs your yes. Trusting ${host} in Settings, Chrome, skips this.`,
   };
 }
 

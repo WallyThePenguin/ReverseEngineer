@@ -182,7 +182,7 @@ export function buildTools(kernel: Kernel, state: TurnState, log: LogFn): BrainT
         if (outside && res.status !== "denied") {
           // Outside content, errors included (they can quote the page): everything after this in
           // the turn is untrusted (D25).
-          readOutsideContent(state, output);
+          readOutsideContent(state, output, result);
           output = asUntrusted(output, def.name);
         }
         await log("tool_result", {

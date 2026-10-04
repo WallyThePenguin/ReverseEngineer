@@ -52,15 +52,29 @@ export { CANCEL_CHANNEL } from "./assistant/turns.ts";
 export {
   BROWSER_SERVICE,
   type BrowserClient,
+  BrowserError,
   type BrowserStatus,
+  chromeError,
+  type DialogInfo,
   HttpBrowserClient,
   internalBrowserClient,
   OFFLINE_MESSAGE,
   REQUEST_TIMEOUT_MS,
+  reasonOf,
   serverUrl,
   type TabInfo,
 } from "./browser/client.ts";
+export { type BrowserHealth, browserHealth } from "./browser/health.ts";
 export { pacing } from "./browser/pace.ts";
+export { BRIDGE_PROTOCOL, EXTENSION_ID } from "./browser/protocol.ts";
+export {
+  runSelfTest,
+  type SelfTestResult,
+  type SelfTestStep,
+  TEST_PAGE,
+  TEST_PAGE_CSP,
+  TEST_PAGE_PATH,
+} from "./browser/self-test.ts";
 export { VAULT_SERVICE, Vault, vaultFromEnv } from "./browser/vault.ts";
 export type { EventView } from "./calendar/store.ts";
 export { appendLog, type LogEntry, type LogKind, routeLane } from "./chat/index.ts";

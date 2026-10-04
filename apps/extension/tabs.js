@@ -1,49 +1,78 @@
-// Which tabs Jarvis may use: the ones it opened in its own "Jarvis" window, and the ones you
-// handed it. Kept in session storage so a service worker restart doesn't forget them.
+// Which tabs Jarvis may use: the ones it opened in its own "Jarvis" window, the ones you handed
+// it, and the pop-ups and new tabs those open (D52). Kept in session storage so a service worker
+// restart doesn't forget them.
+
+import { assertWebUrl, HearthError } from "./rules.js";
 
 const GROUP_TITLE = "Jarvis";
 
-/** @typedef {{ windowId: number | null, own: number[], handed: number[] }} TabState */
+/**
+ * `from` is the tab each adopted pop-up came from.
+ * @typedef {{ windowId: number | null, own: number[], handed: number[], from: Record<string, number> }} TabState
+ */
 
 /** @returns {Promise<TabState>} */
 export async function tabState() {
   return /** @type {TabState} */ (
-    await chrome.storage.session.get({ windowId: null, own: [], handed: [] })
+    await chrome.storage.session.get({ windowId: null, own: [], handed: [], from: {} })
   );
 }
 
-/** @param {Partial<TabState>} patch */
-async function save(patch) {
-  await chrome.storage.session.set(patch);
+// Every change to the saved state reads it and writes it back, one change at a time, so a pop-up
+// adopted while a tab closes doesn't undo one of the two.
+let editing = Promise.resolve();
+/** @param {(state: TabState) => Partial<TabState> | null | undefined} change */
+function edit(change) {
+  const run = editing.then(async () => {
+    const patch = change(await tabState());
+    if (patch) await chrome.storage.session.set(patch);
+  });
+  editing = run.catch(() => {});
+  return run;
 }
 
-/** @param {string} url */
-export function assertWebUrl(url) {
-  let parsed;
-  try {
-    parsed = new URL(url);
-  } catch {
-    throw new Error(`${url} isn't a web address.`);
-  }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:")
-    throw new Error("Jarvis only opens http and https pages.");
+/** Why the last page a tab tried to load didn't, until the next one does. */
+/** @type {Map<number, string>} */
+const navErrors = new Map();
+
+/** @param {number} tabId @param {string} error */
+export function navFailed(tabId, error) {
+  navErrors.set(tabId, error);
 }
 
-/** @param {chrome.tabs.Tab} tab @param {boolean} handed */
-function info(tab, handed) {
+/** @param {number} tabId */
+export function navCommitted(tabId) {
+  navErrors.delete(tabId);
+}
+
+/** @typedef {{ type: string, message: string, url: string, defaultPrompt?: string }} Dialog */
+
+/**
+ * @param {chrome.tabs.Tab} tab
+ * @param {boolean} handed
+ * @param {Dialog | null} [dialog]
+ * @param {number | null} [openedFrom] the tab it was adopted from, for a pop-up
+ */
+function info(tab, handed, dialog = null, openedFrom = null) {
+  const id = tab.id ?? -1;
   return {
-    tabId: tab.id ?? -1,
+    tabId: id,
     windowId: tab.windowId,
     url: tab.url ?? tab.pendingUrl ?? "",
     title: tab.title ?? "",
     active: tab.active,
     handed,
     loading: tab.status === "loading",
+    // Not Chrome's own openerTabId: a tab Jarvis opens itself gets one too (the tab in front).
+    openerTabId: openedFrom,
+    dialog,
+    error: navErrors.get(id) ?? null,
   };
 }
 
-export async function listTabs() {
-  const { own, handed } = await tabState();
+/** @param {(tabId: number) => Dialog | null} [dialogOf] what's open in each tab, if anything */
+export async function listTabs(dialogOf = () => null) {
+  const { own, handed, from } = await tabState();
   const out = [];
   for (const [ids, isHanded] of /** @type {const} */ ([
     [own, false],
@@ -51,7 +80,7 @@ export async function listTabs() {
   ])) {
     for (const id of ids) {
       const tab = await chrome.tabs.get(id).catch(() => null);
-      if (tab) out.push(info(tab, isHanded));
+      if (tab) out.push(info(tab, isHanded, dialogOf(id), from[id] ?? null));
     }
   }
   return out;
@@ -125,12 +154,13 @@ async function leaveRestored() {
   if (tabs.every((t) => isOwn(t) || groups.has(t.groupId))) return;
   restoring = { windowId: -1, until: 0 };
   const [first, ...rest] = mine;
-  if (first === undefined) return save({ windowId: null });
+  if (first === undefined) return edit(() => ({ windowId: null }));
   const win = await chrome.windows.create({ ...WINDOW, tabId: first });
-  if (!win?.id) return;
-  if (rest.length) await chrome.tabs.move(rest, { windowId: win.id, index: -1 });
-  await save({ windowId: win.id });
-  for (const id of mine) await addToGroup(id, win.id);
+  const moved = win?.id;
+  if (moved === undefined) return;
+  if (rest.length) await chrome.tabs.move(rest, { windowId: moved, index: -1 });
+  await edit(() => ({ windowId: moved }));
+  for (const id of mine) await addToGroup(id, moved);
 }
 
 /** Opens a page in Jarvis's window, making the window (without focus) if it's gone. */
@@ -143,54 +173,96 @@ export function openTab(/** @type {string} */ url, show = true) {
     if (windowId === null) {
       const yours = await chrome.windows.getAll({ windowTypes: ["normal"] });
       const win = await chrome.windows.create({ ...WINDOW, url });
-      if (!win?.id || !win.tabs?.[0]) throw new Error("Chrome didn't open a window.");
-      windowId = win.id;
+      const created = win?.id;
+      if (created === undefined || !win?.tabs?.[0]) throw new Error("Chrome didn't open a window.");
+      windowId = created;
       tab = win.tabs[0];
-      await save({ windowId });
+      await edit(() => ({ windowId: created }));
       if (yours.length === 0) restoring = { windowId, until: Date.now() + RESTORE_MS };
     } else {
       tab = await chrome.tabs.create({ windowId, url, active: show });
     }
-    if (tab.id === undefined) throw new Error("Chrome didn't open a tab.");
-    await addToGroup(tab.id, windowId, made);
-    const { own } = await tabState();
-    await save({ own: [...own, tab.id] });
+    const tabId = tab.id;
+    if (tabId === undefined) throw new Error("Chrome didn't open a tab.");
+    await addToGroup(tabId, windowId, made);
+    await edit(({ own }) => ({ own: [...own, tabId] }));
     await leaveRestored();
-    return info(await chrome.tabs.get(tab.id), false);
+    return info(await chrome.tabs.get(tabId), false);
   });
 }
 
 /** @param {number} tabId */
 export async function closeTab(tabId) {
-  if (!(await isOwn(tabId))) throw new Error("Jarvis can only close tabs it opened.");
+  if (!(await isOwn(tabId)))
+    throw new HearthError("not_yours", "Jarvis can only close tabs it opened.");
   await chrome.tabs.remove(tabId).catch(() => {});
   await forget(tabId);
 }
 
 /** Brings one of Jarvis's tabs to the front of Jarvis's window, so it draws. */
 export async function showTab(/** @type {number} */ tabId) {
-  if (!(await isOwn(tabId))) throw new Error("Only Jarvis's own tabs can be switched to.");
+  if (!(await isOwn(tabId)))
+    throw new HearthError("not_yours", "Only Jarvis's own tabs can be switched to.");
   await chrome.tabs.update(tabId, { active: true });
 }
 
 /** @param {number} tabId */
-export async function hand(tabId) {
-  const { handed, own } = await tabState();
-  if (!handed.includes(tabId) && !own.includes(tabId)) await save({ handed: [...handed, tabId] });
+export function hand(tabId) {
+  return edit(({ handed, own }) =>
+    handed.includes(tabId) || own.includes(tabId) ? null : { handed: [...handed, tabId] },
+  );
+}
+
+/**
+ * A pop-up or new tab a page opened from one of Jarvis's tabs is Jarvis's too: one opened from
+ * its own tab is its own, and one opened from a tab you handed it counts as handed. Tabs you open
+ * yourself stay yours. Says whether the tab was adopted just now.
+ * @param {number} openerTabId
+ * @param {number} tabId
+ */
+export async function adopt(openerTabId, tabId) {
+  /** @type {"own" | "handed" | null} */
+  let adopted = null;
+  await edit(({ own, handed, from }) => {
+    if (own.includes(tabId) || handed.includes(tabId)) return null;
+    const opened = { ...from, [tabId]: openerTabId };
+    if (own.includes(openerTabId)) {
+      adopted = "own";
+      return { own: [...own, tabId], from: opened };
+    }
+    if (handed.includes(openerTabId)) {
+      adopted = "handed";
+      return { handed: [...handed, tabId], from: opened };
+    }
+    return null;
+  });
+  if (adopted === "own") await joinGroup(tabId);
+  return adopted !== null;
+}
+
+/** A tab Jarvis adopts in its own window joins the "Jarvis" group; a pop-up window has none. */
+/** @param {number} tabId */
+async function joinGroup(tabId) {
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  const windowId = await jarvisWindow();
+  if (!tab || windowId === null || tab.windowId !== windowId || tab.groupId !== -1) return;
+  await addToGroup(tabId, windowId).catch(() => {});
 }
 
 /** @param {number} tabId */
-export async function forget(tabId) {
-  const { own, handed, windowId } = await tabState();
-  await save({
-    own: own.filter((id) => id !== tabId),
-    handed: handed.filter((id) => id !== tabId),
-    windowId,
+export function forget(tabId) {
+  navErrors.delete(tabId);
+  return edit(({ own, handed, from }) => {
+    const { [tabId]: _gone, ...rest } = from;
+    return {
+      own: own.filter((id) => id !== tabId),
+      handed: handed.filter((id) => id !== tabId),
+      from: rest,
+    };
   });
 }
 
 /** @param {number} windowId */
-export async function windowClosed(windowId) {
-  const state = await tabState();
-  if (state.windowId === windowId) await save({ windowId: null });
+export function windowClosed(windowId) {
+  return edit((state) => (state.windowId === windowId ? { windowId: null } : null));
 }

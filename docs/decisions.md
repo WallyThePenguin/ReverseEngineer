@@ -840,6 +840,135 @@ simpler and matches canvas boards).
 
 **Why:** One engine in both places means what you see is what Jarvis reads.
 
+## D52. Browser parity: per-site trust with a floor, a sharper "sends" test, and the final browser verbs (2026-10-04)
+
+**Decision:** Jarvis's browser grows toward what Claude in Chrome can do, in three phases (B0
+now, then B1 and B2), without leaving Hearth's rules. This amends D24 (what the extension may ask
+of Chrome) and D25 and D30 (where Jarvis may act freely).
+
+*Trusted sites.* The "open freely" list becomes **Trusted sites**. On a site you trust, Jarvis
+opens, clicks, types and sends without asking, even after it has read outside content, and that
+includes submitting forms. A **floor** still asks every time, trusted or not:
+
+- payment or card fields, and paying, buying or placing an order;
+- passwords, two-factor and other security settings;
+- sending or moving money;
+- deleting or closing an account;
+- anything on the never-open list, which Jarvis can't reach at all.
+
+The list is stored where the allowed list was (`browser.sites.allowed`). D25 and D30 otherwise
+stand: outside content still makes a turn untrusted, and an untrusted turn opens only addresses
+it saw, trusted sites, or what you approve. Grants for one task ("allow on this site for this
+task", stored as `browser.grant {site, conversationId, expiresAt}`) come in B1, once a turn's
+taint survives a resumed session (WS4). B0 has only the standing list.
+
+*Deciding what "sends".* One classifier, shared by clicks and keys (and coordinate clicks in B1),
+looks at the page's structure before its words. These send: a form that posts, Enter in a field
+of such a form, anything in a form with payment or password fields, and a GET form that sends to
+another site. A GET or search form doesn't, and neither does a search box outside any form, so
+Enter there is free. Only after that come a few words in the control's name: send, submit, pay,
+buy, purchase, place order, post, publish, delete, transfer, withdraw and donate, and the floor's
+own words ("Close my account", "Make a payment", "Confirm order"), which send whatever else is
+true; a tab or an option named "Passwords" is still just a tab. Accept, agree, save, apply, like,
+follow, continue and the rest no longer count. Enter in a text area or an editable box counts as
+sending, because chat boxes send on Enter; Shift+Enter is a new line. A key pressed while the
+focus is inside an embedded frame counts as sending, since Hearth can't see what's in there, and
+a payment provider's frame is the floor. Cookie banners are their own case: their buttons never
+count as sending, and `browser.reject_cookies` presses "reject all" or "necessary only" when the
+banner has one. A banner has nowhere to type, so a sign-up or contact form that mentions consent
+is judged as a form. Card details, like passwords, are never Jarvis's to type. Pasting is
+refused, so nothing on your clipboard leaves that way.
+
+*Dialogs and new tabs.* The extension turns on the page domain when it attaches and keeps track
+of alert, confirm, prompt and "leave site?" dialogs. A call made while one is open fails at once
+with `dialog_open` instead of hanging. `browser.dialog` answers one. Accepting a confirm that
+would send follows the classifier. When Jarvis navigates its own tab, the extension accepts
+"leave site?" by itself; in a tab you handed it, Jarvis has to answer, since the unsaved work may
+be yours. Tabs that Jarvis's tabs open (pop-ups, "opens in a new tab") are adopted through
+`webNavigation.onCreatedNavigationTarget`, which names the tab that opened them: one opened from
+Jarvis's tab is Jarvis's, and one opened from a tab you handed it is handed. A tab's own
+`openerTabId` isn't enough, because Chrome gives one to tabs you open yourself too (Duplicate
+names the tab you were on), and those stay yours. A step's result says which tabs it opened, and
+`browser.tabs` says which tab each pop-up came from.
+
+*The extension.* It has a fixed key, so its ID is always `jcpelnnklghgcdhcmdbmpflehbehpkhh`,
+wherever the folder is. Health and the Chrome settings say when another ID connects. The link
+speaks protocol 2: the hello and welcome carry a protocol number, and a server with a newer one
+tells the extension, which reloads itself (at most once in ten minutes). A mismatch shows as a
+banner. The server pings every 20 seconds and drops a link that misses two pings. Calls in flight
+on a dropped or replaced link fail at once. Connects, drops, refusals and failed calls, with how
+long they took, go to a log the Chrome settings show, and to a `browser` health component. "Test
+Jarvis's Chrome" in Settings runs a few steps on a page Hearth serves, as Jarvis, through the same
+path its turns use, and shows each step's time.
+
+*What the extension may ask of Chrome.* Allowed now: the D24 list plus
+`Page.handleJavaScriptDialog`. Allowed for B1 and B2 as they land: `Page.bringToFront` and
+`setLifecycleEventsEnabled`; `Accessibility.getFullAXTree`, `getPartialAXTree` and
+`queryAXTree`; `DOM.getDocument`, `describeNode`, `resolveNode`, `getContentQuads`,
+`getBoxModel`, `getNodeForLocation`, `scrollIntoViewIfNeeded`, `focus` and `setFileInputFiles`
+(uploads only); `Runtime.callFunctionOn`, `getProperties` and `releaseObject` (Hearth's isolated
+worlds only); `Input.dispatchDragEvent`; `Emulation.setDeviceMetricsOverride` and
+`clearDeviceMetricsOverride`; `Log.enable`; `Target.setAutoAttach` and `getTargets`; and, opt-in
+for devtools, `Network.enable`, `disable` and `getResponseBody`. Never: `Storage.*`, anything
+that reads or writes cookies, `Browser.*`, or `Target.createBrowserContext`. The list lives in
+one file, `apps/extension/rules.js`, and the tests' Chromium enforces it too.
+
+*Where the work moves (B1).* A driver in Hearth's server (`apps/server/src/browser/driver/`)
+does the multi-step work next to the extension's link, one request per agent step. It reads the
+accessibility tree with stable references that never touch the page, takes screenshots that come
+with a coordinate space, and clicks at a reference or a point, each one hit-tested and
+classified. Actions stay kernel actions. Browser approvals then wait inside the turn for up to two
+minutes (`approval.resolved`), so a yes carries on where it was instead of ending the turn.
+
+*The verbs.* These are the final shapes, so later phases change how they work, not what Jarvis
+calls. `ref` is whatever the page reader hands out: `E4` from `browser.read` today, `ref_12` from
+`browser.read_page` in B1. A coordinate is a point in the last screenshot of that tab, in its
+pixels.
+
+| Action | Input | Risk | Phase |
+|---|---|---|---|
+| `browser.tabs` | `{}`; adds `active`, `openedFrom` (the tab that opened it), `dialog`, `error` | read | B0 |
+| `browser.open` | `{url \| tabId + link, tabId?, newTab?}` | read | today |
+| `browser.navigate` | `{tabId, url}`: an address, `back`, `forward` or `reload` (a page a form sent is loaded afresh, never sent again); returns `finalUrl`, `title`, `errorText` | read | B0 |
+| `browser.scroll` | `{tabId, direction, amount?, coordinate?}` | read | B0 |
+| `browser.wait` | `{seconds?, tabId?, for?: {text \| ref \| load}}` | read | B0; `for` in B1 |
+| `browser.key` | `{tabId, keys: "ctrl+a Backspace", repeat?}` | internal | B0 |
+| `browser.dialog` | `{tabId, accept, promptText?}` | internal | B0 |
+| `browser.reject_cookies` | `{tabId}` | internal | B0 |
+| `browser.click` | `{tabId, ref \| coordinate, button?, clickCount?, modifiers?}` | internal | B0 `ref`; the rest in B1 |
+| `browser.type` | `{tabId, text, ref?, clear?}` | internal | B0 `ref`; no ref (the focused element) in B1 |
+| `browser.submit` | `{tabId, ref, label, site, sends?}` | outward | B0 |
+| `browser.screenshot` | `{tabId, scale?}`; returns the image's size | read | B0 size; `scale` in B1 |
+| `browser.zoom` | `{tabId, region: [x0, y0, x1, y1], scale?}` | read | B1 |
+| `browser.read_page` | `{tabId, filter?, depth?, refId?, maxChars?}` | read | B1 |
+| `browser.find` | `{tabId, query}`; up to 20 refs | read | B1 |
+| `browser.get_text` | `{tabId, offset?, maxChars?}` | read | B1 (today's `browser.read`) |
+| `browser.form_input` | `{tabId, ref, value}` | internal | B1 (today's `browser.choose`) |
+| `browser.hover`, `browser.scroll_to`, `browser.drag` | `{tabId, ref \| coordinate}`; drag takes `{from, to}` | internal | B1 |
+| `browser.tab_new`, `browser.tab_select` | `{url?}`, `{tabId}` | read, internal | B1 |
+| `browser.batch` | `{tabId, steps: [{action, input}], screenshot?}`; each step classified; stops at the first error | as its steps | B1 |
+| `browser.console`, `browser.network` | `{tabId, onlyErrors?, pattern?, limit?}`, `{tabId, urlPattern?, requestId?}` | read | B2 |
+| `browser.resize`, `browser.upload` | `{tabId, preset \| width + height}`, `{tabId, ref, blobId}` | internal, outward | B2 |
+| `browser.js` | `{tabId, code}` | outward | B2 |
+
+`browser.read`, `browser.choose` and `browser.open`'s link references give way to `get_text`,
+`form_input` and refs from `read_page` when B1 lands. `browser.navigate` reports the page's own
+address and title, so like reading, it makes the turn untrusted. `browser.open` doesn't, so
+Jarvis can open a few pages before reading any of them.
+
+**Alternatives:** Keep the long list of outward words and the per-step approvals (safe, but it
+asked about cookie banners and "Save", and every approval ended the turn). Trust per task only,
+as Claude in Chrome does (a better fit later, but it first needs taint that survives a resumed
+session). Let the model decide what's outward (one injected page could talk it out of it).
+
+**Why:** You asked for Claude in Chrome's level of control and chose per-site trust. Structure is
+harder for a page to fake than a button's name, and it lets ordinary things through: searching,
+cookie banners, settings tabs, sites you trust. The floor keeps the few things that cost money or
+can't be undone with you, whatever a page says. On a trusted site, a page you read can still
+steer Jarvis into sending something ordinary there, such as a message; that's the price of
+trusting the site, and why the list is yours to keep short. Freezing the verbs now means each
+later phase only makes them work better.
+
 ## D54. Jarvis fails loudly and retries only safe failures (2026-10-04)
 
 **Decision:** Every Jarvis turn ends in a recorded outcome: done, failed, stopped, skipped, or

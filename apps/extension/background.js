@@ -1,13 +1,17 @@
 // The Hearth extension (D24): lets Jarvis use this Chrome. It keeps one WebSocket open to your
 // Hearth server, takes commands only from there, and reports Jarvis's tabs and page events back.
 
-import { cdp, detach, watchDetach } from "./debugger.js";
+import { cdp, detach, dialogs, onPageEvent, watchDetach } from "./debugger.js";
+import { PROTOCOL } from "./rules.js";
 import {
+  adopt,
   closeTab,
   forget,
   hand,
   listTabs,
   mayUse,
+  navCommitted,
+  navFailed,
   noticeTab,
   openTab,
   showTab,
@@ -17,11 +21,15 @@ import {
 
 const VERSION = chrome.runtime.getManifest().version;
 const DEFAULT_URL = "http://127.0.0.1:4400";
+// When Hearth is newer than this extension, it reloads itself from its folder at most this often:
+// enough to pick up an update, never a loop if the folder wasn't updated.
+const RELOAD_EVERY_MS = 10 * 60_000;
 
 /** @type {WebSocket | null} */
 let socket = null;
 let connected = false;
 let lastError = "";
+let outdated = false;
 // After the link drops (Hearth restarted, say), try again soon, then less often.
 let retryMs = 1000;
 /** @type {ReturnType<typeof setTimeout> | undefined} */
@@ -39,19 +47,21 @@ function send(message, ws = socket) {
 }
 
 function badge() {
-  void chrome.action.setBadgeText({ text: connected ? "" : "off" });
+  void chrome.action.setBadgeText({ text: connected ? (outdated ? "old" : "") : "off" });
   void chrome.action.setBadgeBackgroundColor({ color: "#9a3412" });
 }
+
+const tabs = () => listTabs((tabId) => dialogs.get(tabId));
 
 let tabsTimer = 0;
 function pushTabs() {
   clearTimeout(tabsTimer);
-  tabsTimer = setTimeout(async () => send({ type: "tabs", tabs: await listTabs() }), 150);
+  tabsTimer = setTimeout(async () => send({ type: "tabs", tabs: await tabs() }), 150);
 }
 
 /** @type {Record<string, (params: any) => Promise<unknown>>} */
 const methods = {
-  "tabs.list": () => listTabs(),
+  "tabs.list": () => tabs(),
   "tabs.open": async ({ url, show }) => {
     const tab = await openTab(url, show !== false);
     pushTabs();
@@ -73,19 +83,41 @@ const methods = {
     await showTab(tabId);
     return { shown: true };
   },
-  cdp: ({ tabId, method, params }) => cdp(tabId, method, params),
+  cdp: async ({ tabId, method, params }) => {
+    if (method !== "Page.handleJavaScriptDialog") return cdp(tabId, method, params);
+    // Answering a dialog (or finding it gone) changes what the tab list says about it.
+    try {
+      return await cdp(tabId, method, params);
+    } finally {
+      pushTabs();
+    }
+  },
 };
+
+/** Hearth speaks a newer protocol: reload from the extension's folder, which an update refreshed. */
+/** @param {unknown} protocol */
+async function checkProtocol(protocol) {
+  outdated = typeof protocol === "number" && protocol > PROTOCOL;
+  badge();
+  if (!outdated) return;
+  const { reloadedAt } = await chrome.storage.local.get({ reloadedAt: 0 });
+  if (Date.now() - Number(reloadedAt) > RELOAD_EVERY_MS) {
+    await chrome.storage.local.set({ reloadedAt: Date.now() });
+    chrome.runtime.reload();
+  }
+}
 
 /** @param {any} msg @param {WebSocket} ws the link it came on, where its answer goes */
 async function onMessage(msg, ws) {
-  if (msg.type === "ping") return send({ type: "pong" });
+  if (msg.type === "ping") return send({ type: "pong" }, ws);
   if (msg.type === "welcome") {
     connected = true;
     lastError = "";
     retryMs = 1000;
-    badge();
-    return pushTabs();
+    pushTabs();
+    return checkProtocol(msg.protocol);
   }
+  if (msg.type === "update") return checkProtocol(msg.protocol);
   if (msg.type === "rejected") {
     lastError = msg.reason ?? "Hearth refused the pairing code.";
     return socket?.close();
@@ -97,7 +129,11 @@ async function onMessage(msg, ws) {
     send({ type: "result", id: msg.id, result: (await run(msg.params ?? {})) ?? null }, ws);
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
-    send({ type: "result", id: msg.id, error }, ws);
+    const code = /** @type {{ code?: unknown }} */ (err)?.code;
+    send(
+      { type: "result", id: msg.id, error, code: typeof code === "string" ? code : undefined },
+      ws,
+    );
   }
 }
 
@@ -113,10 +149,18 @@ async function connect() {
   const url = `${hearthUrl.replace(/\/$/, "").replace(/^http/, "ws")}/api/browser/bridge`;
   const ws = new WebSocket(url);
   socket = ws;
-  ws.onopen = async () => {
-    ws.send(JSON.stringify({ type: "hello", token, version: VERSION }));
+  ws.onopen = () => {
+    ws.send(JSON.stringify({ type: "hello", token, version: VERSION, protocol: PROTOCOL }));
   };
-  ws.onmessage = (e) => void onMessage(JSON.parse(String(e.data)), ws);
+  ws.onmessage = (e) => {
+    let msg;
+    try {
+      msg = JSON.parse(String(e.data));
+    } catch {
+      return;
+    }
+    onMessage(msg, ws).catch(() => {});
+  };
   ws.onclose = (e) => {
     if (socket !== ws) return;
     socket = null;
@@ -140,7 +184,13 @@ function reconnect() {
 }
 
 chrome.debugger.onEvent.addListener((source, method, params) => {
-  if (source.tabId !== undefined) send({ type: "event", tabId: source.tabId, method, params });
+  const tabId = source.tabId;
+  if (tabId === undefined) return;
+  send({ type: "event", tabId, method, params });
+  if (method === "Page.javascriptDialogOpening" || method === "Page.javascriptDialogClosed")
+    onPageEvent(tabId, method, params)
+      .then(pushTabs)
+      .catch(() => {});
 });
 watchDetach((tabId) => {
   send({ type: "detached", tabId });
@@ -157,6 +207,25 @@ chrome.tabs.onActivated.addListener(() => pushTabs());
 chrome.tabs.onCreated.addListener((tab) => noticeTab(tab));
 chrome.windows.onRemoved.addListener((windowId) => void windowClosed(windowId));
 
+// Pop-ups and links that open a new tab or window from a page (D52). Only these: a tab's
+// openerTabId alone isn't enough, since Chrome gives one to tabs you open yourself too (Duplicate
+// names the tab you were on), and those are yours.
+chrome.webNavigation.onCreatedNavigationTarget.addListener((d) => {
+  adopt(d.sourceTabId, d.tabId)
+    .then((adopted) => {
+      if (adopted) pushTabs();
+    })
+    .catch(() => {});
+});
+chrome.webNavigation.onErrorOccurred.addListener(async (d) => {
+  if (d.frameId !== 0 || !(await mayUse(d.tabId))) return;
+  navFailed(d.tabId, d.error);
+  pushTabs();
+});
+chrome.webNavigation.onCommitted.addListener((d) => {
+  if (d.frameId === 0) navCommitted(d.tabId);
+});
+
 // From the popup and the options page.
 chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   (async () => {
@@ -171,10 +240,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
     reply({
       connected,
       error: connected ? "" : lastError,
+      outdated,
       own: msg.tabId !== undefined && own.includes(msg.tabId),
       handed: msg.tabId !== undefined && handed.includes(msg.tabId),
     });
-  })();
+  })().catch(() => reply({ connected, error: lastError, outdated, own: false, handed: false }));
   return true;
 });
 

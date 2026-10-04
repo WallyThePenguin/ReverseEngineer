@@ -1,5 +1,5 @@
-// Settings for Jarvis's browser: pair the Hearth extension in your Chrome, and the sites Jarvis
-// may open freely or never opens (D24, D25).
+// Settings for Jarvis's browser: pair the Hearth extension in your Chrome, test it, and the sites
+// Jarvis may act on without asking or never opens (D24, D25, D52).
 
 import { createResource, createSignal, onCleanup, Show } from "solid-js";
 import { Badge, Button } from "../components/ui.tsx";
@@ -7,6 +7,7 @@ import { browserStatus, openChrome, pairBrowser, unpairBrowser } from "../lib/br
 import { ago } from "../lib/format.ts";
 import { reportError, toast } from "../lib/live.ts";
 import { act, useAction } from "../lib/query.ts";
+import { LinkLog, TestChrome } from "./ChromeCheck.tsx";
 import { WatchList } from "./PageWatch.tsx";
 
 interface SiteRules {
@@ -79,6 +80,9 @@ function Pairing() {
                 </p>
                 <Show when={!s().connected && !s().opening && s().openError}>
                   <p class="text-sm text-bad">{s().openError}</p>
+                </Show>
+                <Show when={s().connected && s().problem}>
+                  <p class="text-sm text-warn">{s().problem}</p>
                 </Show>
               </>
             )}
@@ -157,9 +161,11 @@ function Sites() {
   return (
     <div class="grid gap-3 sm:grid-cols-2">
       <label class="space-y-1 text-sm">
-        <span class="font-medium">Open freely</span>
+        <span class="font-medium">Trusted sites: Jarvis can act here without asking</span>
         <span class="block text-muted">
-          Even after reading an email or a web page, Jarvis may open these without asking.
+          Jarvis opens these and clicks, types and sends on them without asking first, even after
+          reading an email or a web page. Payments, passwords and security settings, sending money
+          and deleting your account still always need your yes. Subdomains are included.
         </span>
         <textarea
           class="h-28 w-full rounded-md border border-line bg-panel px-2 py-1 font-mono text-xs"
@@ -189,6 +195,8 @@ function Sites() {
 }
 
 export function ChromeSettings() {
+  // Running the test refreshes the link's activity.
+  const [refresh, setRefresh] = createSignal(0);
   return (
     <section class="space-y-3">
       <h2 class="font-semibold">Chrome</h2>
@@ -197,6 +205,8 @@ export function ChromeSettings() {
         Watch it, or take over, in the Browser pane.
       </p>
       <Pairing />
+      <TestChrome onDone={() => setRefresh((n) => n + 1)} />
+      <LinkLog refresh={refresh} />
       <Sites />
       <h3 class="pt-2 font-medium">Page watches</h3>
       <WatchList />

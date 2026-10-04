@@ -28,12 +28,17 @@ type ViewerMessage = {
   code?: string;
   text?: string;
   modifiers?: number;
+  accept?: boolean;
+  promptText?: string;
 };
 
-/** What the Browser pane shows: Chrome's connection, whether it's being opened, and the tabs. */
+/**
+ * What the Browser pane shows: Chrome's connection, whether it's being opened, the tabs (with any
+ * dialog open in them), and a problem with the extension, like an out-of-date one.
+ */
 function state(s: BrowserStatus) {
-  const { connected, canOpen, opening, openError, paired, tabs } = s;
-  return { type: "state", connected, canOpen, opening, openError, paired, tabs };
+  const { connected, canOpen, opening, openError, paired, tabs, problem } = s;
+  return { type: "state", connected, canOpen, opening, openError, paired, tabs, problem };
 }
 
 function send(ws: WebSocket, msg: unknown): void {
@@ -132,6 +137,13 @@ export class LiveView {
         return;
       case "text":
         if (msg.text) await this.cdp(tabId, "Input.insertText", { text: msg.text });
+        return;
+      // You answered the page's dialog (an alert, a confirm, a "leave site?") from the pane.
+      case "dialog":
+        await this.cdp(tabId, "Page.handleJavaScriptDialog", {
+          accept: msg.accept === true,
+          ...(typeof msg.promptText === "string" ? { promptText: msg.promptText } : {}),
+        });
         return;
     }
   }

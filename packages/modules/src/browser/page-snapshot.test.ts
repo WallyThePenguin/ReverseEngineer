@@ -1,16 +1,15 @@
-import { existsSync } from "node:fs";
 import { type Browser, chromium } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { chromiumForTests, chromiumPath } from "./chromium.ts";
 import { type PageSnapshot, snapshotExpression } from "./page.ts";
 
-// The reader runs in a real page, so it's tested in Chromium (skipped where none is installed).
+// The reader runs in a real page, so it's tested in Chromium (HEARTH_SKIP_BROWSER_TESTS=1 skips).
 // HEARTH_E2E_CHROME points at a different Chromium, as for the web app's smoke test.
-const executablePath = process.env.HEARTH_E2E_CHROME ?? chromium.executablePath();
-const hasChromium = existsSync(executablePath);
+const hasChromium = chromiumForTests();
 let browser: Browser;
 
 beforeAll(async () => {
-  if (hasChromium) browser = await chromium.launch({ executablePath });
+  if (hasChromium) browser = await chromium.launch({ executablePath: chromiumPath()! });
 });
 afterAll(async () => {
   await browser?.close();
