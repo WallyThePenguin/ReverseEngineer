@@ -70,13 +70,14 @@ export function Sidebar(props: {
         <span class="flex-1">Search or ask…</span>
         <span class="text-xs">Ctrl K</span>
       </button>
-      <ul class="space-y-0.5">
+      <ul class="min-h-0 space-y-0.5 overflow-y-auto">
         <For each={NAV}>
           {(item) => (
             <li>
               <button
                 type="button"
-                class={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm ${current() === item.view ? "bg-panel font-medium shadow-sm" : "text-muted hover:text-ink"}`}
+                class={`flex min-h-11 w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm md:min-h-0 ${current() === item.view ? "bg-panel font-medium shadow-sm" : "text-muted hover:text-ink"}`}
+                aria-current={current() === item.view ? "page" : undefined}
                 title={`${item.label} (${item.keys})`}
                 onClick={(e) => {
                   if (props.onPicked) {
@@ -100,7 +101,7 @@ export function Sidebar(props: {
       <div class="flex-1" />
       <button
         type="button"
-        class={`mb-1 rounded-md px-2 py-1.5 text-left text-sm ${jarvis.open() ? "text-jarvis" : "text-muted hover:text-ink"}`}
+        class={`mb-1 min-h-11 rounded-md px-2 py-1.5 text-left text-sm md:min-h-0 ${jarvis.open() ? "text-jarvis" : "text-muted hover:text-ink"}`}
         onClick={() => {
           jarvis.toggle();
           props.onPicked?.();
@@ -112,7 +113,7 @@ export function Sidebar(props: {
       </button>
       <button
         type="button"
-        class="rounded-md px-2 py-1.5 text-left text-sm text-muted hover:text-ink"
+        class="min-h-11 rounded-md px-2 py-1.5 text-left text-sm text-muted hover:text-ink md:min-h-0"
         onClick={async () => {
           await authPost("logout").catch(() => {});
           props.onSignOut();

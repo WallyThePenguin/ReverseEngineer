@@ -3,6 +3,7 @@
 
 import { createSignal, For, Match, Show, Switch } from "solid-js";
 import { Body } from "../components/Body.tsx";
+import { Overflow, ROW_MENU } from "../components/Menu.tsx";
 import { Badge, Button, Empty, Kbd, PaneHeader } from "../components/ui.tsx";
 import { decideApproval } from "../lib/api.ts";
 import { ago, due, snoozeOptions, who } from "../lib/format.ts";
@@ -105,7 +106,7 @@ export function Inbox(props: { pane: number }) {
     sel.reset();
   };
   const tab = (active: boolean) =>
-    `rounded-md px-2 py-1 text-sm ${active ? "bg-sunk font-medium" : "text-muted hover:text-ink"}`;
+    `min-h-11 rounded-md px-2 py-1 text-sm md:min-h-0 ${active ? "bg-sunk font-medium" : "text-muted hover:text-ink"}`;
 
   return (
     <div class="flex h-full flex-col">
@@ -120,7 +121,8 @@ export function Inbox(props: { pane: number }) {
           <span class="mx-1 h-4 w-px bg-line" />
         </Show>
         <select
-          class="rounded-md border border-line bg-panel px-2 py-1 text-sm"
+          class="min-h-11 rounded-md border border-line bg-panel px-2 py-1 text-sm md:min-h-0"
+          aria-label="Which items"
           value={view()}
           onChange={(e) => {
             setView(e.currentTarget.value as View);
@@ -151,7 +153,7 @@ export function Inbox(props: { pane: number }) {
                   const deadline = () => due(n.deadline, false);
                   return (
                     <li
-                      class="cursor-pointer border-b border-line px-4 py-3"
+                      class="group cursor-pointer border-b border-line py-3 pr-2 pl-4"
                       data-active={focused() && i() === sel.index()}
                       onClick={(e) => {
                         sel.select(i());
@@ -238,6 +240,20 @@ export function Inbox(props: { pane: number }) {
                             </div>
                           </Show>
                         </div>
+                        {/* What e and s do, for a finger. */}
+                        <Overflow
+                          class={ROW_MENU}
+                          label={`Actions for ${n.title}`}
+                          items={[
+                            {
+                              label: view() === "done" ? "Not done" : "Done",
+                              run: () => done(row),
+                            },
+                            ...(view() === "live"
+                              ? [{ label: "Snooze…", run: () => setSnoozing(n.id) }]
+                              : []),
+                          ]}
+                        />
                       </div>
                     </li>
                   );

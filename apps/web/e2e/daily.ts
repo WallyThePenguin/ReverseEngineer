@@ -160,6 +160,84 @@ try {
     if ((await run<unknown[]>(p, "conversation.list", { query: tag })).length)
       throw new Error("the trashed conversation is still listed");
   });
+
+  // A phone: 375 px wide, touch only.
+  const phone = await browser.newContext({
+    viewport: { width: 375, height: 812 },
+    isMobile: true,
+    hasTouch: true,
+    serviceWorkers: "block",
+  });
+  const tp = await phone.newPage();
+  tp.on("pageerror", (e) => problems.push(`page error (phone): ${e.message}`));
+
+  /** Fails if a control in view is smaller than a fingertip (44 px), or the page scrolls sideways. */
+  const fingerSized = async (p: Page, where: string) => {
+    const small = await p.evaluate(() => {
+      const out: string[] = [];
+      for (const el of document.querySelectorAll<HTMLElement>(
+        "main button, main select, main input[type=checkbox], nav button",
+      )) {
+        // A checkbox counts by the label around it.
+        const box = (el.closest("label") ?? el).getBoundingClientRect();
+        const shown = box.width > 0 && box.bottom > 0 && box.top < innerHeight;
+        if (shown && (box.height < 44 || box.width < 44))
+          out.push(
+            `${el.getAttribute("aria-label") ?? el.textContent?.trim()} ${box.width}×${box.height}`,
+          );
+      }
+      if (document.documentElement.scrollWidth > innerWidth) out.push("the page scrolls sideways");
+      return out;
+    });
+    if (small.length) throw new Error(`${where}: too small to tap: ${small.join("; ")}`);
+  };
+
+  await step("at 375 px, the inbox is cleared by touch: done and snooze", async () => {
+    await run(page, "inbox.notify", { title: `Ping ${tag}` });
+    await run(page, "inbox.notify", { title: `Later ${tag}` });
+    await tp.goto(`${base}/inbox`);
+    const ping = tp.locator("li", { hasText: `Ping ${tag}` });
+    await ping.waitFor();
+    await fingerSized(tp, "the inbox");
+    await ping.getByRole("button", { name: `Actions for Ping ${tag}` }).tap();
+    await tp.getByRole("menuitem", { name: "Done" }).tap();
+    await ping.waitFor({ state: "detached" });
+
+    const later = tp.locator("li", { hasText: `Later ${tag}` });
+    await later.getByRole("button", { name: `Actions for Later ${tag}` }).tap();
+    await tp.getByRole("menuitem", { name: "Snooze…" }).tap();
+    await later.getByRole("button", { name: /Tomorrow morning/ }).tap();
+    await later.waitFor({ state: "detached" });
+  });
+
+  await step("at 375 px, a task is completed and trashed by touch", async () => {
+    const done = await run<{ key: string }>(page, "task.create", { title: `Tap done ${tag}` });
+    await run(page, "task.create", { title: `Tap trash ${tag}` });
+    await tp.goto(`${base}/tasks`);
+    const row = tp.locator("li", { hasText: `Tap done ${tag}` });
+    await row.waitFor();
+    await fingerSized(tp, "tasks");
+    await row.getByRole("checkbox", { name: `Complete ${done.key}` }).tap();
+    await row.waitFor({ state: "detached" });
+
+    const other = tp.locator("li", { hasText: `Tap trash ${tag}` });
+    await other.getByRole("button", { name: /^Actions for/ }).tap();
+    await tp.getByRole("menuitem", { name: "Move to trash" }).tap();
+    await other.waitFor({ state: "detached" });
+    await tp.getByRole("button", { name: "Undo" }).tap();
+    await other.waitFor();
+  });
+
+  await step("at 375 px, the menu drawer is opaque and closes when you pick", async () => {
+    await tp.getByRole("button", { name: "More" }).tap();
+    const drawer = tp.getByRole("dialog", { name: "Menu" });
+    const bg = await drawer.evaluate((el) => getComputedStyle(el).backgroundColor);
+    if (/rgba\(.*, 0(\.\d+)?\)$/.test(bg) || bg === "transparent")
+      throw new Error(`the drawer shows the page through it (${bg})`);
+    await drawer.getByRole("button", { name: "Trash" }).tap();
+    await drawer.waitFor({ state: "detached" });
+    await tp.getByRole("heading", { name: "Trash" }).waitFor();
+  });
 } finally {
   await browser.close();
 }

@@ -241,8 +241,12 @@ function Shell(props: { onSignOut: () => void }) {
         >
           <Show when={menu()}>
             <div class="fixed inset-0 z-40 flex" onClick={() => setMenu(false)}>
+              {/* Opaque: the page behind mustn't show through the menu's text. */}
               <div
-                class="h-full pt-[env(safe-area-inset-top)] shadow-2xl"
+                class="h-full bg-bg pt-[env(safe-area-inset-top)] shadow-2xl"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Menu"
                 onClick={(e) => e.stopPropagation()}
               >
                 <Sidebar

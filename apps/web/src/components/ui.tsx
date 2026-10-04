@@ -167,7 +167,8 @@ export function Button(props: {
   return (
     <button
       type={props.submit ? "submit" : "button"}
-      class={`rounded-md font-medium disabled:opacity-50 ${props.small ? "px-2 py-0.5 text-xs" : "px-3 py-1 text-sm"} ${tone()}`}
+      // A fingertip needs 44 px; a pointer doesn't.
+      class={`min-h-11 rounded-md font-medium disabled:opacity-50 md:min-h-0 ${props.small ? "px-3 text-sm md:px-2 md:py-0.5 md:text-xs" : "px-3 py-1 text-sm"} ${tone()}`}
       disabled={props.disabled}
       title={props.title}
       onClick={(e) => props.onClick?.(e)}

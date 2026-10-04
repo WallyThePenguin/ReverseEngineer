@@ -39,18 +39,24 @@ export function TaskRow(props: { task: Task; active: boolean; onOpen: (beside: b
       data-active={props.active}
       onClick={(e) => props.onOpen(e.shiftKey)}
     >
-      <input
-        type="checkbox"
-        class="accent-[var(--color-accent)]"
-        checked={t().status === "completed"}
+      {/* The whole square around the box takes the tap on a phone. */}
+      <label
+        class="-ml-3 flex size-11 shrink-0 cursor-pointer items-center justify-center md:m-0 md:size-auto"
         onClick={(e) => e.stopPropagation()}
-        onChange={(e) =>
-          void act("task.update", {
-            id: t().id,
-            status: e.currentTarget.checked ? "completed" : "not_started",
-          })
-        }
-      />
+      >
+        <input
+          type="checkbox"
+          class="size-4 accent-[var(--color-accent)] md:size-auto"
+          aria-label={closed() ? `Reopen ${t().key}` : `Complete ${t().key}`}
+          checked={t().status === "completed"}
+          onChange={(e) =>
+            void act("task.update", {
+              id: t().id,
+              status: e.currentTarget.checked ? "completed" : "not_started",
+            })
+          }
+        />
+      </label>
       <span class="w-12 shrink-0 font-mono text-xs text-faint">{t().key}</span>
       <span class={`min-w-0 flex-1 truncate ${closed() ? "text-muted line-through" : ""}`}>
         {t().title}
@@ -154,7 +160,8 @@ export function Tasks(props: { pane: number }) {
           {(f) => (
             <button
               type="button"
-              class={`rounded-md px-2 py-1 text-sm ${filter() === f.id ? "bg-sunk font-medium" : "text-muted hover:text-ink"}`}
+              class={`min-h-11 rounded-md px-2 py-1 text-sm md:min-h-0 ${filter() === f.id ? "bg-sunk font-medium" : "text-muted hover:text-ink"}`}
+              aria-pressed={filter() === f.id}
               onClick={() => {
                 setFilter(f.id);
                 sel.reset();
@@ -181,7 +188,7 @@ export function Tasks(props: { pane: number }) {
           onKeyDown={(e) => e.key === "Escape" && input.blur()}
         />
         <label
-          class="flex items-center gap-1 text-xs text-muted"
+          class="flex min-h-11 items-center gap-1 text-xs text-muted md:min-h-0"
           title="Jarvis works on tasks assigned to it"
         >
           <input
