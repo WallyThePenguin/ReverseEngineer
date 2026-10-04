@@ -11,8 +11,8 @@ import { id } from "../shared.ts";
 import { loadDraft, oneLine, type Snapshot, snapshotOf, snapshotSchema } from "./drafts.ts";
 import { buildMessage } from "./mime.ts";
 import { MailProviderError, type RawMail } from "./provider.ts";
+import { providerFor } from "./providers.ts";
 import { saveMail } from "./store.ts";
-import { providerFor } from "./sync.ts";
 
 export const sendAction = defineAction({
   name: "mail.send",

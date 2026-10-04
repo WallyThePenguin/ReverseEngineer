@@ -16,6 +16,7 @@ import { id, isoDateTime } from "../shared.ts";
 import { describeDraft, draftActions } from "./drafts.ts";
 import { changeFlags, pendingChanges, recomputeThread } from "./flags.ts";
 import { normalizePattern, senderPatterns } from "./people.ts";
+import { restoreAction } from "./repair.ts";
 import { sendAction } from "./send.ts";
 import { syncMail, syncProgress } from "./sync.ts";
 import { alertKey } from "./sync-state.ts";
@@ -350,6 +351,7 @@ export const mailModule = defineModule({
     }),
     ...draftActions,
     sendAction,
+    restoreAction,
     ...waitingActions,
   ],
   routines: [followUpRoutine],

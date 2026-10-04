@@ -94,6 +94,22 @@ describe("mail pages", () => {
     expect((await t.browser(`/api/mail/attachment/${id}/5`)).status).toBe(404);
   });
 
+  it("fetches a missing original from Gmail again, and says so when it can't", async () => {
+    const id = await messageId();
+    // Lost from this PC: the folder of originals emptied.
+    await rm(dir, { recursive: true, force: true });
+    const res = await t.browser(`/api/mail/frame/${id}`);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("<p>Thanks</p>");
+    expect((await t.browser(`/api/mail/attachment/${id}/0`)).status).toBe(200);
+    // Gone from Gmail too: the page falls back to the message's text.
+    await rm(dir, { recursive: true, force: true });
+    g.gmail.messages.clear();
+    const gone = await t.browser(`/api/mail/frame/${id}`);
+    expect(gone.status).toBe(404);
+    expect(await gone.text()).toBe("This message's original isn't on this PC.");
+  });
+
   it("is only for you", async () => {
     const id = await messageId();
     const res = await t.api(`/api/mail/frame/${id}`, "not-a-token");

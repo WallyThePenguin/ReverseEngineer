@@ -27,3 +27,7 @@ UPDATE mail_draft d
   SET message_id = replace(gen_random_uuid()::text, '-', '') || '@' || split_part(a.address, '@', 2)
   FROM mail_account a WHERE a.id = d.account_id;
 ALTER TABLE mail_draft ALTER COLUMN message_id SET NOT NULL;
+
+-- Once a day each account looks for messages whose original is missing from this PC and fetches
+-- them again, a few at a time: where it got to, and when it last went all the way through.
+ALTER TABLE mail_account ADD COLUMN repair_from uuid, ADD COLUMN repaired_at timestamptz;

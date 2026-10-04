@@ -37,8 +37,8 @@ export interface MailProvider {
   readonly name: string;
   /** What changed since the cursor; with no cursor, recent mail to start from. */
   changes(address: string, cursor: Record<string, unknown> | null): Promise<MailChanges>;
-  /** One whole message, or null if it no longer exists. */
-  fetch(address: string, id: string): Promise<RawMail | null>;
+  /** One whole message, or null if it no longer exists. `urgent`: someone is waiting on it. */
+  fetch(address: string, id: string, urgent?: boolean): Promise<RawMail | null>;
   /** A message's current flags, or null if it no longer exists. */
   labels(address: string, id: string): Promise<string[] | null>;
   /** A cheap call that throws if the account itself is turned away, not just one message. */

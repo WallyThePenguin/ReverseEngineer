@@ -183,13 +183,15 @@ export class GmailProvider implements MailProvider {
     };
   }
 
-  async fetch(address: string, id: string): Promise<RawMail | null> {
+  async fetch(address: string, id: string, urgent = false): Promise<RawMail | null> {
     try {
       const m = await this.call<GMessage>(
         address,
         "GET",
         `/messages/${encodeURIComponent(id)}?format=raw`,
         GMAIL_COST.get,
+        undefined,
+        urgent,
       );
       return m.raw
         ? { providerId: m.id, labels: m.labelIds ?? [], raw: Buffer.from(m.raw, "base64url") }

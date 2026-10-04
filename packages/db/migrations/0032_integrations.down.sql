@@ -1,3 +1,4 @@
+ALTER TABLE mail_account DROP COLUMN repair_from, DROP COLUMN repaired_at;
 ALTER TABLE mail_draft DROP COLUMN message_id;
 
 DROP INDEX calendar_write_default;

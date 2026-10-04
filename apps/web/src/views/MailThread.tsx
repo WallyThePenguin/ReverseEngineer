@@ -23,21 +23,32 @@ const list = (xs: MailAddress[]) =>
   xs.map((a) => (a.name ? `${a.name} <${a.address}>` : a.address)).join(", ");
 
 /** An HTML message in its own frame, sized to fit. The frame runs no scripts. */
-function HtmlBody(props: { id: string }) {
+function HtmlBody(props: { id: string; text: string }) {
   const [images, setImages] = createSignal(false);
   const [remote, setRemote] = createSignal(false);
+  const [missing, setMissing] = createSignal(false);
   let frame: HTMLIFrameElement | undefined;
   const loaded = () => {
     const doc = frame?.contentDocument;
-    if (!frame || !doc?.body) return;
+    if (!frame || !doc?.body || doc.location.href === "about:blank") return;
+    const meta = doc.querySelector('meta[name="hearth-remote-images"]');
+    if (!meta) {
+      // Not the message page: its original couldn't be had, here or from the mail service.
+      setMissing(true);
+      return;
+    }
     frame.style.height = `${Math.min(doc.documentElement.scrollHeight + 4, 20000)}px`;
-    setRemote(
-      doc.querySelector('meta[name="hearth-remote-images"]')?.getAttribute("content") === "1",
-    );
+    setRemote(meta.getAttribute("content") === "1");
   };
   return (
     <div class="space-y-2">
-      <Show when={remote() && !images()}>
+      <Show when={missing()}>
+        <p class="text-xs text-muted">
+          The original of this message isn't available, so here's its text.
+        </p>
+        <pre class="whitespace-pre-wrap font-sans text-sm">{props.text}</pre>
+      </Show>
+      <Show when={remote() && !images() && !missing()}>
         <p class="text-xs text-muted">
           Pictures from the internet are hidden, so the sender can't tell you opened this.{" "}
           <button type="button" class="underline" onClick={() => setImages(true)}>
@@ -50,6 +61,7 @@ function HtmlBody(props: { id: string }) {
         ref={frame}
         title="Message"
         class="w-full rounded-md border border-line bg-white"
+        classList={{ hidden: missing() }}
         style={{ height: "120px" }}
         sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
         referrerpolicy="no-referrer"
@@ -163,7 +175,7 @@ function Message(props: { m: MailMessage; open: boolean; onToggle: () => void })
             when={props.m.hasHtml}
             fallback={<pre class="whitespace-pre-wrap font-sans text-sm">{props.m.text}</pre>}
           >
-            <HtmlBody id={props.m.id} />
+            <HtmlBody id={props.m.id} text={props.m.text} />
           </Show>
           <Show when={files().length > 0}>
             <ul class="flex flex-wrap gap-2 text-xs">
