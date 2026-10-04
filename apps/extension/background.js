@@ -208,8 +208,8 @@ chrome.tabs.onCreated.addListener((tab) => noticeTab(tab));
 chrome.windows.onRemoved.addListener((windowId) => void windowClosed(windowId));
 
 // Pop-ups and links that open a new tab or window from a page (D52). Only these: a tab's
-// openerTabId alone isn't enough, since Chrome gives one to a tab you open yourself with Ctrl+T
-// (the tab you were on), and that tab is yours.
+// openerTabId alone isn't enough, since Chrome gives one to tabs you open yourself too (Duplicate
+// names the tab you were on), and those are yours.
 chrome.webNavigation.onCreatedNavigationTarget.addListener((d) => {
   adopt(d.sourceTabId, d.tabId)
     .then((adopted) => {

@@ -23,7 +23,9 @@ const extension = join(import.meta.dirname, "../../extension");
 
 // The site Jarvis browses: a page with a link, a button, a field and a price, and a second page.
 let price = "$40";
+let posts = 0;
 const site = createServer((req, res) => {
+  if (req.method === "POST") posts++;
   res.setHeader("content-type", "text/html; charset=utf-8");
   if (req.url === "/second") return res.end("<title>Second</title><h1>Second page</h1>");
   const parity = PARITY_PAGES[req.url ?? ""];
@@ -179,7 +181,7 @@ try {
   });
   check(script.error?.includes("isolated world"), "scripts can't run in the page's own world");
 
-  await parityChecks({ hearth, siteUrl, extensionId, check });
+  await parityChecks({ hearth, siteUrl, extensionId, worker, posts: () => posts, check });
 
   // The live view: watch the tab inside Hearth and use it with the mouse and keyboard.
   await hearth.goto(`${base}/browser`);
