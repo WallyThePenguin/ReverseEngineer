@@ -3,7 +3,14 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { Server } from "node:http";
 import { join } from "node:path";
-import { DATABASE_DOWN, getSetting, isDatabaseDown, type Kernel, logLine } from "@hearth/kernel";
+import {
+  DATABASE_DOWN,
+  getSetting,
+  isDatabaseDown,
+  type Kernel,
+  logLine,
+  stackFrames,
+} from "@hearth/kernel";
 import {
   BLOB_SERVICE,
   BROWSER_SERVICE,
@@ -113,11 +120,14 @@ export function createApp(opts: AppOptions) {
   // query's values. The database being out of reach is a 503 with a hint to try again soon.
   app.onError((err, c) => {
     if (err instanceof HTTPException) return err.getResponse();
-    console.error(`[server] ${c.req.method} ${c.req.path} failed: ${logLine(err)}`);
+    const failed = `[server] ${c.req.method} ${c.req.path} failed: ${logLine(err)}`;
     if (isDatabaseDown(err)) {
+      console.error(failed);
       c.header("Retry-After", "5");
       return c.json({ error: DATABASE_DOWN }, 503);
     }
+    // A bug: where it happened is worth keeping.
+    console.error(`${failed}${stackFrames(err)}`);
     return c.json({ error: "Something went wrong in Hearth. Try again in a moment." }, 500);
   });
   app.get("/api/health", (c) => c.json({ ok: true }));

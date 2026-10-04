@@ -42,6 +42,8 @@ describe("requests that fail", () => {
       error: "Something went wrong in Hearth. Try again in a moment.",
     });
     expect(logged.join("\n")).toContain("GET /boom/bug failed");
+    // Where it broke, for fixing it.
+    expect(logged.join("\n")).toMatch(/\n\s+at .*errors\.test\.ts/);
     expect(logged.join("\n")).not.toContain("hunter2");
   });
 
