@@ -24,6 +24,14 @@ foreach ($file in Get-ChildItem "$PSScriptRoot\*.ps1") {
   Assert-Equal $errors.Count 0 "$($file.Name) parses $($errors | ForEach-Object { $_.Message })"
 }
 
+# The desktop app's Update and `hearth restart` run these with -File, and Windows PowerShell leaves
+# $PSScriptRoot empty in a parameter's default then: Hearth's folder would be C:\.
+foreach ($name in "update.ps1", "restart.ps1") {
+  $ast = [System.Management.Automation.Language.Parser]::ParseFile("$PSScriptRoot\$name", [ref]$null, [ref]$null)
+  $reads = @($ast.ParamBlock.Parameters | Where-Object { "$($_.DefaultValue)" -match "PSScriptRoot" })
+  Assert-Equal $reads.Count 0 "$name doesn't read `$PSScriptRoot in a parameter's default"
+}
+
 Assert-Equal (Resolve-HearthParts "all") "server worker jarvis" "all means the three parts"
 Assert-Equal (Resolve-HearthParts "jarvis") "jarvis" "one part is itself"
 

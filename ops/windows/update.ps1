@@ -36,7 +36,8 @@
 #>
 [CmdletBinding()]
 param(
-  [string]$Root = (Resolve-Path "$PSScriptRoot\..\..").Path,
+  # Hearth's folder; by default the one this script is in.
+  [string]$Root,
   [string]$Branch = "claude/admiring-wright-ghc2o3",
   # Run every step even when already on the latest commit.
   [switch]$Force,
@@ -49,6 +50,9 @@ param(
   [switch]$Relaunched
 )
 $ErrorActionPreference = "Stop"
+# Not as the parameter's default: Windows PowerShell leaves $PSScriptRoot empty there for a script
+# run with -File, as the desktop app's "Update Hearth" runs this.
+if (-not $Root) { $Root = (Resolve-Path "$PSScriptRoot\..\..").Path }
 Set-Location $Root
 . "$PSScriptRoot\control.ps1"
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
