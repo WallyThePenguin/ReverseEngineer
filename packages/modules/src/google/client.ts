@@ -222,10 +222,20 @@ export class GoogleClient {
         "Google didn't return a refresh token. Try connecting again.",
       );
     const expiresAt = now.getTime() + (tokens.expires_in ?? 3600) * 1000;
+    const seal = (kind: "refresh" | "access", token: string) => {
+      try {
+        return sealGoogleToken(vault, email, kind, token);
+      } catch {
+        throw new ActionError(
+          "failed",
+          "Hearth couldn't lock this Google sign-in away: its vault key isn't available. Nothing was saved.",
+        );
+      }
+    };
     const values = {
-      refreshToken: sealGoogleToken(vault, email, "refresh", refreshToken),
+      refreshToken: seal("refresh", refreshToken),
       scopes: [...new Set([...(existing?.scopes ?? []), ...scopes])],
-      accessToken: sealGoogleToken(vault, email, "access", tokens.access_token),
+      accessToken: seal("access", tokens.access_token),
       accessExpiresAt: new Date(expiresAt),
       status: "ok" as const,
       lastError: null,

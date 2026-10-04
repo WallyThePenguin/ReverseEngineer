@@ -107,6 +107,18 @@ describe("Google's tokens at rest", () => {
     expect((await saved()).refreshToken).toBe("rt");
   });
 
+  it("keep mail working, never saved in the clear, when the vault key can't be had", async () => {
+    await signIn(clientWith(null));
+    await expire();
+    const keyless = new Vault(() => {
+      throw new Error("EPERM: operation not permitted, open 'vault.key'");
+    });
+    await clientWith(keyless).call(t.tdb.db, ME, "GET", PROFILE);
+    expect(await saved()).toMatchObject({ status: "ok", accessToken: null });
+    // A new sign-in says so rather than save it unsealed.
+    await expect(signIn(clientWith(keyless))).rejects.toThrow(/vault key isn't available/);
+  });
+
   it("sealed with a key this Hearth doesn't have, say to connect again", async () => {
     await signIn(clientWith(vault));
     await expire();

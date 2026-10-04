@@ -126,10 +126,16 @@ export class GoogleTokens {
       throw new GoogleApiError(res.status, message, { kind: "auth", reason: body.error ?? null });
     }
     const expiresAt = now + (body.expires_in ?? 3600) * 1000;
+    // If the vault key can't be had, the new token is kept in this process only (it lasts an
+    // hour), never saved in the clear, and mail keeps working.
+    let sealed: string | null = null;
+    try {
+      sealed = sealGoogleToken(this.deps.vault, email, "access", body.access_token);
+    } catch {}
     await store
       .update(googleAccount)
       .set({
-        accessToken: sealGoogleToken(this.deps.vault, email, "access", body.access_token),
+        accessToken: sealed,
         accessExpiresAt: new Date(expiresAt),
         status: "ok",
         lastError: null,
