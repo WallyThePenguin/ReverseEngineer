@@ -121,7 +121,17 @@ export class FakeGoogle {
       return json(401, {
         error: { code: 401, message: "Request had invalid authentication credentials." },
       });
-    if (u.hostname === "gmail.googleapis.com") return this.gmail.handle(u, method, body);
+    if (u.hostname === "gmail.googleapis.com") {
+      const id = u.pathname.match(/\/messages\/([^/]+)$/)?.[1];
+      if (id && this.gmail.hangIds.has(decodeURIComponent(id))) {
+        this.gmail.hung++;
+        // No answer: wait until the client gives up on it.
+        await new Promise((_, reject) =>
+          init.signal?.addEventListener("abort", () => reject(init.signal?.reason)),
+        );
+      }
+      return this.gmail.handle(u, method, body);
+    }
 
     const failing = this.calendarFailures.shift();
     if (failing) return errorReply(failing);

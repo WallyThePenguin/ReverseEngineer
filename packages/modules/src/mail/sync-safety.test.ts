@@ -111,6 +111,48 @@ describe("sync safety", () => {
     expect(g.gmail.gets.get(huge)).toBe(3);
   });
 
+  it("lets the rest through when Gmail won't hand one message over, then sets it aside", async () => {
+    await sync();
+    const bad = g.gmail.deliver({ from: ANA, subject: "Bad", text: "." });
+    g.gmail.deliver({ from: ANA, subject: "Good", text: "." });
+    g.gmail.brokenIds.set(bad, 400);
+    // Before, this one message stopped every sync after it, and alerted at once.
+    expect(await sync()).toMatchObject({ added: 1, failed: [], more: true });
+    expect(await subjects()).toEqual(["Good"]);
+    await sync();
+    await sync();
+    expect(g.gmail.gets.get(bad)).toBe(3);
+    expect(await sync()).toMatchObject({ failed: [], more: false });
+    expect(g.gmail.gets.get(bad)).toBe(3);
+    expect(await account()).toMatchObject({ setAside: 1, waiting: 0, state: "ok" });
+    expect(await t.events("mail.sync_failed")).toEqual([]);
+  });
+
+  it("lets the rest through when one message never arrives in time, then sets it aside", async () => {
+    t.kernel.services[GOOGLE_SERVICE] = g.client(t.tdb.db, { timeoutMs: 50 });
+    await sync();
+    const huge = g.gmail.deliver({ from: ANA, subject: "Huge", text: "." });
+    g.gmail.deliver({ from: ANA, subject: "Next", text: "." });
+    g.gmail.hangIds.add(huge);
+    // A timeout may be the line, so the sync stops there; the message goes to the back.
+    expect(await sync()).toMatchObject({ added: 0, transient: true });
+    expect(await sync()).toMatchObject({ added: 1, transient: true });
+    expect(await subjects()).toEqual(["Next"]);
+    // Timeouts close together count once: a few bad minutes don't set a message aside.
+    const attempts = async () => (await t.tdb.db.select().from(mailQuarantine))[0]?.attempts;
+    expect(await attempts()).toBe(1);
+    t.clock.advance(10 * 60_000);
+    await sync();
+    t.clock.advance(10 * 60_000);
+    await sync();
+    expect(await attempts()).toBe(3);
+    expect(g.gmail.hung).toBe(4);
+    expect(await sync()).toMatchObject({ failed: [], more: false });
+    expect(g.gmail.hung).toBe(4);
+    expect(await account()).toMatchObject({ setAside: 1, waiting: 0, state: "ok" });
+    expect(await t.events("mail.sync_failed")).toEqual([]);
+  });
+
   it("carries on when saving one message fails outside the database", async () => {
     await sync();
     blobs.bad = "Unlucky";

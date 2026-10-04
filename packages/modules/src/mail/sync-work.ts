@@ -5,13 +5,28 @@ import { mailAccount, mailMessage, mailQuarantine } from "@hearth/db";
 import { type ActionContext, ActionError, savepoint } from "@hearth/kernel";
 import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import { setFlags } from "./flags.ts";
-import { type MailChange, type MailProvider, MailProviderError } from "./provider.ts";
+import { type MailChange, type MailProvider, MailProviderError, type RawMail } from "./provider.ts";
 import { type AccountRow, leftOut, removeMail, saveMail } from "./store.ts";
 
 /** Calls to the provider per sync, so no transaction stays open long; more follow at once. */
 export const CALLS_PER_SYNC = 50;
-/** A message that fails to save this many times is set aside for good. */
+/** A message that fails to save (or to download) this many times is set aside for good. */
 export const QUARANTINE_AFTER = 3;
+/**
+ * A download that timed out counts against the message at most this often: a huge message on a
+ * slow line is set aside after half an hour or so, but a few bad minutes on the line aren't.
+ */
+export const TIMEOUT_STRIKE_MS = 10 * 60_000;
+
+/**
+ * A failure that's about one message rather than the provider or the network: the provider won't
+ * hand it over, or it couldn't arrive in time. It mustn't hold up the rest (6.2).
+ */
+function stuckOn(err: unknown): "refused" | "timeout" | null {
+  if (!(err instanceof MailProviderError)) return null;
+  if (err.kind === "refused") return "refused";
+  return err.kind === "transient" && err.reason === "timeout" ? "timeout" : null;
+}
 
 /** The cursor as the sync keeps it: the provider's own, plus what's left to do. */
 export interface SyncCursor {
@@ -92,7 +107,22 @@ export async function bringIn(
     let calls = CALLS_PER_SYNC;
     while (c.pending.length && calls-- > 0) {
       const id = c.pending[0]!;
-      const raw = await provider.fetch(account.address, id);
+      let raw: RawMail | null;
+      try {
+        raw = await provider.fetch(account.address, id);
+      } catch (err) {
+        // One message that won't download goes to the back and is set aside after a few tries,
+        // so it never blocks what came after it. A timeout may be the line rather than the
+        // message, so the sync stops there for now.
+        const stuck = stuckOn(err);
+        if (!stuck) throw err;
+        c.pending.shift();
+        const spacing = stuck === "timeout" ? TIMEOUT_STRIKE_MS : 0;
+        if ((await quarantine(ctx, account.id, id, err, spacing)) < QUARANTINE_AFTER)
+          retry.push(id);
+        if (stuck === "timeout") throw err;
+        continue;
+      }
       c.pending.shift();
       work.progressed = true;
       if (!raw) continue;
@@ -117,7 +147,17 @@ export async function bringIn(
     }
     while (c.relabel.length && calls-- > 0) {
       const id = c.relabel[0]!;
-      const labels = await provider.labels(account.address, id);
+      let labels: string[] | null;
+      try {
+        labels = await provider.labels(account.address, id);
+      } catch (err) {
+        // Only its flags were to be looked up: they stay as they are rather than block the rest.
+        const stuck = stuckOn(err);
+        if (!stuck) throw err;
+        c.relabel.shift();
+        if (stuck === "timeout") throw err;
+        continue;
+      }
       c.relabel.shift();
       work.progressed = true;
       const [row] = await ctx.tx
@@ -188,9 +228,19 @@ async function sort(
   );
 }
 
-/** Notes a message that failed to save. Returns how many times it has. */
-async function quarantine(ctx: ActionContext, accountId: string, providerId: string, err: unknown) {
+/**
+ * Notes a message that failed to save or download. Returns how many times it has; a failure
+ * within `spacingMs` of the last counted one is noted but not counted.
+ */
+async function quarantine(
+  ctx: ActionContext,
+  accountId: string,
+  providerId: string,
+  err: unknown,
+  spacingMs = 0,
+) {
   const message = (err instanceof Error ? err.message : String(err)).slice(0, 500);
+  const counts = sql`${mailQuarantine.lastFailedAt} <= ${new Date(ctx.now.getTime() - spacingMs)}`;
   const [row] = await ctx.tx
     .insert(mailQuarantine)
     .values({
@@ -204,9 +254,9 @@ async function quarantine(ctx: ActionContext, accountId: string, providerId: str
     .onConflictDoUpdate({
       target: [mailQuarantine.accountId, mailQuarantine.providerId],
       set: {
-        attempts: sql`${mailQuarantine.attempts} + 1`,
+        attempts: sql`CASE WHEN ${counts} THEN ${mailQuarantine.attempts} + 1 ELSE ${mailQuarantine.attempts} END`,
         lastError: message,
-        lastFailedAt: ctx.now,
+        lastFailedAt: sql`CASE WHEN ${counts} THEN ${ctx.now} ELSE ${mailQuarantine.lastFailedAt} END`,
       },
     })
     .returning({ attempts: mailQuarantine.attempts });

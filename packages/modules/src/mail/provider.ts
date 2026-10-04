@@ -62,10 +62,18 @@ export class MailProviderError extends Error {
   readonly kind: MailErrorKind;
   /** How long to wait before trying again, when that's known. */
   readonly retryAfterMs: number | null;
-  constructor(message: string, kind: MailErrorKind, retryAfterMs: number | null = null) {
+  /** The provider's (or Hearth's) reason, e.g. "timeout" when no answer came in time. */
+  readonly reason: string | null;
+  constructor(
+    message: string,
+    kind: MailErrorKind,
+    retryAfterMs: number | null = null,
+    reason: string | null = null,
+  ) {
     super(message);
     this.kind = kind;
     this.retryAfterMs = retryAfterMs;
+    this.reason = reason;
     this.name = "MailProviderError";
   }
 

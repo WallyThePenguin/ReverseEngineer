@@ -70,7 +70,7 @@ export class GmailProvider implements MailProvider {
       });
     } catch (err) {
       if (!(err instanceof GoogleApiError)) throw err;
-      throw new MailProviderError(err.message, KINDS[err.kind], err.retryAfterMs);
+      throw new MailProviderError(err.message, KINDS[err.kind], err.retryAfterMs, err.reason);
     }
   }
 
