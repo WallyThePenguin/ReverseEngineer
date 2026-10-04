@@ -91,8 +91,13 @@ $surrogate = New-Deep
 $surrogate.components.jarvis.status = "failing"
 $surrogate.components.jarvis.detail = "Jarvis hasn't checked in since 11:54. Its service may have stopped."
 $surrogate.jarvisAlive.at = "2026-10-04T11:54:00.000Z"
+$surrogate.jarvisAlive.since = "2026-10-04T09:00:00.000Z"
 Assert-Equal (Get-DeepProblem $surrogate $since $sha $all @("jarvis")) "Jarvis hasn't checked in since it started" "the worker's word that Jarvis is down isn't Jarvis checking in"
 Assert-Equal (Get-DeepProblem $surrogate $since $sha @("jarvis") @("jarvis")) "Jarvis hasn't checked in since it started" "the same for hearth restart jarvis"
+# A Jarvis the stop missed keeps checking in, on the old code: it started before the restart.
+$survivor = New-Deep
+$survivor.jarvisAlive.since = "2026-10-04T09:00:00.000Z"
+Assert-Equal (Get-DeepProblem $survivor $since $sha $all) "Jarvis hasn't checked in since it started" "an old Jarvis still checking in isn't the new one"
 $surrogate.jarvisAlive = $null
 Assert-Equal (Get-DeepProblem $surrogate $since $sha $all @("jarvis")) "Jarvis hasn't checked in since it started" "a Jarvis that never checked in"
 $older = New-Deep
