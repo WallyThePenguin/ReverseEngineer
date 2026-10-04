@@ -1,3 +1,15 @@
+ALTER TABLE github_repo DROP COLUMN resume_page, DROP COLUMN backlog_top;
+DROP INDEX slack_message_threads;
+ALTER TABLE slack_message
+  DROP COLUMN latest_reply, DROP COLUMN replies_read, DROP COLUMN replies_at;
+ALTER TABLE slack_channel
+  DROP COLUMN backlog_ts, DROP COLUMN backlog_top, DROP COLUMN threads_at;
+ALTER TABLE github_account
+  DROP COLUMN sync_state, DROP COLUMN failures, DROP COLUMN failing_since,
+  DROP COLUMN token_expires_at;
+ALTER TABLE slack_workspace
+  DROP COLUMN sync_state, DROP COLUMN failures, DROP COLUMN failing_since;
+
 ALTER TABLE mail_account DROP COLUMN repair_from, DROP COLUMN repaired_at;
 ALTER TABLE mail_draft DROP COLUMN message_id;
 

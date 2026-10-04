@@ -31,3 +31,36 @@ ALTER TABLE mail_draft ALTER COLUMN message_id SET NOT NULL;
 -- Once a day each account looks for messages whose original is missing from this PC and fetches
 -- them again, a few at a time: where it got to, and when it last went all the way through.
 ALTER TABLE mail_account ADD COLUMN repair_from uuid, ADD COLUMN repaired_at timestamptz;
+
+-- Slack and GitHub say once that they've stopped syncing, when it starts, and close the notice
+-- when they sync again. A token that stops working stops the polling ('revoked') until you give
+-- Hearth a new one.
+ALTER TABLE slack_workspace
+  ADD COLUMN sync_state text NOT NULL DEFAULT 'ok' CHECK (sync_state IN ('ok', 'failing', 'revoked')),
+  ADD COLUMN failures integer NOT NULL DEFAULT 0,
+  ADD COLUMN failing_since timestamptz;
+ALTER TABLE github_account
+  ADD COLUMN sync_state text NOT NULL DEFAULT 'ok' CHECK (sync_state IN ('ok', 'failing', 'revoked')),
+  ADD COLUMN failures integer NOT NULL DEFAULT 0,
+  ADD COLUMN failing_since timestamptz,
+  -- When GitHub says the token stops working, so you're told a week ahead.
+  ADD COLUMN token_expires_at timestamptz;
+
+-- A busy channel: when more came in than a round reads, the newest are read first and the rest
+-- in later rounds, older than backlog_ts; once they're in, reading carries on from backlog_top.
+-- threads_at: when the channel's recent messages were last looked over for new thread replies.
+ALTER TABLE slack_channel
+  ADD COLUMN backlog_ts text,
+  ADD COLUMN backlog_top text,
+  ADD COLUMN threads_at timestamptz;
+-- Threads: Slack's newest reply as last heard, the newest reply read in, and when Hearth looked.
+ALTER TABLE slack_message
+  ADD COLUMN latest_reply text,
+  ADD COLUMN replies_read text,
+  ADD COLUMN replies_at timestamptz;
+CREATE INDEX slack_message_threads ON slack_message (replies_at NULLS FIRST)
+  WHERE latest_reply IS NOT NULL;
+
+-- More pull requests changed than a round reads: the page to carry on from, and the newest change
+-- seen, where reading goes on from once the rest are in.
+ALTER TABLE github_repo ADD COLUMN resume_page integer, ADD COLUMN backlog_top timestamptz;
