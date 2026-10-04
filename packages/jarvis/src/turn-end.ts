@@ -272,8 +272,8 @@ async function alertFailure(
   const { kernel } = env;
   const now = kernel.clock.now();
   const { timeZone } = await getSetting(kernel.db, "owner.dayRules");
-  const failed = (await failureStreak(kernel.db, now)).filter((r) => r.status === "failed");
-  const start = failed.at(-1)?.id ?? turn.id;
+  const { failed, firstFailedId } = await failureStreak(kernel.db, now);
+  const start = firstFailedId ?? turn.id;
   const notify = async (title: string, body: string, dedupeKey: string) => {
     const res = await kernel.execute(
       "inbox.notify",
@@ -293,9 +293,9 @@ async function alertFailure(
     const body = fellBack ? `${said} Hearth published the plain version instead.` : said;
     await notify(title, body, `jarvis_failed:${f.kind}:${localDate(now, timeZone)}:${start}`);
   }
-  if (failed.length >= STREAK_ALERT)
+  if (failed >= STREAK_ALERT)
     await notify(
-      `Jarvis has failed ${failed.length} turns in a row`,
+      `Jarvis has failed ${failed} turns in a row`,
       `The latest: ${said}`,
       `jarvis_streak:${start}`,
     );

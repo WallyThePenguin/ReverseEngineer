@@ -19,37 +19,53 @@ export const STREAK_ALERT = 3;
 
 const WEEK_MS = 7 * 24 * 3600_000;
 
+export interface FailureStreak {
+  /** The newest of the run, newest first: failed for good, or waiting to be tried again. */
+  recent: TurnRow[];
+  /** How many turns in the run failed for good, however long it is. */
+  failed: number;
+  /** The run's first turn that failed for good: what one outage's alerts are keyed by. */
+  firstFailedId: string | null;
+}
+
+/** When a turn last ended (or was queued), with ids breaking ties: they're time-ordered. */
+const ENDED = sql`(coalesce(${jarvisTurn.finishedAt}, ${jarvisTurn.queuedAt}), ${jarvisTurn.id})`;
+
 /**
- * The turns since Jarvis last finished one, newest first: failed for good, or waiting to be
- * tried again. A restart cutting a turn short isn't Jarvis failing, so it doesn't count, and
- * neither do failures from before turns counted their attempts (migration 0024).
+ * The turns since Jarvis last finished one: failed for good, or waiting to be tried again. A
+ * restart cutting a turn short isn't Jarvis failing, so it doesn't count, and neither do failures
+ * from before turns counted their attempts (migration 0024). The run is bounded by the last
+ * finished turn, not by a number of rows, so a long outage keeps one start and one set of alerts.
  */
-export async function failureStreak(db: DbOrTx, now: Date): Promise<TurnRow[]> {
-  const rows = await db
-    .select()
+export async function failureStreak(db: DbOrTx, now: Date): Promise<FailureStreak> {
+  const counted = and(
+    gte(jarvisTurn.queuedAt, new Date(now.getTime() - WEEK_MS)),
+    or(sql`${jarvisTurn.errorKind} IS NULL`, ne(jarvisTurn.errorKind, "interrupted")),
+  );
+  const [done] = await db
+    .select({
+      at: sql<string>`coalesce(${jarvisTurn.finishedAt}, ${jarvisTurn.queuedAt})::text`,
+      id: jarvisTurn.id,
+    })
     .from(jarvisTurn)
-    .where(
-      and(
-        gte(jarvisTurn.queuedAt, new Date(now.getTime() - WEEK_MS)),
-        or(
-          eq(jarvisTurn.status, "done"),
-          and(inArray(jarvisTurn.status, ["failed", "queued"]), gt(jarvisTurn.attempts, 0)),
-        ),
-        or(sql`${jarvisTurn.errorKind} IS NULL`, ne(jarvisTurn.errorKind, "interrupted")),
-      ),
-    )
-    // Ids are time-ordered, which breaks ties between turns ending in the same instant.
-    .orderBy(
-      desc(sql`coalesce(${jarvisTurn.finishedAt}, ${jarvisTurn.queuedAt})`),
-      desc(jarvisTurn.id),
-    )
-    .limit(25);
-  const streak: TurnRow[] = [];
-  for (const r of rows) {
-    if (r.status === "done") break;
-    streak.push(r);
-  }
-  return streak;
+    .where(and(counted, eq(jarvisTurn.status, "done")))
+    .orderBy(desc(ENDED))
+    .limit(1);
+  const run = and(
+    counted,
+    inArray(jarvisTurn.status, ["failed", "queued"]),
+    gt(jarvisTurn.attempts, 0),
+    done ? sql`${ENDED} > (${done.at}::timestamptz, ${done.id}::uuid)` : undefined,
+  );
+  const recent = await db.select().from(jarvisTurn).where(run).orderBy(desc(ENDED)).limit(25);
+  // The first failure and the count, in one go: count(*) over () counts every row matched.
+  const [first] = await db
+    .select({ id: jarvisTurn.id, failed: sql<number>`count(*) over ()` })
+    .from(jarvisTurn)
+    .where(and(run, eq(jarvisTurn.status, "failed")))
+    .orderBy(ENDED)
+    .limit(1);
+  return { recent, failed: Number(first?.failed ?? 0), firstFailedId: first?.id ?? null };
 }
 
 export async function jarvisHealth(
@@ -59,11 +75,11 @@ export async function jarvisHealth(
 ): Promise<JarvisHealth> {
   const { timeZone } = await getSetting(db, "owner.dayRules");
   const streak = await failureStreak(db, now);
-  const last = streak[0];
+  const last = streak.recent[0];
   const said = (r: TurnRow, retryAt: Date | null) =>
     friendlyError((r.errorKind ?? "unknown") as FailureKind, { timeZone, now, retryAt }).text;
   if (last?.status === "failed") {
-    const failed = streak.filter((r) => r.status === "failed").length;
+    const { failed } = streak;
     const at = formatTime(last.finishedAt ?? now, timeZone);
     const run = failed > 1 ? ` That's ${failed} in a row.` : "";
     return { status: "failing", detail: `A turn failed at ${at}: ${said(last, null)}${run}` };

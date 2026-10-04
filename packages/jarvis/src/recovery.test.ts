@@ -301,4 +301,19 @@ describe("a run of failures", () => {
     const failing = (await alerts()).filter((a) => a.title === "Jarvis's turns are failing");
     expect(failing).toHaveLength(2);
   });
+
+  it("keeps a long outage to one set of alerts, and counts all of it", async () => {
+    await start();
+    for (let i = 0; i < 30; i++) {
+      brain.fail(invalid);
+      await chat(`message ${i}`);
+      await h.settle();
+      h.clock.advance(60_000);
+    }
+    expect((await alerts()).map((a) => a.title).sort()).toEqual([
+      "Jarvis has failed 3 turns in a row",
+      "Jarvis's turns are failing",
+    ]);
+    expect((await health())?.detail).toContain("That's 30 in a row.");
+  }, 60_000);
 });
