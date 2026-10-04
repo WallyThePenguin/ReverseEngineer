@@ -43,6 +43,20 @@ function Stop-Jarvis {
     $proc = Get-Process -Id $p -ErrorAction SilentlyContinue
     if ($proc -and $proc.ProcessName -eq "node") { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue }
   }
+  $null = Wait-TaskStopped "Hearth Jarvis"
+}
+
+# Until Windows no longer counts a task as running, up to $TimeoutSec. The task ignores a start
+# while a run is still counted (IgnoreNew), so `hearth restart jarvis`, which starts it again
+# straight away, would otherwise leave Jarvis off.
+function Wait-TaskStopped([string]$Name, [int]$TimeoutSec = 15) {
+  $deadline = (Get-Date).AddSeconds($TimeoutSec)
+  while ((Get-Date) -lt $deadline) {
+    $task = Get-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue
+    if (-not $task -or "$($task.State)" -ne "Running") { return $true }
+    Start-Sleep -Milliseconds 500
+  }
+  return $false
 }
 
 function Stop-Hearth([string[]]$Parts = @("server", "worker", "jarvis")) {

@@ -127,7 +127,7 @@ try {
   Write-Host $out
   if ($out -match "Applied: (.+)") { $applied = @($Matches[1].Trim() -split ",\s*") }
   if ($LASTEXITCODE -ne 0) { throw "Migrating the database failed (exit $LASTEXITCODE)." }
-  $since = [datetime]::UtcNow.AddSeconds(-5)
+  $since = [datetime]::UtcNow
   Start-Hearth
   $stopped = $false
   Assert-Healthy $new $since $before
@@ -159,7 +159,8 @@ try {
     }
   }
   if ($stopped) {
-    $since = [datetime]::UtcNow.AddSeconds(-5)
+    # Hearth was stopped above, maybe only seconds ago: no margin, so only the restart counts.
+    $since = [datetime]::UtcNow
     try { Start-Hearth } catch { Write-Host "Couldn't start Hearth again: $_" }
     $running = (git rev-parse HEAD).Trim()
     $why = Wait-Hearth -Since $since -Sha $running -TimeoutSec $HealthTimeoutSec -AllowOld

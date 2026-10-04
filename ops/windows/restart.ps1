@@ -22,7 +22,9 @@ $name = if ($Service -eq "all") { "Hearth" } else { "Hearth's $Service" }
 
 try {
   Stop-Hearth $parts
-  $since = [datetime]::UtcNow.AddSeconds(-5)
+  # Once it's all stopped, with no margin: a report from just before the stop must not count as
+  # the new one checking in.
+  $since = [datetime]::UtcNow
   Start-Hearth $parts
 } catch {
   Write-Host "Couldn't restart ${name}: $_"
