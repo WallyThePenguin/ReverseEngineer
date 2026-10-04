@@ -38,15 +38,23 @@ async function lastReport(kernel: Kernel, component: string) {
     : null;
 }
 
+/**
+ * Judges free space in gigabytes, not as a share: Hearth writes little (its database is tens of
+ * MB), and 2% of a 1 TB drive is 18 GB, which would call a fine disk failing and block updates.
+ */
+export function diskStatus(freeBytes: number): Status {
+  if (freeBytes < 2 * GB) return "failing";
+  if (freeBytes < 10 * GB) return "degraded";
+  return "ok";
+}
+
 export async function checkDisk(dir: string): Promise<HealthReport> {
   try {
     const s = await statfs(dir);
     const free = s.bavail * s.bsize;
     const share = free / (s.blocks * s.bsize);
     const detail = `${(free / GB).toFixed(1)} GB free (${Math.round(share * 100)}%)`;
-    if (free < 1 * GB || share < 0.02) return { component: "disk", status: "failing", detail };
-    if (free < 5 * GB || share < 0.08) return { component: "disk", status: "degraded", detail };
-    return { component: "disk", status: "ok", detail };
+    return { component: "disk", status: diskStatus(free), detail };
   } catch (err) {
     return { component: "disk", status: "degraded", detail: `Couldn't check: ${String(err)}` };
   }
