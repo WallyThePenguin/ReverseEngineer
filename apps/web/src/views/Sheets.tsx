@@ -2,7 +2,8 @@
 
 import { For, lazy, Show } from "solid-js";
 import { Overflow, ROW_MENU } from "../components/Menu.tsx";
-import { Button, Empty, ForRecord, PaneHeader } from "../components/ui.tsx";
+import { NoRows } from "../components/QueryView.tsx";
+import { Button, ForRecord, PaneHeader } from "../components/ui.tsx";
 import { ago } from "../lib/format.ts";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
 import { layout } from "../lib/panes.ts";
@@ -54,11 +55,10 @@ export function Sheets(props: { pane: number }) {
         <Show
           when={list().length > 0}
           fallback={
-            <Empty>
-              {sheets.isLoading
-                ? "Loading…"
-                : "No spreadsheets yet. A spreadsheet works out Excel-style formulas, and Jarvis can read and fill it in."}
-            </Empty>
+            <NoRows query={sheets} what="your spreadsheets">
+              No spreadsheets yet. A spreadsheet works out Excel-style formulas, and Jarvis can read
+              and fill it in.
+            </NoRows>
           }
         >
           <ul>

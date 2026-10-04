@@ -36,6 +36,7 @@ export function Overflow(props: {
   class?: string;
 }) {
   const [open, setOpen] = createSignal(false);
+  const [where, setWhere] = createSignal<Record<string, string>>({});
   let button!: HTMLButtonElement;
   let menu: HTMLDivElement | undefined;
 
@@ -50,14 +51,20 @@ export function Overflow(props: {
     const outside = (e: Event) => {
       if (!menu?.contains(e.target as Node) && !button.contains(e.target as Node)) close(false);
     };
-    const away = () => close(false);
+    // The list moved under it (you scrolled, or a live update shifted the rows): it follows its
+    // button, and closes only once the button is gone or out of sight.
+    const follow = () => {
+      const r = button.getBoundingClientRect();
+      if (!button.isConnected || r.bottom < 0 || r.top > window.innerHeight) close(false);
+      else setWhere(placement(button, props.items.length));
+    };
     document.addEventListener("pointerdown", outside, true);
-    window.addEventListener("resize", away);
-    document.addEventListener("scroll", away, true);
+    window.addEventListener("resize", follow);
+    document.addEventListener("scroll", follow, true);
     onCleanup(() => {
       document.removeEventListener("pointerdown", outside, true);
-      window.removeEventListener("resize", away);
-      document.removeEventListener("scroll", away, true);
+      window.removeEventListener("resize", follow);
+      document.removeEventListener("scroll", follow, true);
     });
   });
 
@@ -81,8 +88,9 @@ export function Overflow(props: {
         aria-haspopup="menu"
         aria-expanded={open()}
         onClick={() => {
+          setWhere(placement(button, props.items.length));
           setOpen(!open());
-          if (open()) queueMicrotask(() => items()[0]?.focus());
+          if (open()) queueMicrotask(() => items()[0]?.focus({ preventScroll: true }));
         }}
       >
         ⋯
@@ -95,7 +103,7 @@ export function Overflow(props: {
             role="menu"
             aria-label={props.label ?? "More actions"}
             class="fixed z-50 min-w-44 rounded-lg border border-line bg-panel py-1 text-sm shadow-xl"
-            style={placement(button, props.items.length)}
+            style={where()}
             onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => {
               // Keys pressed in the menu are the menu's, not the list's behind it (j, arrows, x).

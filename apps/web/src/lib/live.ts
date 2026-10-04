@@ -1,13 +1,18 @@
 // The live connection: every committed event refreshes the screens it affects, Jarvis's reply
 // text streams in as it's written, and a dropped connection comes back by itself.
 
-import { QueryClient } from "@tanstack/solid-query";
+import { QueryCache, QueryClient } from "@tanstack/solid-query";
 import { createRoot, createSignal } from "solid-js";
 import { getMe, signedOut } from "./api.ts";
+import { degraded } from "./degraded.ts";
 import { affectedBy, type Rule, touches, union } from "./invalidate.ts";
+import { retryRead } from "./readState.ts";
 
 export const queryClient = new QueryClient({
-  defaultOptions: { queries: { staleTime: 30_000, retry: 1, refetchOnWindowFocus: true } },
+  // Every read says whether Hearth is well (the degraded banner).
+  queryCache: new QueryCache({ onError: degraded.failed, onSuccess: degraded.worked }),
+  // One more try for a failure that might pass; none for "not found" and the like.
+  defaultOptions: { queries: { staleTime: 30_000, retry: retryRead, refetchOnWindowFocus: true } },
 });
 
 export interface LiveEvent {

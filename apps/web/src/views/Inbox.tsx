@@ -4,6 +4,7 @@
 import { createSignal, For, Match, Show, Switch } from "solid-js";
 import { Body } from "../components/Body.tsx";
 import { Overflow, ROW_MENU } from "../components/Menu.tsx";
+import { NoRows } from "../components/QueryView.tsx";
 import { SetupChecklist } from "../components/SetupChecklist.tsx";
 import { Badge, Button, Empty, Kbd, PaneHeader } from "../components/ui.tsx";
 import { decideApproval } from "../lib/api.ts";
@@ -136,7 +137,14 @@ export function Inbox(props: { pane: number }) {
         </select>
       </PaneHeader>
       <div class="flex-1 overflow-auto">
-        <Show when={!rows.isLoading} fallback={<Empty>Loading…</Empty>}>
+        <Show
+          when={rows.data !== undefined}
+          fallback={
+            <NoRows query={rows} what="the inbox">
+              {null}
+            </NoRows>
+          }
+        >
           <Show
             when={list().length > 0}
             fallback={

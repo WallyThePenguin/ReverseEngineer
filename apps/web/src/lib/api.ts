@@ -80,6 +80,29 @@ export async function decideApproval(id: string, decision: "approve" | "deny") {
   return resultOf<unknown>(await post(`/api/approvals/${id}`, { decision }));
 }
 
+/**
+ * Calls one of Hearth's own endpoints outside the actions (/api/devices, /api/push). Fails the way
+ * actions do: out of reach, signed out, or Hearth's own words for what went wrong.
+ */
+export async function request<T>(path: string, method = "GET", json?: unknown): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method,
+      credentials: "same-origin",
+      headers: json === undefined ? {} : { "content-type": "application/json" },
+      body: json === undefined ? undefined : JSON.stringify(json),
+    });
+  } catch {
+    throw new ApiError(0, "unreachable", UNREACHABLE);
+  }
+  if (res.status === 401) onSignedOut();
+  const body = (await res.json().catch(() => null)) as (T & { error?: string }) | null;
+  if (res.ok) return (body ?? {}) as T;
+  if (!body?.error && res.status >= 502) throw new ApiError(res.status, "unreachable", UNREACHABLE);
+  throw new ApiError(res.status, "failed", body?.error || res.statusText || "That didn't work.");
+}
+
 export async function authPost<T>(path: string, body: unknown = {}): Promise<T> {
   const res = await post(`/api/auth/${path}`, body);
   const data = (await res.json().catch(() => ({}))) as T & { error?: string };

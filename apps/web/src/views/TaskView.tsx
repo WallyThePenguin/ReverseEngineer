@@ -50,7 +50,7 @@ export function TaskView(props: { id: string; pane: number }) {
     );
 
   return (
-    <Show when={task.data} fallback={<Placeholder missing={task.isError} what="task" />}>
+    <Show when={task.data} fallback={<Placeholder query={task} what="task" />}>
       {(t) => (
         <div class="flex h-full flex-col">
           <PaneHeader

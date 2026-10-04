@@ -177,10 +177,53 @@ try {
         if (top < nav.getBoundingClientRect().bottom || top > 300) return `Import is at ${top}px`;
         return marked === "Import" ? "" : `the strip marks ${marked}`;
       });
-    await p.waitForTimeout(1200);
+    await p.waitForTimeout(2000);
     const wrong = await landed();
     if (wrong) throw new Error(wrong);
   });
+
+  await step(
+    "a failed read says so and offers Try again; only a gone record is 'not found'",
+    async (p) => {
+      // Hearth answers, but its database is out of reach.
+      const down = "Hearth's database isn't reachable right now. Try again in a moment.";
+      await p.route("**/api/actions/task.list", (r) =>
+        r.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ error: down }),
+        }),
+      );
+      await p.goto(`${base}/tasks`);
+      await p.getByText(`Couldn't load your tasks: ${down}`).waitFor();
+      await p.getByText("Hearth can't reach its database right now").waitFor();
+      if (await p.getByText("No tasks here.").count()) throw new Error("a failed read looks empty");
+      await p.unroute("**/api/actions/task.list");
+      await p.getByRole("button", { name: "Try again" }).click();
+      await p.getByText(titles[0]!).waitFor();
+      await p.getByText("Hearth can't reach its database right now").waitFor({ state: "detached" });
+
+      // A record that isn't there is "not found" at once; one that failed to load isn't.
+      await p.goto(`${base}/task/00000000-0000-4000-8000-000000000000`);
+      await p.getByText("This task doesn't exist or was deleted.").waitFor();
+      const real = await run<{ id: string; key: string }>(p, "task.create", {
+        title: `Flaky ${tag}`,
+      });
+      await p.route("**/api/actions/task.get", (r) =>
+        r.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ error: down }),
+        }),
+      );
+      await p.goto(`${base}/task/${real.id}`);
+      await p.getByText(`Couldn't load this task: ${down}`).waitFor();
+      if (await p.getByText("Not found").count()) throw new Error("a failed read says not found");
+      await p.unroute("**/api/actions/task.get");
+      await p.getByRole("button", { name: "Try again" }).click();
+      await p.getByRole("heading", { name: real.key }).waitFor();
+    },
+  );
 
   // A phone: 375 px wide, touch only.
   const phone = await browser.newContext({

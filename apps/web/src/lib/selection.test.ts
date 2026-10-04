@@ -59,6 +59,22 @@ describe("createSelection", () => {
     dispose();
   });
 
+  it("goes back to a row that comes back (a refused done), unless you've moved since", () => {
+    const { sel, setList, dispose } = setup("new", "a", "b");
+    sel.select(0);
+    // Done at once; Hearth says no and it's put back.
+    setList(rows("a", "b"));
+    expect(sel.current()?.id).toBe("a");
+    setList(rows("new", "a", "b"));
+    expect(sel.current()?.id).toBe("new");
+    // This time you move on before it comes back: the selection stays where you put it.
+    setList(rows("a", "b"));
+    sel.select(1);
+    setList(rows("new", "a", "b"));
+    expect(sel.current()?.id).toBe("b");
+    dispose();
+  });
+
   it("pins the top row once the list is shown, so arrivals above don't move it", () => {
     const { sel, setList, dispose } = setup("a", "b");
     expect(sel.current()?.id).toBe("a");

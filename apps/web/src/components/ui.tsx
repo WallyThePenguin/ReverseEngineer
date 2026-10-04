@@ -3,6 +3,7 @@
 import type { JSX } from "solid-js";
 import { createContext, Show, useContext } from "solid-js";
 import { layout } from "../lib/panes.ts";
+import { failedMessage, isMissing } from "../lib/readState.ts";
 import { moveToTrash, restore, TRASHABLE } from "../lib/trash.ts";
 import { type MenuItem, Overflow } from "./Menu.tsx";
 
@@ -136,14 +137,46 @@ export function Empty(props: { children: JSX.Element }) {
   return <p class="px-4 py-10 text-center text-sm text-muted">{props.children}</p>;
 }
 
-/** A record pane that's loading, or whose record is gone. Keeps the header so it can be closed. */
-export function Placeholder(props: { missing: boolean; what: string }) {
+/** The parts of a read that its loading, failed and missing states need. */
+export interface Read {
+  isError: boolean;
+  error: unknown;
+  refetch: () => unknown;
+}
+
+/** A read that failed: what went wrong, and a way to try again. */
+export function Failed(props: { error: unknown; retry: () => unknown; what: string }) {
+  return (
+    <div role="alert" class="space-y-3 px-4 py-10 text-center text-sm text-muted">
+      <p>{failedMessage(props.error, props.what)}</p>
+      <Button small onClick={() => void props.retry()}>
+        Try again
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * A record pane that's loading, couldn't load, or whose record is gone (only when Hearth says
+ * not_found; a failure that might pass offers Try again). Keeps the header so it can be closed.
+ */
+export function Placeholder(props: { query: Read; what: string }) {
+  const missing = () => props.query.isError && isMissing(props.query.error);
   return (
     <div class="flex h-full flex-col">
-      <PaneHeader title={props.missing ? "Not found" : ""} />
-      <Empty>
-        {props.missing ? `This ${props.what} doesn't exist or was deleted.` : "Loading…"}
-      </Empty>
+      <PaneHeader title={missing() ? "Not found" : ""} />
+      <Show when={props.query.isError} fallback={<Empty>Loading…</Empty>}>
+        <Show
+          when={!missing()}
+          fallback={<Empty>{`This ${props.what} doesn't exist or was deleted.`}</Empty>}
+        >
+          <Failed
+            error={props.query.error}
+            retry={props.query.refetch}
+            what={`this ${props.what}`}
+          />
+        </Show>
+      </Show>
     </div>
   );
 }

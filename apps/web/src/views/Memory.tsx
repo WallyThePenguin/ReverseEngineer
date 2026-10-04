@@ -3,7 +3,8 @@
 
 import { createSignal, For, lazy, Show } from "solid-js";
 import { Overflow, ROW_MENU } from "../components/Menu.tsx";
-import { Badge, Button, Empty, PaneHeader } from "../components/ui.tsx";
+import { NoRows } from "../components/QueryView.tsx";
+import { Badge, Button, PaneHeader } from "../components/ui.tsx";
 import { ago, who } from "../lib/format.ts";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
 import { toast } from "../lib/live.ts";
@@ -65,9 +66,9 @@ export function Memory(props: { pane: number }) {
         <Show
           when={list().length > 0}
           fallback={
-            <Empty>
+            <NoRows query={notes} what="what Jarvis remembers">
               Nothing yet. Tell Jarvis about yourself in chat and it will keep notes here.
-            </Empty>
+            </NoRows>
           }
         >
           <ul>

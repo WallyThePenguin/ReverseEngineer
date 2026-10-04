@@ -3,6 +3,7 @@
 
 import { createSignal, For, Show } from "solid-js";
 import { Overflow, ROW_MENU } from "../components/Menu.tsx";
+import { QueryView } from "../components/QueryView.tsx";
 import { Badge, Empty, Kbd, PaneHeader } from "../components/ui.tsx";
 import { due, PRIORITY_LABEL } from "../lib/format.ts";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
@@ -200,8 +201,13 @@ export function Tasks(props: { pane: number }) {
         </span>
       </form>
       <div class="flex-1 overflow-auto">
-        <Show when={!tasks.isLoading} fallback={<Empty>Loading…</Empty>}>
-          <Show when={list().length > 0} fallback={<Empty>No tasks here.</Empty>}>
+        <QueryView
+          query={tasks}
+          what="your tasks"
+          isEmpty={() => list().length === 0}
+          empty={<Empty>No tasks here.</Empty>}
+        >
+          {() => (
             <ul>
               <For each={list()}>
                 {(t, i) => (
@@ -216,8 +222,8 @@ export function Tasks(props: { pane: number }) {
                 )}
               </For>
             </ul>
-          </Show>
-        </Show>
+          )}
+        </QueryView>
       </div>
     </div>
   );

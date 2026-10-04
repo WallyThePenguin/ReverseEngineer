@@ -17,21 +17,40 @@ export function SettingsNav(props: { root: () => HTMLElement | undefined }) {
   const [active, setActive] = createSignal<SettingsSection>(SETTINGS_SECTIONS[0].id);
   const find = (id: SettingsSection) =>
     props.root()?.querySelector<HTMLElement>(`[data-section="${id}"]`) ?? null;
-  // A jump's own scrolling doesn't move the mark (it would flick through the sections passed,
-  // and land on the wrong one when the section can't reach the top).
-  let jumpUntil = 0;
+  // While a jump settles, its own scrolling doesn't move the mark (it would flick through the
+  // sections passed, and land on the wrong one when the section can't reach the top). Sections
+  // above can still be loading and push it down, so it's put back in place twice; scrolling
+  // yourself ends the jump.
+  let jumping: SettingsSection | null = null;
+  const settles: number[] = [];
+  const endJump = () => {
+    jumping = null;
+    for (const t of settles.splice(0)) window.clearTimeout(t);
+  };
+  onCleanup(endJump);
   const go = (id: SettingsSection, smooth: boolean) => {
-    jumpUntil = Date.now() + 1000;
+    endJump();
+    jumping = id;
     find(id)?.scrollIntoView({ block: "start", behavior: smooth ? "smooth" : "auto" });
     setActive(id);
+    for (const ms of [700, 1600])
+      settles.push(
+        window.setTimeout(() => {
+          if (jumping !== id) return;
+          find(id)?.scrollIntoView({ block: "start" });
+          if (ms === 1600) jumping = null;
+        }, ms),
+      );
   };
 
   onMount(() => {
     const root = props.root();
     if (!root) return;
+    for (const kind of ["wheel", "touchmove", "keydown", "pointerdown"] as const)
+      root.addEventListener(kind, endJump, { passive: true });
     // The section you're reading is the last one whose top has passed under the strip.
     const spy = () => {
-      if (Date.now() < jumpUntil) return;
+      if (jumping) return;
       const line = root.getBoundingClientRect().top + 96;
       let current: SettingsSection = SETTINGS_SECTIONS[0].id;
       for (const s of SETTINGS_SECTIONS) {
@@ -44,25 +63,19 @@ export function SettingsNav(props: { root: () => HTMLElement | undefined }) {
       setActive(current);
     };
     root.addEventListener("scroll", spy, { passive: true });
-    onCleanup(() => root.removeEventListener("scroll", spy));
+    onCleanup(() => {
+      root.removeEventListener("scroll", spy);
+      for (const kind of ["wheel", "touchmove", "keydown", "pointerdown"] as const)
+        root.removeEventListener(kind, endJump);
+    });
   });
 
-  let again: number | undefined;
-  onCleanup(() => window.clearTimeout(again));
+  // A link from elsewhere asked for a section: go there once this pane has laid out.
   createEffect(() => {
     const wanted = settingsTarget.get();
     if (!wanted) return;
     settingsTarget.set(null);
-    // Once this pane has laid out, and again after its lists have loaded and pushed the section
-    // down, unless you've scrolled since.
-    requestAnimationFrame(() => {
-      go(wanted, false);
-      const at = props.root()?.scrollTop;
-      window.clearTimeout(again);
-      again = window.setTimeout(() => {
-        if (props.root()?.scrollTop === at) go(wanted, false);
-      }, 600);
-    });
+    requestAnimationFrame(() => go(wanted, false));
   });
 
   // The strip scrolls sideways in a narrow pane: keep the current name in view.

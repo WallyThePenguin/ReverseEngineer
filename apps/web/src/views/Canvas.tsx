@@ -2,7 +2,8 @@
 
 import { For, lazy, Show } from "solid-js";
 import { Overflow, ROW_MENU } from "../components/Menu.tsx";
-import { Button, Empty, ForRecord, PaneHeader } from "../components/ui.tsx";
+import { NoRows } from "../components/QueryView.tsx";
+import { Button, ForRecord, PaneHeader } from "../components/ui.tsx";
 import { ago } from "../lib/format.ts";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
 import { layout } from "../lib/panes.ts";
@@ -54,11 +55,10 @@ export function Canvases(props: { pane: number }) {
         <Show
           when={list().length > 0}
           fallback={
-            <Empty>
-              {boards.isLoading
-                ? "Loading…"
-                : "No boards yet. A board holds sticky notes, boxes, arrows and cards for your tasks, notes and people."}
-            </Empty>
+            <NoRows query={boards} what="your boards">
+              No boards yet. A board holds sticky notes, boxes, arrows and cards for your tasks,
+              notes and people.
+            </NoRows>
           }
         >
           <ul>

@@ -6,7 +6,8 @@ import { Backlinks } from "../components/Backlinks.tsx";
 import { Comments, JarvisWorking } from "../components/Comments.tsx";
 import { DocHistory } from "../components/DocHistory.tsx";
 import { Overflow, ROW_MENU } from "../components/Menu.tsx";
-import { Button, Empty, PaneContext, PaneHeader, Placeholder } from "../components/ui.tsx";
+import { NoRows } from "../components/QueryView.tsx";
+import { Button, PaneContext, PaneHeader, Placeholder } from "../components/ui.tsx";
 import { ago, who } from "../lib/format.ts";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
 import { toast } from "../lib/live.ts";
@@ -63,7 +64,11 @@ export function Notes(props: { pane: number }) {
       <div class="flex-1 overflow-auto">
         <Show
           when={list().length > 0}
-          fallback={<Empty>{notes.isLoading ? "Loading…" : "No notes yet."}</Empty>}
+          fallback={
+            <NoRows query={notes} what="your notes">
+              No notes yet.
+            </NoRows>
+          }
         >
           <ul>
             <For each={list()}>
@@ -129,7 +134,7 @@ export function NoteView(props: { id: string; pane: number }) {
   const hasChecklist = () => /^\s*[-*] \[ \] (?!<m-ref)\S/m.test(note.data?.body ?? "");
 
   return (
-    <Show when={note.data} fallback={<Placeholder missing={note.isError} what="note" />}>
+    <Show when={note.data} fallback={<Placeholder query={note} what="note" />}>
       {(n) => (
         <div class="flex h-full flex-col">
           <PaneHeader

@@ -234,7 +234,7 @@ export function MailThreadPane(props: { id: string; pane: number }) {
     { keys: "a", run: () => reply(true), when: focused, label: "Reply all" },
   ]);
   return (
-    <Show when={t.data} fallback={<Placeholder missing={t.isError} what="conversation" />}>
+    <Show when={t.data} fallback={<Placeholder query={t} what="conversation" />}>
       {(v) => (
         <div class="flex h-full flex-col">
           <PaneHeader

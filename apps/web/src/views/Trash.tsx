@@ -2,7 +2,8 @@
 // everything that went with it. Notion imports can be undone from here too.
 
 import { For, Show } from "solid-js";
-import { Badge, Button, Empty, PaneHeader } from "../components/ui.tsx";
+import { NoRows } from "../components/QueryView.tsx";
+import { Badge, Button, PaneHeader } from "../components/ui.tsx";
 import { ago, TYPE_LABEL, who } from "../lib/format.ts";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
 import { layout } from "../lib/panes.ts";
@@ -44,13 +45,9 @@ export function Trash(props: { pane: number }) {
         <Show
           when={list().length > 0}
           fallback={
-            <Empty>
-              {rows.isLoading
-                ? "Loading…"
-                : rows.isError
-                  ? "Couldn't load the trash."
-                  : "Nothing in the trash. What you move there shows here, ready to restore."}
-            </Empty>
+            <NoRows query={rows} what="the trash">
+              Nothing in the trash. What you move there shows here, ready to restore.
+            </NoRows>
           }
         >
           <ul>

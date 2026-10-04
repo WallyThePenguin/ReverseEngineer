@@ -32,7 +32,7 @@ export function RecordView(props: { id: string; pane: number }) {
     return r;
   };
   return (
-    <Show when={redirect()} fallback={<Placeholder missing={rec.isError} what="record" />}>
+    <Show when={redirect()} fallback={<Placeholder query={rec} what="record" />}>
       {(r) => (
         <div class="flex h-full flex-col">
           <PaneHeader

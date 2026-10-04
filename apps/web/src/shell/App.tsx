@@ -44,7 +44,14 @@ import { Voice } from "../views/Voice.tsx";
 import { CommandPalette } from "./CommandPalette.tsx";
 import { MenuDrawer, Shortcuts } from "./Overlays.tsx";
 import { Sidebar, SidebarRail, sidebar, useWaiting } from "./Sidebar.tsx";
-import { Crashed, PaneCrashed, Reconnecting, Unreachable, useAutoRetry } from "./Status.tsx";
+import {
+  Crashed,
+  Degraded,
+  PaneCrashed,
+  Reconnecting,
+  Unreachable,
+  useAutoRetry,
+} from "./Status.tsx";
 import { TabBar } from "./TabBar.tsx";
 
 function PaneView(props: { route: PaneRoute; index: number }) {
@@ -255,6 +262,7 @@ function Shell(props: { onSignOut: () => void }) {
         <Shortcuts onClose={() => setHelp(false)} />
       </Show>
       <Reconnecting />
+      <Degraded />
       <UpdateNotice />
       <div
         class="pointer-events-none fixed bottom-16 left-1/2 z-50 flex w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col items-center gap-2 md:bottom-4"

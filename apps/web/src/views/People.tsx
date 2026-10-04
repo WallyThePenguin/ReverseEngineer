@@ -1,7 +1,8 @@
 // People you know and the companies they're at, built from your mail and meetings.
 
 import { createSignal, Show } from "solid-js";
-import { Empty, PaneHeader } from "../components/ui.tsx";
+import { NoRows } from "../components/QueryView.tsx";
+import { PaneHeader } from "../components/ui.tsx";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
@@ -80,7 +81,17 @@ export function People(props: { pane: number }) {
         </form>
       </Show>
       <div class="flex-1 overflow-auto">
-        <Show when={rows().length > 0} fallback={<Empty>No one yet.</Empty>}>
+        <Show
+          when={rows().length > 0}
+          fallback={
+            <NoRows
+              query={tab() === "companies" ? companies : people}
+              what={tab() === "companies" ? "companies" : "people"}
+            >
+              No one yet.
+            </NoRows>
+          }
+        >
           <Show
             when={tab() === "companies"}
             fallback={
