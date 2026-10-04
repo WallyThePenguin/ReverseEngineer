@@ -1,5 +1,6 @@
 // End-to-end check of the loops used every day: split panes that keep working after one closes,
-// moving things to the trash and back, and clearing the inbox and tasks by touch on a phone.
+// moving things to the trash and back, Settings' section strip, and clearing the inbox and tasks by
+// touch on a phone.
 //
 //   HEARTH_DEV_AUTH=1 HEARTH_WEB_DIST=apps/web/dist hearth serve    (in another terminal)
 //   HEARTH_E2E_URL=http://localhost:4400 node apps/web/e2e/daily.ts
@@ -159,6 +160,26 @@ try {
     await p.getByRole("heading", { name: "Inbox" }).waitFor();
     if ((await run<unknown[]>(p, "conversation.list", { query: tag })).length)
       throw new Error("the trashed conversation is still listed");
+  });
+
+  await step("Settings jumps to a section from its strip of names", async (p) => {
+    await p.goto(`${base}/settings`);
+    const strip = p.getByRole("navigation", { name: "Settings sections" });
+    await strip.getByRole("button", { name: "Import" }).click();
+    // Once the scrolling has settled, Import sits just under the strip (not behind it), marked.
+    const landed = () =>
+      p.evaluate(() => {
+        const h = [...document.querySelectorAll("h2")].find((e) => e.textContent === "Import");
+        const nav = document.querySelector('nav[aria-label="Settings sections"]');
+        if (!h || !nav) return "no heading or strip";
+        const top = h.getBoundingClientRect().top;
+        const marked = nav.querySelector('[aria-current="true"]')?.textContent;
+        if (top < nav.getBoundingClientRect().bottom || top > 300) return `Import is at ${top}px`;
+        return marked === "Import" ? "" : `the strip marks ${marked}`;
+      });
+    await p.waitForTimeout(1200);
+    const wrong = await landed();
+    if (wrong) throw new Error(wrong);
   });
 
   // A phone: 375 px wide, touch only.

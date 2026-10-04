@@ -4,6 +4,7 @@
 import { createSignal, For, Match, Show, Switch } from "solid-js";
 import { Body } from "../components/Body.tsx";
 import { Overflow, ROW_MENU } from "../components/Menu.tsx";
+import { SetupChecklist } from "../components/SetupChecklist.tsx";
 import { Badge, Button, Empty, Kbd, PaneHeader } from "../components/ui.tsx";
 import { decideApproval } from "../lib/api.ts";
 import { ago, due, snoozeOptions, who } from "../lib/format.ts";
@@ -139,11 +140,16 @@ export function Inbox(props: { pane: number }) {
           <Show
             when={list().length > 0}
             fallback={
-              <Empty>
-                {view() === "live"
-                  ? "Nothing needs you. Jarvis will put things here."
-                  : "Nothing here."}
-              </Empty>
+              <>
+                <Show when={view() === "live"}>
+                  <SetupChecklist pane={props.pane} />
+                </Show>
+                <Empty>
+                  {view() === "live"
+                    ? "Nothing needs you. Jarvis will put things here."
+                    : "Nothing here."}
+                </Empty>
+              </>
             }
           >
             <ul>

@@ -1,5 +1,12 @@
 // Hearth itself: component health, backups, and the switch that pauses Jarvis's initiative.
-import { schedule, setting } from "@hearth/db";
+import {
+  type DbOrTx,
+  googleAccount,
+  pushSubscription,
+  schedule,
+  session,
+  setting,
+} from "@hearth/db";
 import {
   type DigestItem,
   defineAction,
@@ -7,7 +14,7 @@ import {
   getSetting,
   setSetting,
 } from "@hearth/kernel";
-import { asc, eq, isNotNull, like } from "drizzle-orm";
+import { and, asc, count, eq, isNotNull, isNull, like, ne } from "drizzle-orm";
 import { z } from "zod";
 import { judgeHealth } from "./staleness.ts";
 
@@ -20,6 +27,25 @@ export interface HealthRecord {
   status: HealthStatus;
   detail: string;
   at: string;
+}
+
+/** What's connected so far, for the "Set up Hearth" checklist. Counts only, nothing secret. */
+async function setupState(tx: DbOrTx) {
+  const [google] = await tx
+    .select({ n: count() })
+    .from(googleAccount)
+    .where(ne(googleAccount.status, "revoked"));
+  const [phone] = await tx.select({ n: count() }).from(pushSubscription);
+  const [desktop] = await tx
+    .select({ n: count() })
+    .from(session)
+    .where(and(like(session.label, "device:%"), isNull(session.revokedAt)));
+  return {
+    google: (google?.n ?? 0) > 0,
+    chrome: (await getSetting(tx, "browser.pairing")) !== null,
+    phone: (phone?.n ?? 0) > 0,
+    desktop: (desktop?.n ?? 0) > 0,
+  };
 }
 
 export const systemModule = defineModule({
@@ -62,6 +88,7 @@ export const systemModule = defineModule({
           .orderBy(asc(schedule.nextRunAt))
           .limit(20);
         return {
+          setup: await setupState(ctx.tx),
           jarvisPaused: await getSetting(ctx.tx, "jarvis.paused"),
           /** When the Jarvis process last checked in (every 30 s) and since when it's up (D54). */
           jarvisAlive: await getSetting(ctx.tx, "jarvis.alive"),
