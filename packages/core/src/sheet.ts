@@ -111,6 +111,41 @@ export function calculate(book: Workbook, model: () => CalcModel): Results {
   }
 }
 
+/** A sheet's name as a formula writes it: bare when it can be, otherwise in single quotes. */
+export function sheetRef(name: string): string {
+  const bare = /^[A-Za-z_][A-Za-z0-9_.]*$/.test(name) && !/^[A-Za-z]{1,3}\d+$/.test(name);
+  return bare ? name : `'${name}'`;
+}
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Renames a sheet, and every reference to it in every formula (=Costs!B3 becomes
+ * ='Monthly costs'!B3), leaving text in "quotes" alone. Returns a new workbook.
+ */
+export function renameSheetRefs(book: Workbook, sheet: number, name: string): Workbook {
+  const old = book.sheets[sheet]?.name;
+  if (old === undefined || old === name) return book;
+  const quoted = new RegExp(`'${escapeRe(old)}'!`, "gi");
+  const bare = new RegExp(`(?<![A-Za-z0-9_.'])${escapeRe(old)}!`, "gi");
+  const to = `${sheetRef(name)}!`;
+  // Outside "strings" only: the even pieces of a split on string literals.
+  const rewrite = (formula: string) =>
+    formula
+      .split(/("(?:[^"]|"")*")/)
+      .map((part, i) => (i % 2 ? part : part.replace(quoted, to).replace(bare, to)))
+      .join("");
+  return {
+    sheets: book.sheets.map((s, i) => ({
+      ...s,
+      name: i === sheet ? name : s.name,
+      cells: Object.fromEntries(
+        Object.entries(s.cells).map(([ref, v]) => [ref, v.startsWith("=") ? rewrite(v) : v]),
+      ),
+    })),
+  };
+}
+
 /** The workbook as markdown tables of results, for search, backlinks and Jarvis. */
 export function workbookMarkdown(book: Workbook, results: Results, maxRows = 60, maxCols = 15) {
   const parts: string[] = [];
