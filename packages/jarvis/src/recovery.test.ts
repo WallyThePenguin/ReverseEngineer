@@ -216,6 +216,15 @@ describe("routines", () => {
     expect(s?.lastOutcome).toBe("skipped_duplicate");
   });
 
+  it("dates a late journal by the day it was due", async () => {
+    await start();
+    h.clock.set("2026-10-02T04:30:10Z"); // 12:30 a.m., five hours after 7:30 p.m.
+    await h.settle();
+    const journal = (await turns()).find((t) => t.context.routine === "journal");
+    expect(journal).toMatchObject({ dedupeKey: "journal:2026-10-01", status: "done" });
+    expect(journal?.context.date).toBe("2026-10-01");
+  });
+
   it("puts a failed heartbeat's items back for the next one", async () => {
     await start();
     await h.tdb.db.insert(heartbeatItem).values([{ id: newId(), text: "A PR was opened" }]);

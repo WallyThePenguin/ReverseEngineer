@@ -50,7 +50,8 @@ export const consolidateRoutine: RoutineDef = {
   staleAfterSeconds: 5 * 3600,
   async run(firing, ctx) {
     const rules = await getSetting(ctx.db, "owner.dayRules");
-    const date = localDate(new Date(ctx.now.getTime() - DAY_MS), rules.timeZone);
+    // The day before it was due, even when it runs late (D54).
+    const date = localDate(new Date(firing.scheduledFor.getTime() - DAY_MS), rules.timeZone);
     const since = new Date(ctx.now.getTime() - DAY_MS);
     // Outside content (email subjects) is never a source for memory, so it isn't shown at all.
     const facts = renderDigest(withoutOutside(await firing.digest(since)));
