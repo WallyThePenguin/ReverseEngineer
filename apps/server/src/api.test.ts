@@ -143,6 +143,28 @@ describe("MCP", () => {
     expect(remembered.result.isError).toBe(true);
   });
 
+  it("can't read your memory notes by id, by search or among recent records", async () => {
+    const saved = await t.browser("/api/actions/memory.remember", {
+      method: "POST",
+      json: { title: "Banking", body: "The owner banks with First Union, account ending 4421." },
+    });
+    const { id } = ((await saved.json()) as { result: { id: string } }).result;
+    const { token } = await createApiToken(t.kernel.db, "helper");
+    const call = async (name: string, args: Record<string, unknown>) =>
+      (await mcp(token, "tools/call", { name, arguments: args })).result;
+    for (const res of [
+      await call("entity_get", { id }),
+      await call("record_read", { id }),
+      await call("entity_search", { query: "First Union" }),
+      await call("entity_recent", {}),
+      await call("entity_recent", { types: ["memory_note"] }),
+    ])
+      expect(res.content![0]!.text).not.toMatch(/First Union|Banking/);
+    // Jarvis and you still can.
+    const mine = await t.browser("/api/actions/entity.get", { method: "POST", json: { id } });
+    expect(await mine.text()).toContain("First Union");
+  });
+
   it("refuses revoked tokens and browser cookies", async () => {
     await createApiToken(t.kernel.db, "current");
     const { token } = await createApiToken(t.kernel.db, "old");

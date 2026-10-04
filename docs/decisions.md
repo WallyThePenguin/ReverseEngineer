@@ -1196,9 +1196,10 @@ later as your instructions, however they're stored or replayed.
   so does one that first links when you or Jarvis edit a record whose text is outside content
   (an email's own tag, kept by your edit).
 - **Outside agents are outside content.** MCP clients and integrations act with an untrusted
-  origin. Memory and Jarvis's watches and observations are only for you and Jarvis. `/mcp`
-  answers only while a token made with `hearth token create` is live, and takes POST only (GET
-  and the rest get 405).
+  origin. Memory and Jarvis's watches and observations are only for you and Jarvis: an outside
+  agent can't find a memory note by id, search or recent records either. `/mcp` answers only
+  while a token made with `hearth token create` is live, and takes POST only (GET and the rest
+  get 405).
 - **D25/D30 in the kernel.** The checks on what a call opens and where it acts, its pin to the
   page and its snapshot of what it sends run in `Kernel.execute` for every call made as Jarvis,
   not only in a turn's tools: a reflex's "act" and the browser self-test get them too, and an

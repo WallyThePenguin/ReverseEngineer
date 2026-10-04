@@ -57,7 +57,10 @@ export function buildMcpServer(kernel: Kernel, caller: Caller): Server {
     const args = req.params.arguments ?? {};
     if (req.params.name === "record_read") {
       const id = typeof args.id === "string" ? args.id : "";
-      const found = await describeRecord(kernel, id, caller).catch(() => null);
+      // Through entity.get first, so a record this agent can't read (memory: D58) isn't found.
+      const visible = await kernel.execute("entity.get", { id }, caller);
+      const found =
+        visible.status === "ok" ? await describeRecord(kernel, id, caller).catch(() => null) : null;
       return text(found ?? "No record with that id.", !found);
     }
     const def = byTool.get(req.params.name);
