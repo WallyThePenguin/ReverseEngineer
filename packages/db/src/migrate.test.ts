@@ -1,7 +1,13 @@
 import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { loadMigrations, migrateDown, migrateUp } from "./migrate.ts";
+import {
+  loadMigrations,
+  migrateDown,
+  migrateUp,
+  migrationState,
+  schemaMismatch,
+} from "./migrate.ts";
 import * as schema from "./schema/index.ts";
 import { adminUrl, createTestDatabase, type TestDatabase, withDatabase } from "./testing/index.ts";
 
@@ -61,5 +67,55 @@ describe("schema mirror", () => {
     const missingInSql = [...inDrizzle].filter((c) => !inSql.has(c));
     const missingInDrizzle = [...inSql].filter((c) => !inDrizzle.has(c) && !SQL_ONLY.has(c));
     expect({ missingInSql, missingInDrizzle }).toEqual({ missingInSql: [], missingInDrizzle: [] });
+  });
+});
+
+describe("whether the database fits this code", () => {
+  let tdb: TestDatabase;
+  beforeAll(async () => {
+    tdb = await createTestDatabase();
+  });
+  afterAll(() => tdb.destroy());
+
+  it("tells a database that's behind from one that's ahead", async () => {
+    const all = loadMigrations().map((m) => m.name);
+    const fits = await migrationState(tdb.pool);
+    expect(fits).toMatchObject({ expected: all, applied: all, missing: [], unknown: [] });
+    expect(schemaMismatch(fits)).toBeNull();
+
+    const last = all.at(-1)!;
+    await tdb.pool.query("DELETE FROM _migration WHERE name = $1", [last]);
+    const behind = await migrationState(tdb.pool);
+    expect(behind.missing).toEqual([last]);
+    expect(schemaMismatch(behind)).toMatch(/missing 1 update.*Run `hearth migrate`/);
+
+    await tdb.pool.query("INSERT INTO _migration (name) VALUES ($1), ('9999_from_the_future')", [
+      last,
+    ]);
+    const ahead = await migrationState(tdb.pool);
+    expect(ahead).toMatchObject({ missing: [], unknown: ["9999_from_the_future"] });
+    expect(schemaMismatch(ahead)).toMatch(/newer than the code/);
+  });
+
+  it("counts an empty database as missing everything", async () => {
+    const name = `hearth_migrate_${Date.now()}`;
+    const admin = new pg.Client({ connectionString: adminUrl() });
+    await admin.connect();
+    await admin.query(`CREATE DATABASE ${name}`);
+    const pool = new pg.Pool({ connectionString: withDatabase(name) });
+    try {
+      const state = await migrationState(pool);
+      expect(state.applied).toEqual([]);
+      expect(state.missing).toEqual(loadMigrations().map((m) => m.name));
+    } finally {
+      await pool.end();
+      for (let i = 0; i < 50; i++) {
+        const open = await admin.query("SELECT 1 FROM pg_stat_activity WHERE datname = $1", [name]);
+        if (open.rowCount === 0) break;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      await admin.query(`DROP DATABASE ${name} WITH (FORCE)`);
+      await admin.end();
+    }
   });
 });
