@@ -14,6 +14,8 @@ const LABELS: Readonly<Record<string, string>> = {
   worker: "Hearth's worker",
   server: "Hearth's server",
   disk: "Disk space",
+  // The worker reports it failing when no backup has run for a day and a half.
+  backup: "The nightly backup",
   schedules: "Scheduling",
   browser: "The Chrome link",
 };

@@ -104,4 +104,14 @@ describe("system alerts", () => {
       { title: "Last night's backup failed", body: "restic: repository locked" },
     ]);
   });
+
+  it("names every component the worker reports in words", async () => {
+    await report("backup", "ok");
+    await report("backup", "failing", "No backup since 2026-09-30 3 a.m. Check the backup task.");
+    await report("schedules", "failing", "A schedule is overdue");
+    expect((await alerts()).map((a) => a.title).sort()).toEqual([
+      "Scheduling is failing",
+      "The nightly backup is failing",
+    ]);
+  });
 });
