@@ -146,6 +146,8 @@ jobs:
         run: pnpm typecheck
       - name: File size limit
         run: pnpm check:size
+      - name: The update and restart scripts (they parse; the update gate's logic)
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ops/windows/test-control.ps1
       - name: Chromium (page tests and the browser smoke test)
         run: pnpm --filter @hearth/web exec playwright install chromium
       - name: Tests
