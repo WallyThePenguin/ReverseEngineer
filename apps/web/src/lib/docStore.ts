@@ -97,12 +97,13 @@ async function within(
   stores: string[],
   mode: IDBTransactionMode,
   fn: (tx: IDBTransaction) => void,
+  durability: IDBTransactionDurability = "default",
 ): Promise<boolean> {
   const db = await idb();
   if (!db) return false;
   return new Promise((resolve) => {
     try {
-      const tx = db.transaction(stores, mode);
+      const tx = db.transaction(stores, mode, { durability });
       tx.oncomplete = () => resolve(true);
       tx.onerror = () => resolve(false);
       tx.onabort = () => resolve(false);
@@ -182,9 +183,17 @@ export async function sendKeptNotes(): Promise<void> {
 
 /** Writes an edit ahead of sending it. True once it's on disk. */
 export const appendUpdate = (u: PendingUpdate) =>
-  within([UPDATES], "readwrite", (tx) => {
-    tx.objectStore(UPDATES).put(u);
-  });
+  within(
+    [UPDATES],
+    "readwrite",
+    (tx) => {
+      tx.objectStore(UPDATES).put(u);
+    },
+    // Flushed to disk before it counts as written: Chrome otherwise reports a commit once it's
+    // with the OS, and a power cut could then lose an edit Hearth already has. This device would
+    // then make a different edit under the same peer and id, and the note would stop syncing.
+    "strict",
+  );
 
 /** A note's edits that its saved copy may not hold, from every tab. */
 export const pendingUpdates = (doc: string) =>
@@ -214,7 +223,9 @@ export async function peerFor(slot: number): Promise<bigint | null> {
 
 /** Gives a slot a new peer id next time: an edit made as this one may not have been written. */
 export async function retirePeer(slot: number): Promise<void> {
-  await run(PEERS, "readwrite", (s) => s.delete(slot));
+  // On disk at once, like an edit (see appendUpdate): a retirement lost to a power cut would
+  // hand the peer out again.
+  await within([PEERS], "readwrite", (tx) => tx.objectStore(PEERS).delete(slot), "strict");
 }
 
 export const loadUnsaved = <T>(key: string) =>
