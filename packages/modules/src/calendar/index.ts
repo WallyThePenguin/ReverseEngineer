@@ -28,6 +28,7 @@ import { blockAction, blockReflex, blockRoutine } from "./blocks.ts";
 import { calendarSetupActions, dropCalendars, inSelectedCalendar } from "./calendars.ts";
 import { freeSlots } from "./free.ts";
 import { prepPublish, prepRoutine } from "./prep.ts";
+import { respondAction } from "./respond.ts";
 import { guests, loadEvent, toEventView, whenText } from "./store.ts";
 import { syncCalendars } from "./sync.ts";
 
@@ -307,6 +308,7 @@ export const calendarModule = defineModule({
       },
     }),
     ...calendarWriteActions,
+    respondAction,
     blockAction,
     prepPublish,
   ],

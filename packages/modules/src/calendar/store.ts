@@ -27,6 +27,8 @@ export interface EventView {
   selfOrganizer: boolean;
   selfResponse: string | null;
   attendees: Attendee[];
+  /** The series it's one time of, for a repeating event. */
+  recurringEventId: string | null;
   taskId: string | null;
 }
 
@@ -49,6 +51,7 @@ export function toEventView(e: EntityRow, r: EventRow): EventView {
     selfOrganizer: r.selfOrganizer,
     selfResponse: r.selfResponse,
     attendees: r.attendees,
+    recurringEventId: r.recurringEventId,
     taskId: r.taskId,
   };
 }

@@ -60,6 +60,8 @@ export interface MailInvite {
     cancelled: boolean;
     response: string | null;
     selfOrganizer: boolean;
+    /** One time of a repeating meeting. */
+    recurring: boolean;
   } | null;
 }
 

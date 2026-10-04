@@ -94,10 +94,14 @@ function Invite(props: { invite: MailInvite }) {
           minute: "2-digit",
         });
   };
+  // A repeating meeting is answered for every time, unless you say this time only.
+  const [scope, setScope] = createSignal<"all" | "this">("all");
   const answer = (response: string) =>
-    void act("calendar.respond", { id: ev()!.id, response }).then(
-      (r) => r && toast.show("Answered. The organizer will see it."),
-    );
+    void act("calendar.respond", {
+      id: ev()!.id,
+      response,
+      ...(ev()!.recurring ? { scope: scope() } : {}),
+    }).then((r) => r && toast.show("Answered. The organizer will see it."));
   return (
     <div class="rounded-md border border-line bg-sunk px-3 py-2 text-sm">
       <Show
@@ -121,6 +125,17 @@ function Invite(props: { invite: MailInvite }) {
               </Show>
               <span class="flex-1" />
               <Show when={!e().cancelled && !e().selfOrganizer}>
+                <Show when={e().recurring}>
+                  <select
+                    class="rounded-md border border-line bg-panel px-2 py-1 text-xs"
+                    aria-label="Which times"
+                    value={scope()}
+                    onChange={(x) => setScope(x.currentTarget.value as "all" | "this")}
+                  >
+                    <option value="all">Every time</option>
+                    <option value="this">This time only</option>
+                  </select>
+                </Show>
                 <For each={ANSWERS}>
                   {(a) => (
                     <Button

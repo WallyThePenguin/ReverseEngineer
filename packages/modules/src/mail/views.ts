@@ -63,6 +63,8 @@ export interface InviteView {
     cancelled: boolean;
     response: string | null;
     selfOrganizer: boolean;
+    /** One time of a repeating meeting: an answer is for this time or every time. */
+    recurring: boolean;
   } | null;
 }
 
@@ -183,6 +185,7 @@ export async function loadThread(db: DbOrTx, id: string): Promise<ThreadView | n
         cancelled: ev.status === "cancelled",
         response: ev.selfResponse,
         selfOrganizer: ev.selfOrganizer,
+        recurring: Boolean(ev.recurringEventId),
       },
     });
   }
@@ -213,7 +216,8 @@ function inviteLine(i: InviteView): string {
       : `The sender says "${i.summary}" is cancelled; the calendar doesn't show that.`;
   if (!i.event) return `Invitation "${i.summary}": not on the calendar yet.`;
   const answer = i.event.response ?? "not answered";
-  return `Invitation: calendar event ${i.event.id} (owner's answer: ${answer}). Answer it with calendar_respond if the owner asks.`;
+  const repeats = i.event.recurring ? ' It repeats: say scope "this" or "all".' : "";
+  return `Invitation: calendar event ${i.event.id} (owner's answer: ${answer}). Answer it with calendar_respond if the owner asks.${repeats}`;
 }
 
 /** A conversation as markdown, for Jarvis. Quoted replies are cut to keep it short. */

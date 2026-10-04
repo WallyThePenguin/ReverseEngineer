@@ -33,6 +33,9 @@ export interface GAttendee {
   self?: boolean;
   organizer?: boolean;
   resource?: boolean;
+  optional?: boolean;
+  comment?: string;
+  additionalGuests?: number;
 }
 
 export interface GEvent {
