@@ -32,7 +32,10 @@ export const notesModule = defineModule({
       const row = await liveEntity(ctx.db, entityId, "note");
       if (!row) return null;
       const open = openUnlinkedItems(row.body ?? "").length;
-      return describeRow(row, open ? [`${open} unchecked item(s) not yet tasks`] : []);
+      // The revision Jarvis passes back to rewrite the whole note (D59).
+      const extra = [`revision ${row.revision}`];
+      if (open) extra.push(`${open} unchecked item(s) not yet tasks`);
+      return describeRow(row, extra);
     },
   },
   actions: [
@@ -54,7 +57,7 @@ export const notesModule = defineModule({
     defineAction({
       name: "note.update",
       description:
-        "Change a note's title or body. Pass revision to fail safely if it changed since you read it.",
+        "Change a note's title or body. To rewrite the body, pass revision: the one shown when you read the note. It fails safely if the note changed since.",
       input: z.object({
         id,
         title: title.optional(),
@@ -67,7 +70,7 @@ export const notesModule = defineModule({
         if (i.body !== undefined && i.revision === undefined && AGENTS.includes(ctx.caller.kind))
           throw new ActionError(
             "invalid_input",
-            "Pass revision, the note's revision when you read it, so a rewrite can't undo changes you haven't seen. To change part of a note, use doc_edit.",
+            "Pass revision, the one shown when you read the note, so a rewrite can't undo changes you haven't seen. To change part of a note, use doc_edit.",
           );
         return writeDoc(
           ctx,

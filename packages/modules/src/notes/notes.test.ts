@@ -81,6 +81,17 @@ describe("whole-note rewrites", () => {
     await ok("note.update", { id: note.id, body: "three" });
     expect(await bodyOf(note.id)).toBe("three");
   });
+
+  it("show Jarvis the revision to pass back when it reads the note", async () => {
+    const note = await ok<{ id: string }>("note.create", { title: "Plan", body: "one" });
+    await ok("note.update", { id: note.id, body: "two" });
+    const read: ReadContext = { db: t.tdb.db, now: t.clock.now() };
+    const seen = await notesModule.knowledge.note!(note.id, read);
+    const revision = Number(/revision (\d+)/.exec(String(seen))?.[1]);
+    expect(revision).toBe(2);
+    await ok("note.update", { id: note.id, body: "three", revision }, jarvisCaller("agent"));
+    expect(await bodyOf(note.id)).toBe("three");
+  });
 });
 
 describe("checklist suggestions", () => {
