@@ -36,7 +36,7 @@ export function UpdateNotice() {
   return (
     <Show when={notice()}>
       {(n) => (
-        <div class="fixed left-1/2 top-[calc(env(safe-area-inset-top)+0.5rem)] z-50 flex -translate-x-1/2 items-center gap-3 rounded-lg bg-ink px-4 py-2 text-sm text-bg shadow-lg">
+        <div class="pointer-events-auto flex items-center gap-3 rounded-lg bg-ink px-4 py-2 text-sm text-bg shadow-lg">
           <Show
             when={n() === "updated"}
             fallback={
