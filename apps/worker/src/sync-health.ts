@@ -2,7 +2,9 @@
 // minute with the rest (sync.google, sync.slack, sync.github). Read from what each sync already
 // records, its last error and when it last worked, so Settings and `hearth doctor` show a sync
 // that's failing or has quietly stopped, and system.report tells you when one starts failing,
-// whether or not Jarvis is running. A slowdown Google asked for isn't a failure (D55).
+// whether or not Jarvis is running. Mail, Slack and GitHub save their own verdict (D55, D61),
+// which is taken as it is; Google access and calendars keep only their last error, which counts
+// as failing once it has lasted half an hour. A slowdown Google asked for isn't a failure (D55).
 import { formatTime } from "@hearth/core";
 import {
   calendar,
@@ -77,8 +79,9 @@ export function judgeSync(
 }
 
 /**
- * When each error run began, for syncs that only keep their latest error. Kept in memory: after
- * a restart a lasting error counts from then, so failing comes half an hour later, never sooner.
+ * When each error run began, for syncs that only keep their latest error (Google access and
+ * calendars). Kept in memory: after a restart a lasting error counts from then, so failing comes
+ * half an hour later, never sooner.
  */
 export class ErrorClock {
   private readonly started = new Map<string, Date>();
@@ -129,22 +132,25 @@ async function google(kernel: Kernel, clock: ErrorClock, now: Date): Promise<Syn
   return out;
 }
 
-async function slack(kernel: Kernel, clock: ErrorClock, now: Date): Promise<SyncSource[]> {
+// Slack and GitHub judge themselves too (D61): failing once their own state says so (a token that
+// stopped working, something that won't pass by itself, or three failures with nothing read for
+// half an hour). An error a round read past is worth a look, however long it has gone on.
+async function slack(kernel: Kernel): Promise<SyncSource[]> {
   const rows = await kernel.db.select().from(slackWorkspace);
   return rows.map((w) => ({
     name: w.teamName,
     error: w.lastError,
-    since: clock.since(`slack:${w.teamId}`, w.lastError, now),
+    failing: w.syncState !== "ok",
     lastGood: w.syncedAt,
   }));
 }
 
-async function github(kernel: Kernel, clock: ErrorClock, now: Date): Promise<SyncSource[]> {
+async function github(kernel: Kernel): Promise<SyncSource[]> {
   const rows = await kernel.db.select().from(githubAccount);
   return rows.map((a) => ({
     name: a.login,
     error: a.lastError,
-    since: clock.since(`github:${a.login}`, a.lastError, now),
+    failing: a.syncState !== "ok",
     lastGood: a.syncedAt,
   }));
 }

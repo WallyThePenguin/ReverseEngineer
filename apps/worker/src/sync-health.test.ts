@@ -1,4 +1,11 @@
-import { calendar, googleAccount, mailAccount, notification, slackWorkspace } from "@hearth/db";
+import {
+  calendar,
+  githubAccount,
+  googleAccount,
+  mailAccount,
+  notification,
+  slackWorkspace,
+} from "@hearth/db";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { ALL_MODULES } from "@hearth/modules";
 import { eq } from "drizzle-orm";
@@ -34,13 +41,13 @@ describe("judgeSync", () => {
 
   it("calls an error failing once it has lasted half an hour, or at once if it needs you", () => {
     const lasting = judgeSync(
-      "sync.github",
-      [{ name: "me", error: "Bad credentials", since: ago(31) }],
+      "sync.google",
+      [{ name: "Me calendar", error: "Not Found", since: ago(31) }],
       now,
       NY,
     );
     expect(lasting).toMatchObject({ status: "failing" });
-    expect(lasting.detail).toBe("me: failing for 31 min: Bad credentials");
+    expect(lasting.detail).toBe("Me calendar: failing for 31 min: Not Found");
     const revoked = { name: "me@example.com", error: "Connect it again.", failing: true };
     expect(judgeSync("sync.google", [revoked], now, NY)).toMatchObject({
       status: "failing",
@@ -75,6 +82,16 @@ describe("ErrorClock", () => {
   });
 });
 
+const ACME = {
+  teamId: "T1",
+  teamName: "Acme",
+  url: "https://acme.slack.com",
+  userId: "U1",
+  token: "sealed",
+};
+const alerts = (t: TestKernel) =>
+  t.tdb.db.select().from(notification).where(eq(notification.kind, "system.alert"));
+
 describe("checkSyncs", () => {
   let t: TestKernel;
   beforeEach(async () => {
@@ -82,19 +99,17 @@ describe("checkSyncs", () => {
   });
   afterEach(() => t.destroy());
 
-  it("reports only what's connected, and tells you when a sync fails for half an hour", async () => {
+  it("reports only what's connected, and tells you once Slack says its sync is failing (D61)", async () => {
     const clock = new ErrorClock();
     expect(await checkSyncs(t.kernel, clock)).toEqual([]);
 
     const at = t.kernel.clock.now();
     await t.tdb.db.insert(slackWorkspace).values({
-      teamId: "T1",
-      teamName: "Acme",
-      url: "https://acme.slack.com",
-      userId: "U1",
-      token: "sealed",
+      ...ACME,
       syncedAt: at,
-      lastError: "invalid_auth",
+      lastError: "fetch failed",
+      failures: 1,
+      failingSince: at,
     });
     await t.tdb.db.insert(googleAccount).values({ email: "me@example.com", refreshToken: "x" });
     await t.tdb.db.insert(mailAccount).values({
@@ -118,21 +133,21 @@ describe("checkSyncs", () => {
     await reportHealth(t.kernel, reports);
 
     t.clock.advance(31 * 60_000);
-    // Mail and calendar kept syncing; Slack kept failing.
+    // Mail and calendar kept syncing; Slack kept failing with nothing read, so after three rounds
+    // and half an hour its own sync called it failing (D61).
     const later = t.kernel.clock.now();
     await t.tdb.db.update(mailAccount).set({ syncedAt: later });
     await t.tdb.db.update(calendar).set({ lastSyncedAt: later });
+    await t.tdb.db.update(slackWorkspace).set({ syncState: "failing", failures: 3 });
     reports = await checkSyncs(t.kernel, clock);
     expect(reports.find((r) => r.component === "sync.slack")).toMatchObject({
       status: "failing",
-      detail: "Acme: failing for 31 min: invalid_auth",
+      detail: "Acme: fetch failed",
     });
     await reportHealth(t.kernel, reports);
-    const told = await t.tdb.db
-      .select()
-      .from(notification)
-      .where(eq(notification.kind, "system.alert"));
-    expect(told).toMatchObject([{ title: "Slack sync is failing", urgency: "interrupt" }]);
+    expect(await alerts(t)).toMatchObject([
+      { title: "Slack sync is failing", urgency: "interrupt" },
+    ]);
 
     // Disconnected: says so, which closes the failing report.
     await t.tdb.db.delete(slackWorkspace);
@@ -142,6 +157,57 @@ describe("checkSyncs", () => {
       status: "ok",
       detail: "Not connected",
     });
+  });
+
+  it("leaves Slack's verdict to Slack: an error a round reads past is no alert, however old (D61)", async () => {
+    const clock = new ErrorClock();
+    const start = t.kernel.clock.now();
+    // One channel keeps getting Slack's server errors while the rest read in, so every round
+    // progressed and Slack's sync still says ok, though the errors began 40 minutes ago.
+    await t.tdb.db.insert(slackWorkspace).values({
+      ...ACME,
+      syncedAt: start,
+      lastError: "#general: http_503",
+      failures: 4,
+      failingSince: new Date(start.getTime() - 40 * 60_000),
+    });
+    let reports = await checkSyncs(t.kernel, clock);
+    expect(reports).toMatchObject([{ component: "sync.slack", status: "degraded" }]);
+    await reportHealth(t.kernel, reports);
+
+    t.clock.advance(31 * 60_000);
+    await t.tdb.db.update(slackWorkspace).set({ syncedAt: t.kernel.clock.now(), failures: 11 });
+    reports = await checkSyncs(t.kernel, clock);
+    expect(reports).toEqual([
+      {
+        component: "sync.slack",
+        status: "degraded",
+        detail: "Acme: the last sync failed: #general: http_503",
+      },
+    ]);
+    await reportHealth(t.kernel, reports);
+    expect(await alerts(t)).toEqual([]);
+  });
+
+  it("calls a GitHub token that stopped working failing at once (D61)", async () => {
+    const at = t.kernel.clock.now();
+    await t.tdb.db.insert(githubAccount).values({
+      login: "me",
+      token: "sealed",
+      syncedAt: at,
+      lastError: "Bad credentials",
+      syncState: "revoked",
+      failures: 1,
+      failingSince: at,
+    });
+    const reports = await checkSyncs(t.kernel, new ErrorClock());
+    expect(reports).toEqual([
+      { component: "sync.github", status: "failing", detail: "me: Bad credentials" },
+    ]);
+    await reportHealth(t.kernel, reports);
+    expect(await alerts(t)).toMatchObject([
+      { title: "GitHub sync is failing", urgency: "interrupt" },
+    ]);
   });
 
   it("leaves mail's verdict to mail itself: a pause is calm, an error fails only once mail says so (D55)", async () => {
