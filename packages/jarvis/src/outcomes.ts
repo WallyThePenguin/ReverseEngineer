@@ -103,7 +103,9 @@ export async function applyOutcomes(
           if (scheduleId) await setLastOutcome(kernel, scheduleId, `skipped_${gate.reason}`);
           result.skipped.push(`${src.name}: ${gate.reason}`);
           if (o.fallback?.length) {
-            const inner = await applyOutcomes(kernel, o.fallback, src, log);
+            // As trusted as the turn would have been: a brief quoting email is written untrusted.
+            const as = { ...src, event: { ...src.event, origin: base.origin } };
+            const inner = await applyOutcomes(kernel, o.fallback, as, log);
             result.skipped.push(...inner.skipped);
           }
           break;

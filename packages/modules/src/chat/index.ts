@@ -1,6 +1,6 @@
 // Chat with Jarvis, and comment threads on any record. Jarvis answers chat messages and
 // @mentions wherever they appear.
-import { formatDateTime } from "@hearth/core";
+import { asUntrusted, formatDateTime } from "@hearth/core";
 import { conversation, conversationLog, entity } from "@hearth/db";
 import {
   createEntity,
@@ -268,15 +268,19 @@ export const chatModule = defineModule({
           context: string;
         };
         const subjectId = p.type === "comment" && p.parentId ? p.parentId : event.entityId;
+        // Written after reading outside content (or on a device's say-so), so what it asks is
+        // outside content too, and the turn starts untrusted (D58).
+        const outside = event.origin === "untrusted";
         return [
           {
             kind: "turn",
             trigger: "mention",
             lane: routeLane(p.context),
             subjectId,
+            ...(outside ? { untrusted: true } : {}),
             dedupeKey: `mention:${event.entityId}:${p.anchor}`,
             context: { sourceId: event.entityId, sourceType: p.type },
-            prompt: `You were @mentioned in a ${p.type}. Read the record, then answer or do what was asked:\n\n${p.context}`,
+            prompt: `You were @mentioned in a ${p.type}. Read the record, then answer or do what was asked:\n\n${outside ? asUntrusted(p.context, p.type) : p.context}`,
           },
         ];
       },

@@ -147,10 +147,15 @@ export async function restoreEntity(ctx: ActionContext, id: string): Promise<Ent
   return row;
 }
 
-/** Re-derives this record's mention links from its body and emits what changed. */
+/**
+ * Re-derives this record's mention links from its body and emits what changed. Only text you or
+ * an agent wrote mentions anything: an email or an outside agent's note that holds a mention tag
+ * can't link records or call Jarvis (D58).
+ */
 export async function syncMentions(ctx: ActionContext, source: EntityRow): Promise<void> {
   const body = source.body ?? "";
-  const mentions = parseMentions(body).filter((m) => m.id !== source.id);
+  const outsider = ctx.caller.kind === "integration" || ctx.caller.kind === "mcp_client";
+  const mentions = outsider ? [] : parseMentions(body).filter((m) => m.id !== source.id);
   const targetIds = [...new Set(mentions.map((m) => m.id))];
   const targets = targetIds.length
     ? await ctx.tx
