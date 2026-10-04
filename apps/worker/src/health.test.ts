@@ -9,6 +9,7 @@ import {
   checkDisks,
   checkDrives,
   checkHealth,
+  diskStatus,
   hearthFolders,
   reportHealth,
 } from "./health.ts";
@@ -67,6 +68,13 @@ describe("health checks", () => {
     const disk = await checkDisk(process.cwd());
     expect(["ok", "degraded", "failing"]).toContain(disk.status);
     expect(disk.detail).toMatch(/GB free/);
+  });
+
+  it("judges free space in gigabytes, so a big drive isn't failing at 1%", () => {
+    const GB = 1024 ** 3;
+    expect(diskStatus(1.5 * GB)).toBe("failing");
+    expect(diskStatus(9.8 * GB)).toBe("degraded");
+    expect(diskStatus(18 * GB)).toBe("ok");
   });
 
   it("checks every drive Hearth uses once, by name", async () => {
