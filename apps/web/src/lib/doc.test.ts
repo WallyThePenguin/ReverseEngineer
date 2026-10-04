@@ -44,7 +44,7 @@ const unb64 = (s: string) => new Uint8Array(Buffer.from(s, "base64"));
 
 /** Hearth's copy of the note, and how it answers. */
 let hearth: LoroDoc;
-let mode: "up" | "down" | "hang" | "gone" | "refuse" = "up";
+let mode: "up" | "down" | "hang" | "gone" | "refuse" | "fail" = "up";
 let syncs = 0;
 const reply = (body: unknown, status = 200) => Response.json(body, { status });
 
@@ -75,6 +75,8 @@ beforeEach(() => {
     if (mode === "hang") return new Promise(() => {});
     if (mode === "gone")
       return reply({ status: "error", code: "not_found", message: "No such doc" });
+    if (mode === "fail")
+      return reply({ status: "error", code: "failed", message: "deadlock detected (40P01)" });
     if (mode === "refuse")
       return reply({ status: "error", code: "invalid_input", message: "That's too long to save." });
     syncs++;
@@ -221,6 +223,19 @@ describe("a note's edits, written ahead", () => {
     a.type("x");
     await vi.advanceTimersByTimeAsync(600);
     expect(a.seen.at(-1)).toBe("refused");
+    await a.doc.close();
+  });
+
+  it("doesn't call Hearth out of reach when it failed at a sync, and tries again", async () => {
+    const a = await open();
+    mode = "fail";
+    a.type(" again");
+    await vi.advanceTimersByTimeAsync(600);
+    expect(a.seen.at(-1)).toBe("retrying");
+    mode = "up";
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(hearthText()).toBe("Plan again");
+    expect(a.seen.at(-1)).toBe("ok");
     await a.doc.close();
   });
 

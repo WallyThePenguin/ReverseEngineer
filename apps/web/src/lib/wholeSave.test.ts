@@ -11,6 +11,8 @@ const card = (id: string, text: string): CanvasNode =>
 let server: { version: number; title: string; board: Canvas };
 let down = false;
 let refuse: string | null = null;
+/** Hearth fails at saves (a bug, or its database deadlocked). */
+let failing = false;
 let sent: { input: { baseVersion: number; board: Canvas }; keepalive: boolean }[] = [];
 
 const reply = (body: unknown, status = 200) => Response.json(body, { status });
@@ -20,6 +22,7 @@ beforeEach(() => {
   server = { version: 1, title: "Plan", board: { nodes: [card("a", "one")], edges: [] } };
   down = false;
   refuse = null;
+  failing = false;
   sent = [];
   const win = Object.assign(new EventTarget(), {
     setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
@@ -34,6 +37,8 @@ beforeEach(() => {
       return reply({ status: "ok", result: { ...structuredClone(server), board: server.board } });
     sent.push({ input, keepalive: init.keepalive === true });
     if (refuse) return reply({ status: "error", code: "invalid_input", message: refuse }, 400);
+    if (failing)
+      return reply({ status: "error", code: "failed", message: "deadlock detected (40P01)" }, 400);
     if (input.baseVersion !== server.version)
       return reply({ status: "error", code: "conflict", message: "Changed since read." }, 409);
     server = { ...server, board: structuredClone(input.board), version: server.version + 1 };
@@ -103,6 +108,19 @@ describe("saving a board whole", () => {
     await vi.advanceTimersByTimeAsync(700);
     expect(saver.problem()).toMatch(/can't reach Hearth/);
     down = false;
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(texts(server.board)).toEqual(["one", "two"]);
+    expect(saver.problem()).toBeNull();
+  });
+
+  it("says Hearth hit a problem, not that it's out of reach, when it fails a save", async () => {
+    const { saver, edit } = await openBoard();
+    failing = true;
+    edit((b) => b.nodes.push(card("b", "two")));
+    await vi.advanceTimersByTimeAsync(700);
+    // Hearth's own text for a failure is its internals: not shown.
+    expect(saver.problem()).toBe("Not saved yet: Hearth hit a problem saving it. Trying again…");
+    failing = false;
     await vi.advanceTimersByTimeAsync(2_000);
     expect(texts(server.board)).toEqual(["one", "two"]);
     expect(saver.problem()).toBeNull();

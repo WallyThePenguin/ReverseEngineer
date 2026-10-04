@@ -17,7 +17,7 @@ import {
 } from "./docStore.ts";
 import { backoff, onLiveEvent } from "./live.ts";
 import { type Claim, claimPeer } from "./peer.ts";
-import { isTransient } from "./wholeSave.ts";
+import { isOffline, isTransient } from "./wholeSave.ts";
 
 const SYNC_AFTER_MS = 500;
 /** Typing that never pauses still syncs this often. */
@@ -45,6 +45,8 @@ export type DocStatus =
   | { kind: "ok" }
   /** Hearth is out of reach: they wait here, and go when it's back. */
   | { kind: "offline" }
+  /** Hearth hit a problem taking them: they wait here, and it tries again shortly. */
+  | { kind: "retrying" }
   /** Hearth turned them down, for this reason. */
   | { kind: "refused"; message: string }
   /** The note was deleted; `unsent` if it held edits Hearth never got (kept here). */
@@ -235,7 +237,7 @@ export class LiveDoc {
         } catch (err) {
           if (err instanceof ApiError && err.code === "not_found") return this.lost();
           if (isTransient(err)) {
-            this.onStatus({ kind: "offline" });
+            this.onStatus({ kind: isOffline(err) ? "offline" : "retrying" });
             if (!this.closed)
               this.retry = window.setTimeout(() => void this.sync(), backoff(this.attempt++));
           } else {

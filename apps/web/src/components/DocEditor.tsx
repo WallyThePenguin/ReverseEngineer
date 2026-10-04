@@ -266,6 +266,9 @@ export default function DocEditor(props: { id: string; placeholder?: string }) {
         <Show when={state() === "open" && status().kind === "offline"}>
           Not saved yet: can't reach Hearth. It's kept here and goes when Hearth is back.
         </Show>
+        <Show when={state() === "open" && status().kind === "retrying"}>
+          Not saved yet: Hearth hit a problem saving it. It's kept here, and Hearth tries again.
+        </Show>
         <Show when={state() === "open" && refused()}>
           {(why) => <span class="text-bad">Hearth didn't save this: {why()}</span>}
         </Show>

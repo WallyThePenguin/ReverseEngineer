@@ -45,6 +45,21 @@ export interface SaverOptions<T> {
 export const isTransient = (err: unknown) =>
   !(err instanceof ApiError) || ["unreachable", "unavailable", "failed"].includes(err.code);
 
+/**
+ * Hearth (or its database) out of reach, as opposed to Hearth failing at the save: only then do
+ * messages say it can't be reached. A failure's own text is Hearth's internals, so it isn't shown.
+ */
+export const isOffline = (err: unknown) =>
+  err instanceof ApiError && (err.code === "unreachable" || err.code === "unavailable");
+
+/** Why a save that will be tried again hasn't happened yet, in plain words. */
+export function notYet(err: unknown): string {
+  if (isOffline(err)) return "Not saved yet: can't reach Hearth. Trying again…";
+  if (err instanceof ApiError && err.code === "conflict")
+    return "Not saved yet: it keeps changing elsewhere. Trying again…";
+  return "Not saved yet: Hearth hit a problem saving it. Trying again…";
+}
+
 const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 export function createSaver<T>(o: SaverOptions<T>) {
@@ -90,8 +105,8 @@ export function createSaver<T>(o: SaverOptions<T>) {
     }
   };
 
-  const later = () => {
-    setProblem("Not saved yet: can't reach Hearth. Trying again…");
+  const later = (err: unknown) => {
+    setProblem(notYet(err));
     window.clearTimeout(retry);
     // Once it's closed, the copy kept here waits for the next open instead.
     if (!closed) retry = window.setTimeout(() => void save(), backoff(attempt++));
@@ -144,10 +159,10 @@ export function createSaver<T>(o: SaverOptions<T>) {
               mergeWith(await o.get());
               again = true;
             } catch (e) {
-              if (isTransient(e)) later();
+              if (isTransient(e)) later(e);
               else refused(e);
             }
-          } else if (isTransient(err) || merges >= MAX_MERGES) later();
+          } else if (isTransient(err) || merges >= MAX_MERGES) later(err);
           else refused(err);
         }
       } while (again);
@@ -164,11 +179,18 @@ export function createSaver<T>(o: SaverOptions<T>) {
     return running;
   }
 
-  /** The first look: Hearth's copy (null if out of reach) and any changes kept here. */
-  async function open(r: Remote<T> | null): Promise<void> {
+  /**
+   * The first look: Hearth's copy (null when reading it failed, because of `why`) and any changes
+   * kept here.
+   */
+  async function open(r: Remote<T> | null, why?: unknown): Promise<void> {
     const kept = await loadUnsaved<T>(o.key);
     if (!r && !kept) {
-      setProblem(`Can't open this ${o.noun} right now: can't reach Hearth. Trying again…`);
+      setProblem(
+        isOffline(why)
+          ? `Can't open this ${o.noun} right now: can't reach Hearth. Trying again…`
+          : `Can't open this ${o.noun} right now: Hearth hit a problem. Trying again…`,
+      );
       window.clearTimeout(retry);
       if (!closed) retry = window.setTimeout(() => void load(), backoff(attempt++));
       return;
@@ -204,7 +226,7 @@ export function createSaver<T>(o: SaverOptions<T>) {
       r = await o.get();
     } catch (err) {
       if (err instanceof ApiError && err.code === "not_found") refused(err);
-      else if (!loaded && isTransient(err)) await open(null);
+      else if (!loaded && isTransient(err)) await open(null, err);
       return;
     }
     if (!loaded) return open(r);
