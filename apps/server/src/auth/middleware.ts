@@ -37,10 +37,13 @@ export function callerFor(s: SessionPrincipal): Caller {
   // Jarvis asks before changing your accounts or acting for you on its say-so (D42).
   if (s.kind === "owner" && s.scopes) return ownerCaller("device", { origin: "untrusted" });
   if (s.kind === "owner") return ownerCaller(s.sessionKind === "browser" ? "ui" : "cli");
+  // An outside agent or integration writes outside content: what it adds lowers the trust of
+  // whatever reads it, and it can't leave standing instructions (D58).
+  const outside = s.kind === "mcp_client" || s.kind === "integration";
   return {
     principal: s.principal,
     kind: s.kind,
-    origin: s.kind === "system" ? "system" : "agent",
+    origin: s.kind === "system" ? "system" : outside ? "untrusted" : "agent",
     via: s.kind === "mcp_client" ? "mcp" : s.kind === "integration" ? "integration" : "system",
   };
 }

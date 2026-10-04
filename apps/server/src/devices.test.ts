@@ -3,6 +3,7 @@ import { ownerCaller } from "@hearth/kernel";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { listDevices, pairDevice, revokeDevice } from "./auth/devices.ts";
+import { createApiToken } from "./auth/tokens.ts";
 import { createTestServer, type TestServer } from "./testing/server.ts";
 
 let t: TestServer;
@@ -21,6 +22,7 @@ describe("device tokens", () => {
     expect(clean.status).toBe(200);
     expect(await clean.json()).toMatchObject({ result: { text: "Hello there" } });
 
+    await createApiToken(t.kernel.db, "laptop"); // so /mcp is on, and refuses the device itself
     for (const [path, method] of [
       ["/api/actions/task.list", "POST"],
       ["/api/actions/entity.restore", "POST"],
