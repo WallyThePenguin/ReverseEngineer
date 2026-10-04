@@ -143,7 +143,16 @@ export async function syncProgress(ctx: Pick<ActionContext, "tx">, account: Acco
     .where(
       and(eq(mailQuarantine.accountId, account.id), gte(mailQuarantine.attempts, QUARANTINE_AFTER)),
     );
+  const [google] =
+    account.provider === "gmail"
+      ? await ctx.tx
+          .select({ status: googleAccount.status })
+          .from(googleAccount)
+          .where(eq(googleAccount.email, account.address))
+      : [];
   return {
+    /** Google wants the account connected again before mail can sync. */
+    reconnect: account.provider === "gmail" && (google?.status ?? "revoked") !== "ok",
     firstSyncDone: account.cursor !== null && !c.backfill && !("pageToken" in c.provider),
     backfill: c.backfill
       ? { fetched: Math.max(0, c.backfill.listed - c.pending.length), target: c.backfill.target }

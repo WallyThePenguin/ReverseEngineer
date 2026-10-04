@@ -12,6 +12,7 @@ import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
 import type { MailAccount, MailAddress, MailDraft, MailThread } from "../lib/types.ts";
 import { Composer } from "./MailCompose.tsx";
+import { MailSyncBanner } from "./MailSyncStatus.tsx";
 
 type View = "inbox" | "starred" | "sent" | "all" | "trash";
 
@@ -130,7 +131,6 @@ export function Mail(props: { pane: number }) {
 
   const tab = (active: boolean) =>
     `rounded-md px-2 py-1 text-sm ${active ? "bg-sunk font-medium" : "text-muted hover:text-ink"}`;
-  const problem = () => (accounts.data ?? []).find((a) => a.lastError);
   const syncing = () => (accounts.data ?? []).some((a) => !a.firstSyncDone);
 
   return (
@@ -185,11 +185,7 @@ export function Mail(props: { pane: number }) {
           }}
         />
       </PaneHeader>
-      <Show when={problem()}>
-        <p class="border-b border-line bg-sunk px-4 py-2 text-sm text-bad">
-          {problem()!.address}: {problem()!.lastError}
-        </p>
-      </Show>
+      <MailSyncBanner accounts={accounts.data ?? []} />
       <div class="flex-1 overflow-auto">
         <Show when={fresh().length > 0}>
           <div class="space-y-3 border-b border-line p-4">

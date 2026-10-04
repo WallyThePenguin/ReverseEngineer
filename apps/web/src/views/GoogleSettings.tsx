@@ -6,6 +6,7 @@ import { ago } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
 import { act, useAction } from "../lib/query.ts";
 import type { CalendarSetup, MailAccount } from "../lib/types.ts";
+import { syncLine } from "./MailSyncStatus.tsx";
 
 export function GoogleSettings() {
   const setup = useAction<CalendarSetup>("calendar.calendars");
@@ -80,16 +81,16 @@ export function GoogleSettings() {
             <For each={mail.data}>
               {(m) => (
                 <li class="flex items-center gap-3">
-                  <Badge tone={m.lastError ? "bad" : "ok"}>
-                    {m.lastError ? "mail failing" : "mail"}
-                  </Badge>
+                  <Badge tone={syncLine(m).tone}>{syncLine(m).badge}</Badge>
                   <span class="flex-1">{m.address}</span>
-                  <span class="text-xs text-faint">
-                    {!m.firstSyncDone
-                      ? "bringing in the last 30 days…"
-                      : m.syncedAt
-                        ? `synced ${ago(m.syncedAt)}`
-                        : ""}
+                  <span
+                    class={`text-xs ${syncLine(m).tone === "bad" ? "text-bad" : "text-faint"}`}
+                    title={m.lastError ?? undefined}
+                  >
+                    {syncLine(m).text}
+                    {m.setAside > 0
+                      ? ` · ${m.setAside} message${m.setAside === 1 ? "" : "s"} couldn't be brought in`
+                      : ""}
                   </span>
                 </li>
               )}

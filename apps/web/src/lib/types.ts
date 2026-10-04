@@ -364,9 +364,20 @@ export interface MailThreadView extends MailThread {
 export interface MailAccount {
   address: string;
   provider: string;
+  /** Catching up and paused (Gmail asked Hearth to slow down) are normal; failing isn't. */
+  state: "ok" | "catching_up" | "paused" | "failing";
   syncedAt: string | null;
+  pausedUntil: string | null;
   lastError: string | null;
+  /** Google wants the account connected again. */
+  reconnect: boolean;
   firstSyncDone: boolean;
+  /** A first sync's progress: messages brought in, of about how many. */
+  backfill: { fetched: number; target: number } | null;
+  /** Messages still to bring in or look up. */
+  waiting: number;
+  /** Messages that wouldn't save, set aside. */
+  setAside: number;
   pendingChanges: number;
 }
 
