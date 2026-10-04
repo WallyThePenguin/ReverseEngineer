@@ -1,6 +1,6 @@
 {
   "tray": {
-    "settings": "Settings...",
+    "settings": "Voice settings...",
     "checkUpdates": "Check for Updates...",
     "copyLastTranscript": "Copy Last Transcript",
     "unloadModel": "Unload Model",
@@ -187,6 +187,18 @@
           "hearth_talk": {
             "name": "Talk to Jarvis",
             "description": "Hold this and ask Jarvis anything. It answers out loud."
+          },
+          "hearth_open": {
+            "name": "Open Hearth",
+            "description": "Brings up Hearth's window from anywhere."
+          },
+          "hearth_capture": {
+            "name": "Quick capture",
+            "description": "A small box to jot something down. Enter adds it to your tasks."
+          },
+          "hearth_ask": {
+            "name": "Ask Jarvis",
+            "description": "A small window to ask Jarvis by typing."
           }
         },
         "errors": {
@@ -660,7 +672,7 @@
       "addressHelp": "Where your Hearth runs. On the same PC that's http://localhost:4400.",
       "code": "Pairing code",
       "paired": "Paired",
-      "codeHelp": "In Hearth, open Settings and press Pair the desktop app, then paste the code here.",
+      "codeHelp": "Easiest: in Hearth's Settings, under Desktop app, press Connect Hearth on this PC. Or make a pairing code there and paste it here.",
       "pastePlaceholder": "Paste the code",
       "repairPlaceholder": "Paste a new code to re-pair",
       "save": "Save",

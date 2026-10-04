@@ -10,9 +10,10 @@ import type { Brain, BrainEvents, BrainRequest, BrainResult } from "./brain.ts";
 import { classifyFailure, type Failure, failure } from "./failures.ts";
 import { reportJarvisHealth } from "./health.ts";
 import { buildSystemPrompt } from "./prompt.ts";
+import { keepTaint, readFrom, restoreTaint } from "./taint.ts";
 import { ensureConversation, recapConversation, streamer, withRecap, writeLog } from "./threads.ts";
 import { buildTools, readRecord, type ToolCallRecord, type TurnState } from "./tools.ts";
-import { checkOpen, readOutsideContent } from "./trust.ts";
+import { checkOpen } from "./trust.ts";
 import { alertLeftOut } from "./turn-alerts.ts";
 import {
   type Ending,
@@ -218,7 +219,10 @@ export class TurnRunner {
       seenUrls: new Set(),
       vouchedHosts: new Set(),
       sites: await getSetting(this.kernel.db, "browser.sites"),
+      ...(turn.origin === "untrusted" && turn.trigger === "chat" ? { taintedBy: "heard" } : {}),
     };
+    // A conversation that read outside content before starts this turn untrusted (D58).
+    const conv = await restoreTaint(this.kernel, cid, state);
     // Log writes are serialized so the log keeps the order things happened in.
     let chain: Promise<void> = Promise.resolve();
     const log = (entries: LogEntry[]) => {
@@ -245,7 +249,7 @@ export class TurnRunner {
     const now = this.kernel.clock.now();
     const record = turn.subjectId ? await readRecord(this.kernel, turn.subjectId) : null;
     // A turn about something an outside tool wrote starts untrusted.
-    if (record?.fromOutside) readOutsideContent(state, record.text);
+    if (record?.fromOutside) readFrom(state, record.source, record.text);
     const subject = record?.text ?? null;
     // A tool-less turn's answer leaves Hearth unseen, so it gets no memory either.
     const bare = NO_TOOLS.has(turn.trigger);
@@ -260,11 +264,11 @@ export class TurnRunner {
       paused: await getSetting(this.kernel.db, "jarvis.paused"),
       subject,
       memory,
+      // Untrusted only because of what an earlier turn here read: this one's ask is still yours.
+      ...(turn.origin !== "untrusted" && !record?.fromOutside && conv?.taintedAt
+        ? { readEarlier: conv.taintSource ?? "outside content" }
+        : {}),
     });
-    const [conv] = await this.kernel.db
-      .select()
-      .from(conversation)
-      .where(eq(conversation.entityId, cid));
     const tools = bare
       ? []
       : buildTools(this.kernel, state, (kind, payload) => {
@@ -281,7 +285,7 @@ export class TurnRunner {
       onText: (d) => stream.push(d),
       onMessage: (text) =>
         void log([{ kind: "assistant_message", payload: { text }, turnId: turn.id }]),
-      onExternalContent: (_source, text) => readOutsideContent(state, text ?? ""),
+      onExternalContent: (source, text) => readFrom(state, source, text ?? ""),
       mayFetch: (url) => {
         const verdict = checkOpen(state, url, state.sites);
         if (verdict.kind === "ok") return null;
@@ -299,7 +303,11 @@ export class TurnRunner {
       sessionId: conv?.agentSessionId ?? null,
       signal,
     };
-    const result = await this.think(end, request, events).finally(() => stream.end());
+    // However it ends, the next turn here knows what this one read (before its session is kept).
+    const result = await this.think(end, request, events).finally(async () => {
+      stream.end();
+      await keepTaint(this.kernel, cid, state, conv);
+    });
     end.answered = true;
     end.firstTokenMs = result.firstTokenMs;
     await chain;

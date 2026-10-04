@@ -106,7 +106,7 @@ pub fn toggle(app: &AppHandle) {
             "Recording {}. Let everyone know you're taking notes.",
             rec.title
         ));
-        super::open_window_at(&app, &format!("/record/{}", rec.id));
+        super::window::open(&app, &format!("/record/{}", rec.id));
         std::thread::spawn(move || {
             if let Err(e) = record(&app, &h, &rec, &stop) {
                 // Don't leave the meeting open: a later recording would join it.

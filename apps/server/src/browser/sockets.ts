@@ -7,8 +7,8 @@ import { PRINCIPAL } from "@hearth/core";
 import { getSetting, type Kernel } from "@hearth/kernel";
 import { type WebSocket, WebSocketServer } from "ws";
 import { SESSION_COOKIE } from "../auth/middleware.ts";
-import { hashToken, resolveToken, safeEqual } from "../auth/tokens.ts";
-import { isLoopback, type ServerConfig } from "../config.ts";
+import { checkToken, hashToken, resolveToken, safeEqual } from "../auth/tokens.ts";
+import { isLoopback, localOriginOf, type ServerConfig } from "../config.ts";
 import type { BrowserBridge } from "./bridge.ts";
 import { watchBrowserHealth } from "./health.ts";
 import type { LiveView } from "./live.ts";
@@ -41,16 +41,44 @@ function cookie(req: IncomingMessage, name: string): string | null {
   return null;
 }
 
-async function isOwnerPage(req: IncomingMessage, deps: SocketDeps): Promise<boolean> {
+/** How often an open live view checks that the sign-in it was opened with still holds. */
+const RECHECK_MS = 20_000;
+
+/**
+ * Whether the live view may open: Hearth's own page, signed in as you. Resolves to the sign-in it
+ * was opened with (null for development login), or false.
+ */
+async function ownerPage(
+  req: IncomingMessage,
+  deps: SocketDeps,
+): Promise<{ token: string | null } | false> {
   // Same-origin only: a WebSocket isn't covered by the browser's CORS rules. With development
   // login on, the web app's dev server (another port on this PC) counts too.
   const origin = req.headers.origin ?? "";
   const devPage = deps.config.devAuth && isLoopback(hostOf(origin));
-  if (origin !== deps.config.origin && !devPage) return false;
+  const ours = origin === deps.config.origin || origin === localOriginOf(deps.config);
+  if (!ours && !devPage) return false;
   const token = cookie(req, SESSION_COOKIE);
   const s = token ? await resolveToken(deps.kernel.db, token) : null;
-  if (s) return s.principal === PRINCIPAL.owner && s.sessionKind === "browser";
-  return deps.config.devAuth;
+  if (s) return s.principal === PRINCIPAL.owner && s.sessionKind === "browser" ? { token } : false;
+  return deps.config.devAuth ? { token: null } : false;
+}
+
+/**
+ * Closes a live view when the sign-in it was opened with ends (signed out, revoked, expired). The
+ * socket outlives the request that checked it, and it can drive Chrome. Watching isn't using, so
+ * this never keeps a sign-in alive (D56).
+ */
+function endWithSignIn(ws: WebSocket, token: string, deps: SocketDeps): void {
+  const timer = setInterval(() => {
+    void checkToken(deps.kernel.db, token, new Date(), { touch: false })
+      .then((r) => {
+        if (!r.ok) ws.close(4401, "Signed out");
+      })
+      // The database being out of reach doesn't end anyone's session.
+      .catch(() => {});
+  }, RECHECK_MS);
+  ws.on("close", () => clearInterval(timer));
 }
 
 /** The extension's ID, from the Origin it connected with: chrome-extension://<id>. */
@@ -115,10 +143,13 @@ export function attachBrowserSockets(server: Server, deps: SocketDeps): () => vo
       return;
     }
     if (path === "/api/browser/live") {
-      isOwnerPage(req, deps)
-        .then((ok) => {
-          if (!ok) return refuse(socket, "401 Unauthorized");
-          wss.handleUpgrade(req, socket, head, (ws) => deps.live.connect(ws));
+      ownerPage(req, deps)
+        .then((page) => {
+          if (!page) return refuse(socket, "401 Unauthorized");
+          wss.handleUpgrade(req, socket, head, (ws) => {
+            deps.live.connect(ws);
+            if (page.token) endWithSignIn(ws, page.token, deps);
+          });
         })
         .catch(() => refuse(socket, "503 Service Unavailable"));
       return;

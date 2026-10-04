@@ -9,9 +9,42 @@ export interface ServerBuild {
 
 export type Notice = "updated" | "mismatch" | null;
 
-export function noticeFor(mine: string, server: ServerBuild | null): Notice {
+/** The build this page came from: vite.config.ts stamps it into index.html. */
+export function pageBuild(doc: Pick<Document, "querySelector"> = document): string | null {
+  return doc.querySelector<HTMLMetaElement>('meta[name="hearth-build"]')?.content || null;
+}
+
+export function noticeFor(mine: string | null, server: ServerBuild | null): Notice {
   if (!server) return null;
   if (server.migrations && !server.migrations.ok) return "mismatch";
-  if (server.build && server.build !== mine) return "updated";
+  if (mine && server.build && server.build !== mine) return "updated";
   return null;
+}
+
+/** How often an open page asks which build is running. */
+export const CHECK_EVERY_MS = 5 * 60_000;
+
+/**
+ * Runs `check` now, then every few minutes while the page is in view, when it comes back into
+ * view, and when the network is back while it's in view. A hidden page doesn't ask (not even when
+ * a laptop wakes and its network comes back): it asks as soon as it's back, and an open tab alone
+ * shouldn't keep your sign-in alive (D56). Returns the cleanup.
+ */
+export function watchBuild(
+  check: () => void,
+  win: EventTarget = window,
+  doc: EventTarget & { visibilityState: DocumentVisibilityState } = document,
+): () => void {
+  const ifVisible = () => {
+    if (doc.visibilityState === "visible") check();
+  };
+  check();
+  const timer = setInterval(ifVisible, CHECK_EVERY_MS);
+  doc.addEventListener("visibilitychange", ifVisible);
+  win.addEventListener("online", ifVisible);
+  return () => {
+    clearInterval(timer);
+    doc.removeEventListener("visibilitychange", ifVisible);
+    win.removeEventListener("online", ifVisible);
+  };
 }

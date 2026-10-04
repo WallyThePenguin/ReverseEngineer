@@ -650,6 +650,9 @@ nothing can approve it, so text from an email could make it paste out your data)
 worth as little as possible if it leaks, and a pasted answer is an outward channel with no
 approval step.
 
+*Later:* D53 pairs the app by hand-off from a signed-in browser instead of a pasted code, and
+adds two read-only scopes (`system.status`, the notification feed).
+
 ## D43. The desktop app is Handy, vendored, with Hearth's code kept to one folder (2026-10-03)
 
 **Decision:** `apps/desktop` is a copy of Handy at `ffbc950` (MIT), outside the pnpm workspace
@@ -1150,6 +1153,129 @@ Restoring over the live database (one bad dump and both are gone). A Windows run
 
 **Why:** The 2026-10-03 update broke every Jarvis turn while health said "ok", the doctor printed
 checkmarks and the updater said "update OK". Each of those now checks the thing that broke.
+
+## D53. Hearth on the PC is one Tauri app; the window signs in by hand-off (2026-10-04)
+
+**Decision:** The desktop app (D43) is renamed "Hearth" (`hearth.exe`, identifier
+`app.hearth.desktop`, installed per user, version `1.0.<CI run>`), and it's how Hearth runs on
+the PC: it starts with Windows into the tray, and its window shows Hearth's web app from the
+address in its settings (`http://localhost:4400` on the PC). That window is a web page like any
+other and gets none of the app's commands. Links elsewhere open in your browser, and when the
+server doesn't answer it shows a built-in "Hearth isn't running" page with Retry. `hearth://`
+links open a page (`hearth://open/<path>`, relative paths only), open voice settings, or
+connect the PC. Any website can open them, so every part of one is untrusted.
+
+Passkeys belong to Hearth's https address, so the window signs in by hand-off. In a signed-in
+browser, Settings → Desktop app → Connect Hearth on this PC makes a single-use nonce (one minute,
+kept in memory, compared in constant time) and opens `hearth://connect?nonce=…`. The app asks
+you first, then trades the nonce at its own configured address, never one from the link, for
+its device token (D42's scopes, paired anew) and a one-time code. Its window trades the code at
+`/api/auth/desktop/window` for an ordinary browser session and opens the inbox. The window has
+one such session: connecting again replaces it, and Disconnect in Settings signs it out with the
+token (and ends the token's notification feed). Only a browser session can start a hand-off, so
+a device token can never become a session.
+`HEARTH_LOCAL_ORIGIN` (default `http://localhost:<port>`, loopback only) is Hearth's address on
+the PC: writes from pages there are accepted, and the session cookie is Secure per request,
+except on that plain-http address.
+
+The app also shows Windows notifications from `GET /api/desktop/notify` (what the phone is
+pushed, D45, plus Hearth's health changing; quiet while the window is in front; clicking one
+opens its page), a tray status line from `/api/health` and `system.status` with Restart Hearth
+services and Update Hearth…, and hotkeys for Hearth (Ctrl+Alt+H), quick capture (Ctrl+Alt+N)
+and Ask Jarvis (Ctrl+Alt+K). The device token gains only `system.status` and the notification
+feed, both read only; it still can't approve anything.
+
+**Alternatives:** A second shell (Electron or plain WebView2) beside the voice app (two tray
+icons, two installers, two things to keep running). Giving the window the app's commands (any
+script on a page it loads could then drive the PC). Signing the window in with the device
+token (a leaked desktop token would become a full session). Web Push inside the window (it can't
+notify while the window is closed; the app can).
+
+**Why:** You wanted Hearth to be a program on the PC, like Discord or Slack, and the voice app
+already is one: it starts with Windows, lives in the tray and has the hotkeys. Keeping the window
+a plain web page and the hand-off one-way keeps the desktop token worth as little as D42 meant.
+
+## D58. Approvals happen once; outside text stays outside (2026-10-04)
+
+**Decision:** A yes runs its action at most once, and words from outside content (email, web
+pages, Slack, GitHub, invitations, outside agents, what the desktop app hears) never come back
+later as your instructions, however they're stored or replayed.
+
+- **Exactly-once approvals.** A yes claims the approval first (`pending` to `executing` in one
+  conditional update). A second yes from another tab or the phone, or a yes racing a no, is told
+  "This was already ..." (409), and nothing runs twice. The same request from the same asker
+  waits once (a partial unique index on action, input hash and requester for pending rows); a
+  copy asked after reading outside content marks the waiting one untrusted. The input is checked
+  against the action again before it runs. Approvals run out by risk (two hours for a held
+  browser step, a day for sending, three for the trash); the scheduler closes them and their
+  cards, and closes a yes that a restart cut short. The inbox and a conversation switch Approve
+  and Deny off while a decision is on its way, and a card waiting for a yes or a no can't be
+  marked done or snoozed.
+- **What an approval's result shows.** The turn Jarvis gets after you decide is untrusted when the
+  action is external or its result holds outside content (an email it found), not only for pages.
+- **Records remember where their words came from.** `entity.outside` marks a record written or
+  edited by a turn that had read outside content; an edit never clears it, and records already
+  written that way were found from the event log. Watches, observations and heartbeat items keep
+  their origin. A watch can't be set up by an outside agent or after reading outside content, and
+  its turns are no more trusted than what set it up or what fired it; old watches count as
+  outside, except ones you made. Replayed text reaches the model inside `<untrusted>` marks: a
+  watch's event, outside heartbeat items, and the outside lines of the brief's digest (tasks,
+  people and calendar preps by their mark, someone else's invitation by its organizer, and what
+  a turn said it did once its conversation had read outside content, even if you started it).
+  The nightly memory update skips a journal written after outside content, and messages and
+  comments a paired device sent on its own say-so (D42, D46).
+- **A conversation stays careful.** Every turn in a conversation resumes the same agent session,
+  so once a turn reads outside content the conversation keeps `tainted_at`, what it read in plain
+  words, the addresses it saw (D25) and the sites it opened first (D30). Its later turns start
+  untrusted with those, so following a link it read, or working on a site it opened before
+  reading, still just works; a new conversation starts fresh, and the conversation shows a badge
+  saying so. Jarvis is told what was read earlier is data, while your new message is still yours.
+  A record's own thread (its @Jarvis replies) stays careful the same way, and has no "new
+  conversation" to start. This is the "taint survives a resumed session" D52 waited on before
+  per-task site grants.
+- **Only you or Jarvis call Jarvis.** An @Jarvis written by an integration or an outside agent
+  calls no one, whatever type its tag claims; its links to records stay (a Notion import links its
+  pages), as links from outside content. A tag whose id isn't a record's id is plain text. An
+  @Jarvis written on outside content's say-so (heard words, D46) starts an untrusted turn, and
+  so does one that first links when you or Jarvis edit a record whose text is outside content
+  (an email's own tag, kept by your edit).
+- **Outside agents are outside content.** MCP clients and integrations act with an untrusted
+  origin. Memory and Jarvis's watches and observations are only for you and Jarvis: an outside
+  agent can't find a memory note by id, search or recent records either. `/mcp` answers only
+  while a token made with `hearth token create` is live, and takes POST only (GET and the rest
+  get 405).
+- **D25/D30 in the kernel.** The checks on what a call opens and where it acts, its pin to the
+  page and its snapshot of what it sends run in `Kernel.execute` for every call made as Jarvis,
+  not only in a turn's tools: a reflex's "act" and the browser self-test get them too, and an
+  approval runs the pinned, snapshotted input that was checked and shown. A call without a turn's
+  trust is checked as having seen no addresses. D25 and D30 are otherwise unchanged.
+- **Secrets at rest.** Google's refresh and access tokens are sealed with the vault key, like
+  saved sign-ins and the Slack and GitHub tokens. Migration 0028 has code steps that seal the
+  tokens already saved (run by `hearth migrate`, `setup`, `dev` and `restore`) and open them
+  again on the way down; a token that can't be opened stops the way down. If the key can't be
+  read, a refreshed access token stays in memory rather than being saved in the clear.
+  **`vault.key` must be kept somewhere safe off this PC**, such as your password manager:
+  backups never hold it (D29), and without it every saved sign-in and the Google, Slack and
+  GitHub connections need setting up again after a rebuild. The backups folder holds whole
+  database dumps and, through the folder Hearth lives in, Hearth's services can read it; locking
+  it down is a step for you ("Lock down the backups folder" in `docs/setup-windows.md`), not
+  something Hearth changes by itself.
+- **Proof.** One test per laundering path (email, web page, Slack, watch, observation, resumed
+  session, @mention) has the scripted brain obey an injected "send the draft to Eve", with a
+  standing rule that lets a trusted turn send at once: each ends with nothing sent and every card
+  marked as outside content.
+
+**Alternatives:** A lock held by the process deciding (a second process, or a restart, forgets
+it). Dropping the taint when a conversation is reopened (the session still holds the email).
+Leaving outside text out of what's kept (Jarvis needs it to be useful; marking it keeps it usable
+without trusting it). Wrapping `vault.key` with Windows DPAPI (the server and worker run as
+LocalService and Jarvis as you, so a per-user key wouldn't open in all three, and a machine-wide
+one adds little against someone who already has the PC).
+
+**Why:** Jarvis now drives your signed-in Chrome and can send as you. A double tap that sends an
+email twice, or an email whose words come back the next morning as a trusted instruction, are the
+two ways that power could turn on you. Both now fail closed: a second yes is refused, and outside
+words stay marked as outside wherever they go.
 
 ## D61. Every account syncs on its own; outward calls are idempotent (2026-10-04)
 

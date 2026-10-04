@@ -2,11 +2,13 @@
 // to your workspace. They connect with a token from `hearth token create`, act as their own
 // principal, never see send actions, and anything risky waits for your approval.
 
+import { type DbOrTx, principal, session } from "@hearth/db";
 import { describeRecord } from "@hearth/jarvis";
 import { type Caller, isVisibleTo, type Kernel } from "@hearth/kernel";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { and, eq, isNull } from "drizzle-orm";
 import { Hono } from "hono";
 import { requireCaller } from "./auth/middleware.ts";
 import type { AppEnv } from "./env.ts";
@@ -55,7 +57,10 @@ export function buildMcpServer(kernel: Kernel, caller: Caller): Server {
     const args = req.params.arguments ?? {};
     if (req.params.name === "record_read") {
       const id = typeof args.id === "string" ? args.id : "";
-      const found = await describeRecord(kernel, id, caller).catch(() => null);
+      // Through entity.get first, so a record this agent can't read (memory: D58) isn't found.
+      const visible = await kernel.execute("entity.get", { id }, caller);
+      const found =
+        visible.status === "ok" ? await describeRecord(kernel, id, caller).catch(() => null) : null;
       return text(found ?? "No record with that id.", !found);
     }
     const def = byTool.get(req.params.name);
@@ -77,9 +82,40 @@ export function buildMcpServer(kernel: Kernel, caller: Caller): Server {
   return server;
 }
 
+/** Whether you've made a token for an outside agent that still works: until then, /mcp is off. */
+async function mcpEnabled(db: DbOrTx): Promise<boolean> {
+  const [live] = await db
+    .select({ id: session.tokenHash })
+    .from(session)
+    .innerJoin(principal, eq(principal.id, session.principal))
+    .where(
+      and(
+        eq(session.kind, "api"),
+        eq(principal.kind, "mcp_client"),
+        isNull(session.revokedAt),
+        isNull(principal.disabledAt),
+      ),
+    )
+    .limit(1);
+  return Boolean(live);
+}
+
 export function mcpRoutes() {
   const app = new Hono<AppEnv>();
-  app.all("/", requireCaller(["mcp_client"]), async (c) => {
+  // Off until you make a token with `hearth token create`: until then there's nothing to find.
+  app.use("*", async (c, next) => {
+    if (!(await mcpEnabled(c.get("deps").kernel.db)))
+      return c.json(
+        { error: "Hearth's MCP server is off. Run `hearth token create <name>` to turn it on." },
+        404,
+      );
+    await next();
+  });
+  // Stateless JSON over POST: there's no event stream to open with GET, nor a session to end.
+  app.on(["GET", "PUT", "PATCH", "DELETE"], "/", (c) =>
+    c.json({ error: "Use POST." }, 405, { Allow: "POST" }),
+  );
+  app.post("/", requireCaller(["mcp_client"]), async (c) => {
     const { kernel } = c.get("deps");
     // Stateless: a fresh server and transport per request, so restarts never strand a client.
     const server = buildMcpServer(kernel, c.get("caller")!);

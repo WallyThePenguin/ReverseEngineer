@@ -1,10 +1,15 @@
 // Reports what a fresh page load downloads from the built web app (apps/web/dist): the main
 // script and the chunks index.html preloads with it. Fails if any of them holds Loro or loads
 // WebAssembly (those belong in the doc editor's and spreadsheet's own chunks, fetched when one
-// opens), or if the set grows past the budget. Run after `pnpm build:web`.
+// opens), or if the set grows past the budget. Also fails if the build's id is in any built script
+// rather than only in index.html: the main script (which names every chunk it may load) would then
+// be renamed by every commit, and the service worker, which tells builds apart by that name, would
+// drop every cached file on each deploy.
+// Run after `pnpm build:web`.
 
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { buildId, type VersionStamp } from "./version-stamp.ts";
 
 const DIST = process.argv[2] ?? "apps/web/dist";
 /** Raw bytes of JavaScript a page load may fetch before anything shows. */
@@ -15,9 +20,16 @@ const scripts = [
   ...html.matchAll(/<script[^>]+src="\/(assets\/[^"]+\.js)"/g),
   ...html.matchAll(/<link[^>]+rel="modulepreload"[^>]+href="\/(assets\/[^"]+\.js)"/g),
 ].map((m) => m[1]!);
+const stampFile = join(DIST, "version.json");
+const stamp = existsSync(stampFile)
+  ? (JSON.parse(readFileSync(stampFile, "utf8")) as VersionStamp)
+  : null;
+const build = stamp ? buildId(stamp) : null;
 
 const kb = (n: number) => `${(n / 1024).toFixed(1)} kB`;
 const problems: string[] = [];
+if (build && html.match(/<meta name="hearth-build" content="([^"]*)"/)?.[1] !== build)
+  problems.push("index.html doesn't name its build");
 let raw = 0;
 let br = 0;
 for (const file of scripts) {
@@ -30,6 +42,11 @@ for (const file of scripts) {
   console.log(`  ${file.padEnd(40)} ${kb(size).padStart(10)} ${kb(small).padStart(10)} br`);
   if (/loro/i.test(text)) problems.push(`${file} contains Loro`);
   if (/\.wasm\b/.test(text)) problems.push(`${file} loads WebAssembly`);
+}
+// Every chunk, not only the main bundle's: a lazy one renamed by each commit renames the main one.
+for (const file of readdirSync(join(DIST, "assets")).filter((f) => f.endsWith(".js"))) {
+  if (build && readFileSync(join(DIST, "assets", file), "utf8").includes(build))
+    problems.push(`assets/${file} contains the build's id`);
 }
 console.log(`Main bundle: ${scripts.length} files, ${kb(raw)} (${kb(br)} as sent, brotli).`);
 if (scripts.length === 0) problems.push("no scripts found in index.html");

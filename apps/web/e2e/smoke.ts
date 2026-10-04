@@ -1,7 +1,7 @@
 // End-to-end check of the web app in a real browser, against a running Hearth server:
 // passkey setup and sign-in (with a virtual authenticator), tasks, a live note that @mentions a task
-// and syncs to a second window, backlinks, subtasks, Cmd+K with split panes, chatting with Jarvis,
-// memory, and the pause switch.
+// and syncs to a second window, backlinks, subtasks, titles you're typing kept while the record
+// changes elsewhere, Cmd+K with split panes, chatting with Jarvis, memory, and the pause switch.
 //
 //   HEARTH_E2E_URL=http://localhost:4400 HEARTH_E2E_SETUP_CODE=<from hearth setup> \
 //     node apps/web/e2e/smoke.ts
@@ -11,6 +11,7 @@
 
 import { chromium, type Page } from "playwright";
 import { boardSteps } from "./boards.ts";
+import { titleSteps } from "./titles.ts";
 import { storedZip } from "./zip.ts";
 
 const base = process.env.HEARTH_E2E_URL ?? "http://localhost:4400";
@@ -158,6 +159,8 @@ try {
     await task.locator("li", { hasText: "Set up autopay" }).waitFor();
   });
 
+  await titleSteps({ step, keys, tag });
+
   await step("Cmd+K finds the note and opens it beside", async (p) => {
     await keys("Control+k");
     await p.getByPlaceholder("Search, run a command, or ask Jarvis…").fill(`monthly money ${tag}`);
@@ -254,8 +257,38 @@ try {
     await p.getByText("Seeds", { exact: true }).last().waitFor();
   });
 
-  await step("pair the desktop app, whose code runs only voice actions", async (p) => {
-    await p.getByRole("button", { name: "Pair the desktop app" }).click();
+  await step(
+    "connect Hearth on this PC: its window signs in, and Disconnect signs it out",
+    async (p) => {
+      // What "Connect Hearth on this PC" asks for, then what the app does with the link (D53).
+      const { link } = await p.evaluate(async () => {
+        const res = await fetch("/api/auth/desktop/handoff", { method: "POST" });
+        return (await res.json()) as { link: string };
+      });
+      const nonce = new URL(link).searchParams.get("nonce");
+      const redeemed = await fetch(`${base}/api/auth/desktop/redeem`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ nonce }),
+      });
+      const { code: once } = (await redeemed.json()) as { code: string };
+      const pc = await browser.newContext();
+      const win = await pc.newPage();
+      await win.goto(`${base}/api/auth/desktop/window?code=${once}`);
+      await win.getByRole("heading", { name: "Inbox" }).waitFor();
+      await p.reload();
+      await p.getByText("Connected", { exact: true }).waitFor();
+      await p.getByRole("button", { name: "Disconnect" }).click();
+      await p.getByText("Not connected", { exact: true }).waitFor();
+      await win.reload();
+      await win.getByRole("button", { name: "Sign in with your passkey" }).waitFor();
+      await pc.close();
+    },
+  );
+
+  await step("pair the desktop app with a code, which runs only voice actions", async (p) => {
+    await p.getByText("Pair with a code instead").click();
+    await p.getByRole("button", { name: "Make a pairing code" }).click();
     const code = (await p.locator("code.truncate").last().textContent()) ?? "";
     // Sent from outside the page, as the desktop app would.
     const asDevice = async (name: string) =>
@@ -268,8 +301,10 @@ try {
       ).status;
     if ((await asDevice("voice.clean")) !== 200) throw new Error("the desktop code can't dictate");
     if ((await asDevice("task.list")) !== 403) throw new Error("the desktop code can do too much");
-    await p.getByRole("button", { name: "Unpair" }).last().click();
-    await p.getByRole("button", { name: "Pair the desktop app" }).waitFor();
+    await p.getByRole("button", { name: "Disconnect" }).click();
+    await p.getByText("Not connected", { exact: true }).waitFor();
+    if ((await asDevice("voice.clean")) !== 401)
+      throw new Error("Disconnect left the code working");
   });
 
   await step("a sign-in for Jarvis and a routine, in Settings", async (p) => {

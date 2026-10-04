@@ -133,6 +133,24 @@ describe("sliding sign-ins", () => {
     const next = await t.browser("/api/auth/me");
     expect(next.headers.getSetCookie().some((c) => c.startsWith("hearth_session="))).toBe(false);
   });
+
+  it("doesn't count the page's update check as a use, so an open tab alone runs out", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(T0);
+    const token = await browserSession();
+    t.cookies.set("hearth_session", token);
+    // The update notice asks every five minutes (D57): here, a few times over a day and a half.
+    for (let ms = 10 * DAY; ms <= 11.5 * DAY; ms += 6 * 60 * MIN) {
+      vi.setSystemTime(at(ms));
+      const res = await t.browser("/api/health/deep");
+      expect(res.status).toBe(200);
+      expect(res.headers.getSetCookie()).toEqual([]);
+    }
+    expect(await row(token)).toMatchObject({ lastSeenAt: null, expiresAt: at(30 * DAY) });
+    // Anything you do still counts.
+    await t.browser("/api/auth/me");
+    expect((await row(token)).expiresAt).toEqual(at(11.5 * DAY + 30 * DAY));
+  });
 });
 
 describe("the live feed and the session behind it", () => {

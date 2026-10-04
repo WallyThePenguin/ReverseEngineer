@@ -1,6 +1,6 @@
 // Chat with Jarvis, and comment threads on any record. Jarvis answers chat messages and
 // @mentions wherever they appear.
-import { formatDateTime } from "@hearth/core";
+import { asUntrusted, formatDateTime } from "@hearth/core";
 import { conversation, conversationLog, entity } from "@hearth/db";
 import {
   createEntity,
@@ -117,7 +117,13 @@ export const chatModule = defineModule({
           .where(eq(conversationLog.conversationId, i.id))
           .orderBy(asc(conversationLog.idx));
         return {
-          conversation: { ...e, subjectId: c?.subjectId ?? null },
+          conversation: {
+            ...e,
+            subjectId: c?.subjectId ?? null,
+            // Once it has read outside content, Jarvis asks more here: the app says why (D58).
+            taintedAt: c?.taintedAt ?? null,
+            taintSource: c?.taintSource ?? null,
+          },
           log: log.filter((l) => i.afterIdx === undefined || l.idx > i.afterIdx),
         };
       },
@@ -156,10 +162,18 @@ export const chatModule = defineModule({
           conversationId = e.id;
         }
         const chosen = i.lane ?? routeLane(i.text);
+        // Heard, or sent by a device on its own say-so (D42): kept as such, so the nightly memory
+        // update doesn't take it for your words (D58).
+        const heard = i.heard === true || ctx.caller.origin === "untrusted";
         const [idx] = await appendLog(
           ctx.tx,
           conversationId,
-          [{ kind: "user_message", payload: { text: i.text, by: ctx.caller.principal } }],
+          [
+            {
+              kind: "user_message",
+              payload: { text: i.text, by: ctx.caller.principal, ...(heard ? { heard } : {}) },
+            },
+          ],
           ctx.now,
         );
         ctx.emit({
@@ -266,17 +280,23 @@ export const chatModule = defineModule({
           parentId: string | null;
           anchor: string;
           context: string;
+          outside?: boolean;
         };
         const subjectId = p.type === "comment" && p.parentId ? p.parentId : event.entityId;
+        // Written after reading outside content (or on a device's say-so), or in a record whose
+        // text is outside content, so what it asks is outside content too, and the turn starts
+        // untrusted (D58).
+        const outside = event.origin === "untrusted" || p.outside === true;
         return [
           {
             kind: "turn",
             trigger: "mention",
             lane: routeLane(p.context),
             subjectId,
+            ...(outside ? { untrusted: true } : {}),
             dedupeKey: `mention:${event.entityId}:${p.anchor}`,
             context: { sourceId: event.entityId, sourceType: p.type },
-            prompt: `You were @mentioned in a ${p.type}. Read the record, then answer or do what was asked:\n\n${p.context}`,
+            prompt: `You were @mentioned in a ${p.type}. Read the record, then answer or do what was asked:\n\n${outside ? asUntrusted(p.context, p.type) : p.context}`,
           },
         ];
       },

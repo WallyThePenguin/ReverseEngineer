@@ -5,7 +5,7 @@ import { approval, standingRule } from "@hearth/db";
 import { type DigestItem, defineAction, defineModule, newId } from "@hearth/kernel";
 import { asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
-import { id } from "../shared.ts";
+import { id, writtenOutside } from "../shared.ts";
 
 export const approvalsModule = defineModule({
   name: "approvals",
@@ -19,7 +19,9 @@ export const approvalsModule = defineModule({
       name: "approval.list",
       description: "List approvals, pending ones by default.",
       input: z.object({
-        status: z.enum(["pending", "denied", "executed", "failed", "expired"]).default("pending"),
+        status: z
+          .enum(["pending", "executing", "denied", "executed", "failed", "expired"])
+          .default("pending"),
         limit: z.number().int().min(1).max(200).default(50),
       }),
       risk: "read",
@@ -96,8 +98,9 @@ export const approvalsModule = defineModule({
           result?: unknown;
           error?: string;
         };
-        if (p.requestedBy !== "jarvis") return [];
-        // A result or error from an untrusted turn's request may hold a page's words.
+        // One that ran out isn't worth a turn: Jarvis hears of it when it's next asked (D58).
+        if (p.requestedBy !== "jarvis" || p.decision === "expired") return [];
+        // A result or error from an untrusted turn's request, or from a page, may hold its words.
         const outside = (text: string) =>
           event.origin === "untrusted" ? asUntrusted(text, p.action) : text;
         const outcome =
@@ -125,6 +128,11 @@ export const approvalsModule = defineModule({
       .from(approval)
       .where(eq(approval.status, "pending"))
       .orderBy(asc(approval.createdAt));
-    return rows.map((r) => ({ bucket: "needs_yes", text: r.summary }));
+    // A request made after reading outside content, or by an outside agent, words it from there.
+    return rows.map((r) => ({
+      bucket: "needs_yes",
+      text: r.summary,
+      outside: r.origin === "untrusted" || writtenOutside(r.requestedBy),
+    }));
   },
 });

@@ -65,7 +65,11 @@ describe("page watches", () => {
 
   it("takes a follow-up from you or a trusted turn, never from outside content", async () => {
     const input = { url: SHOP, onChange: "Tell me if it drops under $30." };
-    const outside = await t.kernel.execute("page_watch.create", input, jarvisCaller("untrusted"));
+    // An address outside content never showed needs your yes first (D25, in the kernel: D58).
+    const unseen = await t.kernel.execute("page_watch.create", input, jarvisCaller("untrusted"));
+    expect(unseen).toMatchObject({ status: "pending_approval" });
+    const seen = { ...jarvisCaller("untrusted"), trust: { seenUrls: new Set([SHOP]) } };
+    const outside = await t.kernel.execute("page_watch.create", input, seen);
     expect(outside).toMatchObject({ status: "error", code: "forbidden" });
     await ok("page_watch.create", input, jarvisCaller("agent"));
   });
