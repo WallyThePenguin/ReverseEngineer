@@ -4,7 +4,7 @@
 // Windows does this: anywhere else it just watches.
 import { execFile } from "node:child_process";
 import { join } from "node:path";
-import { formatTime } from "@hearth/core";
+import { formatTime, isQuietHours } from "@hearth/core";
 import { notification } from "@hearth/db";
 import { getSetting, type Kernel, systemCaller } from "@hearth/kernel";
 import { and, eq, gte, isNull } from "drizzle-orm";
@@ -42,9 +42,12 @@ export const runJarvisTask = (): Promise<void> =>
  * Interrupts held for quiet hours are sent in the morning by Jarvis. While Jarvis is down the
  * worker sends them instead, or "Jarvis won't stay running" would wait for Jarvis itself (D54).
  * inbox.deliver still applies quiet hours and the day's budget; only the last day's are sent.
+ * Not tried during quiet hours, when it could only hold them again (and audit each try).
  */
 export async function deliverHeld(kernel: Kernel): Promise<number> {
-  const since = new Date(kernel.clock.now().getTime() - 24 * 3600_000);
+  const now = kernel.clock.now();
+  if (isQuietHours(now, await getSetting(kernel.db, "owner.dayRules"))) return 0;
+  const since = new Date(now.getTime() - 24 * 3600_000);
   const held = await kernel.db
     .select({ id: notification.id })
     .from(notification)

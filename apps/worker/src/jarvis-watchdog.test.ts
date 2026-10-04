@@ -1,4 +1,4 @@
-import { event, notification } from "@hearth/db";
+import { audit, event, notification } from "@hearth/db";
 import { setSetting, systemCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { ALL_MODULES } from "@hearth/modules";
@@ -104,10 +104,15 @@ describe("the Jarvis watchdog", () => {
     );
     expect(held).toMatchObject({ status: "ok", result: { delivered: false } });
     const check = jarvisWatchdog(t.kernel, { enabled: false });
-    // Still night: it waits.
-    t.clock.advance(10 * 60_000);
-    expect(await check()).toBe("off");
+    // Still night: it waits, without asking the inbox every minute.
+    t.clock.advance(3 * 60_000);
+    for (let i = 0; i < 10; i++) {
+      t.clock.advance(60_000);
+      expect(await check()).toBe("off");
+    }
     expect((await alerts())[0]?.deliveredAt).toBeNull();
+    const asked = await t.kernel.db.select().from(audit).where(eq(audit.action, "inbox.deliver"));
+    expect(asked).toHaveLength(0);
     // Morning, and nothing has checked in: the worker sends it, once.
     t.clock.set("2026-10-02T12:01:00Z");
     await check();
