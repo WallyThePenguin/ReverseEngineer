@@ -92,6 +92,14 @@ export {
   SLACK_SERVICE,
   type SlackApi,
 } from "./slack/index.ts";
+export {
+  type HealthRecord,
+  type HealthStatus,
+  type JudgedHealth,
+  judgeHealth,
+  REPORT_EVERY_MS,
+  roughly,
+} from "./system/index.ts";
 export { loadTask, type TaskView } from "./tasks/index.ts";
 export { POLISH_SERVICE, type Polisher, polisherFromEnv } from "./voice/polish.ts";
 export {
