@@ -1,12 +1,13 @@
 // Reports what a fresh page load downloads from the built web app (apps/web/dist): the main
 // script and the chunks index.html preloads with it. Fails if any of them holds Loro or loads
 // WebAssembly (those belong in the doc editor's and spreadsheet's own chunks, fetched when one
-// opens), or if the set grows past the budget. Also fails if the build's id is in them rather than
-// in index.html: the main script would then be renamed by every commit, and the service worker,
-// which tells builds apart by that name, would drop every cached file on each deploy.
+// opens), or if the set grows past the budget. Also fails if the build's id is in any built script
+// rather than only in index.html: the main script (which names every chunk it may load) would then
+// be renamed by every commit, and the service worker, which tells builds apart by that name, would
+// drop every cached file on each deploy.
 // Run after `pnpm build:web`.
 
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { buildId, type VersionStamp } from "./version-stamp.ts";
 
@@ -41,7 +42,11 @@ for (const file of scripts) {
   console.log(`  ${file.padEnd(40)} ${kb(size).padStart(10)} ${kb(small).padStart(10)} br`);
   if (/loro/i.test(text)) problems.push(`${file} contains Loro`);
   if (/\.wasm\b/.test(text)) problems.push(`${file} loads WebAssembly`);
-  if (build && text.includes(build)) problems.push(`${file} contains the build's id`);
+}
+// Every chunk, not only the main bundle's: a lazy one renamed by each commit renames the main one.
+for (const file of readdirSync(join(DIST, "assets")).filter((f) => f.endsWith(".js"))) {
+  if (build && readFileSync(join(DIST, "assets", file), "utf8").includes(build))
+    problems.push(`assets/${file} contains the build's id`);
 }
 console.log(`Main bundle: ${scripts.length} files, ${kb(raw)} (${kb(br)} as sent, brotli).`);
 if (scripts.length === 0) problems.push("no scripts found in index.html");
