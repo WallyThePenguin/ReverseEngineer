@@ -24,6 +24,14 @@ foreach ($file in Get-ChildItem "$PSScriptRoot\*.ps1") {
   Assert-Equal $errors.Count 0 "$($file.Name) parses $($errors | ForEach-Object { $_.Message })"
 }
 
+# The desktop app's Update and `hearth restart` run these with -File, and Windows PowerShell leaves
+# $PSScriptRoot empty in a parameter's default then: Hearth's folder would be C:\.
+foreach ($name in "update.ps1", "restart.ps1") {
+  $ast = [System.Management.Automation.Language.Parser]::ParseFile("$PSScriptRoot\$name", [ref]$null, [ref]$null)
+  $reads = @($ast.ParamBlock.Parameters | Where-Object { "$($_.DefaultValue)" -match "PSScriptRoot" })
+  Assert-Equal $reads.Count 0 "$name doesn't read `$PSScriptRoot in a parameter's default"
+}
+
 Assert-Equal (Resolve-HearthParts "all") "server worker jarvis" "all means the three parts"
 Assert-Equal (Resolve-HearthParts "jarvis") "jarvis" "one part is itself"
 
@@ -45,6 +53,7 @@ function New-Deep([hashtable]$Change = @{}) {
       worker = [pscustomobject]@{ status = "ok"; detail = "Running"; at = "2026-10-04T12:00:20.000Z" }
       jarvis = [pscustomobject]@{ status = "ok"; detail = "Running"; at = "2026-10-04T12:00:30.000Z" }
     }
+    jarvisAlive = [pscustomobject]@{ at = "2026-10-04T12:00:29.000Z"; since = "2026-10-04T12:00:15.000Z"; pid = 4242 }
   }
   foreach ($k in $Change.Keys) { $d[$k] = $Change[$k] }
   return [pscustomobject]$d
@@ -75,6 +84,25 @@ Assert-Equal (Get-DeepProblem $turns $since $sha $all) "the jarvis says: A turn 
 Assert-Equal (Get-DeepProblem $turns $since $sha $all @("jarvis")) "" "Jarvis failing before too: reporting in is enough"
 $turns.components.jarvis.at = "2026-10-04T11:59:00.000Z"
 Assert-Equal (Get-DeepProblem $turns $since $sha $all @("jarvis")) "the jarvis hasn't reported in since it started" "Jarvis failing before still has to report in"
+
+# The worker reports Jarvis failing once it hasn't checked in for 5 minutes. With Jarvis down
+# before the restart (so in $Failed), that report isn't the new Jarvis checking in.
+$surrogate = New-Deep
+$surrogate.components.jarvis.status = "failing"
+$surrogate.components.jarvis.detail = "Jarvis hasn't checked in since 11:54. Its service may have stopped."
+$surrogate.jarvisAlive.at = "2026-10-04T11:54:00.000Z"
+$surrogate.jarvisAlive.since = "2026-10-04T09:00:00.000Z"
+Assert-Equal (Get-DeepProblem $surrogate $since $sha $all @("jarvis")) "Jarvis hasn't checked in since it started" "the worker's word that Jarvis is down isn't Jarvis checking in"
+Assert-Equal (Get-DeepProblem $surrogate $since $sha @("jarvis") @("jarvis")) "Jarvis hasn't checked in since it started" "the same for hearth restart jarvis"
+# A Jarvis the stop missed keeps checking in, on the old code: it started before the restart.
+$survivor = New-Deep
+$survivor.jarvisAlive.since = "2026-10-04T09:00:00.000Z"
+Assert-Equal (Get-DeepProblem $survivor $since $sha $all) "Jarvis hasn't checked in since it started" "an old Jarvis still checking in isn't the new one"
+$surrogate.jarvisAlive = $null
+Assert-Equal (Get-DeepProblem $surrogate $since $sha $all @("jarvis")) "Jarvis hasn't checked in since it started" "a Jarvis that never checked in"
+$older = New-Deep
+$older.PSObject.Properties.Remove("jarvisAlive")
+Assert-Equal (Get-DeepProblem $older $since $sha $all) "" "a server from before jarvisAlive (a rollback): its components are enough"
 Assert-Equal (Get-FailingParts $turns) "jarvis" "what deep health said was failing before a restart"
 Assert-Equal (Get-FailingParts $null) "" "nothing known before a restart"
 $doctorBefore = [pscustomobject]@{ Checks = @([pscustomobject]@{ name = "jarvis"; mark = "fail"; detail = "x" }, [pscustomobject]@{ name = "worker"; mark = "ok"; detail = "Running" }); Text = $null }
@@ -127,6 +155,55 @@ $same = Compare-Doctor $twice ([pscustomobject]@{ Checks = @((& $okc "backup"), 
 Assert-Equal ($same.Old | ForEach-Object { $_.name }) "backup" "a name used twice: the failure from before stays old"
 Assert-Equal ($same.New | ForEach-Object { $_.name }) "Server" "names match exactly, not ignoring case"
 
+# What a rollback reverts: what `hearth migrate` printed as applied, even when it then failed.
+Assert-Equal (Get-AppliedMigrations "Applied: 0025_a, 0026_b`r`n") "0025_a 0026_b" "reads the migrations an update applied"
+Assert-Equal (Get-AppliedMigrations "Up to date.`r`n").Count 0 "nothing applied"
+# Reverting them, with pnpm faked: newest first, each by name, stopping at one that won't revert.
+$script:ran = @()
+$script:stuck = ""
+function pnpm {
+  $script:ran += "$args"
+  $global:LASTEXITCODE = 0
+  if ($script:stuck -and $args[-1] -eq $script:stuck) { $global:LASTEXITCODE = 1 }
+}
+Assert-Equal (Undo-Migrations @("0023_late", "0025_a")) $true "reverts every migration the update applied"
+Assert-Equal ($script:ran -join "; ") "--silent hearth migrate down 0025_a; --silent hearth migrate down 0023_late" "newest first, each by name"
+$script:ran = @()
+$script:stuck = "0025_a"
+Assert-Equal (Undo-Migrations @("0023_late", "0025_a", "0026_b")) $false "a migration that won't revert"
+Assert-Equal ($script:ran -join "; ") "--silent hearth migrate down 0026_b; --silent hearth migrate down 0025_a" "stops at the one that won't revert"
+Assert-Equal (Undo-Migrations @()) $true "nothing applied, nothing to revert"
+Remove-Item function:pnpm
+
+# An update that changes update.ps1 hands over to the new copy right after the merge.
+$bound = [ordered]@{ Root = "C:\old"; Branch = "main"; Force = [switch]$true; HealthTimeoutSec = 60; Verbose = [switch]$false }
+Assert-Equal ((Get-RelaunchArgs $bound "D:\My Hearth\ops\windows\update.ps1" "D:\My Hearth") -join "|") `
+  "-NoProfile|-File|D:\My Hearth\ops\windows\update.ps1|-Root|D:\My Hearth|-Branch|main|-Force|-HealthTimeoutSec|60|-Relaunched" `
+  "the new copy gets this run's parameters, -Root and -Relaunched"
+Assert-Equal ((Get-RelaunchArgs @{} "D:\H\ops\windows\update.ps1" "D:\H") -join "|") `
+  "-NoProfile|-File|D:\H\ops\windows\update.ps1|-Root|D:\H|-Relaunched" "a run given no parameters"
+# The new copy faked: it reads where the update left off and deletes the file, as update.ps1 does.
+$handoverFile = Join-Path ([IO.Path]::GetTempPath()) "hearth-test-handover-$PID.xml"
+$state = [pscustomobject]@{ Old = "0ld"; New = "n3w"; Before = $doctorBefore }
+function Invoke-NewCopy {
+  $s = Import-Clixml $handoverFile
+  Remove-Item $handoverFile
+  $script:carried = "$($s.Old) $($s.New) $(Get-FailingChecks $s.Before)"
+  $global:LASTEXITCODE = 3
+}
+$code = 1
+Invoke-Handover "Invoke-NewCopy" @() $state $handoverFile ([ref]$code)
+Assert-Equal $script:carried "0ld n3w jarvis" "the new copy reads where the update left off, the doctor's report included"
+Assert-Equal $code 3 "this run exits with the new copy's exit code"
+# A new copy that never takes over (it doesn't parse, say): this run must roll back itself.
+function Invoke-NewCopy { $global:LASTEXITCODE = 1 }
+$code = 1
+$threw = ""
+try { Invoke-Handover "Invoke-NewCopy" @() $state $handoverFile ([ref]$code) } catch { $threw = "$_" }
+Assert-Equal $threw "The updated update.ps1 didn't start (exit 1)" "a new copy that never took over"
+Assert-Equal (Test-Path $handoverFile) $false "leaves no handover behind"
+Remove-Item function:Invoke-NewCopy
+
 # Waiting for Jarvis's task to stop before it's started again, with Windows faked.
 $script:states = @()
 function Get-ScheduledTask {
@@ -144,6 +221,50 @@ $script:states = @("")
 Assert-Equal (Wait-TaskStopped "Hearth Jarvis" 5) $true "no task: nothing to wait for"
 $script:states = @("Running")
 Assert-Equal (Wait-TaskStopped "Hearth Jarvis" 0) $false "gives up when it won't stop"
+
+# Stop-Jarvis trusts its pid file only for the process that wrote it: the file outlives a Jarvis
+# that was killed or crashed, and Windows hands its pid to later processes.
+$written = [datetime]::new(2026, 10, 4, 12, 0, 0)
+$node = { param($started) [pscustomobject]@{ ProcessName = "node"; Id = 999999; StartTime = $started } }
+Assert-Equal (Test-JarvisPid (& $node $written.AddSeconds(-20)) $written) $true "the Jarvis that wrote the pid file"
+Assert-Equal (Test-JarvisPid (& $node $written.AddHours(2)) $written) $false "a later node.exe that got the same pid"
+Assert-Equal (Test-JarvisPid (& $node $null) $written) $false "a node.exe whose start time can't be read"
+$denied = [pscustomobject]@{ ProcessName = "node"; Id = 999999 }
+$denied | Add-Member -MemberType ScriptProperty -Name StartTime -Value { throw "Access is denied" }
+Assert-Equal (Test-JarvisPid $denied $written) $false "a node.exe that won't say when it started"
+Assert-Equal (Test-JarvisPid ([pscustomobject]@{ ProcessName = "chrome"; StartTime = $written.AddSeconds(-20) }) $written) $false "not node"
+Assert-Equal (Test-JarvisPid $null $written) $false "no process with that pid"
+
+# Stop-Jarvis itself, with the pid file, the processes and the task faked. 999999 can't be a real
+# pid (Windows' are multiples of 4), and Stop-Process is faked anyway.
+$script:found = $null
+$script:killed = @()
+function Test-Path { param($Path) $true }
+function Get-Content { param($Path, [switch]$Raw) "999999`r`n" }
+function Get-Item { param($Path) [pscustomobject]@{ LastWriteTime = $written } }
+function Get-Process { param($Id) $script:found }
+function Stop-Process { param($Id, [switch]$Force) $script:killed += $Id }
+function Stop-ScheduledTask {}
+function New-Object {
+  $task = [pscustomobject]@{}
+  $task | Add-Member -MemberType ScriptMethod -Name GetInstances -Value { @() }
+  $folder = [pscustomobject]@{ Task = $task }
+  $folder | Add-Member -MemberType ScriptMethod -Name GetTask -Value { $this.Task }
+  $scheduler = [pscustomobject]@{ Folder = $folder }
+  $scheduler | Add-Member -MemberType ScriptMethod -Name Connect -Value {}
+  $scheduler | Add-Member -MemberType ScriptMethod -Name GetFolder -Value { $this.Folder }
+  return $scheduler
+}
+$script:states = @("")
+$script:found = & $node $written.AddHours(2)
+Stop-Jarvis
+Assert-Equal "$script:killed" "" "Stop-Jarvis leaves a later node.exe with Jarvis's old pid alone"
+$script:found = & $node $written.AddSeconds(-20)
+Stop-Jarvis
+Assert-Equal "$script:killed" "999999" "Stop-Jarvis stops the Jarvis that wrote the pid file"
+foreach ($f in "Test-Path", "Get-Content", "Get-Item", "Get-Process", "Stop-Process", "Stop-ScheduledTask", "New-Object") {
+  Remove-Item "function:$f"
+}
 
 if ($failures) { Write-Host "$failures failed"; exit 1 }
 Write-Host "All passed."

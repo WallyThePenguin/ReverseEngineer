@@ -43,6 +43,7 @@ import { mcpRoutes } from "./mcp.ts";
 import { type PushSend, startPush, webPushSend } from "./push.ts";
 import { actionRoutes } from "./routes/actions.ts";
 import { authRoutes } from "./routes/auth.ts";
+import { desktopRoutes } from "./routes/desktop.ts";
 import { deviceRoutes } from "./routes/devices.ts";
 import { eventRoutes } from "./routes/events.ts";
 import { googleRoutes } from "./routes/google.ts";
@@ -142,6 +143,7 @@ export function createApp(opts: AppOptions) {
   app.route("/api/google", googleRoutes());
   app.route("/api/mail", mailRoutes());
   app.route("/api/devices", deviceRoutes());
+  app.route("/api/desktop", desktopRoutes());
   app.route("/api/voice", speechRoutes(speech));
   app.route("/api/voice", voiceRoutes());
   app.route("/api/push", pushRoutes(sendPush));

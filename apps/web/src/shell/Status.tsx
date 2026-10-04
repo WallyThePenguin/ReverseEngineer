@@ -97,14 +97,14 @@ export function PaneCrashed(props: { error: unknown; reset: () => void }) {
   );
 }
 
-/** Shown while the live connection to Hearth is down; it clears itself once it's back. */
+/**
+ * Shown while the live connection to Hearth is down; it clears itself once it's back. The shell
+ * places it, above an update notice.
+ */
 export function Reconnecting() {
   return (
     <Show when={live.reconnecting()}>
-      <div
-        class="pointer-events-none fixed top-[calc(env(safe-area-inset-top)+0.5rem)] left-1/2 z-50 -translate-x-1/2 rounded-full bg-ink px-4 py-1.5 text-sm text-bg shadow-lg"
-        role="status"
-      >
+      <div class="rounded-full bg-ink px-4 py-1.5 text-sm text-bg shadow-lg" role="status">
         Reconnecting…
       </div>
     </Show>

@@ -56,6 +56,12 @@ export async function vapidKeys(kernel: Kernel) {
   return (await getSetting(kernel.db, "push.vapid"))!;
 }
 
+/**
+ * The events that can bring an inbox item worth a notification: a new one, and an interrupt held
+ * for quiet hours that goes out in the morning (D54). The phone and the desktop app read both.
+ */
+export const PUSH_KINDS = ["notification.created", "notification.delivered"];
+
 /** Which inbox items are worth buzzing your phone for. */
 export function worthPushing(p: Record<string, unknown>): boolean {
   if (p.kind === "approval" || p.kind === "brief") return true;
@@ -119,14 +125,7 @@ export function startPush(kernel: Kernel, hub: EventHub, send: PushSend = webPus
     const created = await kernel.db
       .select({ seq: event.seq, payload: event.payload })
       .from(event)
-      .where(
-        and(
-          // Delivered: an interrupt held for quiet hours that goes out in the morning (D54).
-          inArray(event.kind, ["notification.created", "notification.delivered"]),
-          gt(event.seq, cursor),
-          lte(event.seq, upTo),
-        ),
-      );
+      .where(and(inArray(event.kind, PUSH_KINDS), gt(event.seq, cursor), lte(event.seq, upTo)));
     cursor = upTo;
     const ids = created
       .filter((e) => worthPushing(e.payload))

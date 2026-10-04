@@ -52,22 +52,50 @@ async function applied(client: pg.PoolClient): Promise<string[]> {
  */
 async function migrationClient(pool: pg.Pool): Promise<pg.PoolClient> {
   const client = await pool.connect();
+  // A connection that drops mid-migration fails the query in flight; its error event, with no
+  // listener, would also crash the process before it could say which migrations committed.
+  client.on("error", ignoreError);
   try {
     await client.query("SET statement_timeout = 0");
   } catch (err) {
+    client.removeListener("error", ignoreError);
     client.release(err as Error);
     throw err;
   }
   return client;
 }
 
-async function releaseMigrationClient(client: pg.PoolClient): Promise<void> {
-  const failed = await client.query("RESET statement_timeout").then(
-    () => undefined,
-    (err: Error) => err,
-  );
+function ignoreError() {}
+
+/** `failed`: the connection is already known to be broken. */
+async function releaseMigrationClient(client: pg.PoolClient, failed?: Error): Promise<void> {
+  const broken =
+    failed ??
+    (await client.query("RESET statement_timeout").then(
+      () => undefined,
+      (err: Error) => err,
+    ));
+  client.removeListener("error", ignoreError);
   // One that can't be reset is closed rather than handed back without its limit.
-  client.release(failed);
+  client.release(broken);
+}
+
+/** Undoes a migration's transaction; on a dropped connection the server already has. */
+async function rollback(client: pg.PoolClient): Promise<void> {
+  await client.query("ROLLBACK").catch(() => {});
+}
+
+/**
+ * A run of migrations that stopped at one that failed. Each commits on its own, so the ones before
+ * it stay done: `committed` names them, for an update to revert (ops/windows/update.ps1).
+ */
+export class MigrationError extends Error {
+  readonly committed: string[];
+  constructor(message: string, committed: string[]) {
+    super(message);
+    this.committed = committed;
+    this.name = "MigrationError";
+  }
 }
 
 /** Applies every pending migration. Returns the names applied. */
@@ -83,22 +111,29 @@ export async function migrateUp(
     const ran: string[] = [];
     for (const m of loadMigrations(dir)) {
       if (done.has(m.name)) continue;
-      await client.query("BEGIN");
       try {
+        await client.query("BEGIN");
         await client.query(m.up);
         await code[m.name]?.up?.(client);
         await client.query("INSERT INTO _migration (name) VALUES ($1)", [m.name]);
         await client.query("COMMIT");
       } catch (err) {
-        await client.query("ROLLBACK");
-        throw new Error(`Migration ${m.name} failed: ${(err as Error).message}`);
+        await rollback(client);
+        throw new MigrationError(`Migration ${m.name} failed: ${(err as Error).message}`, ran);
       }
       ran.push(m.name);
     }
     return ran;
   } finally {
-    await client.query("SELECT pg_advisory_unlock(hashtext('hearth_migrate'))");
-    await releaseMigrationClient(client);
+    // On a dropped connection this fails too (the lock went with it), and mustn't replace the
+    // error that says what committed.
+    const unlockFailed = await client
+      .query("SELECT pg_advisory_unlock(hashtext('hearth_migrate'))")
+      .then(
+        () => undefined,
+        (err: Error) => err,
+      );
+    await releaseMigrationClient(client, unlockFailed);
   }
 }
 
@@ -149,10 +184,14 @@ export function schemaMismatch(state: MigrationState): string | null {
   return null;
 }
 
-/** Reverts the last `steps` migrations. Returns the names reverted. */
+/**
+ * Reverts the last `steps` migrations, or exactly the one named (nothing when it isn't applied):
+ * an update reverts what it applied by name, which isn't always the newest. Returns the names
+ * reverted.
+ */
 export async function migrateDown(
   pool: pg.Pool,
-  steps = 1,
+  which: number | string = 1,
   dir = MIGRATIONS_DIR,
   code: MigrationCode = {},
 ): Promise<string[]> {
@@ -160,19 +199,23 @@ export async function migrateDown(
   try {
     const done = await applied(client);
     const byName = new Map(loadMigrations(dir).map((m) => [m.name, m]));
+    if (typeof which === "string" && !byName.has(which) && !done.includes(which))
+      throw new Error(`No migration named ${which}`);
+    const names =
+      typeof which === "string" ? done.filter((n) => n === which) : done.reverse().slice(0, which);
     const reverted: string[] = [];
-    for (const name of done.reverse().slice(0, steps)) {
+    for (const name of names) {
       const m = byName.get(name);
-      if (!m) throw new Error(`No files for applied migration ${name}`);
-      await client.query("BEGIN");
+      if (!m) throw new MigrationError(`No files for applied migration ${name}`, reverted);
       try {
+        await client.query("BEGIN");
         await code[name]?.down?.(client);
         await client.query(m.down);
         await client.query("DELETE FROM _migration WHERE name = $1", [name]);
         await client.query("COMMIT");
       } catch (err) {
-        await client.query("ROLLBACK");
-        throw new Error(`Reverting ${name} failed: ${(err as Error).message}`);
+        await rollback(client);
+        throw new MigrationError(`Reverting ${name} failed: ${(err as Error).message}`, reverted);
       }
       reverted.push(name);
     }

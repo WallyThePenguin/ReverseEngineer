@@ -1,7 +1,7 @@
 // Notes: a list and a page per note. Checklists can become tasks in one click (Jarvis also
 // offers to, a few minutes after you stop editing).
 
-import { createSignal, For, lazy, Show } from "solid-js";
+import { createMemo, createSignal, For, lazy, Show } from "solid-js";
 import { Backlinks } from "../components/Backlinks.tsx";
 import { Comments, JarvisWorking } from "../components/Comments.tsx";
 import { DocHistory } from "../components/DocHistory.tsx";
@@ -80,6 +80,10 @@ export function Notes(props: { pane: number }) {
 
 export function NoteView(props: { id: string; pane: number }) {
   const note = useAction<Entity>("entity.get", () => ({ id: props.id }));
+  // Each read of the note comes back as a new record, so the title box follows the saved title
+  // only when that changes: a read landing while you type (the note changed elsewhere, or was
+  // just made) would otherwise put the old title back over what you typed.
+  const savedTitle = createMemo(() => note.data?.title);
 
   // The text saves itself as you type; this is the title.
   const save = async (fields: { title: string }) => {
@@ -125,7 +129,7 @@ export function NoteView(props: { id: string; pane: number }) {
           <div class="flex-1 space-y-5 overflow-auto px-5 py-4">
             <input
               class="w-full bg-transparent text-2xl font-semibold outline-none"
-              value={n().title}
+              value={savedTitle()}
               placeholder="Untitled"
               onChange={(e) => {
                 const title = e.currentTarget.value.trim() || "Untitled";
