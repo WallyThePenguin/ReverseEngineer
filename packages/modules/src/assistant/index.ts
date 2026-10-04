@@ -1,7 +1,7 @@
 // Jarvis's own records and tools: observations, watches, the brief, the journal, and its
 // activity feed.
 import { asUntrusted, filterSchema, formatDateTime, matches } from "@hearth/core";
-import { entity, jarvisTurn, observation, watch } from "@hearth/db";
+import { conversation, entity, jarvisTurn, observation, watch } from "@hearth/db";
 import {
   ActionError,
   createEntity,
@@ -284,18 +284,23 @@ export const assistantModule = defineModule({
   async digest(ctx): Promise<DigestItem[]> {
     const items: DigestItem[] = [];
     const turns = await ctx.db
-      .select()
+      .select({ t: jarvisTurn, taintedAt: conversation.taintedAt })
       .from(jarvisTurn)
+      .leftJoin(conversation, eq(conversation.entityId, jarvisTurn.conversationId))
       .where(and(gte(jarvisTurn.finishedAt, ctx.since), eq(jarvisTurn.outcome, "act")))
       .orderBy(desc(jarvisTurn.finishedAt))
       .limit(20);
-    for (const t of turns) {
+    for (const { t, taintedAt } of turns) {
       if (t.reply)
         items.push({
           bucket: "handled",
           text: t.reply.split("\n")[0]!.slice(0, 200),
           entityId: t.subjectId,
-          outside: t.origin === "untrusted",
+          // A turn that started trusted and then read an email can quote it in its reply: its
+          // conversation was tainted by the time it finished (D58).
+          outside:
+            t.origin === "untrusted" ||
+            (taintedAt !== null && t.finishedAt !== null && taintedAt <= t.finishedAt),
         });
     }
     const obs = await ctx.db
