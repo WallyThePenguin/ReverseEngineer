@@ -78,7 +78,9 @@ export class DbQuotaStore implements QuotaStore {
       const paused = row?.pausedUntil?.getTime() ?? 0;
       if (paused > now) return { ok: false, paused: true, retryAt: paused };
       const mine = and(eq(googleSpend.account, account), eq(googleSpend.service, service));
-      await tx.delete(googleSpend).where(and(mine, lt(googleSpend.at, new Date(now - 5 * WINDOW_MS))));
+      await tx
+        .delete(googleSpend)
+        .where(and(mine, lt(googleSpend.at, new Date(now - 5 * WINDOW_MS))));
       const rows = await tx
         .select({ at: googleSpend.at, units: googleSpend.units })
         .from(googleSpend)
@@ -151,7 +153,13 @@ export class GoogleBudget {
     now: number,
   ): Promise<void> {
     const a = this.allowances[service];
-    const r = await this.store.take(account, service, units, a.units + (priority ? a.headroom : 0), now);
+    const r = await this.store.take(
+      account,
+      service,
+      units,
+      a.units + (priority ? a.headroom : 0),
+      now,
+    );
     if (r.ok) return;
     const retryAfterMs = Math.max(0, r.retryAt - now);
     if (r.paused)

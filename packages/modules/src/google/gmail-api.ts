@@ -1,20 +1,26 @@
 // Gmail as a MailProvider: history.list for what changed, raw messages, and label changes. No
-// push notifications, so nothing on your PC has to accept connections from Google.
+// push notifications, so nothing on your PC has to accept connections from Google. Every call
+// says what it costs, so the shared budget can pace it (D55).
 import type { DbOrTx } from "@hearth/db";
 import {
+  type MailChange,
   type MailChanges,
+  type MailErrorKind,
   type MailProvider,
   MailProviderError,
   type RawMail,
 } from "../mail/provider.ts";
-import { GoogleApiError, type GoogleClient } from "./client.ts";
+import { GMAIL_COST } from "./budget.ts";
+import type { GoogleClient } from "./client.ts";
+import { GoogleApiError, type GoogleErrorKind } from "./errors.ts";
 
 const BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
 /** A first sync brings in this many days of mail, up to FIRST_SYNC_MAX messages. */
 export const FIRST_SYNC_DAYS = 30;
 export const FIRST_SYNC_MAX = 1000;
 const PAGE = 100;
-const PARALLEL = 8;
+/** History is read up to about this many messages at a time; the rest waits for the next call. */
+export const CHANGES_PER_CALL = 200;
 
 interface GMessage {
   id: string;
@@ -24,19 +30,21 @@ interface GMessage {
 }
 
 interface GHistory {
+  id: string;
   messagesAdded?: { message: GMessage }[];
   messagesDeleted?: { message: GMessage }[];
-  labelsAdded?: { message: GMessage }[];
-  labelsRemoved?: { message: GMessage }[];
+  labelsAdded?: { message: GMessage; labelIds?: string[] }[];
+  labelsRemoved?: { message: GMessage; labelIds?: string[] }[];
 }
 
-/** Runs `fn` over `items`, a few at a time. */
-async function inParallel<T, R>(items: T[], fn: (item: T) => Promise<R>): Promise<R[]> {
-  const out: R[] = [];
-  for (let i = 0; i < items.length; i += PARALLEL)
-    out.push(...(await Promise.all(items.slice(i, i + PARALLEL).map(fn))));
-  return out;
-}
+const KINDS: Record<GoogleErrorKind, MailErrorKind> = {
+  rate_limited: "slow_down",
+  paced: "paced",
+  auth: "auth",
+  transient: "transient",
+  not_found: "gone",
+  refused: "refused",
+};
 
 export class GmailProvider implements MailProvider {
   readonly name = "gmail";
@@ -48,24 +56,39 @@ export class GmailProvider implements MailProvider {
     this.db = db;
   }
 
-  private async call<T>(address: string, method: string, path: string, body?: unknown): Promise<T> {
+  private async call<T>(
+    address: string,
+    method: string,
+    path: string,
+    cost: number,
+    body?: unknown,
+  ): Promise<T> {
     try {
-      return await this.google.call<T>(this.db, address, method, `${BASE}${path}`, body);
+      return await this.google.call<T>(this.db, address, method, `${BASE}${path}`, body, {
+        cost,
+        priority: cost === GMAIL_COST.send,
+      });
     } catch (err) {
       if (!(err instanceof GoogleApiError)) throw err;
-      const limited = err.status === 429 || (err.status === 403 && /rate|quota/i.test(err.message));
-      const permanent = !limited && err.status >= 400 && err.status < 500;
-      throw new MailProviderError(err.message, permanent, err.status === 404);
+      throw new MailProviderError(err.message, KINDS[err.kind], err.retryAfterMs);
     }
   }
 
   async changes(address: string, cursor: Record<string, unknown> | null): Promise<MailChanges> {
     const historyId = typeof cursor?.historyId === "string" ? cursor.historyId : null;
     if (!historyId || cursor?.pageToken !== undefined) return this.firstSync(address, cursor);
-    const changed = new Set<string>();
+    const changed = new Map<string, MailChange>();
     const removed = new Set<string>();
+    const touch = (m: GMessage, labels: string[] | undefined) => {
+      const c = changed.get(m.id) ?? { id: m.id, labels: null, added: false, inboxed: false };
+      // The last record's labels are the newest; one without them leaves them unknown.
+      c.labels = labels ?? null;
+      changed.set(m.id, c);
+      return c;
+    };
     let page: string | undefined;
     let latest = historyId;
+    let stoppedAt: string | null = null;
     try {
       do {
         const q = new URLSearchParams({
@@ -77,19 +100,24 @@ export class GmailProvider implements MailProvider {
           history?: GHistory[];
           historyId?: string;
           nextPageToken?: string;
-        }>(address, "GET", `/history?${q}`);
+        }>(address, "GET", `/history?${q}`, GMAIL_COST.history);
         for (const h of res.history ?? []) {
-          for (const x of [
-            ...(h.messagesAdded ?? []),
-            ...(h.labelsAdded ?? []),
-            ...(h.labelsRemoved ?? []),
-          ])
-            changed.add(x.message.id);
+          for (const x of h.messagesAdded ?? []) touch(x.message, x.message.labelIds).added = true;
+          for (const x of h.labelsAdded ?? []) {
+            const c = touch(x.message, x.message.labelIds);
+            if (x.labelIds?.includes("INBOX")) c.inboxed = true;
+          }
+          for (const x of h.labelsRemoved ?? []) touch(x.message, x.message.labelIds);
           for (const x of h.messagesDeleted ?? []) removed.add(x.message.id);
+          // Enough for one go: the next call starts after this record.
+          if (changed.size + removed.size >= CHANGES_PER_CALL) {
+            stoppedAt = h.id;
+            break;
+          }
         }
         latest = res.historyId ?? latest;
         page = res.nextPageToken;
-      } while (page);
+      } while (page && !stoppedAt);
     } catch (err) {
       // Gmail keeps about a week of history; after that, start again from recent mail.
       if (err instanceof MailProviderError && err.gone)
@@ -98,10 +126,10 @@ export class GmailProvider implements MailProvider {
     }
     for (const id of removed) changed.delete(id);
     return {
-      cursor: { historyId: latest },
-      changed: [...changed],
+      cursor: { historyId: stoppedAt ?? latest },
+      changed: [...changed.values()],
       removed: [...removed],
-      more: false,
+      more: stoppedAt !== null,
     };
   }
 
@@ -112,71 +140,76 @@ export class GmailProvider implements MailProvider {
   ): Promise<MailChanges> {
     let historyId = typeof cursor?.historyId === "string" ? cursor.historyId : null;
     if (!historyId) {
-      const profile = await this.call<{ historyId: string }>(address, "GET", "/profile");
+      const profile = await this.call<{ historyId: string }>(
+        address,
+        "GET",
+        "/profile",
+        GMAIL_COST.profile,
+      );
       historyId = profile.historyId;
     }
-    const fetched = typeof cursor?.fetched === "number" ? cursor.fetched : 0;
+    // "fetched" is what cursors from before D55 called it.
+    const before = Number(cursor?.listed ?? cursor?.fetched ?? 0) || 0;
     const pageToken = typeof cursor?.pageToken === "string" ? cursor.pageToken : undefined;
     const q = new URLSearchParams({
-      q: `newer_than:${FIRST_SYNC_DAYS}d -in:chats`,
+      q: `newer_than:${FIRST_SYNC_DAYS}d -in:chats -in:drafts`,
       maxResults: String(PAGE),
       ...(pageToken ? { pageToken } : {}),
     });
-    const res = await this.call<{ messages?: GMessage[]; nextPageToken?: string }>(
-      address,
-      "GET",
-      `/messages?${q}`,
-    );
+    const res = await this.call<{
+      messages?: GMessage[];
+      nextPageToken?: string;
+      resultSizeEstimate?: number;
+    }>(address, "GET", `/messages?${q}`, GMAIL_COST.list);
     const ids = (res.messages ?? []).map((m) => m.id);
-    const total = fetched + ids.length;
-    const more = Boolean(res.nextPageToken) && total < FIRST_SYNC_MAX;
+    const listed = before + ids.length;
+    const estimate = Math.max(Number(cursor?.target ?? 0) || 0, res.resultSizeEstimate ?? 0);
+    const target = Math.max(listed, Math.min(estimate, FIRST_SYNC_MAX));
+    const more = Boolean(res.nextPageToken) && listed < FIRST_SYNC_MAX;
     return {
-      cursor: more ? { historyId, pageToken: res.nextPageToken, fetched: total } : { historyId },
-      changed: ids,
+      cursor: more ? { historyId, pageToken: res.nextPageToken, listed, target } : { historyId },
+      changed: ids.map((id) => ({ id, labels: null, added: true, inboxed: false })),
       removed: [],
       more,
+      backfill: { listed, target },
     };
   }
 
-  async fetch(address: string, ids: string[]): Promise<RawMail[]> {
-    const got = await inParallel(ids, async (id): Promise<RawMail | null> => {
-      try {
-        const m = await this.call<GMessage>(
-          address,
-          "GET",
-          `/messages/${encodeURIComponent(id)}?format=raw`,
-        );
-        return m.raw
-          ? { providerId: m.id, labels: m.labelIds ?? [], raw: Buffer.from(m.raw, "base64url") }
-          : null;
-      } catch (err) {
-        if (err instanceof MailProviderError && err.gone) return null;
-        throw err;
-      }
-    });
-    return got.filter((m): m is RawMail => m !== null);
+  async fetch(address: string, id: string): Promise<RawMail | null> {
+    try {
+      const m = await this.call<GMessage>(
+        address,
+        "GET",
+        `/messages/${encodeURIComponent(id)}?format=raw`,
+        GMAIL_COST.get,
+      );
+      return m.raw
+        ? { providerId: m.id, labels: m.labelIds ?? [], raw: Buffer.from(m.raw, "base64url") }
+        : null;
+    } catch (err) {
+      if (err instanceof MailProviderError && err.gone) return null;
+      throw err;
+    }
   }
 
-  async labels(address: string, ids: string[]): Promise<Map<string, string[]>> {
-    const out = new Map<string, string[]>();
-    await inParallel(ids, async (id) => {
-      try {
-        const m = await this.call<GMessage>(
-          address,
-          "GET",
-          `/messages/${encodeURIComponent(id)}?format=minimal`,
-        );
-        out.set(m.id, m.labelIds ?? []);
-      } catch (err) {
-        if (!(err instanceof MailProviderError && err.gone)) throw err;
-      }
-    });
-    return out;
+  async labels(address: string, id: string): Promise<string[] | null> {
+    try {
+      const m = await this.call<GMessage>(
+        address,
+        "GET",
+        `/messages/${encodeURIComponent(id)}?format=minimal`,
+        GMAIL_COST.get,
+      );
+      return m.labelIds ?? [];
+    } catch (err) {
+      if (err instanceof MailProviderError && err.gone) return null;
+      throw err;
+    }
   }
 
   async modify(address: string, ids: string[], add: string[], remove: string[]): Promise<void> {
     for (let i = 0; i < ids.length; i += 1000)
-      await this.call<null>(address, "POST", "/messages/batchModify", {
+      await this.call<null>(address, "POST", "/messages/batchModify", GMAIL_COST.batchModify, {
         ids: ids.slice(i, i + 1000),
         addLabelIds: add,
         removeLabelIds: remove,
@@ -184,7 +217,7 @@ export class GmailProvider implements MailProvider {
   }
 
   async send(address: string, raw: Buffer): Promise<{ providerId: string }> {
-    const sent = await this.call<GMessage>(address, "POST", "/messages/send", {
+    const sent = await this.call<GMessage>(address, "POST", "/messages/send", GMAIL_COST.send, {
       raw: raw.toString("base64url"),
     });
     return { providerId: sent.id };

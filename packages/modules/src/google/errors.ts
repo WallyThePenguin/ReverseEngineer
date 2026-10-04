@@ -70,7 +70,10 @@ const AUTH_REASONS = new Set([
 
 function kindOf(status: number, reason: string | null, message: string): GoogleErrorKind {
   if (status === 429) return "rate_limited";
-  if (status === 403 && ((reason && RATE_REASONS.has(reason)) || /rate ?limit|quota/i.test(message)))
+  if (
+    status === 403 &&
+    ((reason && RATE_REASONS.has(reason)) || /rate ?limit|quota/i.test(message))
+  )
     return "rate_limited";
   if (status === 401 || (status === 403 && reason && AUTH_REASONS.has(reason))) return "auth";
   if (status === 0 || status === 408 || status >= 500) return "transient";
@@ -119,7 +122,8 @@ export function parseGoogleError(
 
 /** A fetch that threw: a timeout or the network. Always worth trying again later. */
 export function networkError(err: unknown, what: string): GoogleApiError {
-  const timeout = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+  const timeout =
+    err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
   const detail = err instanceof Error ? err.message : String(err);
   return new GoogleApiError(
     0,

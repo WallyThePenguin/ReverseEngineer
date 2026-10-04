@@ -13,7 +13,7 @@ import {
 } from "@hearth/db";
 import { type ActionContext, newId, updateEntity } from "@hearth/kernel";
 import { and, asc, eq, inArray } from "drizzle-orm";
-import type { MailProvider } from "./provider.ts";
+import { type MailProvider, MailProviderError } from "./provider.ts";
 
 type MessageRow = typeof mailMessage.$inferSelect;
 
@@ -161,46 +161,116 @@ export async function changeFlags(
   return changed;
 }
 
+type Op = typeof mailOp.$inferSelect;
+
+const sameSet = (a: string[], b: string[]) =>
+  a.length === b.length && a.every((x) => b.includes(x));
+
+/** The provider takes up to this many messages in one change. */
+const MAX_IDS = 1000;
+
+export interface PushResult {
+  pushed: number;
+  rolledBack: number;
+  /** Why pushing stopped early (a slowdown, the network, access): the rest stay queued. */
+  stopped: unknown;
+}
+
 /**
- * Sends queued flag changes to the provider, oldest first. A refusal rolls the change back here;
- * a failure that may pass (offline, rate limits) stops and tries again next sync.
+ * Sends queued flag changes to the provider, oldest first. Changes next to each other that do
+ * the same thing (archiving ten conversations) go as one call (D55); never ones further apart,
+ * which could reorder an archive and an unarchive. A refusal rolls the change back here (one by
+ * one, so a single bad change doesn't undo the rest); anything that may pass (a slowdown, the
+ * network, access to reconnect) stops and leaves the changes queued for the next sync.
  */
 export async function pushFlags(
   ctx: ActionContext,
   provider: MailProvider,
   account: { id: string; address: string },
-): Promise<{ pushed: number; rolledBack: number }> {
+): Promise<PushResult> {
   const ops = await ctx.tx
     .select()
     .from(mailOp)
     .where(eq(mailOp.accountId, account.id))
-    .orderBy(asc(mailOp.createdAt));
-  let pushed = 0;
-  let rolledBack = 0;
-  for (const op of ops) {
-    try {
-      await provider.modify(account.address, op.providerIds, op.addLabels, op.removeLabels);
-      pushed++;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (!(err as { permanent?: boolean }).permanent) {
-        await ctx.tx
-          .update(mailOp)
-          .set({ attempts: op.attempts + 1, lastError: message })
-          .where(eq(mailOp.id, op.id));
-        break;
-      }
-      await rollBack(ctx, op);
-      rolledBack++;
-      ctx.emit({
-        kind: "mail.change_failed",
-        entityId: op.threadId,
-        payload: { add: op.addLabels, remove: op.removeLabels, error: message.slice(0, 300) },
-      });
+    .orderBy(asc(mailOp.createdAt), asc(mailOp.id));
+  const result: PushResult = { pushed: 0, rolledBack: 0, stopped: null };
+  const done = (group: Op[]) =>
+    ctx.tx.delete(mailOp).where(
+      inArray(
+        mailOp.id,
+        group.map((o) => o.id),
+      ),
+    );
+  const stop = async (group: Op[], err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    for (const op of group)
+      await ctx.tx
+        .update(mailOp)
+        .set({ attempts: op.attempts + 1, lastError: message.slice(0, 500) })
+        .where(eq(mailOp.id, op.id));
+    result.stopped = err;
+    return result;
+  };
+  const send = (group: Op[]) =>
+    provider.modify(
+      account.address,
+      [...new Set(group.flatMap((o) => o.providerIds))],
+      group[0]!.addLabels,
+      group[0]!.removeLabels,
+    );
+  const refused = (err: unknown) => err instanceof MailProviderError && err.permanent;
+
+  for (let i = 0; i < ops.length; ) {
+    const group = [ops[i]!];
+    let size = ops[i]!.providerIds.length;
+    for (let j = i + 1; j < ops.length; j++) {
+      const op = ops[j]!;
+      if (!sameSet(op.addLabels, group[0]!.addLabels)) break;
+      if (!sameSet(op.removeLabels, group[0]!.removeLabels)) break;
+      if (size + op.providerIds.length > MAX_IDS) break;
+      group.push(op);
+      size += op.providerIds.length;
     }
-    await ctx.tx.delete(mailOp).where(eq(mailOp.id, op.id));
+    i += group.length;
+    try {
+      await send(group);
+      result.pushed += group.length;
+      await done(group);
+      continue;
+    } catch (err) {
+      if (!refused(err)) return stop(group, err);
+      if (group.length === 1) {
+        await refuse(ctx, group[0]!, err);
+        result.rolledBack++;
+        await done(group);
+        continue;
+      }
+    }
+    // Refused together: find the one the provider won't take, and keep the rest.
+    for (const op of group) {
+      try {
+        await send([op]);
+        result.pushed++;
+      } catch (err) {
+        if (!refused(err)) return stop([op, ...group.slice(group.indexOf(op) + 1)], err);
+        await refuse(ctx, op, err);
+        result.rolledBack++;
+      }
+      await done([op]);
+    }
   }
-  return { pushed, rolledBack };
+  return result;
+}
+
+/** The provider won't take a change: put it back here, and say so. */
+async function refuse(ctx: ActionContext, op: Op, err: unknown) {
+  const message = err instanceof Error ? err.message : String(err);
+  await rollBack(ctx, op);
+  ctx.emit({
+    kind: "mail.change_failed",
+    entityId: op.threadId,
+    payload: { add: op.addLabels, remove: op.removeLabels, error: message.slice(0, 300) },
+  });
 }
 
 /** Undoes one change: flags it added come off again, and flags it took off go back on. */

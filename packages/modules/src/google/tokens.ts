@@ -85,7 +85,10 @@ export class GoogleTokens {
     };
     if (!res.ok || !body.access_token) {
       if (res.status >= 500)
-        throw new GoogleApiError(res.status, `Google couldn't refresh access for ${email} just now.`);
+        throw new GoogleApiError(
+          res.status,
+          `Google couldn't refresh access for ${email} just now.`,
+        );
       const revoked = body.error === "invalid_grant";
       const message = revoked
         ? `Google signed Hearth out of ${email}. Connect it again in Settings.`

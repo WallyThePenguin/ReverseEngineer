@@ -39,7 +39,11 @@ function errorReply(status: number, limit?: number): Response {
         code: status,
         message,
         errors: [
-          { message, domain: "usageLimits", reason: status === 429 ? "rateLimitExceeded" : "userRateLimitExceeded" },
+          {
+            message,
+            domain: "usageLimits",
+            reason: status === 429 ? "rateLimitExceeded" : "userRateLimitExceeded",
+          },
         ],
         status: status === 429 ? "RESOURCE_EXHAUSTED" : "PERMISSION_DENIED",
         details: [
@@ -55,7 +59,11 @@ function errorReply(status: number, limit?: number): Response {
   }
   if (status === 401)
     return json(401, {
-      error: { code: 401, message: "Request had invalid authentication credentials.", status: "UNAUTHENTICATED" },
+      error: {
+        code: 401,
+        message: "Request had invalid authentication credentials.",
+        status: "UNAUTHENTICATED",
+      },
     });
   return json(status, { error: { code: status, message: "Backend Error", status: "UNAVAILABLE" } });
 }
@@ -66,6 +74,8 @@ export class FakeGmail {
   readonly sent: Buffer[] = [];
   /** Labels a batchModify will refuse to change (to test rollbacks). */
   refuse = false;
+  /** Messages a batchModify that includes them is refused for. */
+  readonly refuseIds = new Set<string>();
   /** The time, for the per-minute limit. FakeGoogle shares its clock. */
   now: () => number = () => Date.now();
   /** Turn calls away (429) past this many units in a rolling window, as Google does. */
@@ -193,8 +203,10 @@ export class FakeGmail {
     }
     if (path === "/history") return this.historyPage(u);
     if (path === "/messages/batchModify" && method === "POST") {
-      if (this.refuse) return json(400, { error: { message: "Invalid label" } });
-      for (const id of (body?.ids as string[]) ?? [])
+      const ids = (body?.ids as string[]) ?? [];
+      if (this.refuse || ids.some((id) => this.refuseIds.has(id)))
+        return json(400, { error: { message: "Invalid label" } });
+      for (const id of ids)
         if (this.messages.has(id))
           this.label(
             id,

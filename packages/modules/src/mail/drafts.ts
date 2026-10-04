@@ -22,6 +22,7 @@ import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { body, id } from "../shared.ts";
 import { buildMessage, cleanName } from "./mime.ts";
+import { MailProviderError } from "./provider.ts";
 import { saveMail } from "./store.ts";
 import { providerFor } from "./sync.ts";
 import { loadThread } from "./views.ts";
@@ -327,7 +328,11 @@ export const draftActions = [
         references: draftRow!.refs,
         date: ctx.now,
       });
-      const sent = await providerFor(ctx, account!).send(account!.address, raw);
+      const sent = await providerFor(ctx, account!)
+        .send(account!.address, raw)
+        .catch((err: unknown) => {
+          throw sendError(err, account!.address);
+        });
       // Kept here at once, so it shows in the conversation before the next sync. It has gone
       // out either way, so failing to keep it mustn't undo the send (the next sync brings it in).
       const saved = await ctx.tx
@@ -349,6 +354,31 @@ export const draftActions = [
     },
   }),
 ];
+
+/** Why a send didn't go, in words for the owner. The draft stays either way. */
+function sendError(err: unknown, from: string): unknown {
+  if (!(err instanceof MailProviderError)) return err;
+  if (err.slowDown) {
+    const seconds = Math.max(5, Math.ceil((err.retryAfterMs ?? 60_000) / 1000));
+    const when =
+      seconds < 90 ? `in about ${seconds} seconds` : `in ${Math.ceil(seconds / 60)} minutes`;
+    return new ActionError(
+      "unavailable",
+      `Gmail asked Hearth to slow down, so nothing was sent. Try again ${when}.`,
+    );
+  }
+  if (err.kind === "auth")
+    return new ActionError(
+      "unavailable",
+      `Google stopped accepting Hearth's access to ${from}, so nothing was sent. Connect it again in Settings.`,
+    );
+  if (err.kind === "transient")
+    return new ActionError(
+      "unavailable",
+      "Gmail didn't answer, so Hearth can't tell whether it went out. Check Sent in Gmail before sending it again.",
+    );
+  return err;
+}
 
 /** A draft as markdown, for Jarvis. */
 export async function describeDraft(entityId: string, ctx: ReadContext): Promise<string | null> {
