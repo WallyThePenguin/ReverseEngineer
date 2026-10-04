@@ -54,7 +54,12 @@ async function stop() {
   if (!h || h.exitCode !== null) return;
   const exited = new Promise((r) => h.once("exit", r));
   h.kill();
-  await exited;
+  // Hearth gives up on a hung stop itself after 15 s (apps/cli/src/main.ts); this is the backstop.
+  const limit = new Promise<"hung">((r) => setTimeout(() => r("hung"), 20_000).unref());
+  if ((await Promise.race([exited, limit])) === "hung") {
+    h.kill("SIGKILL");
+    throw new Error("Hearth didn't stop within 20 s of being asked");
+  }
 }
 /** Something on Hearth's port that takes connections and never answers (a PC half asleep). */
 async function goSilent() {

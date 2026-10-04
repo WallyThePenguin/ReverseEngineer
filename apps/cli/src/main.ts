@@ -56,11 +56,23 @@ function withDatabase<T>(fn: (db: ReturnType<typeof connect>) => Promise<T>): Pr
 const kernelFor = (database: ReturnType<typeof connect>) =>
   new Kernel({ db: database.db, registry: new Registry(ALL_MODULES) });
 
+/** Under the services' 20 s stop timeout (ops/windows/*.xml), so a stop never ends in a kill. */
+const STOP_LIMIT_MS = 15_000;
+
 async function untilSignal(stops: (() => Promise<void>)[]): Promise<void> {
   await new Promise<void>((resolve) => {
     process.once("SIGINT", resolve);
     process.once("SIGTERM", resolve);
   });
+  // A stop that hangs, or something left open after it (a timer, a socket, a database client),
+  // would keep the process up until the service manager kills it. Say what's holding on, and go.
+  setTimeout(() => {
+    const open = process.getActiveResourcesInfo().filter((r) => r !== "TTYWrap");
+    console.error(
+      `Still running ${STOP_LIMIT_MS / 1000} s after being asked to stop (open: ${open.join(", ") || "nothing"}). Exiting anyway.`,
+    );
+    process.exit(1);
+  }, STOP_LIMIT_MS).unref();
   for (const stop of stops.reverse()) await stop().catch((e) => console.error(e));
 }
 
