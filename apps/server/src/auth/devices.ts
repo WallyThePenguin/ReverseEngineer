@@ -54,6 +54,16 @@ export async function revokeDesktopWindow(db: DbOrTx, now = new Date()): Promise
   return revokeLabelled(db, DESKTOP_WINDOW, now);
 }
 
+/**
+ * Unpairs a device, from Settings or `hearth device unpair`. For the desktop app that signs
+ * Hearth's window on the PC out too (D53). Pairing again doesn't: it only replaces the token.
+ */
+export async function unpairDevice(db: DbOrTx, name: string, now = new Date()): Promise<number> {
+  let n = await revokeDevice(db, name, now);
+  if (name === "desktop") n += await revokeDesktopWindow(db, now);
+  return n;
+}
+
 async function revokeLabelled(db: DbOrTx, name: string, now: Date): Promise<number> {
   const rows = await db
     .update(session)

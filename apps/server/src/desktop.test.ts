@@ -3,7 +3,7 @@
 import { PRINCIPAL } from "@hearth/core";
 import { jarvisCaller, latestSeq, readEventsAfter, systemCaller } from "@hearth/kernel";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { pairDevice, revokeDevice } from "./auth/devices.ts";
+import { pairDevice, revokeDevice, unpairDevice } from "./auth/devices.ts";
 import { Handoffs } from "./auth/handoff.ts";
 import { SESSION_COOKIE } from "./auth/middleware.ts";
 import { createSession } from "./auth/tokens.ts";
@@ -164,6 +164,24 @@ describe("connecting the desktop app", () => {
     expect((await status(second.token)).status).toBe(401);
     expect(await signedIn(second.cookie)).toBe(false);
     expect(await signedIn()).toBe(true);
+  });
+
+  it("keeps the window signed in when the app is paired again, not when it's unpaired", async () => {
+    await serve();
+    await signInBrowser();
+    const { code } = await connect();
+    const opened = await fromApp(`/api/auth/desktop/window?code=${code}`);
+    const cookie = sessionCookie(opened)!.split(";")[0]!;
+    const signedIn = async () => {
+      const res = await fromApp("/api/auth/me", { headers: { cookie } });
+      return ((await res.json()) as { signedIn: boolean }).signedIn;
+    };
+    // `hearth device pair desktop` replaces the app's token only.
+    await pairDevice(t.kernel.db, "desktop");
+    expect(await signedIn()).toBe(true);
+    // Unpairing, from Settings or `hearth device unpair desktop`, signs both out.
+    expect(await unpairDevice(t.kernel.db, "desktop")).toBe(2);
+    expect(await signedIn()).toBe(false);
   });
 
   it("forgets nonces after a minute, by the clock it's given", () => {
