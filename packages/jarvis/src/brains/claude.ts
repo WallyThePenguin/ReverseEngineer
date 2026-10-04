@@ -15,18 +15,39 @@ import {
   type BrainResult,
   replyText,
 } from "../brain.ts";
+import { BrainError, classifyFailure } from "../failures.ts";
+import { forModel } from "./schema.ts";
 
 export interface ClaudeBrainOptions {
-  /** Model per lane. Defaults to the top model for both, per your preference. */
+  /** Model per lane: Sonnet answers quickly, Opus does the deep work (D54). */
   models?: { fast: string; deep: string };
   /** Allow WebSearch and WebFetch. */
   web?: boolean;
-  /** Working directory for the agent process (no file tools are enabled). */
+  /**
+   * Working directory for the agent process (no file tools are enabled). Claude keeps its
+   * sessions per folder, so a fixed one lets a conversation resume after an update (D54).
+   */
   cwd?: string;
   maxTurns?: number;
 }
 
 const WEB_TOOLS = ["WebSearch", "WebFetch"];
+const MCP_PREFIX = "mcp__hearth__";
+
+/**
+ * The tools in the order Claude sends them to the API: its built-ins, then the MCP tools by
+ * name. An error naming "tools.N" points into this list (checked against the live API in
+ * live-probe.test.ts).
+ */
+export function requestToolOrder(builtIn: string[], tools: string[]): string[] {
+  return [...[...builtIn].sort(), ...tools.map((n) => `${MCP_PREFIX}${n}`).sort()];
+}
+
+/** The tool an error's "tools.N" points at: a Hearth tool's own name, or a built-in's. */
+export function toolAt(order: string[], index: number | null): string | null {
+  const name = index === null ? undefined : order[index];
+  return name ? name.replace(MCP_PREFIX, "") : null;
+}
 
 /** The text of a tool result block, whatever shape its content takes. */
 function resultText(content: unknown): string {
@@ -97,7 +118,7 @@ export class ClaudeBrain implements Brain {
 
   constructor(opts: ClaudeBrainOptions = {}) {
     this.opts = {
-      models: opts.models ?? { fast: "opus", deep: "opus" },
+      models: opts.models ?? { fast: "sonnet", deep: "opus" },
       web: opts.web ?? true,
       maxTurns: opts.maxTurns ?? 40,
       ...(opts.cwd ? { cwd: opts.cwd } : {}),
@@ -110,7 +131,7 @@ export class ClaudeBrain implements Brain {
       version: "0.1.0",
       alwaysLoad: true,
       tools: req.tools.map((t) =>
-        tool(t.name, t.description, t.input.shape, async (args) => {
+        tool(t.name, t.description, forModel(t.input), async (args) => {
           const reply = await t.run(args);
           const text = { type: "text" as const, text: replyText(reply) };
           if (typeof reply === "string") return { content: [text] };
@@ -125,6 +146,7 @@ export class ClaudeBrain implements Brain {
     });
     const builtIn = this.opts.web && req.web !== false ? WEB_TOOLS : [];
     const abort = new AbortController();
+    if (req.signal.aborted) abort.abort();
     req.signal.addEventListener("abort", () => abort.abort(), { once: true });
     const started = performance.now();
     let firstTokenMs: number | null = null;
@@ -138,7 +160,7 @@ export class ClaudeBrain implements Brain {
         model: req.lane === "deep" ? this.opts.models.deep : this.opts.models.fast,
         mcpServers: { hearth: server },
         tools: builtIn,
-        allowedTools: [...builtIn, ...req.tools.map((t) => `mcp__hearth__${t.name}`)],
+        allowedTools: [...builtIn, ...req.tools.map((t) => `${MCP_PREFIX}${t.name}`)],
         permissionMode: "dontAsk",
         settingSources: [],
         includePartialMessages: true,
@@ -151,30 +173,61 @@ export class ClaudeBrain implements Brain {
       },
     });
 
+    // A failed API call comes back as an assistant message holding the error text, labelled
+    // with the kind of error. That text is for the log, never for the conversation (D54).
+    let sdkKind: string | null = null;
+    let resetsAt: Date | null = null;
+    const order = requestToolOrder(
+      builtIn,
+      req.tools.map((t) => t.name),
+    );
+    const failed = (detail: string): BrainError => {
+      const f = classifyFailure(new Error(detail), sdkKind);
+      return new BrainError(f.kind, `Jarvis's model turn failed: ${detail}`, {
+        resetsAt: f.kind === "rate_limit" ? (resetsAt ?? f.resetsAt) : null,
+        toolIndex: f.toolIndex,
+        tool: toolAt(order, f.toolIndex),
+      });
+    };
     const trackWeb = webTracker(events);
-    for await (const msg of q) {
-      trackWeb(msg);
-      if (msg.type === "system" && msg.subtype === "init") sessionId = msg.session_id;
-      if (msg.type === "stream_event" && msg.parent_tool_use_id === null) {
-        const ev = msg.event;
-        if (ev.type === "content_block_delta" && ev.delta.type === "text_delta") {
-          firstTokenMs ??= Math.round(performance.now() - started);
-          events.onText(ev.delta.text);
+    try {
+      for await (const msg of q) {
+        trackWeb(msg);
+        if (msg.type === "system" && msg.subtype === "init") sessionId = msg.session_id;
+        if (msg.type === "rate_limit_event" && msg.rate_limit_info.status === "rejected") {
+          const at = msg.rate_limit_info.resetsAt;
+          if (at) resetsAt = new Date(at * 1000);
+        }
+        if (msg.type === "stream_event" && msg.parent_tool_use_id === null) {
+          const ev = msg.event;
+          if (ev.type === "content_block_delta" && ev.delta.type === "text_delta") {
+            firstTokenMs ??= Math.round(performance.now() - started);
+            events.onText(ev.delta.text);
+          }
+        }
+        if (msg.type === "assistant" && msg.parent_tool_use_id === null) {
+          if (msg.error) {
+            sdkKind = msg.error;
+            continue;
+          }
+          for (const block of msg.message.content) {
+            if (block.type === "text" && block.text.trim()) events.onMessage(block.text);
+          }
+        }
+        if (msg.type === "result") {
+          sessionId = msg.session_id;
+          if (msg.subtype !== "success" || msg.is_error) {
+            const detail =
+              msg.subtype === "success" ? msg.result : [msg.subtype, ...msg.errors].join(": ");
+            throw failed(detail);
+          }
+          finalText = msg.result;
         }
       }
-      if (msg.type === "assistant" && msg.parent_tool_use_id === null) {
-        for (const block of msg.message.content) {
-          if (block.type === "text" && block.text.trim()) events.onMessage(block.text);
-        }
-      }
-      if (msg.type === "result") {
-        sessionId = msg.session_id;
-        if (msg.subtype !== "success" || msg.is_error) {
-          const detail = msg.subtype === "success" ? msg.result : msg.subtype;
-          throw new Error(`Jarvis's model turn failed: ${detail}`);
-        }
-        finalText = msg.result;
-      }
+    } catch (err) {
+      // Stopped or out of time: the runner knows which, and says so.
+      if (err instanceof BrainError || req.signal.aborted) throw err;
+      throw failed(err instanceof Error ? err.message : String(err));
     }
     return { text: finalText, sessionId, firstTokenMs };
   }
