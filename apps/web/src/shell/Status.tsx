@@ -69,7 +69,10 @@ export function Unreachable(props: { retry: () => void; trying: boolean }) {
 export function Crashed(props: { error: unknown; reset: () => void }) {
   console.error(props.error);
   return (
-    <Centered title="Something went wrong" text="This screen hit a problem. Your work is saved.">
+    <Centered
+      title="Something went wrong"
+      text="This screen hit a problem. Try again, or reload Hearth if it keeps happening."
+    >
       <Button kind="primary" onClick={props.reset}>
         Try again
       </Button>
