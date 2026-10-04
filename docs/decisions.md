@@ -1176,19 +1176,25 @@ later as your instructions, however they're stored or replayed.
   its turns are no more trusted than what set it up or what fired it; old watches count as
   outside, except ones you made. Replayed text reaches the model inside `<untrusted>` marks: a
   watch's event, outside heartbeat items, and the outside lines of the brief's digest (tasks,
-  people and calendar preps by their mark, someone else's invitation by its organizer). The
-  nightly memory update skips a journal written after outside content.
+  people and calendar preps by their mark, someone else's invitation by its organizer, and what
+  a turn said it did once its conversation had read outside content, even if you started it).
+  The nightly memory update skips a journal written after outside content, and messages and
+  comments a paired device sent on its own say-so (D42, D46).
 - **A conversation stays careful.** Every turn in a conversation resumes the same agent session,
   so once a turn reads outside content the conversation keeps `tainted_at`, what it read in plain
   words, the addresses it saw (D25) and the sites it opened first (D30). Its later turns start
   untrusted with those, so following a link it read, or working on a site it opened before
   reading, still just works; a new conversation starts fresh, and the conversation shows a badge
-  saying so. This is the "taint survives a resumed session" D52 waited on before per-task site
-  grants.
+  saying so. Jarvis is told what was read earlier is data, while your new message is still yours.
+  A record's own thread (its @Jarvis replies) stays careful the same way, and has no "new
+  conversation" to start. This is the "taint survives a resumed session" D52 waited on before
+  per-task site grants.
 - **Only you or Jarvis call Jarvis.** An @Jarvis written by an integration or an outside agent
   calls no one, whatever type its tag claims; its links to records stay (a Notion import links its
   pages), as links from outside content. A tag whose id isn't a record's id is plain text. An
-  @Jarvis written on outside content's say-so (heard words, D46) starts an untrusted turn.
+  @Jarvis written on outside content's say-so (heard words, D46) starts an untrusted turn, and
+  so does one that first links when you or Jarvis edit a record whose text is outside content
+  (an email's own tag, kept by your edit).
 - **Outside agents are outside content.** MCP clients and integrations act with an untrusted
   origin. Memory and Jarvis's watches and observations are only for you and Jarvis. `/mcp`
   answers only while a token made with `hearth token create` is live, and takes POST only (GET
