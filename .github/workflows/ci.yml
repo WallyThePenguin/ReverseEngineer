@@ -1,9 +1,11 @@
 name: CI
 
 on:
+  # The deploy branch (what update.ps1 pulls): every merge is tested again, as merged.
   push:
-    branches: [main]
+    branches: [claude/admiring-wright-ghc2o3]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -95,3 +97,73 @@ jobs:
       - name: Server log
         if: failure()
         run: cat server.log server-dev.log server-launch.log server-resilience.log || true
+
+  # Hearth runs on Windows, so it's checked there too: Node 22 (what the PC runs), PostgreSQL 17
+  # (what the PC runs), a real server start, and a backup restored into a fresh database.
+  # The extension and Chrome-launch end-to-end tests stay on Linux: the extension's session
+  # restore fails under Windows Chromium (stream F's work), and chrome-launch drives Chrome the
+  # Linux way. The Windows "task" launch is covered by unit tests with a fake runner.
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      HEARTH_DATABASE_URL: postgres://hearth:hearth@127.0.0.1:5432/hearth
+      HEARTH_TEST_DATABASE_URL: postgres://hearth:hearth@127.0.0.1:5432/postgres
+      HEARTH_CHROME_LAUNCH: "off"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      # The runner image has PostgreSQL installed as a stopped service (user postgres, password
+      # root). Start it and add the role Hearth's tests and server use.
+      - name: PostgreSQL 17
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $bin = if ($env:PGBIN) { $env:PGBIN } else { "C:\Program Files\PostgreSQL\17\bin" }
+          $version = & "$bin\postgres.exe" --version
+          if ($version -notmatch " 17\.") { throw "Expected PostgreSQL 17 on the runner, found: $version" }
+          $svc = Get-Service -Name "postgresql*" | Select-Object -First 1
+          Set-Service -Name $svc.Name -StartupType Manual
+          Start-Service -Name $svc.Name
+          Add-Content $env:GITHUB_PATH $bin
+          $env:PGPASSWORD = "root"
+          & "$bin\psql.exe" -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 `
+            -c "CREATE ROLE hearth LOGIN SUPERUSER PASSWORD 'hearth'" `
+            -c "CREATE DATABASE hearth OWNER hearth"
+          if ($LASTEXITCODE -ne 0) { throw "Couldn't create the hearth role and database." }
+          Write-Host $version
+      - run: pnpm install --frozen-lockfile
+      - name: Lint and format
+        run: pnpm lint
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: File size limit
+        run: pnpm check:size
+      - name: Chromium (page tests and the browser smoke test)
+        run: pnpm --filter @hearth/web exec playwright install chromium
+      - name: Tests
+        run: pnpm test
+      - name: Build the web app
+        run: pnpm build:web
+      - name: Server starts and answers, then the browser smoke test
+        env:
+          HEARTH_ORIGIN: http://localhost:4400
+        run: |
+          export HEARTH_WEB_DIST="$PWD/apps/web/dist"
+          CODE=$(pnpm -s hearth setup | grep -oE '^    [0-9A-F]{10}$' | tr -d ' ')
+          pnpm -s hearth serve > server.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf 127.0.0.1:4400/api/health > /dev/null && break; sleep 1; done
+          curl -sf 127.0.0.1:4400/api/health
+          HEARTH_E2E_URL=http://localhost:4400 HEARTH_E2E_SETUP_CODE="$CODE" pnpm --filter @hearth/web e2e
+      - name: Back up, then restore into a fresh database
+        run: pnpm -s hearth backup
+      - name: Server log
+        if: failure()
+        run: cat server.log || true
