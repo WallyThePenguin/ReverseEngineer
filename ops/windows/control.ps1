@@ -113,8 +113,11 @@ function Format-Sha([string]$Sha) {
 
 # What's still wrong with a deep health report, or $null once everything in $Parts is up: the
 # server on $Sha (when given) with its database fitting the code, started after $Since, and the
-# worker and Jarvis reporting in since $Since, not failing.
-function Get-DeepProblem($Deep, [datetime]$Since, [string]$Sha, [string[]]$Parts) {
+# worker and Jarvis reporting in since $Since, not failing. Those in $Failed were failing already
+# before the restart: they only have to report in. (Jarvis's health says how its last turn went,
+# which a restart doesn't change, so requiring "not failing" would roll back the very update that
+# fixes its turns.)
+function Get-DeepProblem($Deep, [datetime]$Since, [string]$Sha, [string[]]$Parts, [string[]]$Failed = @()) {
   if ($Parts -contains "server") {
     if ($Sha -and $Deep.sha -ne $Sha) {
       return "the server runs $(Format-Sha $Deep.sha), not $(Format-Sha $Sha)"
@@ -129,9 +132,20 @@ function Get-DeepProblem($Deep, [datetime]$Since, [string]$Sha, [string[]]$Parts
     if ($Parts -notcontains $part) { continue }
     $c = $Deep.components.$part
     if (-not $c -or (ConvertTo-UtcTime $c.at) -lt $Since) { return "the $part hasn't reported in since it started" }
-    if ($c.status -eq "failing") { return "the $part says: $($c.detail)" }
+    if ($c.status -eq "failing" -and $Failed -notcontains $part) { return "the $part says: $($c.detail)" }
   }
   return $null
+}
+
+# Which of the worker and Jarvis were failing in a deep health report (before a restart).
+function Get-FailingParts($Deep) {
+  if (-not $Deep -or -not $Deep.components) { return @() }
+  return @(@("worker", "jarvis") | Where-Object { $Deep.components.$_ -and $Deep.components.$_.status -eq "failing" })
+}
+
+# The same from a doctor report (before an update; the doctor before deep health had them too).
+function Get-FailingChecks($Report) {
+  return @(@("worker", "jarvis") | Where-Object { (Get-DoctorMark $Report $_) -eq "fail" })
 }
 
 # Waits until Get-DeepProblem finds nothing; returns $null then, or the last problem when time's
@@ -142,6 +156,7 @@ function Wait-Hearth {
     [string]$Sha = "",
     [string[]]$Parts = @("server", "worker", "jarvis"),
     [int]$TimeoutSec = 180,
+    [string[]]$Failed = @(),
     [switch]$AllowOld
   )
   $deadline = (Get-Date).AddSeconds($TimeoutSec)
@@ -149,7 +164,7 @@ function Wait-Hearth {
   while ($true) {
     $deep = Get-DeepHealth
     if ($deep.Status -eq 200) {
-      $why = Get-DeepProblem $deep.Body $Since $Sha $Parts
+      $why = Get-DeepProblem $deep.Body $Since $Sha $Parts $Failed
       if (-not $why) { return $null }
     } elseif ($deep.Status -eq 404) {
       if ($AllowOld) { return $null }

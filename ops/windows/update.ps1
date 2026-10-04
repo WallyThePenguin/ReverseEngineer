@@ -9,8 +9,9 @@
   Then the update has to prove itself (D57), or it's rolled back:
 
   - The server reports the new commit through /api/health/deep, its database has every migration
-    the new code expects, and the worker and Jarvis report in after the restart, not failing.
-    Within three minutes.
+    the new code expects, and the worker and Jarvis report in after the restart, not failing
+    (unless they were failing before the update: then reporting in is enough). Within three
+    minutes.
   - When scripts\probe-jarvis-tools.ts exists, it passes (exit 0). That's the hook for the Jarvis
     tool-schema probe: it sends Jarvis's whole tool list to the model in one small call, so a tool
     the API rejects stops the update instead of every Jarvis turn.
@@ -71,7 +72,9 @@ function Write-Doctor($Report) {
 # The new code must prove itself: deep health, the Jarvis probe if there is one, then the doctor.
 function Assert-Healthy([string]$Sha, [datetime]$Since, $Before) {
   Write-Host "== Waiting for Hearth to report in on $(Format-Sha $Sha)"
-  $why = Wait-Hearth -Since $Since -Sha $Sha -TimeoutSec $HealthTimeoutSec
+  $failed = Get-FailingChecks $Before
+  if ($failed.Count) { Write-Host "Failing before the update too, so they only have to report in: $($failed -join ', ')" }
+  $why = Wait-Hearth -Since $Since -Sha $Sha -TimeoutSec $HealthTimeoutSec -Failed $failed
   if ($why) { throw "Hearth isn't healthy on the new code after $HealthTimeoutSec seconds: $why." }
   $probe = Join-Path $Root $JarvisProbe
   if (Test-Path $probe) {
@@ -163,7 +166,8 @@ try {
     $since = [datetime]::UtcNow
     try { Start-Hearth } catch { Write-Host "Couldn't start Hearth again: $_" }
     $running = (git rev-parse HEAD).Trim()
-    $why = Wait-Hearth -Since $since -Sha $running -TimeoutSec $HealthTimeoutSec -AllowOld
+    $why = Wait-Hearth -Since $since -Sha $running -TimeoutSec $HealthTimeoutSec -AllowOld `
+      -Failed (Get-FailingChecks $before)
     if ($why) {
       Write-Host "HEARTH ISN'T BACK UP on $(Format-Sha $running): $why. Run pnpm hearth doctor to see why."
     } else {

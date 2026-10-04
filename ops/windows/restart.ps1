@@ -20,6 +20,9 @@ $ErrorActionPreference = "Stop"
 $parts = Resolve-HearthParts $Service
 $name = if ($Service -eq "all") { "Hearth" } else { "Hearth's $Service" }
 
+# What was failing already (Jarvis's last turn, say) only has to report in again afterwards.
+$failed = Get-FailingParts (Get-DeepHealth).Body
+
 try {
   Stop-Hearth $parts
   # Once it's all stopped, with no margin: a report from just before the stop must not count as
@@ -33,7 +36,7 @@ try {
 }
 
 Write-Host "Waiting for $name to report in..."
-$why = Wait-Hearth -Since $since -Parts $parts -TimeoutSec $TimeoutSec
+$why = Wait-Hearth -Since $since -Parts $parts -TimeoutSec $TimeoutSec -Failed $failed
 if ($why) {
   Write-Host "Restarted $name, but after $TimeoutSec seconds $why. Run pnpm hearth doctor to see why."
   exit 1

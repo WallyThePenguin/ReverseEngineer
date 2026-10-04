@@ -997,7 +997,9 @@ truth about the running install.
   themselves failing and exit, and Windows retries them.
 - **The update gate.** After an update starts the new code, `update.ps1` waits up to three
   minutes for deep health to report the new commit with every migration applied, and for the
-  worker and Jarvis to report in since the restart, not failing. Then the optional Jarvis
+  worker and Jarvis to report in since the restart, not failing (one already failing before the
+  update only has to report in: Jarvis's health follows its last turn, which a restart can't
+  change, and the update may be its fix). Then the optional Jarvis
   tool-schema probe (`scripts\probe-jarvis-tools.ts`) must pass, if it exists. Then `hearth
   doctor --json` must show no check failing that passed before the update. Otherwise it rolls
   back (migrations down, previous code, restart) and checks the previous version came back.
