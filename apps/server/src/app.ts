@@ -54,6 +54,7 @@ import { pushRoutes } from "./routes/push.ts";
 import { speechRoutes } from "./routes/speech.ts";
 import { voiceRoutes } from "./routes/voice.ts";
 import { SpeechRelay } from "./speech.ts";
+import { startWorkerWatch } from "./worker-watch.ts";
 
 const CSP = [
   "default-src 'self'",
@@ -179,6 +180,7 @@ export function createApp(opts: AppOptions) {
   }
 
   let detachSockets: (() => void) | null = null;
+  let stopWorkerWatch: (() => void) | null = null;
   return {
     app,
     hub,
@@ -186,6 +188,7 @@ export function createApp(opts: AppOptions) {
     start: () => {
       hub.start();
       push = startPush(opts.kernel, hub, sendPush);
+      stopWorkerWatch = startWorkerWatch(opts.kernel);
     },
     /** Resolves once phone notifications for the events so far are sent (for tests). */
     pushIdle: () => push?.idle() ?? Promise.resolve(),
@@ -203,6 +206,7 @@ export function createApp(opts: AppOptions) {
       detachSockets?.();
       bridge.close();
       push?.stop();
+      stopWorkerWatch?.();
       await hub.stop();
     },
   };

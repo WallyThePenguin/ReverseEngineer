@@ -6,6 +6,7 @@ import { integrationCaller, type Kernel, startScheduler } from "@hearth/kernel";
 import { checkHealth, type HealthOptions, reportHealth } from "./health.ts";
 import { jarvisWatchdog } from "./jarvis-watchdog.ts";
 import { type MailRoundOptions, mailRound } from "./mail-loop.ts";
+import { checkSyncs, ErrorClock } from "./sync-health.ts";
 import { checkDueWatches } from "./watches.ts";
 
 export interface WorkerOptions extends HealthOptions {
@@ -29,12 +30,18 @@ export function startWorker(opts: WorkerOptions) {
     log: (err) => log("running schedules failed", err),
   });
   const watchdog = jarvisWatchdog(kernel, { log });
+  const syncErrors = new ErrorClock();
   let checking = false;
   const health = async () => {
     if (checking) return;
     checking = true;
     try {
-      await reportHealth(kernel, await checkHealth(kernel, opts));
+      // A problem reading the syncs mustn't stop the worker's own check-in.
+      const syncs = await checkSyncs(kernel, syncErrors).catch((err) => {
+        log("checking the syncs failed", err);
+        return [];
+      });
+      await reportHealth(kernel, [...(await checkHealth(kernel, opts)), ...syncs]);
       await watchdog();
     } catch (err) {
       log("health check failed", err);

@@ -32,6 +32,13 @@ export async function setPaused(paused: boolean) {
 }
 
 const TONE = { ok: "ok", degraded: "warn", failing: "bad" } as const;
+/** Health components by a name you'd use; any other goes by its own. */
+const PART: Record<string, string> = {
+  "sync.google": "Google",
+  "sync.slack": "Slack",
+  "sync.github": "GitHub",
+  browser: "Chrome",
+};
 
 /** Adds another passkey (your phone, a security key) while you're signed in. */
 async function addPasskey() {
@@ -187,7 +194,7 @@ export function Settings() {
                 {([name, h]) => (
                   <li class="flex items-center gap-3 text-sm">
                     <Badge tone={TONE[h.status]}>{h.status}</Badge>
-                    <span class="w-20 font-medium">{name}</span>
+                    <span class="w-20 shrink-0 font-medium capitalize">{PART[name] ?? name}</span>
                     <span class="flex-1 text-muted">{h.detail}</span>
                     <span class="text-xs text-faint">{ago(h.at)}</span>
                   </li>

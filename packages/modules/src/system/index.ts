@@ -16,6 +16,7 @@ import {
 } from "@hearth/kernel";
 import { and, asc, count, eq, isNotNull, isNull, like, ne } from "drizzle-orm";
 import { z } from "zod";
+import { alertBackupFailed, alertFailing } from "./alerts.ts";
 import { judgeHealth } from "./staleness.ts";
 
 export { type JudgedHealth, judgeHealth, REPORT_EVERY_MS, roughly } from "./staleness.ts";
@@ -131,6 +132,7 @@ export const systemModule = defineModule({
             kind: "system.health_changed",
             payload: { component: i.component, status: i.status, previous, detail: i.detail },
           });
+          if (i.status === "failing") await alertFailing(ctx, i.component, i.detail);
         }
         return { changed: previous !== i.status };
       },
@@ -165,6 +167,7 @@ export const systemModule = defineModule({
             restoreTested: i.restoreTested,
           },
         });
+        if (!i.ok) await alertBackupFailed(ctx, i.detail);
         return { recorded: true };
       },
     }),
@@ -193,54 +196,9 @@ export const systemModule = defineModule({
       },
     }),
   ],
-  reflexes: [
-    {
-      name: "system.alert_on_failure",
-      description:
-        "Tells you when a sync, service or backup starts failing, even when Jarvis is paused.",
-      mode: "always",
-      on: ["system.health_changed", "system.backup_finished"],
-      includeJarvisEvents: true,
-      run(event, ctx) {
-        const day = ctx.now.toISOString().slice(0, 10);
-        if (event.kind === "system.backup_finished") {
-          if (event.payload.ok) return [];
-          return [
-            {
-              kind: "tell",
-              notification: {
-                kind: "system.alert",
-                title: "Last night's backup failed",
-                body: String(event.payload.detail ?? ""),
-                urgency: "normal",
-                dedupeKey: `backup_failed:${day}`,
-              },
-            },
-          ];
-        }
-        const { component, status, detail } = event.payload as {
-          component: string;
-          status: string;
-          detail: string;
-        };
-        // Jarvis's own alerts say what failed and are kept apart per outage (D54); the worker
-        // raises its own when Jarvis stops checking in.
-        if (status !== "failing" || component === "jarvis") return [];
-        return [
-          {
-            kind: "tell",
-            notification: {
-              kind: "system.alert",
-              title: `${component} is failing`,
-              body: detail,
-              urgency: "normal",
-              dedupeKey: `failing:${component}:${day}`,
-            },
-          },
-        ];
-      },
-    },
-  ],
+  reflexes: [],
+  noReflexesBecause:
+    "A failing component or backup is told by system.report and system.backup_finished themselves (alerts.ts): reflexes run only in the Jarvis process, and these alerts must reach you while it's down.",
   async digest(ctx): Promise<DigestItem[]> {
     const rows = await ctx.db.select().from(setting).where(like(setting.key, "health.%"));
     const items: DigestItem[] = [];
