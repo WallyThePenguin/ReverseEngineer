@@ -125,13 +125,27 @@ describe("hearth doctor, the running install", () => {
 
   it("names the Chrome extension the server sees", () => {
     expect(checkChromeLink(null)).toBeNull();
-    const at = (connected: boolean) =>
-      ({ browser: { connected, version: "1.4.0", since: "2026-10-04T12:00:00Z" } }) as DeepHealth;
+    const at = (connected: boolean, more: Partial<NonNullable<DeepHealth["browser"]>> = {}) =>
+      ({
+        browser: {
+          connected,
+          version: "1.4.0",
+          since: "2026-10-04T12:00:00Z",
+          paired: true,
+          openError: null,
+          ...more,
+        },
+      }) as DeepHealth;
     expect(checkChromeLink(at(true))).toMatchObject({
       mark: "ok",
       detail: expect.stringContaining("1.4.0"),
     });
-    expect(checkChromeLink(at(false))?.mark).toBe("warn");
+    expect(checkChromeLink(at(false))?.detail).toContain("isn't connected");
+    expect(checkChromeLink(at(false, { paired: false }))?.detail).toContain(
+      "No extension is paired",
+    );
+    const blocked = checkChromeLink(at(false, { openError: "Nobody is signed in to Windows." }));
+    expect(blocked).toMatchObject({ mark: "warn", detail: expect.stringContaining("Nobody is") });
   });
 
   it("checks each drive once", async () => {
