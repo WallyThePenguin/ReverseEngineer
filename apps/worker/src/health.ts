@@ -1,6 +1,8 @@
-// Hearth watching itself: disk space, backups and whether Jarvis is alive. Problems go through
-// system.report, which tells you (system.alert_on_failure) even while Jarvis is paused.
-import { statfs } from "node:fs/promises";
+// Hearth watching itself: disk space on every drive it uses, backups and whether Jarvis is alive.
+// Problems go through system.report, which tells you (system.alert_on_failure) even while Jarvis
+// is paused.
+import { stat, statfs } from "node:fs/promises";
+import { parse, resolve } from "node:path";
 import { formatDateTime } from "@hearth/core";
 import { setting } from "@hearth/db";
 import { getSetting, type Kernel, systemCaller } from "@hearth/kernel";
@@ -50,11 +52,57 @@ export async function checkDisk(dir: string): Promise<HealthReport> {
   }
 }
 
+/**
+ * The folders Hearth needs room in: its data (database dumps, mail), its own folder, the service
+ * logs under ProgramData, and the system drive, where Node, Chrome and the Claude login live.
+ */
+export function hearthFolders(dataDir: string, env: NodeJS.ProcessEnv = process.env): string[] {
+  return [
+    dataDir,
+    process.cwd(),
+    env.HEARTH_BACKUP_DIR,
+    env.ProgramData,
+    env.SystemDrive ? `${env.SystemDrive}\\` : undefined,
+  ].filter((d): d is string => Boolean(d));
+}
+
+/** Free space on each drive the folders are on, one entry per drive. */
+export async function checkDrives(dirs: string[]): Promise<(HealthReport & { drive: string })[]> {
+  const seen = new Set<number>();
+  const out: (HealthReport & { drive: string })[] = [];
+  for (const dir of dirs) {
+    const dev = await stat(dir).then(
+      (s) => s.dev,
+      () => null,
+    );
+    if (dev === null || seen.has(dev)) continue;
+    seen.add(dev);
+    const root = parse(resolve(dir)).root;
+    // "C:" on Windows; elsewhere the folder itself, since one root holds every disk.
+    const drive = /^[A-Za-z]:\\$/.test(root) ? root.slice(0, 2).toUpperCase() : dir;
+    out.push({ ...(await checkDisk(dir)), drive });
+  }
+  return out;
+}
+
+/** One "disk" report for all the drives: the worst of them, each named. */
+export async function checkDisks(dirs: string[]): Promise<HealthReport> {
+  const drives = await checkDrives(dirs);
+  if (!drives.length) return { component: "disk", status: "degraded", detail: "No drive to check" };
+  const rank: Record<Status, number> = { ok: 0, degraded: 1, failing: 2 };
+  const worst = drives.reduce((a, b) => (rank[b.status] > rank[a.status] ? b : a));
+  return {
+    component: "disk",
+    status: worst.status,
+    detail: drives.map((d) => `${d.drive} ${d.detail}`).join(" · "),
+  };
+}
+
 export async function checkHealth(kernel: Kernel, opts: HealthOptions): Promise<HealthReport[]> {
   const now = kernel.clock.now();
   const rules = await getSetting(kernel.db, "owner.dayRules");
   const reports: HealthReport[] = [{ component: "worker", status: "ok", detail: "Running" }];
-  reports.push(await checkDisk(opts.dataDir));
+  reports.push(await checkDisks(hearthFolders(opts.dataDir)));
 
   const backup = await lastReport(kernel, "backup");
   const staleHours = opts.backupStaleHours ?? 36;
