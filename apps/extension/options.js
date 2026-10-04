@@ -8,7 +8,11 @@ const statusEl = /** @type {HTMLElement} */ (document.getElementById("status"));
 
 async function showStatus() {
   const s = await chrome.runtime.sendMessage({ type: "status" });
-  statusEl.textContent = s.connected ? "Connected." : s.error || "Not connected yet.";
+  statusEl.textContent = s.outdated
+    ? "Connected, but Hearth is newer than this extension. Reload it at chrome://extensions."
+    : s.connected
+      ? "Connected."
+      : s.error || "Not connected yet.";
   statusEl.className = `status ${s.connected ? "on" : "off"}`;
 }
 
