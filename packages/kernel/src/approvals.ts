@@ -8,7 +8,7 @@ import { and, eq, gt, isNull, ne, or } from "drizzle-orm";
 import { z } from "zod";
 import { approvalTtlMs, expireOverdue, resolvedOrigin, withTitles } from "./approval-life.ts";
 import { writeAudit } from "./audit.ts";
-import { ActionError } from "./errors.ts";
+import { ActionError, describeError } from "./errors.ts";
 import { appendEvents, type EventStamp } from "./events.ts";
 import { newId, stableHash } from "./ids.ts";
 import type { ExecuteResult, Kernel } from "./kernel.ts";
@@ -165,6 +165,8 @@ const TAKEN: Record<ApprovalStatus, string> = {
   failed: "This was already approved, and it failed.",
   expired: "This approval ran out before anyone decided. Ask again if you still want it.",
 };
+const GONE = "Hearth can no longer do what this asked, so nothing was run.";
+const NOT_RUN = "Hearth couldn't start this, so nothing was run. Ask for it again.";
 
 export async function resolveApproval(
   kernel: Kernel,
@@ -179,6 +181,8 @@ export async function resolveApproval(
   const [row] = await kernel.db.select().from(approval).where(eq(approval.id, approvalId));
   if (!row) return notFound;
   const def = kernel.registry.action(row.action);
+  // As it is when closed: a copy asked meanwhile after reading outside content may lower it.
+  let origin = row.origin;
   const now = kernel.clock.now();
   const correlationId = row.correlationId ?? newId();
   const stillOpen = and(
@@ -216,8 +220,9 @@ export async function resolveApproval(
           ? stillOpen
           : and(eq(approval.id, approvalId), eq(approval.status, from)),
       )
-      .returning({ id: approval.id });
+      .returning({ id: approval.id, origin: approval.origin });
     if (updated.length === 0) return null;
+    origin = updated[0]!.origin;
     await tx
       .update(notification)
       .set({ state: "done", updatedAt: now })
@@ -240,7 +245,7 @@ export async function resolveApproval(
       ],
       stamp: {
         actor: caller.principal,
-        origin: resolvedOrigin(row, def, touchedOutside),
+        origin: resolvedOrigin({ origin }, def, touchedOutside),
         correlationId,
         at: now,
       },
@@ -263,7 +268,11 @@ export async function resolveApproval(
       "denied",
       def ? {} : { error: "Action no longer exists" },
     );
-    return closed ? { status: "ok", result: { decision: "denied" } } : taken();
+    if (!closed) return taken();
+    // A yes to an action Hearth no longer has closes it too, but nothing ran: say so.
+    return def || decision === "deny"
+      ? { status: "ok", result: { decision: "denied" } }
+      : { status: "error", code: "conflict", message: GONE };
   }
 
   // Claimed before anything runs: a second yes finds it taken instead of running it again.
@@ -273,8 +282,9 @@ export async function resolveApproval(
     .where(stillOpen)
     .returning();
   if (!claimed) return taken();
-  const fail = async (message: string): Promise<ExecuteResult> => {
-    await finish("executing", "failed", { error: message });
+  // `error` is kept on the approval (and told to Jarvis); you're told `message`.
+  const fail = async (message: string, error = message): Promise<ExecuteResult> => {
+    await finish("executing", "failed", { error });
     return { status: "error", code: "conflict", message };
   };
   if (stableHash(claimed.input) !== claimed.inputHash)
@@ -283,18 +293,30 @@ export async function resolveApproval(
   const parsed = def.input.safeParse(claimed.input);
   if (!parsed.success)
     return fail(
+      "This request no longer fits what Hearth can do, so it wasn't run. Ask for it again.",
       `This request no longer fits ${def.name}, so it wasn't run: ${z.prettifyError(parsed.error)}`,
     );
 
-  const requester: Caller & { correlationId: string } = {
-    principal: claimed.requestedBy,
-    kind: await kernel.principalKind(claimed.requestedBy),
-    origin: claimed.origin as Caller["origin"],
-    via: "ui",
-    correlationId,
-    ...(claimed.turnId ? { turnId: claimed.turnId } : {}),
-    ...(claimed.conversationId ? { conversationId: claimed.conversationId } : {}),
-  };
+  let requester: Caller & { correlationId: string };
+  try {
+    requester = {
+      principal: claimed.requestedBy,
+      kind: await kernel.principalKind(claimed.requestedBy),
+      origin: claimed.origin as Caller["origin"],
+      via: "ui",
+      correlationId,
+      ...(claimed.turnId ? { turnId: claimed.turnId } : {}),
+      ...(claimed.conversationId ? { conversationId: claimed.conversationId } : {}),
+    };
+  } catch (err) {
+    // Couldn't even look up who asked: close it now rather than leave it "being done" until
+    // the sweep says it may or may not have happened.
+    const failure = describeError(err);
+    await finish("executing", "failed", { error: failure.message }).catch(() => {});
+    return failure.code === "unavailable"
+      ? { status: "error", ...failure }
+      : { status: "error", code: "failed", message: NOT_RUN };
+  }
   const result = await kernel.run(def, parsed.data, requester, {
     approvalId,
     inTx: async (tx, r) => {

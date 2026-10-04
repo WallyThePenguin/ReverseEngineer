@@ -2,7 +2,7 @@
 // asked twice, and approvals that run out or are cut short.
 import { approval, entity, notification } from "@hearth/db";
 import { and, eq } from "drizzle-orm";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { approvalTtlMs, expireOverdue, STUCK_MS } from "./approval-life.ts";
 import { jarvisCaller, ownerCaller } from "./callers.ts";
@@ -176,9 +176,38 @@ describe("exactly-once approvals", () => {
       .where(eq(approval.id, stale));
     const res = await decide(stale, "approve");
     expect(res).toMatchObject({ status: "error", code: "conflict" });
+    // You're told in plain words; the details are kept on the approval for Jarvis and the log.
+    expect((res as { message: string }).message).toBe(
+      "This request no longer fits what Hearth can do, so it wasn't run. Ask for it again.",
+    );
     expect(sent).toHaveLength(1);
     expect(await row(stale)).toMatchObject({ status: "failed" });
+    expect((await row(stale)).error).toMatch(/probe\.remind/);
     expect((await cards(stale))[0]?.state).toBe("done");
+  });
+
+  it("closes a yes it can't start, instead of leaving it being done", async () => {
+    const orphan = await ask("probe.send", { to: "ken@example.com" });
+    const lookup = vi
+      .spyOn(t.kernel, "principalKind")
+      .mockRejectedValueOnce(new Error("connection reset"));
+    expect(await decide(orphan, "approve")).toMatchObject({
+      status: "error",
+      code: "failed",
+      message: "Hearth couldn't start this, so nothing was run. Ask for it again.",
+    });
+    lookup.mockRestore();
+    expect(await row(orphan)).toMatchObject({ status: "failed" });
+    expect((await cards(orphan))[0]?.state).toBe("done");
+
+    // A yes to an action Hearth no longer has runs nothing, and says so.
+    const old = await ask("probe.send", { to: "lu@example.com" });
+    await t.tdb.db.update(approval).set({ action: "probe.retired" }).where(eq(approval.id, old));
+    const res = await decide(old, "approve");
+    expect(res).toMatchObject({ status: "error", code: "conflict" });
+    expect((res as { message: string }).message).toMatch(/nothing was run/);
+    expect(await row(old)).toMatchObject({ status: "denied" });
+    expect(sent).toEqual([]);
   });
 
   it("stamps what Jarvis hears untrusted when the action read a page, whoever asked", async () => {
