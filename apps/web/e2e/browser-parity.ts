@@ -2,7 +2,7 @@
 // dialogs, pop-ups, back and forward, key combinations, "leave site?" in Jarvis's own tab, and
 // "Test Jarvis's Chrome".
 
-import type { Page } from "playwright";
+import type { Page, Worker } from "playwright";
 
 /** Pages the test site serves for these checks, by path. */
 export const PARITY_PAGES: Record<string, string> = {
@@ -20,6 +20,9 @@ export const PARITY_PAGES: Record<string, string> = {
   "/draft": `<!doctype html><title>Draft</title><button onclick="s.textContent = 'started'">Start</button>
     <p id="s"></p>
     <script>addEventListener("beforeunload", (e) => { e.preventDefault(); e.returnValue = ""; });</script>`,
+  "/form": `<!doctype html><title>Form</title>
+    <form method="post" action="/sent"><input name="n" aria-label="Note" value="x"><button>Send note</button></form>`,
+  "/sent": "<!doctype html><title>Sent</title><p>Sent</p>",
 };
 
 /** The ID the extension's fixed key gives it (D52). */
@@ -31,10 +34,15 @@ export interface ParityContext {
   hearth: Page;
   siteUrl: string;
   extensionId: string;
+  /** The extension's service worker, to open a tab the way you would. */
+  worker: Worker;
+  /** How many forms the test site has been sent. */
+  posts(): number;
   check(ok: unknown, what: string): void;
 }
 
-export async function parityChecks({ hearth, siteUrl, extensionId, check }: ParityContext) {
+export async function parityChecks(context: ParityContext) {
+  const { hearth, siteUrl, extensionId, worker, posts, check } = context;
   /** Runs an action as you, from the Hearth page, and returns the whole answer. */
   const attempt = (name: string, input: unknown) =>
     hearth.evaluate(
@@ -119,6 +127,22 @@ export async function parityChecks({ hearth, siteUrl, extensionId, check }: Pari
   );
   if (opened) await act("browser.close", { tabId: opened.tabId });
 
+  // A tab you open yourself stays yours, though Chrome names the tab that was in front as its
+  // opener, as it does when you duplicate Jarvis's tab.
+  const yours = (await worker.evaluate(`(async () => {
+    await chrome.tabs.update(${tabId}, { active: true });
+    const t = await chrome.tabs.duplicate(${tabId});
+    return { id: t.id, opener: t.openerTabId };
+  })()`)) as { id: number; opener?: number };
+  check(yours.opener === tabId, "Chrome names Jarvis's tab as the opener of a copy you make of it");
+  await hearth.waitForTimeout(1000);
+  const afterYours = await act<{ tabs: { tabId: number }[] }>("browser.tabs", {});
+  check(
+    !afterYours.tabs.some((t) => t.tabId === yours.id),
+    "a tab you open yourself isn't Jarvis's, whatever Chrome names as its opener",
+  );
+  await worker.evaluate(`chrome.tabs.remove(${yours.id})`);
+
   // Back, forward and reload.
   await act("browser.navigate", { tabId, url: `${siteUrl}second` });
   const back = await act<{ finalUrl: string }>("browser.navigate", { tabId, url: "back" });
@@ -127,6 +151,21 @@ export async function parityChecks({ hearth, siteUrl, extensionId, check }: Pari
   check(forward.finalUrl.endsWith("/second"), "navigate forward goes forward");
   const reload = await act<{ title: string }>("browser.navigate", { tabId, url: "reload" });
   check(reload.title === "Second", "reload reloads");
+
+  // Reloading a page a form sent loads it afresh, without sending the form again. The site is
+  // trusted for this, so the press itself needn't ask.
+  const sites = await act<{ allowed: string[]; blocked: string[] }>("browser.sites", {});
+  const host = new URL(siteUrl).hostname;
+  await act("browser.set_sites", { allowed: [...sites.allowed, host], blocked: sites.blocked });
+  await act("browser.navigate", { tabId, url: `${siteUrl}form` });
+  await act("browser.click", { tabId, ref: await refOf(tabId, "Send note") });
+  const sent = posts();
+  const fresh = await act<{ title: string }>("browser.navigate", { tabId, url: "reload" });
+  check(
+    sent === 1 && fresh.title === "Sent" && posts() === sent,
+    "reloading a page a form sent doesn't send the form again",
+  );
+  await act("browser.set_sites", { allowed: sites.allowed, blocked: sites.blocked });
 
   // Key combinations, with modifiers and repeats.
   await act("browser.navigate", { tabId, url: `${siteUrl}keys` });

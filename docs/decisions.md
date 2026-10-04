@@ -887,8 +887,8 @@ would send follows the classifier. When Jarvis navigates its own tab, the extens
 be yours. Tabs that Jarvis's tabs open (pop-ups, "opens in a new tab") are adopted through
 `webNavigation.onCreatedNavigationTarget`, which names the tab that opened them: one opened from
 Jarvis's tab is Jarvis's, and one opened from a tab you handed it is handed. A tab's own
-`openerTabId` isn't enough, because Chrome gives one to a tab you open with Ctrl+T too (the tab
-you were on), and that tab stays yours. A step's result says which tabs it opened, and
+`openerTabId` isn't enough, because Chrome gives one to tabs you open yourself too (Duplicate
+names the tab you were on), and those stay yours. A step's result says which tabs it opened, and
 `browser.tabs` says which tab each pop-up came from.
 
 *The extension.* It has a fixed key, so its ID is always `jcpelnnklghgcdhcmdbmpflehbehpkhh`,
