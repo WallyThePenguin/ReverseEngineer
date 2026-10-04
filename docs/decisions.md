@@ -1150,3 +1150,55 @@ Restoring over the live database (one bad dump and both are gone). A Windows run
 
 **Why:** The 2026-10-03 update broke every Jarvis turn while health said "ok", the doctor printed
 checkmarks and the updater said "update OK". Each of those now checks the thing that broke.
+
+## D61. Every account syncs on its own; outward calls are idempotent (2026-10-04)
+
+**Decision:** Each connected account (every Google account, Slack workspace and GitHub login) is
+synced, tracked and alerted on by itself, and anything Hearth sends out can be tried again
+without happening twice.
+
+- **Accounts apart.** A calendar is keyed by the account and Google's id, under an id of
+  Hearth's own (migration 0032), so a calendar two accounts share gets a row in each. It syncs
+  through the account connected first; turning it on in another says which has it. New events
+  and time blocks go to the calendar picked in Settings, or else the primary calendar of the
+  account connected first. A draft goes from the account you pick in Compose.
+- **Outward calls are idempotent.** A draft's Message-ID is chosen when it's written, and Send
+  looks in Sent first (by Message-ID, and by Hearth's own X-Hearth-Id header in case Gmail gave
+  the message a new one): if it went out already, that copy is kept and nothing is sent again.
+  A new event's id is worked out from what it is; if Google says it's taken, Hearth reads the
+  event back and keeps the same one, or makes a new id for a different one. Answering an
+  invitation changes only your own answer, read fresh from Google; a repeating meeting is
+  answered for this time or every time.
+- **Connector health.** Slack and GitHub are ok, failing or revoked (`connector-health.ts`,
+  modelled on mail's, D55). Failing is told once, when it starts (at once for something that
+  won't pass by itself, after three failures and half an hour for the network); the first good
+  round or a disconnect closes it. A token that stops working stops the polling: no calls until
+  `replace_token` takes a new one for the same workspace or login, keeping everything read in.
+  GitHub's token expiry is warned of a week ahead, once.
+- **Read everything in, a budget at a time.** Slack channels and threads and GitHub's pull
+  requests are read a page at a time, newest first; what a round can't read waits for the next,
+  and a channel's or repo's mark only moves past what's been read. Each channel, thread and repo
+  is read in a savepoint, so one going wrong keeps the rest.
+- **Mail's own files.** A message's original missing from this PC is fetched again (when you
+  open it, and a few a round in a daily pass), and files nothing needs are deleted after that
+  pass. Disconnecting a Google account deletes its files, closes its alerts and, if you say so,
+  keeps its unsent drafts, which wait with no account until you pick one.
+- **Needs your reply** is for a person writing to you: never mail sent to many at once or by a
+  machine (List-Id, List-Unsubscribe, Precedence bulk/list/junk, Auto-Submitted), and only from
+  someone you know (a person in Hearth: anyone you've written to) or mail Gmail marks important.
+
+**Alternatives:** One sync for all accounts (one account's failure held up the rest, and a shared
+calendar couldn't be saved twice). Deduplicating sends by a recent-sends table in Hearth (it
+can't see a send Gmail made while Hearth didn't hear back; Gmail's Sent can). Retrying a revoked
+token on a slower schedule (it can't pass by itself; it only adds noise). Keeping kept drafts
+as notes (that would turn text written from outside mail into trusted notes).
+
+**Trade-offs:** If Gmail replaces a sent message's Message-ID and it isn't among the few newest
+in Sent, a second Send can't find it. Slack threads older than three days that don't mention
+you aren't looked over for new replies. A first message from a stranger that Gmail doesn't mark
+important no longer counts as needing your reply.
+
+**Why:** These are what broke the day a second Google account, Slack or GitHub was connected: a
+calendar two accounts share stayed with the first and the second's copy couldn't be saved, a
+Send pressed again after a timeout could go out twice, a revoked token was polled forever, and
+a busy Slack channel lost messages for good.
