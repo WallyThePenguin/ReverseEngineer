@@ -4,7 +4,7 @@ import type { Db } from "@hearth/db";
 import type { Allowance, GoogleService } from "./budget.ts";
 import type { GCalendar, GEvent } from "./calendar-api.ts";
 import { GoogleClient, SCOPES } from "./client.ts";
-import { FakeGmail } from "./fake-gmail.ts";
+import { errorReply, FakeGmail } from "./fake-gmail.ts";
 
 interface FakeCalendar extends GCalendar {
   events: Map<string, GEvent>;
@@ -27,11 +27,17 @@ export class FakeGoogle {
   readonly logs: string[] = [];
   private readonly issued: string[] = [];
   private readonly invalid = new Set<string>();
+  private readonly calendarFailures: number[] = [];
   private seq = 0;
 
   /** Every access token handed out so far stops working, as if Google expired them early. */
   invalidateTokens() {
     for (const t of this.issued) this.invalid.add(t);
+  }
+
+  /** The next `n` Calendar calls fail with `status`, as Google sends it. */
+  failCalendar(n: number, status: 403 | 429 | 500 | 503) {
+    for (let i = 0; i < n; i++) this.calendarFailures.push(status);
   }
 
   constructor(email = "owner@example.com") {
@@ -117,6 +123,8 @@ export class FakeGoogle {
       });
     if (u.hostname === "gmail.googleapis.com") return this.gmail.handle(u, method, body);
 
+    const failing = this.calendarFailures.shift();
+    if (failing) return errorReply(failing);
     const path = u.pathname.replace("/calendar/v3", "");
     if (path === "/users/me/calendarList") {
       return json(200, {

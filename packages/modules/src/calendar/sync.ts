@@ -1,11 +1,14 @@
 // Calendar sync: your calendars and their events from a week back to two months ahead, pulled
-// from Google every few minutes. Changes become events Jarvis can react to.
+// from Google every few minutes. Changes become events Jarvis can react to. Calls are paced like
+// Gmail's, against Calendar's own quota; when Google asks Hearth to slow down, the account waits
+// for the next round instead of failing, and one event that won't save is skipped (D55).
 import { startOfLocalDay } from "@hearth/core";
 import { calendar, calendarEvent, entity, googleAccount } from "@hearth/db";
-import { type ActionContext, ActionError, getSetting } from "@hearth/kernel";
+import { type ActionContext, ActionError, getSetting, savepoint } from "@hearth/kernel";
 import { and, arrayContains, eq, gte, inArray, lte, ne, notInArray } from "drizzle-orm";
 import { CalendarApi } from "../google/calendar-api.ts";
-import { GOOGLE_SERVICE, type GoogleClient, SCOPES } from "../google/client.ts";
+import { cleanDeep } from "../google/clean.ts";
+import { GOOGLE_SERVICE, GoogleApiError, type GoogleClient, SCOPES } from "../google/client.ts";
 import { emitChange, mapEvent, saveEvent } from "./store.ts";
 
 const DAY_MS = 24 * 3600_000;
@@ -17,7 +20,14 @@ export interface SyncResult {
   events: number;
   changed: number;
   failed: string[];
+  /** Accounts Google asked to slow down (or Hearth's pacing held back): next round. */
+  paused: string[];
+  /** Events that wouldn't save, left as they were. */
+  skipped: number;
 }
+
+const slowDown = (err: unknown) => err instanceof GoogleApiError && err.slowDown;
+const messageOf = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 export function syncWindow(now: Date, tz: string): { from: Date; to: Date } {
   const today = startOfLocalDay(now, tz);
@@ -68,12 +78,20 @@ export async function syncCalendars(ctx: ActionContext): Promise<SyncResult> {
         arrayContains(googleAccount.scopes, [...SCOPES.calendar]),
       ),
     );
-  const result: SyncResult = { calendars: 0, events: 0, changed: 0, failed: [] };
+  const result: SyncResult = {
+    calendars: 0,
+    events: 0,
+    changed: 0,
+    failed: [],
+    paused: [],
+    skipped: 0,
+  };
   for (const acct of accounts) {
     try {
       await syncCalendarList(ctx, api, acct.email);
     } catch (err) {
-      result.failed.push(`${acct.email}: ${err instanceof Error ? err.message : String(err)}`);
+      if (slowDown(err)) result.paused.push(acct.email);
+      else result.failed.push(`${acct.email}: ${messageOf(err)}`);
       continue;
     }
     const cals = await ctx.tx
@@ -85,7 +103,12 @@ export async function syncCalendars(ctx: ActionContext): Promise<SyncResult> {
       try {
         items = await api.events(acct.email, cal.id, from, to);
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        // A slowdown holds every calendar of the account: the rest wait for the next round.
+        if (slowDown(err)) {
+          result.paused.push(acct.email);
+          break;
+        }
+        const message = messageOf(err);
         result.failed.push(`${cal.title}: ${message}`);
         await ctx.tx.update(calendar).set({ lastError: message }).where(eq(calendar.id, cal.id));
         continue;
@@ -93,14 +116,21 @@ export async function syncCalendars(ctx: ActionContext): Promise<SyncResult> {
       result.calendars++;
       const seen: string[] = [];
       for (const g of items) {
-        const m = mapEvent(cal.id, g, rules.timeZone);
+        const m = mapEvent(cal.id, cleanDeep(g), rules.timeZone);
         if (!m) continue;
+        // Seen even if it won't save, so it isn't taken for deleted at Google.
         seen.push(g.id);
         result.events++;
-        const { id, change } = await saveEvent(ctx, m);
-        if (change && m.endsAt > ctx.now) {
+        let saved: Awaited<ReturnType<typeof saveEvent>>;
+        try {
+          saved = await savepoint(ctx, (sp) => saveEvent(sp, m));
+        } catch {
+          result.skipped++;
+          continue;
+        }
+        if (saved.change && m.endsAt > ctx.now) {
           result.changed++;
-          emitChange(ctx, id, change, m);
+          emitChange(ctx, saved.id, saved.change, m);
         }
       }
       // Anything in the window Google no longer lists was deleted there.

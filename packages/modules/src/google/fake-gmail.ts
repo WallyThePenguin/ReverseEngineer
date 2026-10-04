@@ -30,7 +30,7 @@ const json = (status: number, data: unknown, headers: Record<string, string> = {
   });
 
 /** Google's error replies, as Gmail sends them. */
-function errorReply(status: number, limit?: number): Response {
+export function errorReply(status: number, limit?: number): Response {
   if (status === 429 || status === 403) {
     const message =
       "Quota exceeded for quota metric 'Queries' and limit 'Queries per minute per user' of service 'gmail.googleapis.com' for consumer 'project_number:1'.";
