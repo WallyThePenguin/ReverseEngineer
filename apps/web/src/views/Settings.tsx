@@ -13,6 +13,7 @@ import { ChromeSettings } from "./ChromeSettings.tsx";
 import { DesktopSettings } from "./DesktopSettings.tsx";
 import { GithubSettings } from "./GithubSettings.tsx";
 import { GoogleSettings } from "./GoogleSettings.tsx";
+import { ImportSettings } from "./ImportSettings.tsx";
 import { PhoneSettings } from "./PhoneSettings.tsx";
 import { RoutineSettings } from "./RoutineSettings.tsx";
 import { SignInSettings } from "./SignInSettings.tsx";
@@ -120,6 +121,7 @@ export function Settings() {
 
         <SlackSettings />
         <GithubSettings />
+        <ImportSettings />
 
         <SignInSettings />
 

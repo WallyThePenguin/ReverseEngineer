@@ -802,3 +802,24 @@ repo and name a task).
 
 **Why:** It's the loop the plan asks for with the least access: read-only, a few repos, and only
 forward moves that a person with access to the repo caused.
+
+## D50. Notion comes in as an uploaded export, written by the import, not as a live link (2026-10-03)
+
+**Decision:** Notion import (M7) takes the zip Notion makes with Export → "Markdown & CSV"
+(subpages included), uploaded from Settings. It is opened in memory on the server, reading only
+`.md` and `.csv` files, one level of zips inside the zip, at most 5 MB a file and 300 MB in all
+(sizes are checked before anything is inflated). Each page becomes a note, subpages under their
+page, each database a note holding its table (up to 1,000 rows) with its row pages under it, and
+links between pages become @mentions. Images and attachments stay in Notion and are marked where
+they were. Everything hangs under one "Imported from Notion" note, and `notion.undo_import`
+moves the whole import to the trash.
+
+The notes are written by `integration:notion`, so Jarvis reads them as outside content (D25): a
+team's pages are other people's words. Only the upload route, for you, can run the import;
+Jarvis can't.
+
+**Alternatives:** Notion's API with an integration token (it sees only pages shared with the
+integration, needs a token kept in Hearth, and invites a sync nobody asked for). Treating
+imported pages as your own writing (a team page could then steer Jarvis).
+
+**Why:** An export needs no credentials and moves everything at once, which is what an import is.

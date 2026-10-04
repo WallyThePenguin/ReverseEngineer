@@ -10,6 +10,7 @@
 // HEARTH_E2E_SHOTS saves a screenshot after each step into that folder.
 
 import { chromium, type Page } from "playwright";
+import { storedZip } from "./zip.ts";
 
 const base = process.env.HEARTH_E2E_URL ?? "http://localhost:4400";
 const code = process.env.HEARTH_E2E_SETUP_CODE;
@@ -286,6 +287,25 @@ try {
       throw new Error("the Slack app link doesn't ask for its scopes");
     await p.getByRole("heading", { name: "GitHub" }).waitFor();
     await p.getByRole("link", { name: "Make a read-only token" }).waitFor();
+  });
+
+  await step("a Notion export imported as linked notes", async (p) => {
+    const id = "0123456789abcdef0123456789abcdef";
+    const sub = "fedcba9876543210fedcba9876543210";
+    await p.goto(`${base}/settings`);
+    const zip = storedZip({
+      [`Garden ${tag} ${id}.md`]: `# Garden ${tag}\n\nSee [Seeds](Garden%20${tag}%20${id}/Seeds%20${sub}.md).`,
+      [`Garden ${tag} ${id}/Seeds ${sub}.md`]: "# Seeds\n\nTomatoes",
+    });
+    await p.getByLabel("Notion export zip").setInputFiles({
+      name: "Export.zip",
+      mimeType: "application/zip",
+      buffer: zip,
+    });
+    await p.getByText("Imported 2 pages and 0 databases from Notion.").waitFor();
+    // The import's page links to the top page, which links to its subpage.
+    await p.getByText(`Garden ${tag}`, { exact: true }).last().click();
+    await p.getByText("Seeds", { exact: true }).last().waitFor();
   });
 
   await step("pair the desktop app, whose code runs only voice actions", async (p) => {
