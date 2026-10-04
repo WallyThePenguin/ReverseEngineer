@@ -199,7 +199,7 @@ export const driveLookActions = [
   defineAction({
     name: "browser.console",
     description:
-      "The page's recent console messages and errors in a tab (the last 200), newest last; pattern filters them. For when a page misbehaves.",
+      "What Chrome logged for a tab's page (the last 200), newest last: failed requests, blocked content and other browser errors, not the page's own console.log. pattern filters them. For when a page misbehaves.",
     input: z.object({
       tabId,
       pattern: z.string().max(200).optional(),

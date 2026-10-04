@@ -971,9 +971,18 @@ owner or Jarvis, the trusted and blocked sites, the site's pace, and an approved
   map back to the page, so `click`, `hover`, `drag`, `scroll` and `zoom` take them as
   `coordinate`.
 - **Acting.** Every press is hit-tested and judged where it lands, by the same classifier as a
-  ref. A point on the screen can't press what a ref wouldn't be allowed to.
+  ref. A point on the screen can't press what a ref wouldn't be allowed to. Something a page
+  made clickable itself, with no role (a `<div>` with a click handler), is judged by its name as
+  a button is, floor included, and a point on a word inside it is judged as the whole thing.
+- **One step at a time.** The driver takes each tab's requests in turn, so two at once (two
+  turns, or Jarvis and the worker) never type into each other's fields.
 - **`batch`.** Runs up to 25 steps in one request. It stops at the first one that fails or would
-  send, and paces once for the whole batch.
+  send, and paces once for the whole batch. It also stops before a step once the tab is on
+  another site than the one it started on (or was approved for), and starts no step after 60
+  seconds, so it always answers well within the 150 seconds Jarvis's client waits.
+- **Pacing.** The driver paces its steps in the server; `browser.open` and the older steps pace
+  in Jarvis's process. A new page counts as a step on its site, so the first press after
+  opening one still waits the site's pace.
 - **What each step returns.** A short note on what changed, and a picture only when asked for.
 
 *Timings.* p50 and p95 for one step, without the model, against Playwright's Chromium:
@@ -1042,7 +1051,9 @@ steps:
 - **Clicks after scrolling.** `DOM.getNodeForLocation` takes page coordinates, not viewport
   coordinates. The driver adds the scroll offset; without it, clicks after a scroll missed.
 - **Tokens.** Since every step is a request, Jarvis's and the worker's tokens are checked
-  against the database at most every 30 seconds. Revoking a token forgets it at once.
+  against the database at most every 30 seconds. Revoking a token forgets it at once. An
+  outside agent's token is always checked afresh, so `hearth token revoke` works at once.
+- **The extension's list.** It holds only the commands Hearth sends; a test checks both ways.
 - **Extension.** Version 0.4.0 speaks protocol 3 and needs Chrome 125 or later.
 - **Tests.** The driver's tests run on a small raw-CDP transport against Playwright's Chromium,
   with flat sessions the way the extension uses them, rather than Playwright's `CDPSession`.

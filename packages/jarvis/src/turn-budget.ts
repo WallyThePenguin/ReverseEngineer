@@ -1,8 +1,8 @@
 // How much one turn may do. Time goes by lane (D54). Work in a browser takes many small steps
 // (read the page, click, read it again), so a turn that uses the browser gets more of both
-// (B1, 1.16): the browser's time limit from its first browser step, and up to 150 model steps
-// over as many goes as that takes. A turn that runs out of steps anyway isn't a failure: it
-// stops with what it said so far and offers to carry on.
+// (B1, 1.16): once it takes its first browser step, the browser's time limit counted from the
+// turn's start, and up to 150 model steps over as many goes as that takes. A turn that runs out
+// of steps anyway isn't a failure: it stops with what it said so far and offers to carry on.
 import { conversation } from "@hearth/db";
 import type { Kernel } from "@hearth/kernel";
 import { eq } from "drizzle-orm";
