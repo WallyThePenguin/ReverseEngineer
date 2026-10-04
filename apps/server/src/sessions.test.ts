@@ -7,7 +7,14 @@ import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { authenticate } from "./auth/middleware.ts";
 import { registrationOptions, relyingParty } from "./auth/passkeys.ts";
-import { checkToken, checkTokenFast, hashToken, revokeToken } from "./auth/tokens.ts";
+import {
+  checkToken,
+  checkTokenFast,
+  createApiToken,
+  hashToken,
+  revokeApiTokens,
+  revokeToken,
+} from "./auth/tokens.ts";
 import type { AppEnv, ServerDeps } from "./env.ts";
 import { eventRoutes } from "./routes/events.ts";
 import { createTestServer, TEST_ORIGIN, type TestServer } from "./testing/server.ts";
@@ -213,5 +220,16 @@ describe("Hearth's own tokens", () => {
     expect((await checkTokenFast(t.kernel.db, yours, at(MIN))).ok).toBe(true);
     await revokeInDb(yours);
     expect((await checkTokenFast(t.kernel.db, yours, at(MIN + 1_000))).ok).toBe(false);
+  });
+
+  it("checks an outside agent's token afresh, so revoking it from the CLI works at once", async () => {
+    const { token } = await createApiToken(t.kernel.db, "helper");
+    expect((await checkTokenFast(t.kernel.db, token, at(MIN))).ok).toBe(true);
+    // As `hearth token revoke` does, from another process: nothing here hears of it.
+    await revokeApiTokens(t.kernel.db, "helper", at(MIN));
+    expect(await checkTokenFast(t.kernel.db, token, at(MIN + 1_000))).toMatchObject({
+      ok: false,
+      reason: "revoked",
+    });
   });
 });

@@ -1,7 +1,7 @@
 // Bearer tokens for browser sessions and API clients. Only a hash is stored; the token itself
 // is shown once, when it's made.
 import { timingSafeEqual } from "node:crypto";
-import type { PrincipalKind } from "@hearth/core";
+import { PRINCIPAL, type PrincipalKind } from "@hearth/core";
 import { createSession, type DbOrTx, hashToken, newToken, principal, session } from "@hearth/db";
 import { logLine } from "@hearth/kernel";
 import { and, eq, isNull, like, lte, not, or } from "drizzle-orm";
@@ -112,6 +112,11 @@ export async function checkToken(
 /** How long a check of one of Hearth's own internal tokens is remembered. */
 export const INTERNAL_CHECK_MS = 30_000;
 const internalChecks = new Map<string, { at: number; session: SessionPrincipal }>();
+/**
+ * Whose tokens are remembered: Jarvis's and the worker's, never an outside agent's, so revoking
+ * or disabling one (`hearth token revoke`, from any process) takes effect at once.
+ */
+const INTERNAL = new Set<string>([PRINCIPAL.jarvis, PRINCIPAL.system]);
 
 /**
  * checkToken, remembering for a short while the answer for Jarvis's and the worker's own API
@@ -129,7 +134,7 @@ export async function checkTokenFast(
     return { ok: true, session: hit.session, extendedUntil: null };
   const r = await checkToken(db, token, now);
   const s = r.ok ? r.session : null;
-  if (s && s.sessionKind === "api" && !s.scopes && (s.kind === "agent" || s.kind === "system")) {
+  if (s && s.sessionKind === "api" && !s.scopes && INTERNAL.has(s.principal)) {
     internalChecks.set(hash, { at: now.getTime(), session: s });
     if (internalChecks.size > 100)
       internalChecks.delete(internalChecks.keys().next().value as string);
