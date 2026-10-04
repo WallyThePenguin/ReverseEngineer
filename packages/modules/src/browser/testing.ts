@@ -140,7 +140,8 @@ export class FakeBrowser implements BrowserClient {
         this.go(tab, history.urls[history.at] ?? tab.url);
         return {};
       case "Page.handleJavaScriptDialog":
-        if (!tab.dialog) throw new Error("No dialog is showing");
+        if (!tab.dialog)
+          throw chromeError("There's no dialog open in this tab any more.", "no_dialog");
         tab.dialog = null;
         return {};
       case "Page.getLayoutMetrics":

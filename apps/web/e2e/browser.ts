@@ -2,7 +2,7 @@
 // with a running Hearth server, driving a local test site through Jarvis's actions and through
 // the live view in Hearth's web app, the way you'd use it.
 //
-//   HEARTH_DEV_AUTH=1 HEARTH_WEB_DIST=apps/web/dist hearth serve    (in another terminal)
+//   HEARTH_DEV_AUTH=1 HEARTH_CHROME_LAUNCH=off HEARTH_WEB_DIST=apps/web/dist hearth serve
 //   HEARTH_E2E_URL=http://localhost:4400 node apps/web/e2e/browser.ts
 //
 // The server needs development login on (loopback only), so no passkey is involved.
@@ -15,6 +15,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, type Page } from "playwright";
+import { PARITY_PAGES, parityChecks } from "./browser-parity.ts";
 
 const base = process.env.HEARTH_E2E_URL ?? "http://localhost:4400";
 const shots = process.env.HEARTH_E2E_SHOTS;
@@ -25,6 +26,8 @@ let price = "$40";
 const site = createServer((req, res) => {
   res.setHeader("content-type", "text/html; charset=utf-8");
   if (req.url === "/second") return res.end("<title>Second</title><h1>Second page</h1>");
+  const parity = PARITY_PAGES[req.url ?? ""];
+  if (parity) return res.end(parity);
   res.end(`<!doctype html><title>Test shop</title>
     <style>body{font:16px sans-serif;margin:40px} button,input{font-size:20px;padding:8px}</style>
     <h1>Kettles in stock</h1>
@@ -57,6 +60,11 @@ const chrome = await chromium.launchPersistentContext(profile, {
     "--window-size=1440,900",
   ],
 });
+
+// Playwright dismisses a page's dialogs by itself unless something listens for them. In your own
+// Chrome nothing does, so the dialogs are left to the extension, as here.
+for (const p of chrome.pages()) p.on("dialog", () => {});
+chrome.on("page", (p) => p.on("dialog", () => {}));
 
 function check(ok: unknown, what: string): void {
   if (!ok) throw new Error(`Failed: ${what}`);
@@ -170,6 +178,8 @@ try {
     params: { tabId, method: "Runtime.evaluate", params: { expression: "document.cookie" } },
   });
   check(script.error?.includes("isolated world"), "scripts can't run in the page's own world");
+
+  await parityChecks({ hearth, siteUrl, extensionId, check });
 
   // The live view: watch the tab inside Hearth and use it with the mouse and keyboard.
   await hearth.goto(`${base}/browser`);

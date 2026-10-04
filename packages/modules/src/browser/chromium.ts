@@ -151,6 +151,14 @@ export class ChromiumBrowser implements BrowserClient {
         tab.worlds.add((result as { executionContextId: number }).executionContextId);
       if (method === "Page.handleJavaScriptDialog") this.dialogs.closed(tab.id);
       return result;
+    } catch (err) {
+      // As the extension does: a dialog already answered leaves nothing to answer.
+      if (method === "Page.handleJavaScriptDialog") {
+        this.dialogs.closed(tab.id);
+        if (String(err instanceof Error ? err.message : err).includes("No dialog is showing"))
+          throw new HearthError("no_dialog", "There's no dialog open in this tab any more.");
+      }
+      throw err;
     } finally {
       if (nav) tab.navigating--;
     }
