@@ -97,18 +97,13 @@ describe("Jarvis's browser", () => {
     expect(last.next).toBeNull();
   });
 
-  it("looks at a tab as a picture", async () => {
+  it("looks at a tab as a picture, through the server's driver", async () => {
     const { tabId } = await ok<{ tabId: number }>("browser.open", { url: SHOP });
+    const image = { mimeType: "image/jpeg", data: "SlBFRw==" };
+    chrome.driver = (_op, p) => ({ tabId: p.tabId, url: SHOP, imageW: 1280, imageH: 800, image });
     const shot = await ok("browser.screenshot", { tabId });
-    // Its size in the picture's own pixels (the display here is at 125%).
-    expect(shot).toEqual({
-      tabId,
-      url: SHOP,
-      width: 1600,
-      height: 1000,
-      modelImages: [{ mimeType: "image/jpeg", data: "SlBFRw==" }],
-    });
-    expect(chrome.calls.map((c) => c.method)).toContain("tabs.show");
+    expect(shot).toEqual({ tabId, url: SHOP, imageW: 1280, imageH: 800, modelImages: [image] });
+    expect(chrome.calls.at(-1)).toMatchObject({ method: "driver.screenshot", params: { tabId } });
   });
 
   it("closes its own tabs and gives yours back", async () => {

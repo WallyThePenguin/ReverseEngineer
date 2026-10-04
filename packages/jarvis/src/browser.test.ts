@@ -66,6 +66,14 @@ describe("Jarvis browsing in a turn", () => {
 
   it("hands Jarvis a screenshot as a picture, not as text", async () => {
     chrome.hand(SHOP);
+    // The server's driver takes it (B1).
+    chrome.driver = (_op, p) => ({
+      tabId: p.tabId,
+      url: SHOP,
+      imageW: 1280,
+      imageH: 800,
+      image: { mimeType: "image/jpeg", data: "SlBFRw==" },
+    });
     const state: TurnState = {
       turnId: newId(),
       conversationId: newId(),

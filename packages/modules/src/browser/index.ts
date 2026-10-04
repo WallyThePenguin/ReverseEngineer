@@ -1,15 +1,19 @@
 // Jarvis's browser (D24, D25, D52): open pages in your own Chrome, read them, look at them, and
-// close them again (look.ts, navigate.ts); click, type, press keys, answer dialogs, submit with
-// your yes, and sign in from the vault (act.ts, steps.ts, sign-in.ts). It works in Jarvis's own
-// window, in tabs you hand it, and in the pop-ups those open. Pages are outside content, so
-// reading one makes the rest of a turn untrusted. Sites on your blocked list are off limits to
-// everyone but you; sites you trust let Jarvis act without asking, above the floor (D52).
+// close them again; click, type, press keys, answer dialogs, submit with your yes, and sign in
+// from the vault. Reading, looking and most steps go through the server's driver (B1, drive.ts,
+// drive-act.ts), one request per step; the older reader and its references remain (look.ts,
+// act.ts). It works in Jarvis's own window, in tabs you hand it, and in the pop-ups those open.
+// Pages are outside content, so reading one makes the rest of a turn untrusted. Sites on your
+// blocked list are off limits to everyone but you; sites you trust let Jarvis act without asking,
+// above the floor (D52).
 import { ActionError, defineAction, defineModule, getSetting, setSetting } from "@hearth/kernel";
 import { z } from "zod";
 import { notesForSite } from "../memory/recall.ts";
 import { assertAllowed, browser, CALLERS } from "./access.ts";
 import { actActions } from "./act.ts";
 import type { TabInfo } from "./client.ts";
+import { driveLookActions } from "./drive.ts";
+import { driveActActions } from "./drive-act.ts";
 import { lookActions } from "./look.ts";
 import { navigateActions } from "./navigate.ts";
 import { pace } from "./pace.ts";
@@ -89,6 +93,8 @@ export const browserModule = defineModule({
     ...watchActions,
     ...actActions,
     ...lookActions,
+    ...driveLookActions,
+    ...driveActActions,
     ...navigateActions,
     ...stepActions,
     ...vaultActions,
@@ -123,7 +129,7 @@ export const browserModule = defineModule({
     defineAction({
       name: "browser.open",
       description:
-        "Open a web page in the owner's Chrome, signed in as them: an address, or a link from a page you read (by its reference, with tabId). Returns the tab, and what you remember about the site (siteNotes); read the page with browser_read.",
+        "Open a web page in the owner's Chrome, signed in as them: an address, or a link from a page you read (by its reference, with tabId). Returns the tab, and what you remember about the site (siteNotes); read the page with browser_read_page (to act on it) or browser_get_text (to read it).",
       input: OpenInput,
       risk: "read",
       callers: CALLERS,
@@ -170,7 +176,7 @@ export const browserModule = defineModule({
         forgetLinks(tab.tabId);
         const loaded = await waitForLoad(client, tab.tabId);
         ctx.emit({ kind: "browser.opened", payload: { tabId: tab.tabId, url } });
-        // Only the address asked for: the page's own title and text come from browser_read.
+        // Only the address asked for: the page's own title and text come from reading it.
         const notes = await notesForSite(ctx.tx, new URL(url).hostname);
         // Why it didn't load, from Chrome (net::ERR_NAME_NOT_RESOLVED), not from the page.
         const failed = errorText ?? loaded.error ?? null;

@@ -88,16 +88,22 @@ export class TestChrome implements BrowserClient, CdpTransport {
     return tab.id;
   }
 
-  /** Waits until the tab's page has loaded. */
+  /** Waits until the tab's page has loaded (not the blank page a new tab starts on). */
   async loaded(tabId: number): Promise<void> {
     const tab = this.tab(tabId);
     for (let n = 0; n < 100; n++) {
-      const r = await this.conn.send<{ result: { value: string } }>(
-        "Runtime.evaluate",
-        { expression: "document.readyState", returnByValue: true },
-        tab.session,
-      );
-      if (r.result.value === "complete") return;
+      const r = await this.conn
+        .send<{ result: { value: boolean } }>(
+          "Runtime.evaluate",
+          {
+            expression: `document.readyState === "complete" && location.href !== "about:blank"`,
+            returnByValue: true,
+          },
+          tab.session,
+        )
+        // The page's context goes as the new one comes.
+        .catch(() => ({ result: { value: false } }));
+      if (r.result.value) return;
       await new Promise((res) => setTimeout(res, 50));
     }
   }

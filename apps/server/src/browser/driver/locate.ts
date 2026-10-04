@@ -104,6 +104,19 @@ async function frameInside(d: DriverContext, session: string | undefined, node: 
   return child;
 }
 
+/** How far a session's page is scrolled: the tab's own, or a frame's from another site. */
+async function scrollOf(d: DriverContext, session: string | undefined) {
+  if (!session) {
+    const m = await d.cdp.send<{ cssLayoutViewport: { pageX: number; pageY: number } }>(
+      "Page.getLayoutMetrics",
+    );
+    return { x: m.cssLayoutViewport.pageX, y: m.cssLayoutViewport.pageY };
+  }
+  const frame = d.tab.sessions.get(session);
+  if (!frame) throw fail("gone", "That frame isn't on the page any more. Read the page again.");
+  return d.worlds.evaluate<{ x: number; y: number }>(session, frame, "__hearth.scroll()");
+}
+
 /**
  * What a click at a point in the tab's viewport would land on, inside frames from other sites
  * too: the deepest node, in its own frame.
@@ -113,10 +126,16 @@ export async function hitAt(d: DriverContext, x: number, y: number): Promise<Tar
   let lx = x;
   let ly = y;
   for (let depth = 0; ; depth++) {
+    // Chrome takes the point in the frame's document, so a scrolled page's scroll is added.
+    const scroll = await scrollOf(d, session);
     const hit = await d.cdp
       .send<{ backendNodeId: number; frameId: string }>(
         "DOM.getNodeForLocation",
-        { x: Math.round(lx), y: Math.round(ly), includeUserAgentShadowDOM: false },
+        {
+          x: Math.round(lx + scroll.x),
+          y: Math.round(ly + scroll.y),
+          includeUserAgentShadowDOM: false,
+        },
         session,
       )
       .catch((err) => {

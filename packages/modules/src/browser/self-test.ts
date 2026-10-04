@@ -1,6 +1,6 @@
 // "Test Jarvis's Chrome" (D52): a few steps on a page Hearth serves, run as Jarvis through the
-// same path its turns use (actions, then the browser bridge over HTTP), each one timed. The page
-// is Hearth's own, so nothing leaves the PC.
+// same path its turns use (actions, then the browser bridge over HTTP to the server's driver, B1),
+// each one timed. The page is Hearth's own, so nothing leaves the PC.
 import { jarvisCaller, Kernel } from "@hearth/kernel";
 import { BROWSER_SERVICE, type BrowserClient } from "./client.ts";
 
@@ -106,14 +106,19 @@ export async function runSelfTest(
     const opened = await step<{ tabId: number }>("open", { url }, "browser.open");
     if (!opened) return;
     tabId = opened.tabId;
-    const page = await step<{ text: string }>("read", { tabId }, "browser.read");
+    // The way Jarvis's turns work a page: read it for refs, act by them, read what changed.
+    const page = await step<{ text: string }>(
+      "read",
+      { tabId, filter: "interactive" },
+      "browser.read_page",
+    );
     if (!page) return;
-    const button = /\[button (E\d+): Press me/.exec(page.text)?.[1];
-    const field = /\[field (E\d+): Your name/.exec(page.text)?.[1];
+    const button = /button "Press me" \[(ref_\d+)\]/.exec(page.text)?.[1];
+    const field = /textbox "Your name" \[(ref_\d+)\]/.exec(page.text)?.[1];
     if (!button || !field) return wrong("The test page didn't read as expected.");
     if (!(await step("click", { tabId, ref: button }, "browser.click"))) return;
     if (!(await step("type", { tabId, ref: field, text: "Hearth" }, "browser.type"))) return;
-    const after = await step<{ text: string }>("check", { tabId }, "browser.read");
+    const after = await step<{ text: string }>("check", { tabId }, "browser.get_text");
     if (!after) return;
     if (!after.text.includes("Button pressed") || !after.text.includes("Typed: Hearth"))
       return wrong("The click or the typing didn't reach the page.");

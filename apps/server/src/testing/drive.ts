@@ -4,6 +4,7 @@ import { appendFileSync } from "node:fs";
 import { chromiumForTests, chromiumPath } from "@hearth/modules/chromium";
 import { afterAll, beforeAll } from "vitest";
 import { fixtures } from "../browser/driver/fixtures.ts";
+import type { Site } from "./cdp-connection.ts";
 import { TestChrome } from "./chrome.ts";
 
 export interface Harness {
@@ -11,6 +12,8 @@ export interface Harness {
   chrome(): TestChrome;
   // biome-ignore lint/suspicious/noExplicitAny: tests read what they expect from results.
   drive<T = Record<string, any>>(op: string, params: Record<string, unknown>): Promise<T>;
+  /** Times anything else, like a step through the kernel, with the driver's calls. */
+  timed<T>(op: string, run: () => Promise<T>): Promise<T>;
 }
 
 /** The ref a read gave the thing named `label`. */
@@ -26,16 +29,17 @@ export function percentile(sorted: number[], q: number): number {
   return sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))] ?? 0;
 }
 
-export function useChrome(name: string): Harness {
+/** A Chromium for a test file, with the driver's pages and any `extra` ones. */
+export function useChrome(name: string, extra: Site = {}): Harness {
   const run = chromiumForTests();
   let chrome: TestChrome | null = null;
   const timings: { op: string; ms: number }[] = [];
   beforeAll(async () => {
     if (!run) return;
-    chrome = await TestChrome.launch(
-      chromiumPath() as string,
-      fixtures(() => chrome?.server.port ?? 0),
-    );
+    chrome = await TestChrome.launch(chromiumPath() as string, {
+      ...fixtures(() => chrome?.server.port ?? 0),
+      ...extra,
+    });
   }, 30_000);
   afterAll(async () => {
     await chrome?.close();
@@ -61,13 +65,16 @@ export function useChrome(name: string): Harness {
       if (!chrome) throw new Error("Chromium didn't start");
       return chrome;
     },
-    async drive(op, params) {
-      const start = performance.now();
-      try {
-        return await (chrome as TestChrome).call(`driver.${op}`, params);
-      } finally {
-        timings.push({ op, ms: performance.now() - start });
-      }
-    },
+    drive: (op, params) => timed(op, () => (chrome as TestChrome).call(`driver.${op}`, params)),
+    timed,
   };
+
+  async function timed<T>(op: string, go: () => Promise<T>): Promise<T> {
+    const start = performance.now();
+    try {
+      return await go();
+    } finally {
+      timings.push({ op, ms: performance.now() - start });
+    }
+  }
 }
