@@ -170,7 +170,9 @@ describe("the browser module on the server's driver", () => {
       url: SHOP,
       extra: { sends: { url: SHOP, fields: [{ label: "Note", value: "hi" }] } },
     });
-    const asked = await run("browser.submit", { ...base, ...pinned!.extra });
+    driven.length = 0;
+    // Jarvis's call is pinned by Hearth itself before it asks (D58): one look at the form.
+    const asked = await run("browser.submit", base);
     expect(asked).toMatchObject({ status: "pending_approval" });
     expect(driven.map((d) => d.op)).toEqual(["probe"]);
     const done = await ok("browser.submit", { ...base, ...pinned!.extra }, ownerCaller());
