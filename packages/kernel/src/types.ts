@@ -87,6 +87,12 @@ export interface ActionDef<S extends z.ZodType = z.ZodType, R = unknown> {
   snapshot?(input: z.output<S>, ctx: ReadContext): Promise<Record<string, unknown>>;
   /** One line for an approval card: "Send email to Ana: Friday's agenda". */
   summarize?(input: z.output<S>): string;
+  /**
+   * It waits on the world (Chrome, a site's pace): it runs without holding a transaction, its
+   * reads committed one by one, and its events, audit row and approval recorded in one short
+   * transaction after (io.ts). Its handler only reads through ctx.tx.
+   */
+  io?: boolean;
   handler(input: z.output<S>, ctx: ActionContext): Promise<R>;
 }
 

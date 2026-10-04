@@ -103,6 +103,7 @@ export const stepActions = [
     }),
     risk: "internal",
     callers: CALLERS,
+    io: true,
     external: true,
     pin: tabPin,
     summarize: (i) =>
@@ -159,6 +160,7 @@ export const stepActions = [
     }),
     risk: "internal",
     callers: CALLERS,
+    io: true,
     external: true,
     pin: tabPin,
     summarize: (i) => `${i.accept ? "Accept" : "Dismiss"} the dialog in tab ${i.tabId}`,
@@ -204,6 +206,7 @@ export const stepActions = [
     input: z.object({ tabId, site: SITE_CHECK.optional() }),
     risk: "internal",
     callers: CALLERS,
+    io: true,
     external: true,
     pin: tabPin,
     summarize: (i) => `Reject cookies in tab ${i.tabId}`,

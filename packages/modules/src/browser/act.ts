@@ -169,6 +169,7 @@ export const actActions = [
     }),
     risk: "internal",
     callers: CALLERS,
+    io: true,
     // Results carry the page's own words (a button's name), so they're outside content.
     external: true,
     pin: tabPin,
@@ -206,6 +207,7 @@ export const actActions = [
     }),
     risk: "internal",
     callers: CALLERS,
+    io: true,
     external: true,
     pin: tabPin,
     summarize: (i) => `Type into ${described(i)}: "${i.text.slice(0, 120)}"`,
@@ -246,6 +248,7 @@ export const actActions = [
     input: z.object({ tabId, ref, value: z.string().max(300), site: SITE_CHECK.optional() }),
     risk: "internal",
     callers: CALLERS,
+    io: true,
     external: true,
     pin: tabPin,
     summarize: (i) => `Set ${described(i)} to "${i.value}"`,
@@ -280,6 +283,7 @@ export const actActions = [
     }),
     risk: "outward",
     callers: CALLERS,
+    io: true,
     external: true,
     // Pinned to what the press would send, so the card can show it and the press is refused if
     // the page or the form changed by the time it's approved.

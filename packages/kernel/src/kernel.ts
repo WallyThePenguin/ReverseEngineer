@@ -16,6 +16,7 @@ import {
 } from "./errors.ts";
 import { appendEvents } from "./events.ts";
 import { newId } from "./ids.ts";
+import { runIo } from "./io.ts";
 import { decide } from "./policy.ts";
 import type { Registry } from "./registry.ts";
 import type { ActionContext, ActionDef, Caller, EmitEvent } from "./types.ts";
@@ -130,6 +131,8 @@ export class Kernel {
     caller: Caller & { correlationId: string },
     hooks: { approvalId?: string; inTx?: (tx: Tx, result: unknown) => Promise<void> } = {},
   ): Promise<ExecuteResult<R>> {
+    // Actions that wait on the world hold no transaction while they wait (io.ts, B1).
+    if (def.io) return runIo<R>(this, def, input, caller, hooks, (m) => this.log(m));
     const started = performance.now();
     const now = this.clock.now();
     const audited = isAudited(def, caller) || hooks.approvalId !== undefined;

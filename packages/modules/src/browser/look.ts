@@ -62,6 +62,7 @@ export const lookActions = [
     }),
     risk: "read",
     callers: CALLERS,
+    io: true,
     external: true,
     async handler(i, ctx) {
       const client = browser(ctx);

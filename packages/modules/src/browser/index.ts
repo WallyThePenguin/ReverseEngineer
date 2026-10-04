@@ -106,6 +106,7 @@ export const browserModule = defineModule({
       input: z.object({}),
       risk: "read",
       callers: CALLERS,
+      io: true,
       // Titles come from the pages themselves.
       external: true,
       async handler(_i, ctx) {
@@ -133,6 +134,7 @@ export const browserModule = defineModule({
       input: OpenInput,
       risk: "read",
       callers: CALLERS,
+      io: true,
       opensUrl: target,
       // A link reference is good only in the process that read the page, so it's turned into its
       // address before the call runs or waits for a yes.
@@ -252,6 +254,7 @@ export const browserModule = defineModule({
       input: z.object({ tabId: z.number().int() }),
       risk: "internal",
       callers: CALLERS,
+      io: true,
       async handler(i, ctx) {
         const client = browser(ctx);
         const tab = await findTab(client, i.tabId);

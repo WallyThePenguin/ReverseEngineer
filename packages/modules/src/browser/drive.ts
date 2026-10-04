@@ -118,6 +118,7 @@ export const driveLookActions = [
     }),
     risk: "read",
     callers: CALLERS,
+    io: true,
     external: true,
     async handler(i, ctx) {
       return fitTree(await drive<Tree & { viewport: unknown }>(ctx, "read_page", i));
@@ -130,6 +131,7 @@ export const driveLookActions = [
     input: z.object({ tabId, query: z.string().trim().min(1).max(300) }),
     risk: "read",
     callers: CALLERS,
+    io: true,
     external: true,
     async handler(i, ctx) {
       return fitTree(await drive<Tree & { found: number }>(ctx, "find", i));
@@ -146,6 +148,7 @@ export const driveLookActions = [
     }),
     risk: "read",
     callers: CALLERS,
+    io: true,
     external: true,
     async handler(i, ctx) {
       const upTo = Math.min(300_000, i.offset + i.maxChars);
@@ -170,6 +173,7 @@ export const driveLookActions = [
     }),
     risk: "read",
     callers: CALLERS,
+    io: true,
     external: true,
     async handler(i, ctx) {
       return withImage(await drive<Record<string, unknown>>(ctx, "screenshot", i));
@@ -186,6 +190,7 @@ export const driveLookActions = [
     }),
     risk: "read",
     callers: CALLERS,
+    io: true,
     external: true,
     async handler(i, ctx) {
       return withImage(await drive<Record<string, unknown>>(ctx, "zoom", i));
@@ -202,6 +207,7 @@ export const driveLookActions = [
     }),
     risk: "read",
     callers: CALLERS,
+    io: true,
     external: true,
     handler: (i, ctx) => drive(ctx, "console", i),
   }),
@@ -212,6 +218,7 @@ export const driveLookActions = [
     input: z.object({ tabId }),
     risk: "internal",
     callers: CALLERS,
+    io: true,
     // Titles come from the pages.
     external: true,
     async handler(i, ctx) {

@@ -78,6 +78,7 @@ export const navigateActions = [
     }),
     risk: "read",
     callers: CALLERS,
+    io: true,
     // It reports the page's own address and title.
     external: true,
     opensUrl: (i) => (moveOf(i.url) ? null : i.url),
@@ -127,6 +128,7 @@ export const navigateActions = [
     }),
     risk: "read",
     callers: CALLERS,
+    io: true,
     async handler(i, ctx) {
       const started = Date.now();
       await sleep(i.seconds * 1000);
