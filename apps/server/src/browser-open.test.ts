@@ -129,7 +129,7 @@ describe("opening Chrome when it's closed", () => {
     await start(launcher);
     await t.browser("/api/browser/pair", { method: "DELETE" });
     const res = await rpc("tabs.open", { url: "https://a.example/" });
-    expect(res).toEqual({ status: 503, body: { error: NOT_PAIRED } });
+    expect(res).toEqual({ status: 503, body: { error: NOT_PAIRED, code: "unavailable" } });
     expect(launcher.opened).toBe(0);
   });
 
@@ -206,7 +206,10 @@ describe("opening Chrome when it's closed", () => {
     const waiting = rpc("tabs.open", { url: "https://a.example/" });
     await until(async () => (await t.server.bridge.status()).opening === true);
     t.server.bridge.close();
-    expect(await waiting).toEqual({ status: 503, body: { error: "Hearth is stopping." } });
+    expect(await waiting).toEqual({
+      status: 503,
+      body: { error: "Hearth is stopping.", code: "unavailable" },
+    });
   });
 
   it("passes on why Chrome couldn't be started", async () => {
@@ -214,7 +217,7 @@ describe("opening Chrome when it's closed", () => {
     const res = await rpc("tabs.open", { url: "https://a.example/" });
     expect(res).toEqual({
       status: 503,
-      body: { error: "Hearth can't find Chrome on this computer." },
+      body: { error: "Hearth can't find Chrome on this computer.", code: "unavailable" },
     });
   });
 

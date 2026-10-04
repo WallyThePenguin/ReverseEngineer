@@ -10,6 +10,7 @@ import { SESSION_COOKIE } from "../auth/middleware.ts";
 import { hashToken, resolveToken, safeEqual } from "../auth/tokens.ts";
 import { isLoopback, type ServerConfig } from "../config.ts";
 import type { BrowserBridge } from "./bridge.ts";
+import { watchBrowserHealth } from "./health.ts";
 import type { LiveView } from "./live.ts";
 
 export interface SocketDeps {
@@ -52,37 +53,53 @@ async function isOwnerPage(req: IncomingMessage, deps: SocketDeps): Promise<bool
   return deps.config.devAuth;
 }
 
+/** The extension's ID, from the Origin it connected with: chrome-extension://<id>. */
+function extensionId(req: IncomingMessage): string | null {
+  return /^chrome-extension:\/\/([\w-]+)$/.exec(req.headers.origin ?? "")?.[1] ?? null;
+}
+
 /** Waits for the extension's hello and checks its pairing code. */
-function greet(ws: WebSocket, deps: SocketDeps): void {
+function greet(ws: WebSocket, req: IncomingMessage, deps: SocketDeps): void {
   const timer = setTimeout(() => ws.close(4001, "No hello"), 10_000);
-  ws.once("message", async (data) => {
+  ws.once("message", (data) => {
     clearTimeout(timer);
-    let hello: { type?: string; token?: string; version?: string };
-    try {
-      hello = JSON.parse(String(data));
-    } catch {
-      return ws.close(4001, "Bad hello");
-    }
-    const pairing = await getSetting(deps.kernel.db, "browser.pairing");
-    const ok =
-      hello.type === "hello" &&
-      typeof hello.token === "string" &&
-      pairing !== null &&
-      safeEqual(pairing.hash, hashToken(hello.token));
-    if (!ok) {
-      // Only an earlier pairing code counts as an old one; anything can knock with a wrong code.
-      const old = await getSetting(deps.kernel.db, "browser.oldPairings");
-      const hash = typeof hello.token === "string" ? hashToken(hello.token) : "";
-      if (hash && old.some((h) => safeEqual(h, hash))) deps.bridge.turnedAway();
-      ws.send(
-        JSON.stringify({
-          type: "rejected",
-          reason: "Hearth didn't accept that pairing code. Make a new one in Settings.",
-        }),
-      );
-      return ws.close(4001, "Not paired");
-    }
-    deps.bridge.adopt(ws, String(hello.version ?? "?"));
+    hear(ws, req, deps, String(data)).catch(() => {
+      // The database didn't answer: the extension tries again shortly.
+      ws.close(1011, "Hearth couldn't check the pairing code");
+    });
+  });
+}
+
+async function hear(ws: WebSocket, req: IncomingMessage, deps: SocketDeps, data: string) {
+  let hello: { type?: string; token?: string; version?: string; protocol?: number };
+  try {
+    hello = JSON.parse(data);
+  } catch {
+    return ws.close(4001, "Bad hello");
+  }
+  const pairing = await getSetting(deps.kernel.db, "browser.pairing");
+  const ok =
+    hello.type === "hello" &&
+    typeof hello.token === "string" &&
+    pairing !== null &&
+    safeEqual(pairing.hash, hashToken(hello.token));
+  if (!ok) {
+    // Only an earlier pairing code counts as an old one; anything can knock with a wrong code.
+    const old = await getSetting(deps.kernel.db, "browser.oldPairings");
+    const hash = typeof hello.token === "string" ? hashToken(hello.token) : "";
+    deps.bridge.turnedAway(Boolean(hash) && old.some((h) => safeEqual(h, hash)));
+    ws.send(
+      JSON.stringify({
+        type: "rejected",
+        reason: "Hearth didn't accept that pairing code. Make a new one in Settings.",
+      }),
+    );
+    return ws.close(4001, "Not paired");
+  }
+  deps.bridge.adopt(ws, {
+    version: String(hello.version ?? "?"),
+    protocol: typeof hello.protocol === "number" ? hello.protocol : 1,
+    extensionId: extensionId(req),
   });
 }
 
@@ -94,20 +111,24 @@ export function attachBrowserSockets(server: Server, deps: SocketDeps): () => vo
       // Only an extension may connect here, never a web page.
       if (!req.headers.origin?.startsWith("chrome-extension://"))
         return refuse(socket, "403 Forbidden");
-      wss.handleUpgrade(req, socket, head, (ws) => greet(ws, deps));
+      wss.handleUpgrade(req, socket, head, (ws) => greet(ws, req, deps));
       return;
     }
     if (path === "/api/browser/live") {
-      void isOwnerPage(req, deps).then((ok) => {
-        if (!ok) return refuse(socket, "401 Unauthorized");
-        wss.handleUpgrade(req, socket, head, (ws) => deps.live.connect(ws));
-      });
+      isOwnerPage(req, deps)
+        .then((ok) => {
+          if (!ok) return refuse(socket, "401 Unauthorized");
+          wss.handleUpgrade(req, socket, head, (ws) => deps.live.connect(ws));
+        })
+        .catch(() => refuse(socket, "503 Service Unavailable"));
       return;
     }
     refuse(socket, "404 Not Found");
   };
   server.on("upgrade", onUpgrade);
+  const stopHealth = watchBrowserHealth(deps.kernel, deps.bridge);
   return () => {
+    stopHealth();
     server.off("upgrade", onUpgrade);
     for (const ws of wss.clients) ws.terminate();
     wss.close();

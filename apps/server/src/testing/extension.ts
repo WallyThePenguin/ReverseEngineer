@@ -1,5 +1,6 @@
 // A pretend Hearth extension and live-view page for the browser bridge's tests: WebSockets to a
 // test server that queue messages, so a test can wait for the next one of a type.
+import { BRIDGE_PROTOCOL, EXTENSION_ID } from "@hearth/modules";
 import WebSocket from "ws";
 
 export type Msg = Record<string, unknown> & { type: string };
@@ -29,25 +30,55 @@ export function socket(base: string, path: string, origin: string) {
   return { ws, next, opened, send: (m: unknown) => ws.send(JSON.stringify(m)) };
 }
 
+/** An answer that fails, the way the extension reports an error with a code. */
+export class Refusal {
+  readonly error: string;
+  readonly code: string | undefined;
+  constructor(error: string, code?: string) {
+    this.error = error;
+    this.code = code;
+  }
+}
+
+export interface FakeOptions {
+  /** The protocol its hello says (the current one by default); null leaves it out, like 0.2. */
+  protocol?: number | null;
+  /** Its ID, which Chrome puts in the Origin. */
+  id?: string;
+  version?: string;
+  /** Answers pings (the real extension does). */
+  pong?: boolean;
+}
+
 /** A pretend Chrome extension that answers calls from a table and records them. */
 export async function fakeExtension(
   base: string,
   token: string,
   answers: Record<string, (p: Msg) => unknown>,
+  opts: FakeOptions = {},
 ) {
-  const ext = socket(base, "/api/browser/bridge", "chrome-extension://hearth-test");
+  const ext = socket(base, "/api/browser/bridge", `chrome-extension://${opts.id ?? EXTENSION_ID}`);
   const calls: Msg[] = [];
   await ext.opened;
-  ext.send({ type: "hello", token, version: "0.1.0" });
+  const protocol = opts.protocol === undefined ? BRIDGE_PROTOCOL : opts.protocol;
+  ext.send({
+    type: "hello",
+    token,
+    version: opts.version ?? "0.3.0",
+    ...(protocol === null ? {} : { protocol }),
+  });
   ext.ws.on("message", (data) => {
     const msg = JSON.parse(String(data)) as Msg;
+    if (msg.type === "ping" && opts.pong !== false) return ext.send({ type: "pong" });
     if (msg.type !== "call") return;
     calls.push(msg);
     const answer = answers[String(msg.method)];
     const params = msg.params as Msg;
     const key = msg.method === "cdp" ? String(params.method) : String(msg.method);
     const result = (answers[key] ?? answer)?.(params) ?? {};
-    ext.send({ type: "result", id: msg.id, result });
+    if (result instanceof Refusal)
+      ext.send({ type: "result", id: msg.id, error: result.error, code: result.code });
+    else ext.send({ type: "result", id: msg.id, result });
   });
   return { ...ext, calls };
 }
