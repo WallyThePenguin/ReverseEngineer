@@ -2,6 +2,7 @@
 // and every earlier version with a way to go back.
 
 import { createSignal, For, lazy, Show } from "solid-js";
+import { Overflow, ROW_MENU } from "../components/Menu.tsx";
 import { Badge, Button, Empty, PaneHeader } from "../components/ui.tsx";
 import { ago, who } from "../lib/format.ts";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
@@ -9,6 +10,7 @@ import { toast } from "../lib/live.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
 import { createSelection } from "../lib/selection.ts";
+import { moveToTrash, trashKey } from "../lib/trash.ts";
 import type { MemoryNote, MemoryRevision } from "../lib/types.ts";
 
 // The live editor loads when a memory note opens, like a note's.
@@ -35,6 +37,7 @@ export function Memory(props: { pane: number }) {
       when: focused,
     }),
     { keys: "enter", run: () => open(sel.current()), when: focused, label: "Open memory" },
+    trashKey(sel.current, focused),
   ]);
 
   return (
@@ -73,7 +76,7 @@ export function Memory(props: { pane: number }) {
             <For each={list()}>
               {(n, i) => (
                 <li
-                  class="flex cursor-pointer items-baseline gap-3 border-b border-line px-4 py-2"
+                  class="group flex cursor-pointer items-center gap-3 border-b border-line py-1 pr-2 pl-4 md:py-2"
                   data-active={focused() && i() === sel.index()}
                   onClick={() => {
                     sel.select(i());
@@ -85,6 +88,13 @@ export function Memory(props: { pane: number }) {
                   <span class="text-xs text-faint">
                     {who(n.updatedBy)} · {ago(n.updatedAt)}
                   </span>
+                  <Overflow
+                    class={ROW_MENU}
+                    label={`Actions for ${n.title}`}
+                    items={[
+                      { label: "Move to trash", danger: true, run: () => void moveToTrash(n.id) },
+                    ]}
+                  />
                 </li>
               )}
             </For>

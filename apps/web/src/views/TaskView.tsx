@@ -56,6 +56,7 @@ export function TaskView(props: { id: string; pane: number }) {
           <PaneHeader
             title={<span class="font-mono text-sm text-muted">{t().key}</span>}
             sub={`Created by ${who(t().createdBy)} ${ago(t().createdAt)}`}
+            record={{ id: t().id, type: "task" }}
           >
             <Show
               when={t().assignee !== "jarvis"}

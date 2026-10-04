@@ -42,6 +42,7 @@ function commands(): Item[] {
     go("browser", "the browser (your Chrome, live)"),
     go("activity", "Jarvis's activity"),
     go("settings", "Settings"),
+    go("trash", "the trash (restore what you deleted)"),
     { id: "new:note", label: "New note", hint: "Create", run: () => newNote(layout.focused()) },
     {
       id: "new:canvas",

@@ -39,6 +39,7 @@ import { Settings } from "../views/Settings.tsx";
 import { Sheets, SheetView } from "../views/Sheets.tsx";
 import { Tasks } from "../views/Tasks.tsx";
 import { TaskView } from "../views/TaskView.tsx";
+import { Trash } from "../views/Trash.tsx";
 import { Voice } from "../views/Voice.tsx";
 import { CommandPalette } from "./CommandPalette.tsx";
 import { Sidebar, useWaiting } from "./Sidebar.tsx";
@@ -96,6 +97,9 @@ function PaneView(props: { route: PaneRoute; index: number }) {
       </Match>
       <Match when={props.route.view === "settings"}>
         <Settings />
+      </Match>
+      <Match when={props.route.view === "trash"}>
+        <Trash pane={props.index} />
       </Match>
       <Match when={props.route.view === "task"}>
         <TaskView id={id()} pane={props.index} />
@@ -173,11 +177,23 @@ function Shell(props: { onSignOut: () => void }) {
     { keys: "g b", run: go("browser"), label: "Go to the browser" },
     { keys: "g a", run: go("activity"), label: "Go to Jarvis's activity" },
     { keys: "g s", run: go("settings"), label: "Go to Settings" },
+    { keys: "g d", run: go("trash"), label: "Go to the trash" },
     { keys: "mod+\\", run: () => layout.split(), inInputs: true, label: "Split pane" },
     { keys: "alt+w", run: () => layout.close(), inInputs: true, label: "Close pane" },
     { keys: "[", run: () => layout.focus(layout.focused() - 1), label: "Pane to the left" },
     { keys: "]", run: () => layout.focus(layout.focused() + 1), label: "Pane to the right" },
     { keys: "?", run: () => setHelp(true), label: "Keyboard shortcuts" },
+    {
+      keys: "z",
+      label: "Undo (while it's offered)",
+      when: () => toast.latestAction() !== undefined,
+      run: () => {
+        const t = toast.latestAction();
+        if (!t) return;
+        toast.dismiss(t.id);
+        t.action?.run();
+      },
+    },
     {
       keys: "escape",
       run: () => {
@@ -269,13 +285,31 @@ function Shell(props: { onSignOut: () => void }) {
       </Show>
       <Reconnecting />
       <UpdateNotice />
-      <div class="pointer-events-none fixed bottom-16 left-1/2 md:bottom-4 z-50 flex -translate-x-1/2 flex-col items-center gap-2">
+      <div
+        class="pointer-events-none fixed bottom-16 left-1/2 z-50 flex w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col items-center gap-2 md:bottom-4"
+        role="status"
+        aria-live="polite"
+      >
         <For each={toast.toasts()}>
           {(t) => (
             <div
-              class={`rounded-lg px-4 py-2 text-sm shadow-lg ${t.tone === "error" ? "bg-bad text-white" : "bg-ink text-bg"}`}
+              class={`flex items-center gap-3 rounded-lg px-4 py-2 text-sm shadow-lg ${t.tone === "error" ? "bg-bad text-white" : "bg-ink text-bg"}`}
             >
-              {t.text}
+              <span>{t.text}</span>
+              <Show when={t.action}>
+                {(a) => (
+                  <button
+                    type="button"
+                    class="pointer-events-auto -my-1 min-h-9 shrink-0 rounded px-2 font-semibold underline underline-offset-2 hover:opacity-80"
+                    onClick={() => {
+                      toast.dismiss(t.id);
+                      a().run();
+                    }}
+                  >
+                    {a().label}
+                  </button>
+                )}
+              </Show>
             </div>
           )}
         </For>

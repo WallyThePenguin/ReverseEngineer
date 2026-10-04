@@ -1,12 +1,14 @@
 // Spreadsheets (PLAN.md section 8.5): a list, and a spreadsheet per pane.
 
 import { For, lazy, Show } from "solid-js";
-import { Button, Empty, PaneHeader } from "../components/ui.tsx";
+import { Overflow, ROW_MENU } from "../components/Menu.tsx";
+import { Button, Empty, ForRecord, PaneHeader } from "../components/ui.tsx";
 import { ago } from "../lib/format.ts";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
 import { createSelection } from "../lib/selection.ts";
+import { moveToTrash, trashKey } from "../lib/trash.ts";
 
 // The grid (and its formula engine) is only needed once one opens.
 const Grid = lazy(() => import("../sheets/Grid.tsx").then((m) => ({ default: m.SheetGrid })));
@@ -37,6 +39,7 @@ export function Sheets(props: { pane: number }) {
       when: focused,
     }),
     { keys: "enter", run: () => open(sel.current()), when: focused, label: "Open spreadsheet" },
+    trashKey(sel.current, focused),
     { keys: "c", run: () => void newSheet(props.pane), when: focused, label: "New spreadsheet" },
   ]);
 
@@ -62,7 +65,7 @@ export function Sheets(props: { pane: number }) {
             <For each={list()}>
               {(r, i) => (
                 <li
-                  class="flex cursor-pointer items-baseline gap-3 border-b border-line px-4 py-2.5"
+                  class="group flex cursor-pointer items-center gap-3 border-b border-line py-1 pr-2 pl-4 md:py-2.5"
                   data-active={focused() && i() === sel.index()}
                   onClick={(e) => {
                     sel.select(i());
@@ -71,6 +74,13 @@ export function Sheets(props: { pane: number }) {
                 >
                   <span class="min-w-0 flex-1 truncate font-medium">{r.title || "Untitled"}</span>
                   <span class="shrink-0 text-xs text-faint">{ago(r.updatedAt)}</span>
+                  <Overflow
+                    class={ROW_MENU}
+                    label={`Actions for ${r.title || "Untitled"}`}
+                    items={[
+                      { label: "Move to trash", danger: true, run: () => void moveToTrash(r.id) },
+                    ]}
+                  />
                 </li>
               )}
             </For>
@@ -82,5 +92,9 @@ export function Sheets(props: { pane: number }) {
 }
 
 export function SheetView(props: { id: string; pane: number }) {
-  return <Grid id={props.id} pane={props.pane} />;
+  return (
+    <ForRecord record={{ id: props.id, type: "spreadsheet" }}>
+      <Grid id={props.id} pane={props.pane} />
+    </ForRecord>
+  );
 }

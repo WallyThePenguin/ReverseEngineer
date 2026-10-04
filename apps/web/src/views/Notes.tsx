@@ -1,18 +1,21 @@
 // Notes: a list and a page per note. Checklists can become tasks in one click (Jarvis also
 // offers to, a few minutes after you stop editing).
 
-import { createSignal, For, lazy, Show } from "solid-js";
+import { createSignal, For, lazy, Show, useContext } from "solid-js";
 import { Backlinks } from "../components/Backlinks.tsx";
 import { Comments, JarvisWorking } from "../components/Comments.tsx";
 import { DocHistory } from "../components/DocHistory.tsx";
-import { Button, Empty, PaneHeader, Placeholder } from "../components/ui.tsx";
+import { Overflow, ROW_MENU } from "../components/Menu.tsx";
+import { Button, Empty, PaneContext, PaneHeader, Placeholder } from "../components/ui.tsx";
 import { ago, who } from "../lib/format.ts";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
 import { toast } from "../lib/live.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
 import { createSelection } from "../lib/selection.ts";
+import { moveToTrash, trashKey } from "../lib/trash.ts";
 import type { Entity, NoteRow } from "../lib/types.ts";
+import { undoImport } from "./ImportSettings.tsx";
 
 // The editor and its CRDT are big, so they load when a note opens.
 const DocEditor = lazy(() => import("../components/DocEditor.tsx"));
@@ -41,6 +44,7 @@ export function Notes(props: { pane: number }) {
       when: focused,
     }),
     { keys: "enter", run: () => open(sel.current()), when: focused, label: "Open note" },
+    trashKey(sel.current, focused),
     { keys: "c", run: () => void newNote(props.pane), when: focused, label: "New note" },
   ]);
 
@@ -60,20 +64,31 @@ export function Notes(props: { pane: number }) {
             <For each={list()}>
               {(n, i) => (
                 <li
-                  class="cursor-pointer border-b border-line px-4 py-2.5"
+                  class="group flex cursor-pointer items-center gap-2 border-b border-line py-2 pr-2 pl-4 md:py-2.5"
                   data-active={focused() && i() === sel.index()}
                   onClick={(e) => {
                     sel.select(i());
                     open(n, e.shiftKey);
                   }}
                 >
-                  <div class="flex items-baseline gap-3">
-                    <span class="min-w-0 flex-1 truncate font-medium">{n.title || "Untitled"}</span>
-                    <span class="shrink-0 text-xs text-faint">{ago(n.updatedAt)}</span>
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-baseline gap-3">
+                      <span class="min-w-0 flex-1 truncate font-medium">
+                        {n.title || "Untitled"}
+                      </span>
+                      <span class="shrink-0 text-xs text-faint">{ago(n.updatedAt)}</span>
+                    </div>
+                    <Show when={n.preview}>
+                      <p class="truncate text-sm text-muted">{n.preview}</p>
+                    </Show>
                   </div>
-                  <Show when={n.preview}>
-                    <p class="truncate text-sm text-muted">{n.preview}</p>
-                  </Show>
+                  <Overflow
+                    class={ROW_MENU}
+                    label={`Actions for ${n.title || "Untitled"}`}
+                    items={[
+                      { label: "Move to trash", danger: true, run: () => void moveToTrash(n.id) },
+                    ]}
+                  />
                 </li>
               )}
             </For>
@@ -86,6 +101,7 @@ export function Notes(props: { pane: number }) {
 
 export function NoteView(props: { id: string; pane: number }) {
   const note = useAction<Entity>("entity.get", () => ({ id: props.id }));
+  const pane = useContext(PaneContext);
 
   // The text saves itself as you type; this is the title.
   const save = async (fields: { title: string }) => {
@@ -110,7 +126,24 @@ export function NoteView(props: { id: string; pane: number }) {
     <Show when={note.data} fallback={<Placeholder missing={note.isError} what="note" />}>
       {(n) => (
         <div class="flex h-full flex-col">
-          <PaneHeader title="Note" sub={`Edited by ${who(n().updatedBy)} ${ago(n().updatedAt)}`}>
+          <PaneHeader
+            title="Note"
+            sub={`Edited by ${who(n().updatedBy)} ${ago(n().updatedAt)}`}
+            record={{ id: n().id, type: "note", trashed: n().deletedAt !== null }}
+            menu={
+              n().createdBy === "integration:notion" && !n().parentId
+                ? [
+                    {
+                      label: "Undo this import",
+                      danger: true,
+                      run: async () => {
+                        if ((await undoImport(n().id)) && pane.close) pane.close();
+                      },
+                    },
+                  ]
+                : []
+            }
+          >
             <Show when={hasChecklist()}>
               <Button
                 small

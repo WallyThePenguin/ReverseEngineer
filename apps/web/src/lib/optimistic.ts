@@ -67,9 +67,34 @@ function mailThreads(
   ];
 }
 
+/** Lists of records you can move to the trash. */
+const RECORD_LISTS = [
+  "task.list",
+  "note.list",
+  "canvas.list",
+  "sheet.list",
+  "person.list",
+  "memory.list",
+  "conversation.list",
+  "comment.list",
+  "page_watch.list",
+  "snippet.list",
+  "entity.recent",
+];
+
 /** The edits a change makes to cached reads, by action name. */
 export function patchesFor(action: string, change: Record<string, unknown>): Patch[] {
   switch (action) {
+    case "entity.trash":
+      // A record moved to the trash leaves every list it's in.
+      return RECORD_LISTS.map((read) => ({
+        read,
+        edit(data) {
+          if (!Array.isArray(data)) return data;
+          const which = ids(change);
+          return data.filter((r) => !which.has((r as { id?: string }).id ?? ""));
+        },
+      }));
     case "inbox.mark": {
       const state = change.state as "unseen" | "seen" | "done";
       return [

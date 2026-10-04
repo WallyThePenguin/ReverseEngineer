@@ -6,6 +6,7 @@ import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
 import { createSelection } from "../lib/selection.ts";
+import { trashKey } from "../lib/trash.ts";
 import type { Company, Person } from "../lib/types.ts";
 import { PeopleRows } from "./Person.tsx";
 
@@ -36,6 +37,7 @@ export function People(props: { pane: number }) {
       when: focused,
     }),
     { keys: "enter", run: () => open(sel.current()), when: focused, label: "Open" },
+    trashKey(sel.current, focused),
   ]);
 
   const tabButton = (t: Tab, label: string) => (

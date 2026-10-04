@@ -11,6 +11,7 @@ import { act, useAction } from "../lib/query.ts";
 import { hush, mic, say, talkTaken, talkWanted } from "../lib/speech.ts";
 import type { LogRecord } from "../lib/types.ts";
 import { decide } from "../views/Inbox.tsx";
+import { RenameInput, renameConversation } from "./Rename.tsx";
 
 /** How long what you sent may wait for Jarvis to start before it says so. */
 const SLOW_MS = 20_000;
@@ -289,9 +290,27 @@ function Starter(props: { onPick: (text: string) => void }) {
 /** A conversation opened in its own pane. */
 export function ChatView(props: { id: string }) {
   const data = useAction<ConversationData>("conversation.get", () => ({ id: props.id }));
+  const [renaming, setRenaming] = createSignal(false);
+  const title = () => data.data?.conversation.title || "Conversation";
   return (
     <div class="flex h-full flex-col">
-      <PaneHeader title={data.data?.conversation.title || "Conversation"} sub="With Jarvis" />
+      <PaneHeader
+        title={
+          <Show when={renaming()} fallback={title()}>
+            <RenameInput
+              value={title()}
+              class="w-full rounded border border-line bg-panel px-2 py-0.5 text-base font-semibold"
+              onDone={(t) => {
+                setRenaming(false);
+                if (t) void renameConversation(props.id, t);
+              }}
+            />
+          </Show>
+        }
+        sub="With Jarvis"
+        menu={data.data ? [{ label: "Rename", run: () => setRenaming(true) }] : []}
+        record={data.data ? { id: props.id, type: "conversation" } : undefined}
+      />
       <div class="min-h-0 flex-1">
         <Conversation id={props.id} />
       </div>

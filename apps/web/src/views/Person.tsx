@@ -2,10 +2,12 @@
 // want one, your own fields, and everything linked to them. And a company's page: its people.
 
 import { createSignal, For, type JSX, Show } from "solid-js";
+import { Overflow, ROW_MENU } from "../components/Menu.tsx";
 import { Empty } from "../components/ui.tsx";
 import { ago, day, TYPE_LABEL } from "../lib/format.ts";
 import { layout, routeFor } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
+import { moveToTrash } from "../lib/trash.ts";
 import type { CompanyDetail, LastContact, Linked, Person, PersonDetail } from "../lib/types.ts";
 
 const FOLLOW_UP = [
@@ -209,7 +211,7 @@ export function PeopleRows(props: {
       <For each={props.rows}>
         {(p, i) => (
           <li
-            class="flex cursor-pointer items-baseline gap-3 border-b border-line px-4 py-2"
+            class="group flex cursor-pointer items-center gap-3 border-b border-line py-1 pr-2 pl-4 md:py-2"
             data-active={i() === props.active}
             onClick={() => props.onOpen(p)}
           >
@@ -219,6 +221,11 @@ export function PeopleRows(props: {
               <span class="text-xs text-warn">get in touch</span>
             </Show>
             <span class="text-xs text-faint">{p.lastContact ? ago(p.lastContact.at) : ""}</span>
+            <Overflow
+              class={ROW_MENU}
+              label={`Actions for ${p.name}`}
+              items={[{ label: "Move to trash", danger: true, run: () => void moveToTrash(p.id) }]}
+            />
           </li>
         )}
       </For>

@@ -22,6 +22,7 @@ const NAV: { view: ListView; label: string; keys: string }[] = [
   { view: "browser", label: "Browser", keys: "g b" },
   { view: "activity", label: "Jarvis's activity", keys: "g a" },
   { view: "settings", label: "Settings", keys: "g s" },
+  { view: "trash", label: "Trash", keys: "g d" },
 ];
 
 /** What's waiting for you: unseen inbox items and approvals. */

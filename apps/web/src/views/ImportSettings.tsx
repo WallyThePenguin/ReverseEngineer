@@ -1,11 +1,35 @@
 // Settings for bringing things in: a Notion export becomes notes.
 
-import { createSignal, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
+import { Button } from "../components/ui.tsx";
+import { ago } from "../lib/format.ts";
 import { queryClient, reportError, toast } from "../lib/live.ts";
 import { layout } from "../lib/panes.ts";
+import { act, useAction } from "../lib/query.ts";
+import { restore } from "../lib/trash.ts";
+
+interface NotionImport {
+  id: string;
+  title: string;
+  createdAt: string;
+  trashedAt: string | null;
+}
+
+/** Moves a whole import to the trash, with an Undo; restoring its page brings it all back. */
+export async function undoImport(id: string): Promise<boolean> {
+  const r = await act<{ trashed: number }>("notion.undo_import", { id });
+  if (!r) return false;
+  const n = r.trashed;
+  toast.show(`Moved the import's ${n} note${n === 1 ? "" : "s"} to the trash.`, "info", {
+    label: "Undo",
+    run: () => void restore(id),
+  });
+  return true;
+}
 
 export function ImportSettings() {
   const [busy, setBusy] = createSignal(false);
+  const imports = useAction<NotionImport[]>("notion.imports", () => ({ limit: 20 }));
 
   const upload = async (file: File) => {
     setBusy(true);
@@ -60,6 +84,42 @@ export function ImportSettings() {
           Importing…
         </Show>
       </label>
+      <Show when={(imports.data ?? []).length > 0}>
+        <ul class="divide-y divide-line rounded-md border border-line text-sm">
+          <For each={imports.data}>
+            {(i) => (
+              <li class="flex items-center gap-3 px-3 py-2">
+                <div class="min-w-0 flex-1">
+                  <button
+                    type="button"
+                    class="block max-w-full truncate text-left hover:underline disabled:no-underline"
+                    disabled={i.trashedAt !== null}
+                    onClick={() => layout.open({ view: "note", id: i.id }, { beside: true })}
+                  >
+                    {i.title}
+                  </button>
+                  <p class="text-xs text-muted">
+                    Imported {ago(i.createdAt)}
+                    {i.trashedAt ? ` · undone ${ago(i.trashedAt)}, in the trash` : ""}
+                  </p>
+                </div>
+                <Show
+                  when={i.trashedAt}
+                  fallback={
+                    <Button small kind="danger" onClick={() => void undoImport(i.id)}>
+                      Undo this import
+                    </Button>
+                  }
+                >
+                  <Button small onClick={() => void restore(i.id)}>
+                    Restore
+                  </Button>
+                </Show>
+              </li>
+            )}
+          </For>
+        </ul>
+      </Show>
     </section>
   );
 }

@@ -79,6 +79,87 @@ try {
     if ((await titleOf(active)) !== third)
       throw new Error("the selection didn't move to the row that took the completed one's place");
   });
+
+  await step(
+    "a task trashed from its row's menu leaves at once, and Undo puts it back",
+    async (p) => {
+      await p.goto(`${base}/tasks`);
+      const tasks = pane(p, "Tasks");
+      const row = tasks.locator("li", { hasText: titles[0]! });
+      await row.hover();
+      await row.getByRole("button", { name: /^Actions for/ }).click();
+      await p.getByRole("menuitem", { name: "Move to trash" }).click();
+      await row.waitFor({ state: "detached" });
+      await p.getByText(`Moved "${titles[0]}" to the trash.`).waitFor();
+      await p.getByRole("button", { name: "Undo" }).click();
+      await row.waitFor();
+      await p.getByText(`Restored "${titles[0]}".`).waitFor();
+    },
+  );
+
+  await step("# trashes a task with its subtask; the Trash view brings both back", async (p) => {
+    const parent = await run<{ id: string }>(p, "task.create", { title: `Trip ${tag}` });
+    await run(p, "task.create", { title: `Tickets ${tag}`, parentId: parent.id });
+    await p.goto(`${base}/tasks`);
+    const tasks = pane(p, "Tasks");
+    const row = tasks.locator("li", { hasText: `Trip ${tag}` });
+    // Picking it opens it beside the list; the keys stay with the list.
+    await row.click();
+    await pane(p, "Tasks")
+      .locator('li[data-active="true"]', { hasText: `Trip ${tag}` })
+      .waitFor();
+    await keys(p, "#");
+    await row.waitFor({ state: "detached" });
+    await p.getByText(`Moved "Trip ${tag}" and 1 record under it to the trash.`).waitFor();
+
+    await p.goto(`${base}/trash`);
+    const trash = pane(p, "Trash");
+    const gone = trash.locator("li", { hasText: `Trip ${tag}` });
+    await gone.getByText("with 1 record under it").waitFor();
+    await gone.getByRole("button", { name: "Restore" }).click();
+    await gone.waitFor({ state: "detached" });
+    const subs = await run<{ title: string }[]>(p, "task.list", {
+      parentId: parent.id,
+      includeClosed: true,
+    });
+    if (subs.map((s) => s.title).join() !== `Tickets ${tag}`)
+      throw new Error(`the subtask didn't come back: ${JSON.stringify(subs)}`);
+  });
+
+  await step("a note trashed from its header closes its pane; z undoes it", async (p) => {
+    const note = await run<{ id: string }>(p, "note.create", { title: `Idea ${tag}` });
+    await p.goto(`${base}/notes+note/${note.id}`);
+    const view = pane(p, "Note");
+    await view.getByRole("button", { name: "More actions" }).click();
+    await p.getByRole("menuitem", { name: "Move to trash" }).click();
+    await view.waitFor({ state: "detached" });
+    await p.getByText(`Moved "Idea ${tag}" to the trash.`).waitFor();
+    await keys(p, "z");
+    await p.getByText(`Restored "Idea ${tag}".`).waitFor();
+    const back = await run<{ deletedAt: string | null }>(p, "entity.get", { id: note.id });
+    if (back.deletedAt !== null) throw new Error("z didn't bring the note back");
+  });
+
+  await step("a conversation can be renamed, found, and moved to the trash", async (p) => {
+    const chat = await run<{ id: string }>(p, "conversation.create", { title: `Chat ${tag}` });
+    await p.goto(`${base}/chat/${chat.id}`);
+    await p.getByRole("heading", { name: `Chat ${tag}` }).waitFor();
+    await p.getByRole("button", { name: "More actions" }).click();
+    await p.getByRole("menuitem", { name: "Rename" }).click();
+    const box = p.getByRole("textbox", { name: "Conversation name" });
+    await box.fill(`Kitchen plan ${tag}`);
+    await box.press("Enter");
+    await p.getByRole("heading", { name: `Kitchen plan ${tag}` }).waitFor();
+    const found = await run<{ id: string }[]>(p, "conversation.list", { query: `plan ${tag}` });
+    if (found.map((c) => c.id).join() !== chat.id) throw new Error("rename didn't stick");
+    await p.getByRole("button", { name: "More actions" }).click();
+    await p.getByRole("menuitem", { name: "Move to trash" }).click();
+    await p.getByText(`Moved "Kitchen plan ${tag}" to the trash.`).waitFor();
+    // A lone pane goes back to the inbox.
+    await p.getByRole("heading", { name: "Inbox" }).waitFor();
+    if ((await run<unknown[]>(p, "conversation.list", { query: tag })).length)
+      throw new Error("the trashed conversation is still listed");
+  });
 } finally {
   await browser.close();
 }

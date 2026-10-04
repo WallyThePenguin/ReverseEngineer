@@ -2,28 +2,113 @@
 
 import type { JSX } from "solid-js";
 import { createContext, Show, useContext } from "solid-js";
+import { layout } from "../lib/panes.ts";
+import { moveToTrash, restore, TRASHABLE } from "../lib/trash.ts";
+import { type MenuItem, Overflow } from "./Menu.tsx";
 
-/** Which pane a view is in, and how to close it (when there's more than one). */
-export const PaneContext = createContext<{ close: (() => void) | null }>({ close: null });
+/** The record a pane shows, so its header can offer to move it to the trash. */
+export interface PaneRecord {
+  id: string;
+  type: string;
+  /** It's in the trash (some records still open from there): the header offers Restore. */
+  trashed?: boolean;
+}
+
+/** Which pane a view is in, how to close it (when there's more than one), and its record. */
+export const PaneContext = createContext<{
+  close: (() => void) | null;
+  record?: PaneRecord | undefined;
+}>({ close: null });
+
+/** Tells the pane's header which record is showing (the header can be drawn by an editor). */
+export function ForRecord(props: { record: PaneRecord | undefined; children: JSX.Element }) {
+  const pane = useContext(PaneContext);
+  return (
+    <PaneContext.Provider
+      value={{
+        get close() {
+          return pane.close;
+        },
+        get record() {
+          return props.record;
+        },
+      }}
+    >
+      {props.children}
+    </PaneContext.Provider>
+  );
+}
+
+/** Where you land after trashing the record a lone pane showed. */
+const HOME: Record<string, Parameters<typeof layout.open>[0]> = {
+  task: { view: "tasks" },
+  note: { view: "notes" },
+  canvas: { view: "canvases" },
+  spreadsheet: { view: "sheets" },
+  person: { view: "people" },
+  company: { view: "people" },
+  memory_note: { view: "memory" },
+};
 
 export function PaneHeader(props: {
   title: JSX.Element;
   children?: JSX.Element;
   sub?: JSX.Element;
+  /** More actions, behind a ⋯ button. */
+  menu?: MenuItem[];
+  /** The record this pane shows: the menu offers to move it to the trash. */
+  record?: PaneRecord | undefined;
 }) {
+  const pane = useContext(PaneContext);
+  const record = () => {
+    const r = props.record ?? pane.record;
+    return r && TRASHABLE.has(r.type) ? r : undefined;
+  };
+  const items = (): MenuItem[] => {
+    const r = record();
+    if (!r) return props.menu ?? [];
+    if (r.trashed) return [{ label: "Restore", run: () => void restore(r.id) }];
+    return [
+      ...(props.menu ?? []),
+      {
+        label: "Move to trash",
+        danger: true,
+        run: async () => {
+          if (!(await moveToTrash(r.id))) return;
+          if (pane.close) pane.close();
+          else layout.open(HOME[r.type] ?? { view: "inbox" });
+        },
+      },
+    ];
+  };
   return (
-    <header class="flex min-h-12 items-start gap-2 border-b border-line px-4 py-2">
-      <div class="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
-        <div class="min-w-24 flex-1">
-          <h1 class="truncate text-base font-semibold">{props.title}</h1>
-          <Show when={props.sub}>
-            <p class="truncate text-xs text-muted">{props.sub}</p>
-          </Show>
+    <>
+      <header class="flex min-h-12 items-start gap-2 border-b border-line px-4 py-2">
+        <div class="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+          <div class="min-w-24 flex-1">
+            <h1 class="truncate text-base font-semibold">{props.title}</h1>
+            <Show when={props.sub}>
+              <p class="truncate text-xs text-muted">{props.sub}</p>
+            </Show>
+          </div>
+          {props.children}
         </div>
-        {props.children}
-      </div>
-      <PaneClose />
-    </header>
+        <Show when={items().length > 0}>
+          <Overflow items={items()} label="More actions" />
+        </Show>
+        <PaneClose />
+      </header>
+      <Show when={record()?.trashed && record()}>
+        {(r) => (
+          <p class="flex items-center gap-3 border-b border-line bg-accent-soft px-4 py-1.5 text-sm">
+            <span class="flex-1">This is in the trash.</span>
+            <Button small onClick={() => void restore(r().id)}>
+              Restore
+            </Button>
+          </p>
+        )}
+      </Show>
+    </>
   );
 }
 

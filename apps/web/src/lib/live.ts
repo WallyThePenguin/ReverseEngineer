@@ -250,20 +250,24 @@ export interface Toast {
   id: number;
   text: string;
   tone: "info" | "error";
+  /** A button on the toast, like Undo. */
+  action?: { label: string; run: () => void };
 }
 
 function createToasts() {
   const [toasts, setToasts] = createSignal<Toast[]>([]);
   let next = 1;
+  const dismiss = (id: number) => setToasts((t) => t.filter((x) => x.id !== id));
   return {
     toasts,
-    show(text: string, tone: Toast["tone"] = "info") {
+    dismiss,
+    /** The newest toast with a button (Undo), while it shows. */
+    latestAction: () => toasts().findLast((t) => t.action),
+    show(text: string, tone: Toast["tone"] = "info", action?: Toast["action"]) {
       const id = next++;
-      setToasts((t) => [...t, { id, text, tone }]);
-      window.setTimeout(
-        () => setToasts((t) => t.filter((x) => x.id !== id)),
-        tone === "error" ? 6000 : 3500,
-      );
+      setToasts((t) => [...t, { id, text, tone, action }]);
+      // One with a button stays long enough to reach for it.
+      window.setTimeout(() => dismiss(id), action ? 8000 : tone === "error" ? 6000 : 3500);
     },
   };
 }

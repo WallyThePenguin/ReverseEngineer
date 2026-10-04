@@ -2,6 +2,7 @@
 // Assign a task to Jarvis and it starts working on it.
 
 import { createSignal, For, Show } from "solid-js";
+import { Overflow, ROW_MENU } from "../components/Menu.tsx";
 import { Badge, Empty, Kbd, PaneHeader } from "../components/ui.tsx";
 import { due, PRIORITY_LABEL } from "../lib/format.ts";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
@@ -9,6 +10,7 @@ import { toast } from "../lib/live.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
 import { createSelection } from "../lib/selection.ts";
+import { moveToTrash, trashKey } from "../lib/trash.ts";
 import type { Task } from "../lib/types.ts";
 
 type Filter = "open" | "mine" | "jarvis" | "done";
@@ -33,7 +35,7 @@ export function TaskRow(props: { task: Task; active: boolean; onOpen: (beside: b
   const closed = () => t().status === "completed" || t().status === "canceled";
   return (
     <li
-      class="flex cursor-pointer items-center gap-3 border-b border-line px-4 py-2"
+      class="group flex cursor-pointer items-center gap-3 border-b border-line py-1 pr-2 pl-4 md:py-2"
       data-active={props.active}
       onClick={(e) => props.onOpen(e.shiftKey)}
     >
@@ -71,6 +73,21 @@ export function TaskRow(props: { task: Task; active: boolean; onOpen: (beside: b
           {d()!.text}
         </span>
       </Show>
+      <Overflow
+        class={ROW_MENU}
+        label={`Actions for ${t().key}`}
+        items={[
+          {
+            label: closed() ? "Reopen" : "Complete",
+            run: () =>
+              void act("task.update", {
+                id: t().id,
+                status: closed() ? "not_started" : "completed",
+              }),
+          },
+          { label: "Move to trash", danger: true, run: () => void moveToTrash(t().id) },
+        ]}
+      />
     </li>
   );
 }
@@ -126,6 +143,7 @@ export function Tasks(props: { pane: number }) {
           });
       },
     },
+    trashKey(sel.current, focused),
     { keys: "c", run: () => input.focus(), when: focused, label: "New task" },
   ]);
 

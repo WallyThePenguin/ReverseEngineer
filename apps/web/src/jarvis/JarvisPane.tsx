@@ -1,14 +1,18 @@
 // Jarvis on every screen: a chat pane on the right (Ctrl+J), with your recent conversations.
 
 import { createRoot, createSignal, For, Show } from "solid-js";
+import { Overflow } from "../components/Menu.tsx";
 import { Badge, Button } from "../components/ui.tsx";
+import { debounced } from "../lib/debounce.ts";
 import { ago, day, time } from "../lib/format.ts";
 import { jarvisLiveness } from "../lib/jarvis-health.ts";
 import { narrow } from "../lib/narrow.ts";
 import { layout } from "../lib/panes.ts";
 import { useAction } from "../lib/query.ts";
+import { moveToTrash } from "../lib/trash.ts";
 import type { ConversationRow, SystemStatus } from "../lib/types.ts";
 import { Conversation } from "./Conversation.tsx";
+import { RenameInput, renameConversation } from "./Rename.tsx";
 
 /** A clock for "since when", ticking often enough for a two-minute threshold. */
 const clock = createRoot(() => {
@@ -78,11 +82,29 @@ function createJarvisState() {
 
 export const jarvis = createRoot(createJarvisState);
 
+/** Moves a conversation to the trash; if it's the one showing, a new one starts. */
+async function trashConversation(id: string) {
+  if ((await moveToTrash(id)) && jarvis.conversationId() === id) jarvis.setConversationId(null);
+}
+
 export function JarvisPane() {
-  const conversations = useAction<ConversationRow[]>("conversation.list", () => ({ limit: 20 }));
+  const [search, setSearch] = createSignal("");
+  const query = debounced(search);
+  const conversations = useAction<ConversationRow[]>("conversation.list", () => ({
+    limit: 20,
+    ...(query().trim() ? { query: query().trim() } : {}),
+  }));
+  // The one showing, even when a search hides it from the list.
+  const shown = useAction<ConversationRow[]>("conversation.list", () => ({ limit: 20 }));
   const { status, liveness } = useLiveness();
   const [picking, setPicking] = createSignal(false);
-  const current = () => (conversations.data ?? []).find((c) => c.id === jarvis.conversationId());
+  /** The conversation being renamed, if any. */
+  const [renaming, setRenaming] = createSignal<string | null>(null);
+  const current = () => (shown.data ?? []).find((c) => c.id === jarvis.conversationId());
+  const rename = (id: string) => (title: string | null) => {
+    setRenaming(null);
+    if (title) void renameConversation(id, title);
+  };
 
   return (
     <aside
@@ -97,14 +119,22 @@ export function JarvisPane() {
         <Show when={status.data?.jarvisPaused}>
           <Badge tone="warn">Paused</Badge>
         </Show>
-        <button
-          type="button"
-          class="min-w-0 flex-1 truncate rounded px-2 py-1 text-left text-sm text-muted hover:bg-sunk"
-          onClick={() => setPicking(!picking())}
-          title="Your conversations"
+        <Show
+          when={renaming() !== null && renaming() === current()?.id}
+          fallback={
+            <button
+              type="button"
+              class="min-h-11 min-w-0 flex-1 truncate rounded px-2 py-1 text-left text-sm text-muted hover:bg-sunk md:min-h-0"
+              onClick={() => setPicking(!picking())}
+              title="Your conversations"
+              aria-expanded={picking()}
+            >
+              {current()?.title ?? "New conversation"} ▾
+            </button>
+          }
         >
-          {current()?.title ?? "New conversation"} ▾
-        </button>
+          <RenameInput value={current()!.title} onDone={rename(current()!.id)} />
+        </Show>
         <Button small onClick={() => jarvis.newChat()} title="New conversation">
           New
         </Button>
@@ -118,6 +148,21 @@ export function JarvisPane() {
           >
             ⤢
           </Button>
+        </Show>
+        <Show when={current()}>
+          {(c) => (
+            <Overflow
+              label="Conversation actions"
+              items={[
+                { label: "Rename", run: () => setRenaming(c().id) },
+                {
+                  label: "Move to trash",
+                  danger: true,
+                  run: () => void trashConversation(c().id),
+                },
+              ]}
+            />
+          )}
         </Show>
       </header>
       <Show
@@ -142,25 +187,65 @@ export function JarvisPane() {
         )}
       </Show>
       <Show when={picking()}>
-        <ul class="max-h-72 overflow-auto border-b border-line py-1">
-          <For each={conversations.data ?? []}>
-            {(c) => (
-              <li>
-                <button
-                  type="button"
-                  class="flex w-full items-baseline gap-2 px-3 py-1.5 text-left hover:bg-sunk"
-                  onClick={() => {
-                    jarvis.setConversationId(c.id);
-                    setPicking(false);
-                  }}
-                >
-                  <span class="flex-1 truncate text-sm">{c.title || "Untitled"}</span>
-                  <span class="text-xs text-faint">{ago(c.lastTurnAt ?? c.updatedAt)}</span>
-                </button>
-              </li>
-            )}
-          </For>
-        </ul>
+        <div class="border-b border-line">
+          <input
+            class="w-full border-b border-line bg-transparent px-3 py-2 text-sm outline-none placeholder:text-faint"
+            type="search"
+            aria-label="Find a conversation"
+            placeholder="Find a conversation…"
+            value={search()}
+            onInput={(e) => setSearch(e.currentTarget.value)}
+            onKeyDown={(e) => e.key === "Escape" && setPicking(false)}
+          />
+          <ul class="max-h-72 overflow-auto py-1">
+            <For
+              each={conversations.data ?? []}
+              fallback={
+                <li class="px-3 py-2 text-sm text-muted">
+                  {conversations.isLoading ? "Loading…" : "No conversations match."}
+                </li>
+              }
+            >
+              {(c) => (
+                <li class="flex items-center gap-1 pr-1 hover:bg-sunk">
+                  <Show
+                    when={renaming() === c.id}
+                    fallback={
+                      <button
+                        type="button"
+                        class="flex min-h-11 min-w-0 flex-1 items-baseline gap-2 px-3 py-1.5 text-left md:min-h-0"
+                        onClick={() => {
+                          jarvis.setConversationId(c.id);
+                          setPicking(false);
+                        }}
+                      >
+                        <span class="flex-1 truncate text-sm">{c.title || "Untitled"}</span>
+                        <span class="text-xs text-faint">{ago(c.lastTurnAt ?? c.updatedAt)}</span>
+                      </button>
+                    }
+                  >
+                    <RenameInput
+                      value={c.title}
+                      onDone={rename(c.id)}
+                      class="m-1 min-w-0 flex-1 rounded border border-line bg-panel px-2 py-1 text-sm"
+                    />
+                  </Show>
+                  <Overflow
+                    label={`Actions for ${c.title || "this conversation"}`}
+                    items={[
+                      { label: "Rename", run: () => setRenaming(c.id) },
+                      {
+                        label: "Move to trash",
+                        danger: true,
+                        run: () => void trashConversation(c.id),
+                      },
+                    ]}
+                  />
+                </li>
+              )}
+            </For>
+          </ul>
+        </div>
       </Show>
       <div class="min-h-0 flex-1">
         <Conversation
