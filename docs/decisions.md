@@ -1185,8 +1185,9 @@ without happening twice.
   behind the others instead of holding them up.
 - **Mail's own files.** A message's original missing from this PC is fetched again (when you
   open it, and a few a round in a daily pass that goes on past one Gmail won't give), and files
-  nothing needs are deleted after that pass. Disconnecting a Google account deletes its files, closes its alerts and, if you say so,
-  keeps its unsent drafts, which wait with no account until you pick one.
+  nothing needs are deleted after that pass. Disconnecting a Google account deletes its files,
+  closes its alerts and, if you say so, keeps its unsent drafts, which wait with no account until
+  you pick one.
 - **Needs your reply** is for a person writing to you: never mail sent to many at once or by a
   machine (List-Id, List-Unsubscribe, Precedence bulk/list/junk, Auto-Submitted), and only from
   someone you know (a person in Hearth: anyone you've written to) or mail Gmail marks important.
