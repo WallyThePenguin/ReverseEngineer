@@ -20,7 +20,10 @@ export interface FileLogOptions {
   maxBytes?: number;
   /** Old files kept: server.jsonl.1 (newest) to server.jsonl.N. */
   keep?: number;
-  /** Told once when the file can't be written; logging stops rather than failing every line. */
+  /**
+   * Told once when the file can't be written (logging stops rather than failing every line), and
+   * once when it can't roll over (it keeps writing to the same file).
+   */
   onError?: (err: unknown) => void;
 }
 
@@ -30,7 +33,10 @@ export function fileLog(file: string, opts: FileLogOptions = {}): FileLog {
   const maxBytes = opts.maxBytes ?? 10 * 1024 * 1024;
   const keep = opts.keep ?? 5;
   let size: number | null = null;
+  /** The size at which to roll over next; later than maxBytes after a roll-over that failed. */
+  let rollAt = maxBytes;
   let broken = false;
+  let toldRoll = false;
   const roll = () => {
     rmSync(`${file}.${keep}`, { force: true });
     for (let i = keep - 1; i >= 1; i--) {
@@ -39,6 +45,7 @@ export function fileLog(file: string, opts: FileLogOptions = {}): FileLog {
     }
     renameSync(file, `${file}.1`);
     size = 0;
+    rollAt = maxBytes;
   };
   return (record) => {
     if (broken) return;
@@ -47,7 +54,18 @@ export function fileLog(file: string, opts: FileLogOptions = {}): FileLog {
         mkdirSync(dirname(file), { recursive: true });
         size = statSync(file, { throwIfNoEntry: false })?.size ?? 0;
       }
-      if (size >= maxBytes) roll();
+      if (size >= rollAt) {
+        try {
+          roll();
+        } catch (err) {
+          // Windows won't rename a file another program holds open (a log viewer, a tail).
+          // Losing the log would be worse than a long file: keep writing to this one, and try
+          // again after another limit's worth.
+          rollAt = size + maxBytes;
+          if (!toldRoll) opts.onError?.(err);
+          toldRoll = true;
+        }
+      }
       const line = `${JSON.stringify(record)}\n`;
       appendFileSync(file, line);
       size += Buffer.byteLength(line);

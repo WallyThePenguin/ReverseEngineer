@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -51,6 +51,26 @@ describe("fileLog", () => {
     fileLog(file, { maxBytes: 200 })(rec("after a restart"));
     expect(readFileSync(`${file}.1`, "utf8")).toBe("x".repeat(300));
     expect(lines(file)).toEqual([rec("after a restart")]);
+  });
+
+  it("keeps writing when it can't roll over (the file held open elsewhere), and tries again later", () => {
+    const file = join(dir, "server.jsonl");
+    // In the way of the roll-over: a folder where the oldest file goes, like a file another
+    // program holds open on Windows.
+    mkdirSync(`${file}.1`);
+    writeFileSync(join(`${file}.1`, "held"), "");
+    const errors: unknown[] = [];
+    const log = fileLog(file, { maxBytes: 200, keep: 1, onError: (e) => errors.push(e) });
+    for (let i = 0; i < 12; i++) log(rec(`line ${i} ${"x".repeat(40)}`));
+    expect(errors).toHaveLength(1);
+    expect(lines(file).map((l) => l.msg.split(" ")[1])).toEqual(
+      Array.from({ length: 12 }, (_, i) => String(i)),
+    );
+    // Once it's free, the next roll-over goes through.
+    rmSync(`${file}.1`, { recursive: true });
+    for (let i = 12; i < 20; i++) log(rec(`line ${i} ${"x".repeat(40)}`));
+    expect(readdirSync(dir).sort()).toEqual(["server.jsonl", "server.jsonl.1"]);
+    expect(lines(file).at(-1)?.msg).toMatch(/^line 19 /);
   });
 
   it("says once when it can't write, then stays quiet", () => {
