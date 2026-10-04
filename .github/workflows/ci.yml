@@ -1,9 +1,11 @@
 name: CI
 
 on:
+  # The deploy branch (what update.ps1 pulls): every merge is tested again, as merged.
   push:
-    branches: [main]
+    branches: [claude/admiring-wright-ghc2o3]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -95,3 +97,106 @@ jobs:
       - name: Server log
         if: failure()
         run: cat server.log server-dev.log server-launch.log server-resilience.log || true
+
+  # Hearth runs on Windows, so it's checked there too: Node 22 (what the PC runs), PostgreSQL 17
+  # (what the PC runs), a real server start, and a backup restored into a fresh database.
+  # The extension and Chrome-launch end-to-end tests stay on Linux: the extension's session
+  # restore fails under Windows Chromium (stream F's work), and chrome-launch drives Chrome the
+  # Linux way. The Windows "task" launch is covered by unit tests with a fake runner.
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      HEARTH_DATABASE_URL: postgres://hearth:hearth@127.0.0.1:5432/hearth
+      HEARTH_TEST_DATABASE_URL: postgres://hearth:hearth@127.0.0.1:5432/postgres
+      HEARTH_CHROME_LAUNCH: "off"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      # The runner image has PostgreSQL installed as a stopped service (user postgres, password
+      # root). Start it and add the role Hearth's tests and server use.
+      - name: PostgreSQL 17
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $bin = if ($env:PGBIN) { $env:PGBIN } else { "C:\Program Files\PostgreSQL\17\bin" }
+          $version = & "$bin\postgres.exe" --version
+          if ($version -notmatch " 17\.") { throw "Expected PostgreSQL 17 on the runner, found: $version" }
+          $svc = Get-Service -Name "postgresql*" | Select-Object -First 1
+          Set-Service -Name $svc.Name -StartupType Manual
+          Start-Service -Name $svc.Name
+          Add-Content $env:GITHUB_PATH $bin
+          $env:PGPASSWORD = "root"
+          & "$bin\psql.exe" -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 `
+            -c "CREATE ROLE hearth LOGIN SUPERUSER PASSWORD 'hearth'" `
+            -c "CREATE DATABASE hearth OWNER hearth"
+          if ($LASTEXITCODE -ne 0) { throw "Couldn't create the hearth role and database." }
+          Write-Host $version
+      - run: pnpm install --frozen-lockfile
+      - name: Lint and format
+        run: pnpm lint
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: File size limit
+        run: pnpm check:size
+      - name: The update and restart scripts (they parse; the update gate's logic)
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ops/windows/test-control.ps1
+      - name: Chromium (page tests and the browser smoke test)
+        run: pnpm --filter @hearth/web exec playwright install chromium
+      # restic, as on the PC: the restore drill test and the backup step below use it.
+      - name: restic
+        shell: pwsh
+        run: |
+          choco install restic -y --no-progress
+          if ($LASTEXITCODE -ne 0) { throw "Couldn't install restic." }
+          restic version
+      - name: Tests
+        run: pnpm test
+      - name: Build the web app
+        run: pnpm build:web
+      - name: Server starts and reports this commit, the doctor agrees, then the browser smoke test
+        env:
+          HEARTH_ORIGIN: http://localhost:4400
+        run: |
+          export HEARTH_WEB_DIST="$PWD/apps/web/dist"
+          CODE=$(pnpm -s hearth setup | grep -oE '^    [0-9A-F]{10}$' | tr -d ' ')
+          pnpm -s hearth serve > server.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf 127.0.0.1:4400/api/health > /dev/null && break; sleep 1; done
+          curl -sf 127.0.0.1:4400/api/health
+          # What update.ps1 waits for: this commit, with the database fitting it.
+          curl -sf 127.0.0.1:4400/api/health/deep > deep.json
+          HEAD=$(git rev-parse HEAD) node -e '
+            const d = require("./deep.json");
+            if (d.sha !== process.env.HEAD || !d.db.ok || !d.migrations.ok) { console.error(d); process.exit(1); }
+            console.log(`Deep health: ${d.status}, build ${d.sha.slice(0, 7)}, ${d.migrations.applied} migrations`);'
+          # The doctor runs on Windows and sees the same; whether the runner's disks are full isn't ours.
+          pnpm -s hearth doctor --json > doctor.json || true
+          node -e '
+            const { checks } = require("./doctor.json");
+            const mark = (n) => checks.find((c) => c.name === n)?.mark;
+            for (const c of checks) console.log(c.mark.padEnd(5), c.name.padEnd(14), c.detail);
+            if (mark("Server") !== "ok" || mark("Build") !== "ok" || mark("Migrations") !== "ok") process.exit(1);'
+          HEARTH_E2E_URL=http://localhost:4400 HEARTH_E2E_SETUP_CODE="$CODE" pnpm --filter @hearth/web e2e
+      - name: Back up, then restore into a fresh database
+        run: pnpm -s hearth backup
+      - name: Back up off-site with the stored files, lose them, restore everything
+        run: |
+          T=$(cygpath -m "$RUNNER_TEMP")
+          export RESTIC_PASSWORD=ci-only HEARTH_DATA_DIR="$T/hearth-data"
+          export HEARTH_BACKUP_REPOSITORY="$T/restic-repo" HEARTH_BACKUP_DIR="$T/hearth-data/backups"
+          mkdir -p "$HEARTH_DATA_DIR/voice-samples" && echo hello > "$HEARTH_DATA_DIR/voice-samples/one.txt"
+          restic --repo "$HEARTH_BACKUP_REPOSITORY" init
+          pnpm -s hearth backup
+          rm -rf "$HEARTH_DATA_DIR/voice-samples"
+          pnpm -s hearth restore --into hearth_restored_ci
+          test "$(cat "$HEARTH_DATA_DIR/voice-samples/one.txt")" = hello
+      - name: Server log
+        if: failure()
+        run: cat server.log || true

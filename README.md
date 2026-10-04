@@ -4,15 +4,42 @@ A personal, self-hosted workspace modeled on [Macro](https://macro.com), with Ja
 its native agent. One graph of tasks, notes, people and conversations, one inbox, split panes,
 and an agent that both answers you and acts on its own.
 
-**Status:** M0 (foundations and Jarvis's spine) and step 1 of Jarvis's browser (B1) are built:
-Jarvis browses in your own Chrome while you watch, and take over, inside Hearth, and Hearth
-opens Chrome when Jarvis needs it. See
-[PLAN.md](PLAN.md) for the roadmap.
+## Status
+
+Lean versions of every milestone in [PLAN.md](PLAN.md) are built. The work now is making them
+dependable on the PC, reliability first (D57 is the deploy side). As of 2026-10-04:
+
+| Milestone | Built | On the PC |
+| --- | --- | --- |
+| M0 Foundations and Jarvis's spine | Yes | Running |
+| B1 Jarvis's browser, step 1 (read, watch, live view) | Yes | Pairs and connects; Jarvis hasn't driven a page live yet |
+| M1 Jarvis's day, tasks and calendar | Yes | Calendar sync running; Jarvis's turns failed from 2026-10-03 until #26 |
+| B2 Browser, steps 2 and 3 (click, type, submit, sign-ins) | Yes, narrower than Claude in Chrome | Not used live yet |
+| M2 Email (Gmail, both accounts) | Yes | Running |
+| M3 Voice (dictation, voice chat) | Yes, in the desktop app (D43) | Desktop app not installed |
+| M4 Docs (live notes, D38, not Macro's editor) | Yes | Running |
+| M5 People and meetings | Yes | People running; meeting recorder not installed |
+| M6 Phone (installed web app, push) | Yes | Push not connected |
+| M7 Canvas, sheets, Notion import, Slack, GitHub | Yes | Canvas, sheets and import running; Slack and GitHub not connected |
 
 - [docs/setup-windows.md](docs/setup-windows.md): install it on your PC
 - [PLAN.md](PLAN.md): the plan
 - [docs/decisions.md](docs/decisions.md): decisions and the alternatives considered
 - [docs/research/](docs/research/): what we learned from Macro, Twenty, the old Jarvis and Polar
+
+## Updating Hearth
+
+On the PC, from a normal (not elevated) PowerShell in the Hearth folder:
+
+```powershell
+.\ops\windows\update.ps1
+```
+
+It takes a safety dump, moves to the latest commit of the deploy branch, builds, migrates and
+restarts, then gives the new version three minutes to prove itself (the right commit, every
+migration, the worker and Jarvis reporting in, no new `hearth doctor` failures) or puts the
+previous version back. See "Updating Hearth" in [docs/setup-windows.md](docs/setup-windows.md)
+for the details, and `pnpm hearth restart` and `pnpm hearth restore` for the rest.
 
 ## Develop
 
@@ -66,9 +93,9 @@ Each checkout gets its own template database, so test runs in two worktrees don'
 | `apps/server` | HTTP API, live events, passkeys, `/mcp`, the browser bridge and live view |
 | `apps/worker` | Schedules, page watch checks and health checks |
 | `apps/jarvis` | The Jarvis service |
-| `apps/cli` | `hearth` command: setup, serve, backup, doctor, tokens |
+| `apps/cli` | `hearth` command: setup, serve, backup, restore, restart, doctor, tokens |
 | `apps/web` | The SolidJS web app, and its end-to-end checks (`e2e/`) |
 | `apps/extension` | The Hearth extension for Chrome (Jarvis's browser) |
-| `ops/windows` | Windows services and the backup task |
+| `ops/windows` | Windows services and tasks, updates (`update.ps1`) and restarts |
 
 Hearth is AGPLv3; it borrows from Macro (see [NOTICE.md](NOTICE.md)).

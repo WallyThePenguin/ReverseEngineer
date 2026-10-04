@@ -12,4 +12,13 @@ export {
 } from "./auth/tokens.ts";
 export { DEFAULT_TASK, findChrome, loadLaunchConfig } from "./browser/launch.ts";
 export { loadServerConfig, type ServerConfig } from "./config.ts";
+export {
+  type DeepHealth,
+  deepHealth,
+  sqlRunner,
+  type TurnStats,
+  turnStats,
+  whyFailed,
+} from "./deep-health.ts";
 export { runServer } from "./main.ts";
+export { buildId, readVersionStamp, type VersionStamp } from "./version.ts";

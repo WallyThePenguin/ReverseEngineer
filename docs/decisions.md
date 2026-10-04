@@ -979,3 +979,45 @@ to 5 minutes stale.
 **Why:** Most requests are your own reads, and each one was also a write. Sliding sessions are
 what a daily-use app needs, and the throttled write that keeps "last seen" carries the slide, so
 it costs nothing extra.
+
+## D57. Deploys are gated by deep health and roll back; CI covers Windows (2026-10-04)
+
+**Decision:** An update is good only when the new code proves it, and `hearth doctor` tells the
+truth about the running install.
+
+- **Deep health.** Every web build stamps `version.json` (commit, build time, the migrations it
+  expects). `GET /api/health/deep`, for you or for programs on the PC itself (straight to
+  127.0.0.1: nothing through Tailscale Serve or any proxy, and a loopback Host header), reports
+  that commit, whether the database is reachable and has exactly the migrations the code
+  expects, every health component judged by age (one quiet for twice its interval is failing,
+  whatever it last said), Jarvis's last day of turns, and the Chrome link. An open page that
+  sees a different build says "Hearth was updated" with Reload.
+- **Services refuse a mismatched database.** `hearth serve`, `worker` and `jarvis` compare the
+  database's migrations with their own before starting; on a mismatch they log why, report
+  themselves failing and exit, and Windows retries them.
+- **The update gate.** After an update starts the new code, `update.ps1` waits up to three
+  minutes for deep health to report the new commit with every migration applied, and for the
+  worker and Jarvis to report in since the restart, not failing (one already failing before the
+  update only has to report in: Jarvis's health follows its last turn, which a restart can't
+  change, and the update may be its fix). Then the optional Jarvis
+  tool-schema probe (`scripts\probe-jarvis-tools.ts`) must pass, if it exists. Then `hearth
+  doctor --json` must show no check failing that passed before the update. Otherwise it rolls
+  back (migrations down, previous code, restart) and checks the previous version came back.
+- **Windows CI.** Every push to the deploy branch and every pull request runs on Windows too
+  (Node 22, PostgreSQL 17, as on the PC): lint, types, tests, the build, a server start checked
+  through deep health and the doctor, the update gate's logic, and a backup restored into a
+  fresh database with restic. The extension's end-to-end tests stay on Linux for now.
+- **Backups and restore.** A snapshot holds the dump, mail's stored files and voice samples,
+  never `vault.key` (D29); 7 daily, 4 weekly, 12 monthly. `hearth restore` restores into a new
+  database in one transaction and never over the one Hearth runs on; switching is a separate,
+  stated step (or `--switch`).
+
+**Alternatives:** Requiring a clean doctor after every update (a pre-existing failure, like a
+nearly full C:, would block every update, fixes included). Health checks that only ask whether
+the server answers (it answered through the whole 2026-10-03 outage). A real Jarvis turn in the
+gate (a model call on every update; the tool probe catches the failure we had, more cheaply).
+Restoring over the live database (one bad dump and both are gone). A Windows runner of our own
+(it would hold secrets on a machine we'd have to keep up; GitHub's runners are disposable).
+
+**Why:** The 2026-10-03 update broke every Jarvis turn while health said "ok", the doctor printed
+checkmarks and the updater said "update OK". Each of those now checks the thing that broke.

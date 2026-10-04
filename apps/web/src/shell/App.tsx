@@ -14,6 +14,7 @@ import {
   Switch,
 } from "solid-js";
 import { Login } from "../auth/Login.tsx";
+import { UpdateNotice } from "../components/UpdateNotice.tsx";
 import { Kbd, PaneContext } from "../components/ui.tsx";
 import { ChatView } from "../jarvis/Conversation.tsx";
 import { JarvisPane, jarvis } from "../jarvis/JarvisPane.tsx";
@@ -263,6 +264,7 @@ function Shell(props: { onSignOut: () => void }) {
         <Shortcuts onClose={() => setHelp(false)} />
       </Show>
       <Reconnecting />
+      <UpdateNotice />
       <div class="pointer-events-none fixed bottom-16 left-1/2 md:bottom-4 z-50 flex -translate-x-1/2 flex-col items-center gap-2">
         <For each={toast.toasts()}>
           {(t) => (

@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { win32 } from "node:path";
 import { REQUEST_TIMEOUT_MS } from "@hearth/modules";
 import { describe, expect, it } from "vitest";
 import { CALL_TIMEOUT_MS } from "./browser/bridge.ts";
@@ -79,7 +79,7 @@ describe("how Hearth opens Chrome", () => {
 
   it("finds Chrome where it's usually installed", () => {
     const env = { ProgramFiles: "C:\\Program Files", LOCALAPPDATA: "C:\\Users\\a\\AppData\\Local" };
-    const local = join(env.LOCALAPPDATA, "Google", "Chrome", "Application", "chrome.exe");
+    const local = win32.join(env.LOCALAPPDATA, "Google", "Chrome", "Application", "chrome.exe");
     expect(findChrome(env, "win32", (p) => p === local)).toBe(local);
     expect(
       findChrome({ PATH: "/usr/bin:/snap/bin" }, "linux", (p) => p === "/snap/bin/chromium"),

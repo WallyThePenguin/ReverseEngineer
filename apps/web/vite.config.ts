@@ -6,6 +6,23 @@ import { brotliCompress, constants, gzip } from "node:zlib";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, type Plugin } from "vite";
 import solid from "vite-plugin-solid";
+import { buildId, versionStamp } from "../../scripts/version-stamp.ts";
+
+/** Stamps the build: dist/version.json, and the build's id inside the app (UpdateNotice). */
+function hearthVersion(): Plugin {
+  const stamp = versionStamp(fileURLToPath(new URL("../..", import.meta.url)));
+  return {
+    name: "hearth-version",
+    config: () => ({ define: { __HEARTH_BUILD__: JSON.stringify(buildId(stamp)) } }),
+    generateBundle() {
+      this.emitFile({
+        type: "asset",
+        fileName: "version.json",
+        source: `${JSON.stringify(stamp, null, 2)}\n`,
+      });
+    },
+  };
+}
 
 const COMPRESSIBLE = /\.(js|mjs|css|html|svg|json|webmanifest|wasm|txt)$/;
 
@@ -49,7 +66,7 @@ function precompress(): Plugin {
 
 // In development the web app runs on 5173 and forwards API calls to the server on 4400.
 export default defineConfig(({ command }) => ({
-  plugins: [solid(), tailwindcss(), precompress()],
+  plugins: [solid(), tailwindcss(), hearthVersion(), precompress()],
   resolve: {
     // Built, every "loro-crdt" import (the doc editor's and loro-codemirror's) gets Loro loaded
     // without blocking the page (src/lib/loro.ts). Development keeps the package's own entry.
