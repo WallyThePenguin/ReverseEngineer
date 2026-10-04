@@ -956,6 +956,90 @@ pixels.
 address and title, so like reading, it makes the turn untrusted. `browser.open` doesn't, so
 Jarvis can open a few pages before reading any of them.
 
+### B1: the driver, as built (2026-10-04)
+
+*The driver.* It lives in `apps/server/src/browser/driver/` and runs in the server process, next
+to the extension's link. The kernel's browser actions call it as `driver.<op>` through the same
+bridge (`client.call`), one request per agent step, and send along the policy for that call: the
+owner or Jarvis, the trusted and blocked sites, the site's pace, and an approved step's site.
+
+- **Reading.** `read_page` and `find` read Chrome's accessibility tree. Frames from other sites
+  are included: the extension attaches them as flat child sessions (protocol 3).
+- **Refs.** A ref (`ref_12`) is the node's backend id, kept per tab. It never writes into the
+  page, and stays the same across reads until a new document loads.
+- **Pictures.** A screenshot is taken at the page's own scale and returns its size. Its points
+  map back to the page, so `click`, `hover`, `drag`, `scroll` and `zoom` take them as
+  `coordinate`.
+- **Acting.** Every press is hit-tested and judged where it lands, by the same classifier as a
+  ref. A point on the screen can't press what a ref wouldn't be allowed to.
+- **`batch`.** Runs up to 25 steps in one request. It stops at the first one that fails or would
+  send, and paces once for the whole batch.
+- **What each step returns.** A short note on what changed, and a picture only when asked for.
+
+*Timings.* p50 and p95 for one step, without the model, against Playwright's Chromium:
+
+- In the module test, through the kernel: p50 150–240 ms, p95 440–900 ms. `browser.open` takes
+  250–1,130 ms, because it still waits for the page through the older load check.
+- In the driver tests: steps p50 56 ms and p95 395 ms; whole pages p50 133 ms and p95 323 ms.
+- No single wait runs longer than 10 seconds. A command to Chrome is limited to 10 seconds, a page
+  load to 8 and a picture to 8; a `wait` step can be at most 10. The only longer pause is a
+  site's pace, when you've turned pacing on, which Jarvis waits out before a step.
+
+*No transaction held while waiting (1.15).* An action defined with `io: true`
+(`packages/kernel/src/io.ts`) runs in three parts:
+
+- its reads, each committed at once;
+- its I/O, with no transaction or connection held, which is where pacing sleeps happen;
+- one short transaction for its events, its audit row and, when approved, the approval's close.
+
+A step that fails leaves no events. Every browser action that talks to Chrome uses it, except
+`browser.sign_in`, which reads the vault inside its transaction.
+
+*A turn's budget for browsing (1.16).* A turn that uses the browser gets more time and more
+steps:
+
+- **Time.** Its time limit becomes 30 minutes from its start once its first browser tool runs.
+  The deep lane already has 30 minutes.
+- **Steps.** It gets up to 150 model steps in all. When the model stops at its step limit (40
+  per go), Hearth resumes the same session with more.
+- **Running out.** Running out of steps is never a failure. The turn ends with what Jarvis said
+  last and "Say continue and I'll pick up where I left off", and the session is kept for that.
+- **Tab groups.** Each turn's tabs share a tab group in Jarvis's window, named for when the turn
+  started. Pop-ups join their opener's group. Tabs opened outside a turn stay in the "Jarvis"
+  group.
+
+*Where B1 differs from the plan above.*
+
+- **Old references kept.** `E` references keep working as the fallback: `browser.read`,
+  `browser.choose`, and `click`, `type` and `submit` with an `E` reference all run on the older
+  code. Jarvis's prompt tells it to start with `read_page` and `get_text`.
+- **Keys.** `browser.key` stays on the older code. A `key` step inside a batch uses the driver.
+- **Links.** A link can be clicked by its ref; the older reader refused that. The click is judged
+  like any other. Where it lands is checked against the blocked list, and Jarvis steps back if
+  it lands on a blocked site.
+- **Not built yet.**
+  - `browser.wait {for}` and `browser.tab_new`. `browser.open {url, newTab}` does what `tab_new`
+    would.
+  - Grants for one task (1.17).
+  - Approvals that wait inside the turn (1.18).
+
+  Grants and approvals wait for exactly-once approvals and taint that survives a resumed session.
+  Until then, an approval still ends the turn.
+- **Tabs you handed over.** `browser.tab_select` refuses them: they stay where you put them.
+- **Console.** `browser.console` reads the `Log` domain only: network errors, interventions and
+  violations. It doesn't read the page's own `console.log`, because `Runtime.enable` isn't on the
+  list above and pages can detect it.
+- **Hidden text.** `read_page` doesn't drop text that is only visually hidden, such as text
+  clipped or placed off-screen, since screen readers read it too. Everything it returns is
+  outside content.
+- **Clicks after scrolling.** `DOM.getNodeForLocation` takes page coordinates, not viewport
+  coordinates. The driver adds the scroll offset; without it, clicks after a scroll missed.
+- **Tokens.** Since every step is a request, Jarvis's and the worker's tokens are checked
+  against the database at most every 30 seconds. Revoking a token forgets it at once.
+- **Extension.** Version 0.4.0 speaks protocol 3 and needs Chrome 125 or later.
+- **Tests.** The driver's tests run on a small raw-CDP transport against Playwright's Chromium,
+  with flat sessions the way the extension uses them, rather than Playwright's `CDPSession`.
+
 **Alternatives:** Keep the long list of outward words and the per-step approvals (safe, but it
 asked about cookie banners and "Save", and every approval ended the turn). Trust per task only,
 as Claude in Chrome does (a better fit later, but it first needs taint that survives a resumed
