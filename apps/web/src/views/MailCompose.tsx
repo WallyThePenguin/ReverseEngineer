@@ -64,8 +64,15 @@ export function Composer(props: { draft: MailDraft; onDone?: () => void }) {
     try {
       const saved = await save(true);
       if (!saved) return;
-      if (await act("mail.send", { id: props.draft.id, snapshot: saved.snapshot })) {
-        toast.show("Sent.");
+      const sent = await act<{ alreadySent?: boolean }>("mail.send", {
+        id: props.draft.id,
+        snapshot: saved.snapshot,
+      });
+      if (sent) {
+        // An earlier Send went out though Gmail didn't say so: that one stands, as it was then.
+        toast.show(
+          sent.alreadySent ? "It had already gone out, so it wasn't sent again." : "Sent.",
+        );
         props.onDone?.();
       }
     } finally {

@@ -97,6 +97,21 @@ describe("sending once", () => {
     expect(g.gmail.sent).toHaveLength(1);
   });
 
+  it("finds it by that header even after the draft was changed since", async () => {
+    const d = await draft();
+    g.gmail.rewriteMessageIds = true;
+    g.gmail.loseSendReplies = 1;
+    expect(await run("mail.send", { id: d.id })).toMatchObject({ code: "unavailable" });
+    // A few minutes on, a change before pressing Send again: it went out already all the same.
+    t.clock.advance(3 * 60_000);
+    await ok("mail.draft_update", { id: d.id, text: "See you at 7." });
+    expect(await run("mail.send", { id: d.id })).toMatchObject({
+      status: "ok",
+      result: { alreadySent: true },
+    });
+    expect(g.gmail.sent).toHaveLength(1);
+  });
+
   it("still sends a draft whose earlier Send never left", async () => {
     const d = await draft();
     g.gmail.failNext(1, 503);

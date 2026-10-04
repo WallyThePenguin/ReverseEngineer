@@ -55,17 +55,23 @@ export const sendAction = defineAction({
       );
     if (d.to.length + d.cc.length + d.bcc.length === 0)
       throw new ActionError("invalid_input", "The draft has no recipients.");
-    const [draftRow] = await ctx.tx.select().from(mailDraft).where(eq(mailDraft.entityId, d.id));
-    if (!draftRow?.accountId) throw new ActionError("invalid_input", NO_ACCOUNT);
+    const [row] = await ctx.tx
+      .select({ draft: mailDraft, written: entity.createdAt })
+      .from(mailDraft)
+      .innerJoin(entity, eq(entity.id, mailDraft.entityId))
+      .where(eq(mailDraft.entityId, d.id));
+    const draftRow = row?.draft;
+    if (!row || !draftRow?.accountId) throw new ActionError("invalid_input", NO_ACCOUNT);
     const [account] = await ctx.tx
       .select()
       .from(mailAccount)
       .where(eq(mailAccount.id, draftRow.accountId));
     const from = account!.address;
     const provider = providerFor(ctx, account!);
-    const messageId = draftRow!.messageId;
-    // Already in Sent: an earlier Send went out without Hearth hearing back. Keep that one.
-    const earlier = await provider.findSent(from, messageId, d.updatedAt).catch((err: unknown) => {
+    const messageId = draftRow.messageId;
+    // Already in Sent: an earlier Send went out without Hearth hearing back. Keep that one. It
+    // can't have gone before the draft was written; a change made since doesn't hide it.
+    const earlier = await provider.findSent(from, messageId, row.written).catch((err: unknown) => {
       throw sendError(err, from, false);
     });
     let sent: RawMail | null;
@@ -80,8 +86,8 @@ export const sendAction = defineAction({
         text: d.text,
         messageId,
         hearthId: messageId,
-        inReplyTo: draftRow!.inReplyTo,
-        references: draftRow!.refs,
+        inReplyTo: draftRow.inReplyTo,
+        references: draftRow.refs,
         date: ctx.now,
       });
       const { providerId } = await provider.send(from, raw).catch((err: unknown) => {
