@@ -23,13 +23,15 @@ async function call<T>(path: string, method = "GET"): Promise<T> {
 
 /** Asks Hearth for a one-minute connect link, and opens it: Windows hands it to the app. */
 async function connectThisPc(): Promise<boolean> {
+  const unreachable = "Couldn't reach Hearth. Try again in a moment.";
   const res = await fetch("/api/auth/desktop/handoff", {
     method: "POST",
     credentials: "same-origin",
-  });
+  }).catch(() => null);
+  if (!res) throw new Error(unreachable);
   const body = (await res.json().catch(() => ({}))) as { link?: string; error?: string };
   if (!res.ok || !body.link?.startsWith("hearth://connect?nonce=")) {
-    throw new Error(body.error ?? "Couldn't reach Hearth. Try again in a moment.");
+    throw new Error(body.error ?? unreachable);
   }
   location.href = body.link;
   return true;
