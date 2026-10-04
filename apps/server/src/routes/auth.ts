@@ -1,10 +1,13 @@
 // Sign-in with passkeys. The first passkey is added with the setup code `hearth setup` prints;
-// after that, new passkeys can only be added from a signed-in session.
+// after that, new passkeys can only be added from a signed-in session. The desktop app's window
+// signs in by hand-off from a signed-in browser instead (D53, /desktop/* below).
 
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { z } from "zod";
+import { pairDevice } from "../auth/devices.ts";
+import { type Handoffs, handoffs as sharedHandoffs } from "../auth/handoff.ts";
 import { SESSION_COOKIE } from "../auth/middleware.ts";
 import {
   checkSetupCode,
@@ -16,6 +19,7 @@ import {
   verifyRegistration,
 } from "../auth/passkeys.ts";
 import { createSession, revokeToken } from "../auth/tokens.ts";
+import { localOriginOf } from "../config.ts";
 import type { AppEnv } from "../env.ts";
 
 const CHALLENGE_COOKIE = "hearth_challenge";
@@ -29,8 +33,17 @@ const verifyBody = z.object({
   setupCode: z.string().max(40).optional(),
 });
 
+/**
+ * Cookies are Secure when Hearth is on https, except on its plain-http address on this PC, which
+ * the desktop app's window opens (D53): there a Secure cookie would never come back.
+ */
 function secure(c: Context<AppEnv>): boolean {
-  return c.get("deps").config.origin.startsWith("https://");
+  const { config } = c.get("deps");
+  if (!config.origin.startsWith("https://")) return false;
+  const local = new URL(localOriginOf(config));
+  if (local.protocol === "https:") return true;
+  const host = c.req.header("host") ?? new URL(c.req.url).host;
+  return host.toLowerCase() !== local.host;
 }
 
 function setChallenge(c: Context<AppEnv>, id: string) {
@@ -74,8 +87,48 @@ async function mayRegister(c: Context<AppEnv>, setupCode: string | undefined): P
   return !!setupCode && (await checkSetupCode(kernel.db, setupCode));
 }
 
-export function authRoutes() {
+const redeemBody = z.object({ nonce: z.string().min(16).max(128) });
+
+const RUN_OUT_PAGE = `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Connect again</title>
+<style>body{font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;line-height:1.5}</style>
+</head><body><h1>That sign-in link has run out</h1>
+<p>In Hearth in your browser, open Settings, then Desktop app, and choose
+<b>Connect Hearth on this PC</b> again.</p></body></html>`;
+
+export function authRoutes(handoffs: Handoffs = sharedHandoffs) {
   const app = new Hono<AppEnv>();
+
+  // The desktop app's sign-in hand-off (D53, auth/handoff.ts). Signed in in your browser, you
+  // ask for a connect link. Only that: a device's token can't, so it can never become a session.
+  app.post("/desktop/handoff", (c) => {
+    const caller = c.get("caller");
+    if (!c.get("viaCookie") || caller?.kind !== "owner" || caller.via !== "ui")
+      return c.json({ error: "Sign in to Hearth in your browser first." }, 403);
+    const nonce = handoffs.nonces.issue(caller.principal);
+    c.header("Cache-Control", "no-store");
+    return c.json({ nonce, link: `hearth://connect?nonce=${nonce}`, expiresInSeconds: 60 });
+  });
+
+  // The app trades the nonce for its device token and a code for its window. It's paired anew,
+  // so its token has today's scopes.
+  app.post("/desktop/redeem", async (c) => {
+    const body = redeemBody.safeParse(await c.req.json().catch(() => null));
+    const principal = body.success ? handoffs.nonces.take(body.data.nonce) : null;
+    if (!principal) return c.json({ error: "That connect link has run out or was used." }, 410);
+    const token = await pairDevice(c.get("deps").kernel.db, "desktop");
+    c.header("Cache-Control", "no-store");
+    return c.json({ token, code: handoffs.codes.issue(principal) });
+  });
+
+  // The app's window trades the code for an ordinary session, then opens the inbox.
+  app.get("/desktop/window", async (c) => {
+    const principal = handoffs.codes.take(c.req.query("code"));
+    c.header("Cache-Control", "no-store");
+    if (!principal) return c.html(RUN_OUT_PAGE, 410);
+    await signIn(c, principal);
+    return c.redirect("/inbox", 302);
+  });
 
   app.get("/me", async (c) => {
     const { kernel } = c.get("deps");

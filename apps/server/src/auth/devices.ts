@@ -20,6 +20,9 @@ export const DEVICE_SCOPES: Record<string, string[]> = {
     // Speech for the phone: it takes recordings to transcribe and answers them (D46).
     "GET /api/voice/jobs/next",
     "POST /api/voice/jobs/:id",
+    // Hearth on the PC (D53): the tray's status line and Windows notifications. Read only.
+    "system.status",
+    "GET /api/desktop/notify",
   ],
 };
 

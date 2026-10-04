@@ -8,7 +8,7 @@ import { getSetting, type Kernel } from "@hearth/kernel";
 import { type WebSocket, WebSocketServer } from "ws";
 import { SESSION_COOKIE } from "../auth/middleware.ts";
 import { hashToken, resolveToken, safeEqual } from "../auth/tokens.ts";
-import { isLoopback, type ServerConfig } from "../config.ts";
+import { isLoopback, localOriginOf, type ServerConfig } from "../config.ts";
 import type { BrowserBridge } from "./bridge.ts";
 import type { LiveView } from "./live.ts";
 
@@ -45,7 +45,8 @@ async function isOwnerPage(req: IncomingMessage, deps: SocketDeps): Promise<bool
   // login on, the web app's dev server (another port on this PC) counts too.
   const origin = req.headers.origin ?? "";
   const devPage = deps.config.devAuth && isLoopback(hostOf(origin));
-  if (origin !== deps.config.origin && !devPage) return false;
+  const ours = origin === deps.config.origin || origin === localOriginOf(deps.config);
+  if (!ours && !devPage) return false;
   const token = cookie(req, SESSION_COOKIE);
   const s = token ? await resolveToken(deps.kernel.db, token) : null;
   if (s) return s.principal === PRINCIPAL.owner && s.sessionKind === "browser";
