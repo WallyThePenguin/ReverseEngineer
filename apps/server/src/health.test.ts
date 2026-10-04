@@ -91,7 +91,7 @@ describe("deep health", () => {
       { component: "worker", status: "ok", detail: "Running" },
       systemCaller(),
     );
-    const turn = (status: "done" | "failed", minutesAgo: number) => ({
+    const turn = (status: "done" | "failed", minutesAgo: number, interrupted = false) => ({
       id: randomUUID(),
       trigger: "chat" as const,
       mode: "reactive" as const,
@@ -99,12 +99,23 @@ describe("deep health", () => {
       origin: "owner" as const,
       prompt: "hi",
       status,
-      error: status === "failed" ? "400 tools.124: invalid pattern\nstack..." : null,
+      error: interrupted
+        ? "Interrupted by a restart"
+        : status === "failed"
+          ? "400 tools.124: invalid pattern\nstack..."
+          : null,
+      errorKind: interrupted ? "interrupted" : status === "failed" ? "bad_tool" : null,
       finishedAt: new Date(t!.clock.now().getTime() - minutesAgo * 60_000),
     });
     await t.kernel.db
       .insert(jarvisTurn)
-      .values([turn("done", 60 * 30), turn("done", 90), turn("failed", 10)]);
+      // The newest was cut short by a restart (an update's own, say): that isn't Jarvis failing.
+      .values([
+        turn("done", 60 * 30),
+        turn("done", 90),
+        turn("failed", 10),
+        turn("failed", 2, true),
+      ]);
     t.clock.advance(5 * 60_000);
 
     const report = (await (await local(t)).json()) as DeepHealth;

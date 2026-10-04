@@ -16,11 +16,14 @@ import {
   type JudgedHealth,
   judgeHealth,
 } from "@hearth/modules";
-import { and, desc, gt, isNotNull, like, sql } from "drizzle-orm";
+import { and, desc, gt, isNotNull, isNull, like, ne, or, sql } from "drizzle-orm";
 import { buildId, type VersionStamp } from "./version.ts";
 
 export interface TurnStats {
-  /** Turns that finished in the last 24 hours: done, failed or canceled. */
+  /**
+   * Turns that finished in the last 24 hours: done, failed or canceled. Not those a restart cut
+   * short: that isn't Jarvis failing (D54), and an update's own restart would fail its gate.
+   */
   total: number;
   failed: number;
   last: { status: string; trigger: string; at: string; error: string | null } | null;
@@ -86,10 +89,12 @@ export const sqlRunner = (db: Db): SqlRunner => ({
 
 export async function turnStats(db: Db, now: Date): Promise<TurnStats> {
   const since = new Date(now.getTime() - 24 * 3_600_000);
+  // A turn that ran again and finished has no errorKind (runner.ts): only the cut-short go.
+  const counted = or(isNull(jarvisTurn.errorKind), ne(jarvisTurn.errorKind, "interrupted"));
   const rows = await db
     .select({ status: jarvisTurn.status, n: sql<number>`count(*)::int` })
     .from(jarvisTurn)
-    .where(and(isNotNull(jarvisTurn.finishedAt), gt(jarvisTurn.finishedAt, since)))
+    .where(and(isNotNull(jarvisTurn.finishedAt), gt(jarvisTurn.finishedAt, since), counted))
     .groupBy(jarvisTurn.status);
   const count = (s: string) => rows.find((r) => r.status === s)?.n ?? 0;
   const [last] = await db
@@ -100,7 +105,7 @@ export async function turnStats(db: Db, now: Date): Promise<TurnStats> {
       error: jarvisTurn.error,
     })
     .from(jarvisTurn)
-    .where(isNotNull(jarvisTurn.finishedAt))
+    .where(and(isNotNull(jarvisTurn.finishedAt), counted))
     .orderBy(desc(jarvisTurn.finishedAt))
     .limit(1);
   return {
