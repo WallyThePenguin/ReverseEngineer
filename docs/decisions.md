@@ -726,3 +726,26 @@ speech runs locally"). Running a speech model inside Node (no good local engine 
 
 **Why:** One engine, the one the bake-off picks, serves dictation, meetings and the phone, and
 the desktop app is always running on the PC anyway.
+
+## D47. The canvas is a lean rewrite that keeps Macro's board format (2026-10-03)
+
+**Decision:** Canvas boards (PLAN.md section 8.6) are a `canvas` record plus a `canvas_board` row
+holding the board as JSON: text cards, boxes and circles, link cards, record cards (`entitymention`
+nodes that point at a task, note, person or any record) and arrows that are tied to a card's side
+or left free. Those are Macro's node and edge shapes, so a board could move to Macro's renderer
+later. The web board is Hearth's own (about 900 lines): pan, zoom, pinch, sticky notes, boxes,
+arrows, record cards, colors, undo and redo. A board is saved whole 700 ms after you stop (last
+write wins, D20), and a save from elsewhere is taken in only when you have nothing unsaved.
+
+Each save also writes the board as markdown into the record's body (cards top to bottom, record
+cards as @links, then the arrows), so search, backlinks and Jarvis read a board like a note.
+Jarvis has `canvas.create`, `canvas.list`, `canvas.get`, `canvas.save` and `canvas.add`; adding
+cards only places them below what's there. Link cards accept only http(s) addresses.
+
+**Alternatives:** Copying Macro's `block-canvas` (about 14,600 lines tied to Macro's file
+system, sync service, permission model and UI kit, most of which Hearth doesn't have). Storing
+the board on Loro for merges (one person rarely edits one board from two places at once; PLAN.md
+already calls that a later option).
+
+**Why:** The parts of Macro's canvas Hearth needs are small, and its dependencies are not. Keeping
+its data model leaves the door open without carrying its framework.
