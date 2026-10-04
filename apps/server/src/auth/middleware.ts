@@ -64,6 +64,13 @@ function bearer(c: Context): string | null {
   return h?.startsWith("Bearer ") ? h.slice(7).trim() : null;
 }
 
+/**
+ * Checks the page makes by itself in the background, like the update notice asking which build
+ * runs every few minutes (D57). They don't count as using a sign-in, or every open tab would keep
+ * its sign-in alive forever (D56).
+ */
+const NOT_A_USE = new Set(["/api/health/deep"]);
+
 export function authenticate(): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const { kernel, config } = c.get("deps");
@@ -84,7 +91,8 @@ export function authenticate(): MiddlewareHandler<AppEnv> {
       c.set("token", token);
     } else {
       const cookie = getCookie(c, SESSION_COOKIE);
-      const r = cookie ? await checkToken(kernel.db, cookie) : null;
+      const touch = !NOT_A_USE.has(c.req.path);
+      const r = cookie ? await checkToken(kernel.db, cookie, undefined, { touch }) : null;
       if (r && !r.ok) logRefusal("cookie", r.reason, c.req.path);
       if (cookie && r?.ok && r.session.sessionKind === "browser") {
         c.set("caller", callerFor(r.session));
