@@ -290,12 +290,13 @@ function pageElements(rules) {
   }
 
   /**
-   * What pressing it would do: a click (or Space), or Enter in it.
+   * What pressing it would do: a click (or Space), or Enter in it. `asButton`: something the page
+   * made clickable on its own (a <div> with a click handler), judged by its name as a button is.
    * @param {Element} el
    * @param {"click" | "enter"} how
    * @returns {Verdict}
    */
-  function classify(el, how) {
+  function classify(el, how, asButton = false) {
     // Focus inside an embedded frame (a payment form, a comment box from another site): what a
     // key does there can't be seen from here, so it counts as sending.
     if (isFrame(el))
@@ -321,7 +322,7 @@ function pageElements(rules) {
       if (el.getAttribute("role") === "switch" || el.closest('[role="switch"]'))
         v = { sends: true, floor: null, why: "change a setting at once (it's a switch)" };
       else if (!form) v = byName(label, kind);
-    } else if (!typing && kind !== "text area" && kind !== "file field" && kind !== null) {
+    } else if (!typing && kind !== "text area" && kind !== "file field" && (kind || asButton)) {
       const type = (el.getAttribute("type") ?? "").toLowerCase();
       const tag = el.tagName.toUpperCase();
       const native =
@@ -387,7 +388,7 @@ function pageElements(rules) {
  * @typedef {{
  *   kindOf(el: Element): string | null,
  *   labelOf(el: Element): string,
- *   classify(el: Element, how: "click" | "enter"): Verdict,
+ *   classify(el: Element, how: "click" | "enter", asButton?: boolean): Verdict,
  *   submits(el: Element): boolean,
  *   isCard(el: Element): boolean,
  *   inConsent(el: Element): boolean,

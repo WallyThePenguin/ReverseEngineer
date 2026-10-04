@@ -65,14 +65,22 @@ function pageDriver(h) {
     return false;
   }
 
-  /** The nearest element a person could press, from where a point landed. @param {Node} n */
+  /**
+   * The nearest element a person could press, from where a point landed: a control or a link,
+   * or else what the page made clickable itself; failing those, where it `landed`.
+   * @param {Node} n
+   */
   function pressable(n) {
+    /** @type {Element | null} */
+    let made = null;
     for (let a = /** @type {Node | null} */ (n); a; a = up(a)) {
       if (!(a instanceof Element)) continue;
-      if (h.kindOf(a) !== null || a instanceof HTMLAnchorElement) return a;
+      if (h.kindOf(a) !== null || a instanceof HTMLAnchorElement) return { el: a, landed: false };
+      if (!made && looksClickable(a)) made = a;
       if (a === document.body) break;
     }
-    return n instanceof Element ? n : (n.parentElement ?? document.body);
+    if (made) return { el: made, landed: false };
+    return { el: n instanceof Element ? n : (n.parentElement ?? document.body), landed: true };
   }
 
   /** Clickable by look alone: a pointer cursor its parent doesn't have. @param {Element} el */
@@ -82,11 +90,22 @@ function pageDriver(h) {
     return !parent || getComputedStyle(parent).cursor !== "pointer";
   }
 
+  /**
+   * What a click on it would do. A link to a page only opens it; anything else without a role
+   * (a <div> the page made clickable) is judged by its name, as a button is, since its script
+   * can't be seen. So a ref or a point can't press "Delete account" just for lacking a role.
+   * @param {Element} el
+   */
+  function clickVerdict(el) {
+    const page = el instanceof HTMLAnchorElement && el.hasAttribute("href");
+    return h.classify(el, "click", h.kindOf(el) === null && !page);
+  }
+
   /** @param {Element} el @param {boolean} extra */
   function describe(el, extra) {
     const kind = h.kindOf(el);
     // What a click does: typing into a field is free, and Enter there is judged when pressed.
-    const v = h.classify(el, "click");
+    const v = clickVerdict(el);
     const hidden = hiddenControl(el);
     return {
       id: ids.get(el) ?? 0,
@@ -138,7 +157,8 @@ function pageDriver(h) {
     /** @param {Element} el @param {"click" | "enter"} how */
     inspect(el, how) {
       const kind = h.kindOf(el);
-      const v = h.classify(el, how);
+      const click = clickVerdict(el);
+      const v = how === "click" ? click : h.classify(el, how);
       const editable =
         kind === "field" ||
         kind === "password field" ||
@@ -149,7 +169,7 @@ function pageDriver(h) {
         label: h.labelOf(el),
         verdict: v,
         enter: how === "enter" ? v : h.classify(el, "enter"),
-        click: how === "click" ? v : h.classify(el, "click"),
+        click,
         editable,
         password: kind === "password field",
         card: h.isCard(el),
@@ -181,13 +201,13 @@ function pageDriver(h) {
       const label = hit instanceof Element ? hit.closest("label") : null;
       if (label && /** @type {HTMLLabelElement} */ (label).control === el)
         return { ok: true, by: "" };
-      const top = pressable(hit);
+      const top = pressable(hit).el;
       return { ok: false, by: h.labelOf(top) || top.tagName.toLowerCase() };
     },
     /** What a press at a point would do, from where it landed. @param {Node} hit */
     pointAt(hit) {
-      const el = pressable(hit);
-      const v = h.classify(el, "click");
+      const { el, landed } = pressable(hit);
+      const v = landed ? h.classify(el, "click") : clickVerdict(el);
       return {
         kind: h.kindOf(el) ?? el.tagName.toLowerCase(),
         label: h.labelOf(el),

@@ -1,5 +1,6 @@
 // Pages for the driver's tests (B1): frames from two sites, shadow DOM, a hidden checkbox, a tab
-// that's a link, a click handled by a parent, a date, a canvas, a pop-up and an endless list.
+// that's a link, a click handled by a parent, things a page made clickable with no role, a date,
+// a canvas, a pop-up and an endless list.
 import type { Site } from "../../testing/cdp-connection.ts";
 
 const page = (title: string, body: string) =>
@@ -61,6 +62,17 @@ export function fixtures(port: () => number): Site {
       c.addEventListener("click", (e) => { const r = c.getBoundingClientRect();
         document.title = "at " + Math.round(e.clientX - r.left) + "," + Math.round(e.clientY - r.top); });</script>`,
     ),
+    // Things the page made clickable itself, with no role: judged by their names all the same.
+    "/clickables": () =>
+      page(
+        "Clickables",
+        `<div id="del" style="cursor:pointer;padding:8px;width:240px">Delete <span>account</span></div>
+      <div id="pub" style="cursor:pointer;padding:8px;width:240px">Publish</div>
+      <div id="more" style="cursor:pointer;padding:8px;width:240px">Show <b>details</b></div>
+      <a href="${b("/next")}">Elsewhere</a>
+      <script>for (const id of ["del", "pub", "more"])
+        document.getElementById(id).addEventListener("click", () => { document.title = id; });</script>`,
+      ),
     "/covered": page(
       "Covered",
       `<button id="under" onclick="document.title='pressed'">Hidden under</button>

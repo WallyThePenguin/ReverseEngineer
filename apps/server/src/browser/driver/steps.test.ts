@@ -1,5 +1,6 @@
 // The driver's steps on a real Chromium (B1): pop-ups, an endless list, what covers a ref, a
-// dialog in the way, trusted sites, and batches that stop at the first step that fails.
+// dialog in the way, trusted sites, what a page made clickable itself, and batches that stop
+// at the first step that fails.
 import { describe, expect, it } from "vitest";
 import { refOf, useChrome } from "../../testing/drive.ts";
 
@@ -70,6 +71,37 @@ describe.runIf(h.run)("the driver's steps", () => {
     await expect(drive("read_page", { tabId, policy: blocked })).rejects.toMatchObject({
       reason: "blocked",
     });
+  });
+
+  it("judges what a page made clickable by its name, by ref and by a point on it", async () => {
+    const tabId = await chrome().open(chrome().url("a.test", "/clickables"));
+    const page = await drive("read_page", { tabId });
+    const del = refOf(page.text, "Delete account");
+    expect(page.text).toContain(`clickable "Delete account" [${del}] (asks owner: account)`);
+    expect(page.text).toMatch(/clickable "Publish" \[ref_\d+\] \(asks owner\)/);
+    await expect(drive("click", { tabId, ref: del })).rejects.toMatchObject({
+      reason: "would_send",
+    });
+    // A point on a word inside it is judged as the whole thing.
+    const shot = await drive("screenshot", { tabId });
+    const [x, y] = await chrome().peek<[number, number]>(
+      tabId,
+      `(() => { const r = document.querySelector("#del span").getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; })()`,
+    );
+    await expect(
+      drive("click", { tabId, coordinate: [x * shot.scale, y * shot.scale] }),
+    ).rejects.toMatchObject({ reason: "would_send" });
+    expect(await chrome().peek(tabId, "document.title")).toBe("Clickables");
+    // On a site the owner trusts, "Publish" goes ahead; the floor still asks.
+    const policy = { owner: false, trusted: ["a.test"], blocked: [], pace: null };
+    await drive("click", { tabId, ref: refOf(page.text, "Publish"), policy });
+    expect(await chrome().peek(tabId, "document.title")).toBe("pub");
+    await expect(drive("click", { tabId, ref: del, policy })).rejects.toMatchObject({
+      reason: "would_send",
+    });
+    // What doesn't send is free anywhere.
+    await drive("click", { tabId, ref: refOf(page.text, "Show details") });
+    expect(await chrome().peek(tabId, "document.title")).toBe("more");
   });
 
   it("runs a batch of steps in order and stops at the first that fails", async () => {
