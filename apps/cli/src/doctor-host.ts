@@ -37,9 +37,14 @@ export function judgeService(name: string, state: string | null | undefined): Ch
   return { name, mark: "warn", detail: state };
 }
 
-/** Jarvis's task must be running; Chrome's and the backup's only run now and then. */
+/**
+ * Jarvis's task must be running; Chrome's and the backup's only run now and then. Named apart from
+ * the health components (jarvis, backup) and the Chrome check: update.ps1 tells a new failure
+ * from an old one by name.
+ */
 export function judgeTask(task: string, state: string | null | undefined): Check {
-  const name = task.replace("Hearth ", "");
+  const what = task.replace("Hearth ", "");
+  const name = `${what[0]!.toUpperCase()}${what.slice(1)} task`;
   const always = task === "Hearth Jarvis";
   if (!state) return { name, mark: "warn", detail: `No "${task}" task ${DEVELOPING}` };
   if (state === "Disabled") return { name, mark: "fail", detail: `Disabled. ${REINSTALL}` };
