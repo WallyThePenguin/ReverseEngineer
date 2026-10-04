@@ -3,9 +3,9 @@
 // mention reaches Hearth before the request after it does: there Jarvis waits until the note has
 // been still for a few seconds, then reads the paragraph again as it is by then.
 import { JARVIS_ENTITY_ID, mentionAnchor, mentionContext, parseMentions } from "@hearth/core";
-import { entity } from "@hearth/db";
-import type { ReflexDef, ReflexOutcome } from "@hearth/kernel";
-import { and, eq, isNull } from "drizzle-orm";
+import { entity, event } from "@hearth/db";
+import type { ReadContext, ReflexDef, ReflexOutcome } from "@hearth/kernel";
+import { and, eq, gt, isNull } from "drizzle-orm";
 import { DOC_TYPES } from "../docs/store.ts";
 import { routeLane } from "./log.ts";
 
@@ -29,6 +29,11 @@ interface Waiting extends Mentioned {
   untrusted: boolean;
   /** When it was first seen. */
   since: string;
+  /**
+   * The mention's event: writes after it are read with the request, so their trust counts.
+   * Missing on checks queued before it was kept: then every write counts.
+   */
+  seq?: number;
 }
 
 function answer(entityId: string, p: Mentioned, context: string, untrusted = false) {
@@ -58,8 +63,30 @@ const later = (w: Waiting, at: Date): ReflexOutcome => ({
     entityId: w.entityId,
     untrusted: w.untrusted,
     since: w.since,
+    seq: w.seq,
   },
 });
+
+/**
+ * Whether anything written to the record after the mention came from outside content (Jarvis
+ * working on an email, say): the paragraph read now may hold it, so the answer's turn is
+ * untrusted too (D25).
+ */
+async function writtenFromOutside(db: ReadContext["db"], w: Waiting): Promise<boolean> {
+  const [hit] = await db
+    .select({ seq: event.seq })
+    .from(event)
+    .where(
+      and(
+        eq(event.entityId, w.entityId),
+        gt(event.seq, w.seq ?? 0),
+        eq(event.kind, "entity.updated"),
+        eq(event.origin, "untrusted"),
+      ),
+    )
+    .limit(1);
+  return hit !== undefined;
+}
 
 export const answerMention: ReflexDef = {
   name: "chat.answer_mention",
@@ -75,6 +102,7 @@ export const answerMention: ReflexDef = {
       entityId,
       untrusted: event.origin === "untrusted",
       since: ctx.now.toISOString(),
+      seq: event.seq,
     };
     return [later(w, new Date(ctx.now.getTime() + MENTION_SETTLE_MS))];
   },
@@ -96,6 +124,7 @@ export const answerMention: ReflexDef = {
       (x) => x.id === JARVIS_ENTITY_ID && mentionAnchor(x) === w.anchor,
     );
     if (!m) return [];
-    return [answer(w.entityId, w, mentionContext(body, m.index), w.untrusted)];
+    const untrusted = w.untrusted || (await writtenFromOutside(ctx.db, w));
+    return [answer(w.entityId, w, mentionContext(body, m.index), untrusted)];
   },
 };
