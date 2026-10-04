@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { mailAccount, mailMessage } from "@hearth/db";
 import { integrationCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
+import { asc } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GOOGLE_SERVICE, SCOPES } from "../google/client.ts";
 import { FakeGoogle } from "../google/fake.ts";
@@ -101,6 +102,24 @@ describe("missing originals", () => {
     const [after] = await t.tdb.db.select().from(mailAccount);
     expect(after?.repairFrom).toBeNull();
     expect(after?.repairedAt).toEqual(t.clock.now());
+  });
+
+  it("go on past one Gmail won't give, so the rest still come back", async () => {
+    await sync();
+    const [first] = await t.tdb.db
+      .select()
+      .from(mailMessage)
+      .orderBy(asc(mailMessage.entityId))
+      .limit(1);
+    g.gmail.brokenIds.set(first!.providerId, 400);
+    await rm(dir, { recursive: true, force: true });
+    t.clock.advance(DAY_MS);
+    await sync();
+    await sync();
+    expect(await present()).toBe(7);
+    const [account] = await t.tdb.db.select().from(mailAccount);
+    expect(account?.repairFrom).toBeNull();
+    expect(account?.repairedAt).toEqual(t.clock.now());
   });
 
   it("leave a message Gmail no longer has as it is", async () => {

@@ -10,7 +10,7 @@ import { id } from "../shared.ts";
 import { BLOB_SERVICE, type BlobStore } from "./blobs.ts";
 import { recomputeThread } from "./flags.ts";
 import { isBulk, rawHeaders } from "./mime.ts";
-import type { MailProvider } from "./provider.ts";
+import { type MailProvider, MailProviderError } from "./provider.ts";
 import { providerFor } from "./providers.ts";
 import type { AccountRow } from "./store.ts";
 
@@ -103,9 +103,13 @@ export async function repairSome(
       fetched++;
       try {
         if (await restore(ctx, provider, account, m, false)) restored++;
-      } catch {
-        stopped = true;
-        break;
+      } catch (err) {
+        // Gmail won't give this one (a bad id, say): it stays as it is, and the pass goes on.
+        // Anything that may pass (a slowdown, the network) waits for the next round.
+        if (!(err instanceof MailProviderError && err.kind === "refused")) {
+          stopped = true;
+          break;
+        }
       }
     } else if (m.bulk === null) {
       const raw = await blobs.get(m.rawHash);
