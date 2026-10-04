@@ -1,6 +1,7 @@
 // Deep health (D57): what an update gate, `hearth doctor` or the web app needs to call Hearth
 // healthy, in one report. The database, whether its migrations fit this code, which build is
-// running, every component's last report (a stale one fails), Jarvis's turns, and the Chrome link.
+// running, every component's last report (a stale one fails), when the Jarvis process last checked
+// in, Jarvis's turns, and the Chrome link.
 import {
   type Db,
   jarvisTurn,
@@ -9,6 +10,7 @@ import {
   schemaMismatch,
   setting,
 } from "@hearth/db";
+import { getSetting, type Settings } from "@hearth/kernel";
 import {
   type BrowserStatus,
   type HealthRecord,
@@ -49,6 +51,11 @@ export interface DeepHealth {
     unknown: string[];
   } | null;
   components: Record<string, JudgedHealth>;
+  /**
+   * When the Jarvis process last checked in, and since when it's up. Only a running Jarvis writes
+   * it; the jarvis component can also be the worker saying Jarvis hasn't checked in.
+   */
+  jarvisAlive: Settings["jarvis.alive"];
   jarvisTurns24h: TurnStats | null;
   /** The Chrome extension's link; the server doesn't know the extension's id, only its version. */
   browser: {
@@ -151,6 +158,7 @@ export async function deepHealth(input: DeepHealthInput): Promise<DeepHealth> {
       db: { ok: false, ms: null },
       migrations: null,
       components: {},
+      jarvisAlive: null,
       jarvisTurns24h: null,
     };
   }
@@ -198,6 +206,7 @@ export async function deepHealth(input: DeepHealthInput): Promise<DeepHealth> {
       unknown: state.unknown,
     },
     components,
+    jarvisAlive: await getSetting(db, "jarvis.alive"),
     jarvisTurns24h: turns,
   };
 }

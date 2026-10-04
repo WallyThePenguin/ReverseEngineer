@@ -45,6 +45,7 @@ function New-Deep([hashtable]$Change = @{}) {
       worker = [pscustomobject]@{ status = "ok"; detail = "Running"; at = "2026-10-04T12:00:20.000Z" }
       jarvis = [pscustomobject]@{ status = "ok"; detail = "Running"; at = "2026-10-04T12:00:30.000Z" }
     }
+    jarvisAlive = [pscustomobject]@{ at = "2026-10-04T12:00:29.000Z"; since = "2026-10-04T12:00:15.000Z"; pid = 4242 }
   }
   foreach ($k in $Change.Keys) { $d[$k] = $Change[$k] }
   return [pscustomobject]$d
@@ -75,6 +76,20 @@ Assert-Equal (Get-DeepProblem $turns $since $sha $all) "the jarvis says: A turn 
 Assert-Equal (Get-DeepProblem $turns $since $sha $all @("jarvis")) "" "Jarvis failing before too: reporting in is enough"
 $turns.components.jarvis.at = "2026-10-04T11:59:00.000Z"
 Assert-Equal (Get-DeepProblem $turns $since $sha $all @("jarvis")) "the jarvis hasn't reported in since it started" "Jarvis failing before still has to report in"
+
+# The worker reports Jarvis failing once it hasn't checked in for 5 minutes. With Jarvis down
+# before the restart (so in $Failed), that report isn't the new Jarvis checking in.
+$surrogate = New-Deep
+$surrogate.components.jarvis.status = "failing"
+$surrogate.components.jarvis.detail = "Jarvis hasn't checked in since 11:54. Its service may have stopped."
+$surrogate.jarvisAlive.at = "2026-10-04T11:54:00.000Z"
+Assert-Equal (Get-DeepProblem $surrogate $since $sha $all @("jarvis")) "Jarvis hasn't checked in since it started" "the worker's word that Jarvis is down isn't Jarvis checking in"
+Assert-Equal (Get-DeepProblem $surrogate $since $sha @("jarvis") @("jarvis")) "Jarvis hasn't checked in since it started" "the same for hearth restart jarvis"
+$surrogate.jarvisAlive = $null
+Assert-Equal (Get-DeepProblem $surrogate $since $sha $all @("jarvis")) "Jarvis hasn't checked in since it started" "a Jarvis that never checked in"
+$older = New-Deep
+$older.PSObject.Properties.Remove("jarvisAlive")
+Assert-Equal (Get-DeepProblem $older $since $sha $all) "" "a server from before jarvisAlive (a rollback): its components are enough"
 Assert-Equal (Get-FailingParts $turns) "jarvis" "what deep health said was failing before a restart"
 Assert-Equal (Get-FailingParts $null) "" "nothing known before a restart"
 $doctorBefore = [pscustomobject]@{ Checks = @([pscustomobject]@{ name = "jarvis"; mark = "fail"; detail = "x" }, [pscustomobject]@{ name = "worker"; mark = "ok"; detail = "Running" }); Text = $null }

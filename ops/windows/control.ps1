@@ -132,6 +132,12 @@ function Get-DeepProblem($Deep, [datetime]$Since, [string]$Sha, [string[]]$Parts
     if ($Parts -notcontains $part) { continue }
     $c = $Deep.components.$part
     if (-not $c -or (ConvertTo-UtcTime $c.at) -lt $Since) { return "the $part hasn't reported in since it started" }
+    # The jarvis component can be the worker saying Jarvis hasn't checked in; only a running
+    # Jarvis writes jarvisAlive. (A server from before jarvisAlive, gone back to, doesn't say.)
+    if ($part -eq "jarvis" -and $Deep.PSObject.Properties["jarvisAlive"] -and
+      (ConvertTo-UtcTime $Deep.jarvisAlive.at) -lt $Since) {
+      return "Jarvis hasn't checked in since it started"
+    }
     if ($c.status -eq "failing" -and $Failed -notcontains $part) { return "the $part says: $($c.detail)" }
   }
   return $null
