@@ -1,5 +1,6 @@
 // Moving records to the trash and back. Every move says what went, with an Undo right there.
 
+import { sendKeptNotes } from "./docStore.ts";
 import type { Binding } from "./hotkeys.ts";
 import { toast } from "./live.ts";
 import { act } from "./query.ts";
@@ -66,6 +67,10 @@ export function trashKey(current: () => { id: string } | undefined, when: () => 
 /** Brings a record back, with what went to the trash with it. */
 export async function restore(id: string): Promise<boolean> {
   const r = await act<Moved>("entity.restore", { id });
-  if (r) toast.show(`Restored ${named(r.title)}${more(r.withIt)}.`);
-  return r !== null;
+  if (!r) return false;
+  toast.show(`Restored ${named(r.title)}${more(r.withIt)}.`);
+  // Edits this device kept for a deleted note go now, not at the next start: an open note sends
+  // its own, but one that isn't open has nothing else to send them (D59).
+  void sendKeptNotes();
+  return true;
 }

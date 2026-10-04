@@ -1,8 +1,9 @@
 // End-to-end check that a closed tab loses nothing (D59): in each editor (a note, a board, a
 // spreadsheet, meeting notes) make an edit while Hearth takes the save and never answers, close
 // the tab mid-save, open it again, and the edit reaches Hearth. Then a board edit made while Jarvis
-// adds a card keeps both. Runs its own server (development login, on HEARTH_E2E_PORT) against
-// HEARTH_DATABASE_URL, and its own browser with the service worker off so saves can be held.
+// adds a card keeps both, and a note deleted while open saves what was typed in it once restored.
+// Runs its own server (development login, on HEARTH_E2E_PORT) against HEARTH_DATABASE_URL, and its
+// own browser with the service worker off so saves can be held.
 //
 //   pnpm build:web
 //   HEARTH_DATABASE_URL=postgres://... HEARTH_E2E_PORT=4690 node apps/web/e2e/integrity.ts
@@ -254,7 +255,7 @@ try {
     throw new Error("a card was lost");
   });
 
-  await step("a note deleted while open turns read-only and offers its text", async () => {
+  await step("a note deleted while open goes read-only until it's restored", async () => {
     const note = await act<{ id: string }>(home, "note.create", { title: `Gone ${tag}`, body: "" });
     const p = await context.newPage();
     await p.goto(`${base}/note/${note.id}`);
@@ -267,6 +268,18 @@ try {
     await p.getByRole("button", { name: "Copy text" }).waitFor();
     if ((await editor.getAttribute("contenteditable")) !== "false")
       throw new Error("the deleted note can still be edited");
+    // Restored, it takes edits again, and what was typed while it was gone reaches Hearth too.
+    await p.getByRole("button", { name: "Restore", exact: true }).click();
+    await p.locator('.cm-content[contenteditable="true"]').waitFor();
+    await editor.click();
+    await p.keyboard.press("End");
+    await p.keyboard.type(" and back");
+    for (let i = 0; ; i++) {
+      const { body } = await act<{ body: string | null }>(p, "entity.get", { id: note.id });
+      if (body?.startsWith("t") && body.endsWith(" and back")) break;
+      if (i === 50) throw new Error("the restored note didn't save what was typed in it");
+      await p.waitForTimeout(200);
+    }
     await p.close();
   });
 

@@ -49,7 +49,7 @@ export type DocStatus =
   | { kind: "retrying" }
   /** Hearth turned them down, for this reason. */
   | { kind: "refused"; message: string }
-  /** The note was deleted; `unsent` if it held edits Hearth never got (kept here). */
+  /** Deleted, until it's restored; `unsent` if it held edits Hearth never got (kept here). */
   | { kind: "gone"; unsent: boolean };
 
 export class LiveDoc {
@@ -129,7 +129,9 @@ export class LiveDoc {
     this.stops.push(this.doc.subscribeLocalUpdates((data) => this.local(data)));
     this.stops.push(
       onLiveEvent((e) => {
-        if (e.entityId !== this.id || e.kind !== "entity.updated") return;
+        if (e.entityId !== this.id) return;
+        if (e.kind === "entity.restored") return this.restored();
+        if (e.kind !== "entity.updated") return;
         if (e.actor !== "owner") this.onRemote(e.actor);
         this.schedule(0);
       }),
@@ -159,9 +161,12 @@ export class LiveDoc {
     this.stops.push(() => window.clearInterval(tick));
   }
 
-  /** An edit made here: written ahead, passed to other tabs, then synced shortly. */
+  /**
+   * An edit made here: written ahead, passed to other tabs, then synced shortly. One made after
+   * the note was deleted (in the moment before the editor locks) is written ahead too, and sent
+   * if it's restored.
+   */
   private local(data: Uint8Array) {
-    if (this.gone) return;
     const entry: PendingUpdate = { doc: this.id, tab: this.tab, n: ++this.n, data };
     this.writing++;
     this.writes = this.writes
@@ -313,7 +318,19 @@ export class LiveDoc {
       (saved) => (unsent ? this.copy(saved) : saved?.unsent && !this.holds(saved) ? saved : null),
       drop,
     );
-    this.onStatus({ kind: "gone", unsent });
+    // Unless it was restored meanwhile.
+    if (this.gone) this.onStatus({ kind: "gone", unsent });
+  }
+
+  /**
+   * Restored from the trash: it takes edits again, and what Hearth never got goes now. This copy
+   * still holds every edit, and the version Hearth last had, so the next sync sends them all.
+   */
+  private restored() {
+    if (!this.gone) return;
+    this.gone = false;
+    this.onStatus({ kind: "ok" });
+    this.schedule(0);
   }
 
   /** Whether this copy holds edits Hearth doesn't have. */

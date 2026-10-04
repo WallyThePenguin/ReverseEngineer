@@ -53,6 +53,7 @@ export function createSheet(id: string) {
   });
 
   const saver = createSaver<Workbook>({
+    id,
     key: `sheet:${id}`,
     noun: "spreadsheet",
     action: "sheet.save",

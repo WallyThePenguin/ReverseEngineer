@@ -10,6 +10,7 @@ import { createSaver } from "../lib/wholeSave.ts";
 export function MeetingNotes(props: { id: string; notes: string; revision: number }) {
   let area: HTMLTextAreaElement | undefined;
   const saver = createSaver<string>({
+    id: props.id,
     key: `meeting:${props.id}`,
     noun: "meeting",
     action: "meeting.update",

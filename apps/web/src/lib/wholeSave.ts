@@ -3,11 +3,12 @@
 // closed tab, a crash or a dropped connection loses nothing: the next open sends it. A save that
 // fails for want of a connection is tried again with backoff; one Hearth turns down because
 // someone saved first (Jarvis adding cards, another screen) is merged piece by piece and sent again.
+// Changes made after it was deleted are kept too, and saved once it's restored.
 
 import { createSignal } from "solid-js";
 import { ApiError, action } from "./api.ts";
 import { dropUnsaved, loadUnsaved, saveUnsaved } from "./docStore.ts";
-import { backoff } from "./live.ts";
+import { backoff, onLiveEvent } from "./live.ts";
 
 const SAVE_AFTER_MS = 700;
 /** A save that hasn't answered by now is treated as lost and tried again. */
@@ -24,6 +25,8 @@ export interface Remote<T> {
 }
 
 export interface SaverOptions<T> {
+  /** The record it saves: restored from the trash, what was changed here meanwhile is saved. */
+  id: string;
   /** Where its unsaved copy is kept: "canvas:<id>". */
   key: string;
   /** The action that saves it, and its input. */
@@ -98,7 +101,7 @@ export function createSaver<T>(o: SaverOptions<T>) {
   const refused = (err: unknown) => {
     if (err instanceof ApiError && err.code === "not_found") {
       setGone(true);
-      setProblem(`This ${o.noun} was deleted, so changes here aren't saved.`);
+      setProblem(`This ${o.noun} was deleted. Restore it from the trash to save changes here.`);
     } else {
       const why = err instanceof Error ? err.message : String(err);
       setProblem(`Hearth didn't save this: ${why}`);
@@ -241,6 +244,18 @@ export function createSaver<T>(o: SaverOptions<T>) {
     void save();
   }
 
+  /** Restored from the trash: read it again, and save what was changed here meanwhile. */
+  async function restored(): Promise<void> {
+    if (!gone()) return;
+    setGone(false);
+    setProblem(null);
+    await load();
+    if (unsaved()) void save();
+  }
+  const stopLive = onLiveEvent((e) => {
+    if (e.kind === "entity.restored" && e.entityId === o.id) void restored();
+  });
+
   const hidden = () => {
     if (!unsaved() && !running) return;
     if (!running) {
@@ -287,6 +302,7 @@ export function createSaver<T>(o: SaverOptions<T>) {
     /** Saves now and stops listening (closing it). */
     close() {
       closed = true;
+      stopLive();
       window.removeEventListener("pagehide", hidden);
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("beforeunload", guard);

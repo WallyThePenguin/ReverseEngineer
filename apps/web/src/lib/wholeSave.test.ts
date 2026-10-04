@@ -1,8 +1,23 @@
 // Saving a board whole (D59): a save that lost a race is merged card by card and sent again, a
-// save that can't reach Hearth keeps trying, Hearth's own reason shows when it refuses one, and a
-// closing page still sends what's unsaved. Runs against a fake Hearth (no DOM or IndexedDB here).
+// save that can't reach Hearth keeps trying, Hearth's own reason shows when it refuses one, a
+// closing page still sends what's unsaved, and a board restored from the trash saves what was
+// changed while it was there. Runs against a fake Hearth (no DOM or IndexedDB here).
 import type { Canvas, CanvasNode } from "@hearth/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { LiveEvent } from "./live.ts";
+
+/** Who's listening to the live feed; the tests send its events. */
+const feed = vi.hoisted(() => new Set<(e: LiveEvent) => void>());
+vi.mock("./live.ts", async (original) => ({
+  ...(await original<typeof import("./live.ts")>()),
+  onLiveEvent: (fn: (e: LiveEvent) => void) => {
+    feed.add(fn);
+    return () => feed.delete(fn);
+  },
+}));
+const hear = (kind: string) => {
+  for (const fn of feed) fn({ seq: 1, kind, entityId: "b1", actor: "owner", payload: {} });
+};
 
 const card = (id: string, text: string): CanvasNode =>
   ({ id, kind: "text", x: 0, y: 0, w: 100, h: 40, text }) as unknown as CanvasNode;
@@ -13,6 +28,8 @@ let down = false;
 let refuse: string | null = null;
 /** Hearth fails at saves (a bug, or its database deadlocked). */
 let failing = false;
+/** The board is in the trash: Hearth says there's no such board. */
+let trashed = false;
 let sent: { input: { baseVersion: number; board: Canvas }; keepalive: boolean }[] = [];
 
 const reply = (body: unknown, status = 200) => Response.json(body, { status });
@@ -23,6 +40,8 @@ beforeEach(() => {
   down = false;
   refuse = null;
   failing = false;
+  trashed = false;
+  feed.clear();
   sent = [];
   const win = Object.assign(new EventTarget(), {
     setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
@@ -32,6 +51,8 @@ beforeEach(() => {
   vi.stubGlobal("document", Object.assign(new EventTarget(), { visibilityState: "visible" }));
   vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
     if (down) throw new TypeError("Failed to fetch");
+    if (trashed)
+      return reply({ status: "error", code: "not_found", message: "No such canvas" }, 404);
     const input = JSON.parse(String(init.body));
     if (url.endsWith("canvas.get"))
       return reply({ status: "ok", result: { ...structuredClone(server), board: server.board } });
@@ -58,6 +79,7 @@ async function openBoard() {
   const { mergeCanvas } = await import("@hearth/core");
   let shown: Canvas = { nodes: [], edges: [] };
   const saver = createSaver<Canvas>({
+    id: "b1",
     key: "canvas:b1",
     noun: "board",
     action: "canvas.save",
@@ -147,5 +169,31 @@ describe("saving a board whole", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]!.keepalive).toBe(true);
     expect(texts(server.board)).toEqual(["one", "typed just before closing"]);
+  });
+
+  it("saves what was changed while the board was in the trash once it's restored", async () => {
+    const { saver, edit } = await openBoard();
+    trashed = true;
+    edit((b) => b.nodes.push(card("b", "two")));
+    await vi.advanceTimersByTimeAsync(700);
+    expect(saver.problem()).toMatch(/deleted/);
+    edit((b) => b.nodes.push(card("c", "three")));
+    await vi.advanceTimersByTimeAsync(700);
+    trashed = false;
+    hear("entity.restored");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(texts(server.board)).toEqual(["one", "two", "three"]);
+    expect(saver.problem()).toBeNull();
+  });
+
+  it("opens a board that was in the trash when it opened, once it's restored", async () => {
+    trashed = true;
+    const { saver, shown } = await openBoard();
+    expect(saver.problem()).toMatch(/deleted/);
+    trashed = false;
+    hear("entity.restored");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(texts(shown())).toEqual(["one"]);
+    expect(saver.problem()).toBeNull();
   });
 });

@@ -164,7 +164,7 @@ const theme = EditorView.theme({
   ".cm-cursor": { borderLeftColor: "var(--color-ink)" },
 });
 
-/** A deleted note can still be read and copied, but not changed. */
+/** A deleted note can still be read and copied, but not changed until it's restored. */
 const READ_ONLY = [EditorState.readOnly.of(true), EditorView.editable.of(false)];
 
 export default function DocEditor(props: { id: string; placeholder?: string }) {
@@ -197,8 +197,11 @@ export default function DocEditor(props: { id: string; placeholder?: string }) {
     const doc = new LiveDoc(props.id);
     live = doc;
     doc.onStatus = (s) => {
+      const locked = gone() !== null;
       setStatus(s);
-      if (s.kind === "gone") view?.dispatch({ effects: editable.reconfigure(READ_ONLY) });
+      // Read-only once it's deleted, and editable again once it's restored.
+      if ((s.kind === "gone") !== locked)
+        view?.dispatch({ effects: editable.reconfigure(s.kind === "gone" ? READ_ONLY : []) });
     };
     doc.onRemote = (actor) => {
       setEditedBy(actor);
@@ -253,8 +256,8 @@ export default function DocEditor(props: { id: string; placeholder?: string }) {
           <div class="mb-2 flex flex-wrap items-center gap-3 rounded-md border border-line bg-sunk px-3 py-2 text-sm">
             <span>
               {g().unsent
-                ? "This was deleted before your last changes reached Hearth. Copy the text to keep them."
-                : "This was deleted. You can still read it here."}
+                ? "This was deleted before your last changes reached Hearth. They're kept here: restore it from the trash to save them, or copy the text."
+                : "This was deleted. Restore it from the trash to edit it again; until then you can read it here."}
             </span>
             <button type="button" class="text-accent hover:underline" onClick={copy}>
               {copied() ? "Copied" : "Copy text"}

@@ -1,10 +1,12 @@
 // A note's edits are written ahead (D59): one made just before its tab dies is sent by the next
 // open, as the same peer, without clashing; edits are dropped from disk only once a saved copy
 // holds them, and one tab's saved copy never loses another's; a deleted note keeps what Hearth
-// never got. Runs against a fake Hearth and an in-memory stand-in for IndexedDB.
+// never got, and sends it once the note is restored. Runs against a fake Hearth and an in-memory
+// stand-in for IndexedDB.
 import { LoroDoc, VersionVector } from "loro-crdt";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PendingKey, PendingUpdate, SavedDoc } from "./docStore.ts";
+import type { LiveEvent } from "./live.ts";
 
 const disk = vi.hoisted(() => ({
   docs: new Map<string, SavedDoc>(),
@@ -38,6 +40,18 @@ vi.mock("./docStore.ts", () => ({
 vi.mock("./peer.ts", () => ({
   claimPeer: async () => ({ peer: disk.peer, release() {}, retire() {} }),
 }));
+/** Who's listening to the live feed; the tests send its events. */
+const feed = vi.hoisted(() => new Set<(e: LiveEvent) => void>());
+vi.mock("./live.ts", async (original) => ({
+  ...(await original<typeof import("./live.ts")>()),
+  onLiveEvent: (fn: (e: LiveEvent) => void) => {
+    feed.add(fn);
+    return () => feed.delete(fn);
+  },
+}));
+const hear = (kind: string) => {
+  for (const fn of feed) fn({ seq: 1, kind, entityId: "n1", actor: "owner", payload: {} });
+};
 
 const b64 = (u: Uint8Array) => Buffer.from(u).toString("base64");
 const unb64 = (s: string) => new Uint8Array(Buffer.from(s, "base64"));
@@ -56,6 +70,7 @@ beforeEach(() => {
   disk.updates.clear();
   disk.peer = 1001n;
   disk.full = false;
+  feed.clear();
   hearth = new LoroDoc();
   hearth.getText("body").insert(0, "Plan");
   hearth.commit();
@@ -273,5 +288,28 @@ describe("a note's edits, written ahead", () => {
     expect(b.seen.at(-1)).toBe("gone");
     expect(disk.docs.has("n1")).toBe(false);
     await b.doc.close();
+  });
+
+  it("takes edits again once a deleted note is restored, and sends what it kept", async () => {
+    const a = await open();
+    mode = "gone";
+    a.type(" (draft)");
+    await vi.advanceTimersByTimeAsync(600);
+    expect(a.seen.at(-1)).toBe("gone");
+    // Typed in the moment before the editor locked: written ahead all the same.
+    a.type(" more");
+    await vi.advanceTimersByTimeAsync(600);
+    expect(disk.updates.size).toBe(1);
+    mode = "up";
+    hear("entity.restored");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(a.seen.at(-1)).toBe("ok");
+    expect(hearthText()).toBe("Plan (draft) more");
+    a.type("!");
+    await vi.advanceTimersByTimeAsync(600);
+    expect(hearthText()).toBe("Plan (draft) more!");
+    await a.doc.close();
+    expect(disk.updates.size).toBe(0);
+    expect(disk.docs.get("n1")!.unsent).toBeUndefined();
   });
 });

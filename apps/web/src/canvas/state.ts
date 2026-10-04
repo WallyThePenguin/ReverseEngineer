@@ -26,6 +26,7 @@ export function createBoard(id: string) {
   const redo: Canvas[] = [];
 
   const saver = createSaver<Canvas>({
+    id,
     key: `canvas:${id}`,
     noun: "board",
     action: "canvas.save",
