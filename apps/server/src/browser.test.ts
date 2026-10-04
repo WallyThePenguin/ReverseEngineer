@@ -211,4 +211,43 @@ describe("the live view", () => {
     const open = new Promise((r) => setTimeout(() => r("still open"), 3000));
     expect(await Promise.race([closed, open])).toBe(4401);
   });
+
+  it("drives nothing once it's closing, even for a client that won't let go", async () => {
+    const ext = await fakeExtension(await pair(), { "tabs.show": () => ({ shown: true }) });
+    await ext.next("welcome");
+    const tab = { tabId: 3, windowId: 1, url: "https://a.example/", title: "A", active: true };
+    ext.send({ type: "tabs", tabs: [{ ...tab, handed: false, loading: false }] });
+    const token = await createSession(t.kernel.db, {
+      principal: PRINCIPAL.owner,
+      kind: "browser",
+      label: "test browser",
+      ttlDays: 1,
+    });
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const viewer = socket("/api/browser/live", TEST_ORIGIN, {
+      cookie: `${SESSION_COOKIE}=${token}`,
+    });
+    await viewer.opened;
+    await viewer.next("state");
+    const settle = () => new Promise((r) => setTimeout(r, 200));
+    const keys = () =>
+      ext.calls.filter((c) => (c.params as Msg).method === "Input.dispatchKeyEvent").length;
+    const enter = { type: "key", kind: "keyDown", key: "Enter", code: "Enter" };
+    viewer.send({ type: "view", tabId: 3 });
+    viewer.send(enter);
+    for (let i = 0; i < 150 && keys() === 0; i++) await new Promise((r) => setTimeout(r, 20));
+    expect(keys()).toBe(1);
+
+    // A client of its own that never answers the close: ws waits 30 s for it before hanging up.
+    const asked = new Promise<number | undefined>((resolve) => {
+      viewer.ws.close = ((code?: number) => resolve(code)) as typeof viewer.ws.close;
+    });
+    await revokeToken(t.kernel.db, token);
+    await vi.advanceTimersByTimeAsync(20_000);
+    const open = new Promise((r) => setTimeout(() => r("still open"), 3000));
+    expect(await Promise.race([asked, open])).toBe(4401);
+    viewer.send(enter);
+    await settle();
+    expect(keys()).toBe(1);
+  });
 });
