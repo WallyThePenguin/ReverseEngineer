@@ -17,4 +17,5 @@ export * from "./runner.ts";
 export * from "./service.ts";
 export { STREAM_CHANNEL } from "./threads.ts";
 export * from "./tools.ts";
+export * from "./turn-budget.ts";
 export { fileTurnLog, type TurnLog, type TurnLogLine } from "./turn-log.ts";

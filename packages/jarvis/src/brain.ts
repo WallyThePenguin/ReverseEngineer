@@ -31,6 +31,8 @@ export interface BrainRequest {
   /** Agent session to resume, so a conversation keeps its context across turns. */
   sessionId: string | null;
   signal: AbortSignal;
+  /** Model steps this go may take, if not the brain's own default (a browsing turn's more). */
+  maxTurns?: number;
 }
 
 export interface BrainEvents {
@@ -51,6 +53,11 @@ export interface BrainResult {
   text: string;
   sessionId: string | null;
   firstTokenMs: number | null;
+  /**
+   * It ran out of steps before finishing, after this many: `text` is what it said last. Not a
+   * failure; the session can carry on from there (B1).
+   */
+  outOfSteps?: { steps: number };
 }
 
 export interface Brain {

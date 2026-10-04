@@ -117,6 +117,37 @@ describe("ClaudeBrain", () => {
     expect((await failure()).err.kind).toBe("crashed");
   });
 
+  it("comes back with what it said last when it runs out of steps, not a failure (B1)", async () => {
+    sdk.messages = [
+      init,
+      {
+        type: "assistant",
+        parent_tool_use_id: null,
+        message: { id: "m1", content: [{ type: "text", text: "Still on page two." }] },
+      },
+      {
+        type: "result",
+        subtype: "error_max_turns",
+        is_error: true,
+        num_turns: 110,
+        errors: [],
+        session_id: "s1",
+      },
+    ];
+    const { e, said } = events();
+    expect(await new ClaudeBrain().run(request({ maxTurns: 110 }), e)).toEqual({
+      text: "Still on page two.",
+      sessionId: "s1",
+      firstTokenMs: null,
+      outOfSteps: { steps: 110 },
+    });
+    expect(sdk.options?.maxTurns).toBe(110);
+    expect(said).toEqual(["Still on page two."]);
+    // Without a request's own, the brain's default.
+    await new ClaudeBrain({ maxTurns: 40 }).run(request(), e);
+    expect(sdk.options?.maxTurns).toBe(40);
+  });
+
   it("answers with Sonnet on the fast lane and Opus on the deep one by default", async () => {
     sdk.messages = [
       init,

@@ -164,7 +164,9 @@ export const browserModule = defineModule({
         let tab: TabInfo;
         let errorText: string | null = null;
         if (i.tabId === undefined || i.newTab) {
-          tab = await client.call<TabInfo>("tabs.open", { url });
+          // A Jarvis turn's tabs share a tab group of their own (B1).
+          const group = ctx.caller.turnId;
+          tab = await client.call<TabInfo>("tabs.open", { url, ...(group ? { group } : {}) });
         } else {
           await findTab(client, i.tabId);
           const res = await client.call<{ errorText?: string } | null>("cdp", {

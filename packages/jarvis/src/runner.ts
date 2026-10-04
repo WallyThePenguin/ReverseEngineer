@@ -15,6 +15,15 @@ import { buildTools, readRecord, type ToolCallRecord, type TurnState } from "./t
 import { checkOpen, readOutsideContent } from "./trust.ts";
 import { alertLeftOut } from "./turn-alerts.ts";
 import {
+  bounded,
+  Deadline,
+  keepSession,
+  OUT_OF_STEPS,
+  replyOf,
+  TURN_LIMIT_MS,
+  thinkOn,
+} from "./turn-budget.ts";
+import {
   type Ending,
   expireQueued,
   failTurn,
@@ -27,9 +36,6 @@ import {
 import type { TurnLog } from "./turn-log.ts";
 
 export type TurnRow = typeof jarvisTurn.$inferSelect;
-
-/** How long a turn may run before it's stopped, by lane; a voice command is waited on (D54). */
-export const TURN_LIMIT_MS = { fast: 10 * 60_000, deep: 30 * 60_000, voice: 2 * 60_000 };
 
 export interface RunnerOptions {
   kernel: Kernel;
@@ -160,20 +166,21 @@ export class TurnRunner {
 
   async run(turn: TurnRow): Promise<void> {
     const started = performance.now();
-    const limit = this.limitFor(turn);
     const stop = new AbortController();
     this.aborts.set(turn.id, stop);
-    const signal = AbortSignal.any([stop.signal, AbortSignal.timeout(limit)]);
+    const deadline = new Deadline(this.limitFor(turn), this.limits.browser, stop.signal);
     const watching = this.watchForStop(turn.id, stop);
     const end = newEnding(turn);
     try {
-      await this.attempt(end, signal, started);
+      await this.attempt(end, deadline, started);
     } catch (err) {
+      // A turn that used the browser may have had longer than its lane gives.
+      const limit = deadline.limitMs;
       // Stop may be on the row before its signal arrives: a turn you stopped isn't queued again.
       const canceled = stop.signal.aborted || (await stopRequested(this.kernel, turn.id));
       const f: Failure = canceled
         ? failure("canceled", "Stopped by the owner")
-        : signal.aborted
+        : deadline.signal.aborted
           ? failure("timeout", `Ran past its ${Math.round(limit / 60_000)}-minute limit`)
           : classifyFailure(err);
       this.log(`turn ${turn.id} failed (${f.kind})`, err);
@@ -182,6 +189,7 @@ export class TurnRunner {
         this.log(`recording the failure of turn ${turn.id} failed`, e),
       );
     } finally {
+      deadline.clear();
       clearInterval(watching);
       this.aborts.delete(turn.id);
       await this.reportHealth().catch((err) => this.log("reporting health failed", err));
@@ -199,7 +207,7 @@ export class TurnRunner {
     return timer;
   }
 
-  private async attempt(end: Ending, signal: AbortSignal, started: number): Promise<void> {
+  private async attempt(end: Ending, deadline: Deadline, started: number): Promise<void> {
     const { turn } = end;
     const cid = await ensureConversation(this.kernel, turn);
     end.conversationId = cid;
@@ -265,17 +273,15 @@ export class TurnRunner {
       .select()
       .from(conversation)
       .where(eq(conversation.entityId, cid));
-    const tools = bare
+    const built = bare
       ? []
       : buildTools(this.kernel, state, (kind, payload) => {
           // Counted as it starts: one still running when the model fails may yet do its thing.
           if (kind === "tool_call") end.started++;
           return log([{ kind, payload, turnId: turn.id }]);
-        }).map((t) => ({
-          ...t,
-          // Stopped or out of time: nothing more runs, whatever the brain goes on to ask.
-          run: (input: unknown) => (signal.aborted ? Promise.resolve(ENDED) : t.run(input)),
-        }));
+        });
+    // Stopped or out of time: nothing more runs. A browser tool gives the turn more time (B1).
+    const tools = bounded(built, deadline, ENDED);
     const stream = streamer(this.pool, cid, turn.id);
     const events: BrainEvents = {
       onText: (d) => stream.push(d),
@@ -297,19 +303,18 @@ export class TurnRunner {
       tools,
       ...(bare ? { web: false } : {}),
       sessionId: conv?.agentSessionId ?? null,
-      signal,
+      signal: deadline.signal,
     };
-    const result = await this.think(end, request, events).finally(() => stream.end());
+    const think = (req: BrainRequest) => this.think(end, req, events);
+    const keep = (sessionId: string) => keepSession(this.kernel, cid, sessionId);
+    const result = await thinkOn(request, think, state.calls, keep).finally(() => stream.end());
     end.answered = true;
     end.firstTokenMs = result.firstTokenMs;
+    // Out of steps isn't a failure: it stops with what it said and offers to carry on (B1).
+    if (result.outOfSteps)
+      void log([{ kind: "assistant_message", payload: { text: OUT_OF_STEPS }, turnId: turn.id }]);
     await chain;
-    if (result.sessionId) {
-      await this.kernel.db
-        .update(conversation)
-        .set({ agentSessionId: result.sessionId })
-        .where(eq(conversation.entityId, cid));
-    }
-    const reply = result.text.trim();
+    const reply = replyOf(result);
     if (reply && turn.subjectId && REPLY_IN_THREAD.has(turn.trigger) && !state.postedToSubject) {
       const posted = await this.kernel.execute(
         "comment.create",

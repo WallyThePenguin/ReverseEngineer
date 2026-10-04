@@ -13,7 +13,11 @@ export type ScriptStep =
   | { call: string; input: unknown }
   | { readWeb: string; text?: string }
   /** A web fetch: refused or read, and the outcome goes into outputs. */
-  | { fetch: string; content?: string };
+  | { fetch: string; content?: string }
+  /** Takes this long, as a slow page or a long think can. */
+  | { wait: number }
+  /** Runs out of steps here, after this many, as Claude does at its maxTurns. */
+  | { outOfSteps: number };
 
 export type Script = (req: BrainRequest, outputs: string[]) => ScriptStep[] | Promise<ScriptStep[]>;
 
@@ -40,8 +44,19 @@ export class ScriptedBrain implements Brain {
     const script = this.scripts.shift() ?? this.fallback;
     const outputs: string[] = [];
     const said: string[] = [];
+    const sessionId = req.sessionId ?? "scripted-session";
     for (const step of await script(req, outputs)) {
-      if ("say" in step) {
+      if ("outOfSteps" in step) {
+        return {
+          text: said.at(-1) ?? "",
+          sessionId,
+          firstTokenMs: 1,
+          outOfSteps: { steps: step.outOfSteps },
+        };
+      }
+      if ("wait" in step) {
+        await new Promise((r) => setTimeout(r, step.wait));
+      } else if ("say" in step) {
         events.onText(step.say);
         events.onMessage(step.say);
         said.push(step.say);
@@ -60,10 +75,6 @@ export class ScriptedBrain implements Brain {
         outputs.push(replyText(await tool.run(step.input)));
       }
     }
-    return {
-      text: said.join("\n\n"),
-      sessionId: req.sessionId ?? "scripted-session",
-      firstTokenMs: 1,
-    };
+    return { text: said.join("\n\n"), sessionId, firstTokenMs: 1 };
   }
 }

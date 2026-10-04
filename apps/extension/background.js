@@ -62,8 +62,10 @@ function pushTabs() {
 /** @type {Record<string, (params: any) => Promise<unknown>>} */
 const methods = {
   "tabs.list": () => tabs(),
-  "tabs.open": async ({ url, show }) => {
-    const tab = await openTab(url, show !== false);
+  // `group` names the piece of work (a Jarvis turn) the tab is for: its tabs share a group.
+  "tabs.open": async ({ url, show, group }) => {
+    const work = typeof group === "string" && group ? group.slice(0, 64) : null;
+    const tab = await openTab(url, show !== false, work);
     pushTabs();
     return tab;
   },

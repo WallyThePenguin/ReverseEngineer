@@ -152,6 +152,9 @@ export class ClaudeBrain implements Brain {
     let firstTokenMs: number | null = null;
     let sessionId: string | null = req.sessionId;
     let finalText = "";
+    // What it said last, which is all there is to show if it runs out of steps (B1).
+    let lastSaid = "";
+    let outOfSteps: { steps: number } | null = null;
 
     const q = query({
       prompt: req.prompt,
@@ -164,7 +167,7 @@ export class ClaudeBrain implements Brain {
         permissionMode: "dontAsk",
         settingSources: [],
         includePartialMessages: true,
-        maxTurns: this.opts.maxTurns,
+        maxTurns: req.maxTurns ?? this.opts.maxTurns,
         abortController: abort,
         hooks: { PreToolUse: [{ matcher: "WebFetch", hooks: [fetchGuard(events)] }] },
         ...(req.sessionId ? { resume: req.sessionId } : {}),
@@ -211,11 +214,19 @@ export class ClaudeBrain implements Brain {
             continue;
           }
           for (const block of msg.message.content) {
-            if (block.type === "text" && block.text.trim()) events.onMessage(block.text);
+            if (block.type !== "text" || !block.text.trim()) continue;
+            events.onMessage(block.text);
+            lastSaid = block.text;
           }
         }
         if (msg.type === "result") {
           sessionId = msg.session_id;
+          if (msg.subtype === "error_max_turns") {
+            // Out of steps, not broken: the runner decides whether it gets more.
+            outOfSteps = { steps: msg.num_turns };
+            finalText = lastSaid;
+            continue;
+          }
           if (msg.subtype !== "success" || msg.is_error) {
             const detail =
               msg.subtype === "success" ? msg.result : [msg.subtype, ...msg.errors].join(": ");
@@ -229,6 +240,6 @@ export class ClaudeBrain implements Brain {
       if (err instanceof BrainError || req.signal.aborted) throw err;
       throw failed(err instanceof Error ? err.message : String(err));
     }
-    return { text: finalText, sessionId, firstTokenMs };
+    return { text: finalText, sessionId, firstTokenMs, ...(outOfSteps ? { outOfSteps } : {}) };
   }
 }
