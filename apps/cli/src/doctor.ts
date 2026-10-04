@@ -78,8 +78,8 @@ export async function checkBackupTools(
   run: Runner = runProgram,
 ): Promise<Check[]> {
   // restic has no --version flag; it only answers to the `version` subcommand.
-  const has = async (cmd: string) =>
-    (await run(cmd, [cmd === "restic" ? "version" : "--version"])).code === 0;
+  const asked = async (cmd: string) => run(cmd, [cmd === "restic" ? "version" : "--version"]);
+  const has = async (cmd: string) => (await asked(cmd)).code === 0;
   const checks: Check[] = [];
   checks.push(
     (await has("pg_dump"))
@@ -101,14 +101,23 @@ export async function checkBackupTools(
   }
   const WINGET: Record<string, string> = { restic: "restic.restic", rclone: "Rclone.Rclone" };
   for (const tool of repo.startsWith("rclone:") ? ["restic", "rclone"] : ["restic"]) {
+    const r = await asked(tool);
+    // The backup check and `hearth restore` fetch single files and folders, which takes 0.17.
+    const old = tool === "restic" ? /restic (0\.(\d+)\.\d+)/.exec(r.stdout) : null;
     checks.push(
-      (await has(tool))
-        ? { name: tool, mark: "ok", detail: "Found" }
-        : {
+      r.code !== 0
+        ? {
             name: tool,
             mark: "fail",
             detail: `Not on PATH, so backups can't upload. Install it (winget install ${WINGET[tool]}).`,
-          },
+          }
+        : old && Number(old[2]) < 17
+          ? {
+              name: tool,
+              mark: "fail",
+              detail: `${old[1]} is too old to restore from. Update it: winget upgrade restic.restic`,
+            }
+          : { name: tool, mark: "ok", detail: "Found" },
     );
   }
   if (!env.RESTIC_PASSWORD_FILE && !env.RESTIC_PASSWORD) {
