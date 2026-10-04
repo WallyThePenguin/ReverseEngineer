@@ -18,6 +18,7 @@ export {
   sqlRunner,
   type TurnStats,
   turnStats,
+  whyFailed,
 } from "./deep-health.ts";
 export { runServer } from "./main.ts";
 export { buildId, readVersionStamp, type VersionStamp } from "./version.ts";
