@@ -1,7 +1,7 @@
 // End-to-end check of the web app in a real browser, against a running Hearth server:
 // passkey setup and sign-in (with a virtual authenticator), tasks, a live note that @mentions a task
-// and syncs to a second window, backlinks, subtasks, Cmd+K with split panes, chatting with Jarvis,
-// memory, and the pause switch.
+// and syncs to a second window, backlinks, subtasks, titles you're typing kept while the record
+// changes elsewhere, Cmd+K with split panes, chatting with Jarvis, memory, and the pause switch.
 //
 //   HEARTH_E2E_URL=http://localhost:4400 HEARTH_E2E_SETUP_CODE=<from hearth setup> \
 //     node apps/web/e2e/smoke.ts
@@ -11,6 +11,7 @@
 
 import { chromium, type Page } from "playwright";
 import { boardSteps } from "./boards.ts";
+import { titleSteps } from "./titles.ts";
 import { storedZip } from "./zip.ts";
 
 const base = process.env.HEARTH_E2E_URL ?? "http://localhost:4400";
@@ -157,6 +158,8 @@ try {
     await keys("Enter");
     await task.locator("li", { hasText: "Set up autopay" }).waitFor();
   });
+
+  await titleSteps({ step, keys, tag });
 
   await step("Cmd+K finds the note and opens it beside", async (p) => {
     await keys("Control+k");
