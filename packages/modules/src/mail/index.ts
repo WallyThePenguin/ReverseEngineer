@@ -326,8 +326,10 @@ export const mailModule = defineModule({
       risk: "read",
       async handler(_i, ctx) {
         const rows = await ctx.tx.select().from(mailAccount).orderBy(mailAccount.address);
-        return Promise.all(
-          rows.map(async (a) => ({
+        // One account after another: a transaction takes one query at a time.
+        const out = [];
+        for (const a of rows)
+          out.push({
             address: a.address,
             provider: a.provider,
             state: a.syncState,
@@ -336,8 +338,8 @@ export const mailModule = defineModule({
             lastError: a.lastError,
             ...(await syncProgress(ctx, a)),
             pendingChanges: await pendingChanges(ctx.tx, a.id),
-          })),
-        );
+          });
+        return out;
       },
     }),
     defineAction({

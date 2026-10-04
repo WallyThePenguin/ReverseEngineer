@@ -260,8 +260,13 @@ export const draftActions = [
         )
         .orderBy(desc(entity.updatedAt))
         .limit(100);
-      const out = await Promise.all(rows.map((r) => loadDraft(ctx.tx, r.id)));
-      return out.filter((d) => d !== null);
+      // One after another: a transaction takes one query at a time.
+      const out: DraftView[] = [];
+      for (const r of rows) {
+        const d = await loadDraft(ctx.tx, r.id);
+        if (d) out.push(d);
+      }
+      return out;
     },
   }),
   defineAction({
