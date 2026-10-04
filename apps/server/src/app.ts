@@ -41,6 +41,7 @@ import type { AppEnv, ServerDeps } from "./env.ts";
 import { EventHub } from "./hub.ts";
 import { mcpRoutes } from "./mcp.ts";
 import { type PushSend, startPush, webPushSend } from "./push.ts";
+import { requestLog } from "./request-log.ts";
 import { actionRoutes } from "./routes/actions.ts";
 import { authRoutes } from "./routes/auth.ts";
 import { deviceRoutes } from "./routes/devices.ts";
@@ -79,6 +80,8 @@ export interface AppOptions {
   bridge?: BrowserBridge;
   /** How phone notifications go out; tests pass a fake. */
   push?: PushSend;
+  /** Where requests that didn't go well are logged; the console by default. */
+  requestLog?: (line: string) => void;
 }
 
 export function createApp(opts: AppOptions) {
@@ -108,6 +111,7 @@ export function createApp(opts: AppOptions) {
   };
   const app = new Hono<AppEnv>();
 
+  app.use("*", requestLog({ log: opts.requestLog }));
   app.use("*", async (c, next) => {
     c.set("deps", deps);
     await next();

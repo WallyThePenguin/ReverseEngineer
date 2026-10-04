@@ -4,6 +4,7 @@ export * from "./callers.ts";
 export * from "./clock.ts";
 export * from "./errors.ts";
 export * from "./events.ts";
+export * from "./file-log.ts";
 export * from "./graph.ts";
 export * from "./ids.ts";
 export * from "./kernel.ts";

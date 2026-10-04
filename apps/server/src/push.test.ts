@@ -1,9 +1,10 @@
 import { event } from "@hearth/db";
-import { jarvisCaller, systemCaller } from "@hearth/kernel";
+import { jarvisCaller, type Kernel, systemCaller } from "@hearth/kernel";
 import { max } from "drizzle-orm";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pairDevice } from "./auth/devices.ts";
-import type { PushMessage, PushSend } from "./push.ts";
+import { EventHub } from "./hub.ts";
+import { type PushMessage, type PushSend, pushToAll, startPush } from "./push.ts";
 import { createTestServer, type TestServer } from "./testing/server.ts";
 
 let t: TestServer;
@@ -36,6 +37,21 @@ async function settle() {
   const seq = row?.seq ?? 0;
   t.server.hub.publish(seq);
   await t.server.pushIdle();
+}
+
+/** A watcher of its own, as a fresh start of the server would make. */
+async function watch(kernel: Kernel = t.kernel) {
+  const hub = new EventHub(null);
+  const watcher = startPush(kernel, hub, fake);
+  await watcher.idle();
+  return {
+    stop: watcher.stop,
+    async settle() {
+      const [row] = await t.tdb.db.select({ seq: max(event.seq) }).from(event);
+      hub.publish(row?.seq ?? 0);
+      await watcher.idle();
+    },
+  };
 }
 
 describe("phone notifications", () => {
@@ -94,6 +110,89 @@ describe("phone notifications", () => {
     await t.kernel.execute("inbox.deliver", { id }, systemCaller());
     await settle();
     expect(sent.map((s) => s.message.title)).toEqual(["The garage door is open"]);
+  });
+
+  it("after a restart, sends what came in while it was down, and nothing twice", async () => {
+    await subscribe(PHONE);
+    const before = await watch();
+    await t.kernel.execute(
+      "brief.publish",
+      { markdown: "## Today", date: "2026-10-01" },
+      jarvisCaller("system"),
+    );
+    await before.settle();
+    expect(sent.map((s) => s.message.title)).toEqual(["Your brief is ready"]);
+    before.stop();
+
+    // Down for an update: one item comes in, another comes and is answered elsewhere.
+    await t.kernel.execute(
+      "inbox.notify",
+      { title: "The garage door is open", urgency: "interrupt" },
+      systemCaller(),
+    );
+    const done = await t.kernel.execute<{ id: string }>(
+      "inbox.notify",
+      { title: "Already dealt with", urgency: "interrupt" },
+      systemCaller(),
+    );
+    if (done.status !== "ok") throw new Error("notify failed");
+    await t.kernel.execute("inbox.mark", { ids: [done.result.id], state: "done" }, systemCaller());
+
+    const after = await watch();
+    expect(sent.map((s) => s.message.title)).toEqual([
+      "Your brief is ready",
+      "The garage door is open",
+    ]);
+    after.stop();
+  });
+
+  it("doesn't move on when a read fails, so the next try still sends it", async () => {
+    await subscribe(PHONE);
+    let failNext = false;
+    const db = new Proxy(t.kernel.db, {
+      get(target, prop, receiver) {
+        if (prop === "select" && failNext) {
+          failNext = false;
+          throw new Error("Connection terminated unexpectedly");
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    const flaky = { db, clock: t.kernel.clock } as unknown as Kernel;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const watcher = await watch(flaky);
+    await t.kernel.execute(
+      "brief.publish",
+      { markdown: "## Today", date: "2026-10-01" },
+      jarvisCaller("system"),
+    );
+    failNext = true;
+    await watcher.settle();
+    expect(sent).toEqual([]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("Connection terminated"));
+    await watcher.settle();
+    expect(sent.map((s) => s.message.title)).toEqual(["Your brief is ready"]);
+    watcher.stop();
+    warn.mockRestore();
+  });
+
+  it("sends to every device at once; one that never answers doesn't hold up the rest", async () => {
+    const HANGS = "https://fcm.googleapis.com/fcm/send/hangs";
+    await subscribe(HANGS, "Old tablet");
+    await subscribe(PHONE);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const hanging: PushSend = (sub, message, vapid) =>
+      sub.endpoint === HANGS ? new Promise(() => {}) : fake(sub, message, vapid);
+    const message = { title: "Hi", body: "", url: "/inbox", tag: "x" };
+    const started = Date.now();
+    expect(await pushToAll(t.kernel, message, hanging, 50)).toBe(1);
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(sent.map((s) => s.endpoint)).toEqual([PHONE]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("Old tablet: no answer"));
+    // A slow device isn't a gone one: it's kept.
+    const list = (await (await t.browser("/api/push")).json()) as { devices: unknown[] };
+    expect(list.devices).toHaveLength(2);
+    warn.mockRestore();
   });
 
   it("is off limits to the desktop app's code", async () => {

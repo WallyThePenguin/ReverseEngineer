@@ -167,19 +167,13 @@ try {
     const strip = p.getByRole("navigation", { name: "Settings sections" });
     await strip.getByRole("button", { name: "Import" }).click();
     // Once the scrolling has settled, Import sits just under the strip (not behind it), marked.
-    const landed = () =>
-      p.evaluate(() => {
-        const h = [...document.querySelectorAll("h2")].find((e) => e.textContent === "Import");
-        const nav = document.querySelector('nav[aria-label="Settings sections"]');
-        if (!h || !nav) return "no heading or strip";
-        const top = h.getBoundingClientRect().top;
-        const marked = nav.querySelector('[aria-current="true"]')?.textContent;
-        if (top < nav.getBoundingClientRect().bottom || top > 300) return `Import is at ${top}px`;
-        return marked === "Import" ? "" : `the strip marks ${marked}`;
-      });
     await p.waitForTimeout(2000);
-    const wrong = await landed();
-    if (wrong) throw new Error(wrong);
+    const heading = p.getByRole("heading", { name: "Import", exact: true }).first();
+    const [h, nav] = await Promise.all([heading.boundingBox(), strip.boundingBox()]);
+    if (!h || !nav) throw new Error("no heading or strip");
+    if (h.y < nav.y + nav.height || h.y > 300) throw new Error(`Import is at ${h.y}px`);
+    const marked = await strip.locator('[aria-current="true"]').textContent();
+    if (marked !== "Import") throw new Error(`the strip marks ${marked}`);
   });
 
   await step(
@@ -235,24 +229,26 @@ try {
   const tp = await phone.newPage();
   tp.on("pageerror", (e) => problems.push(`page error (phone): ${e.message}`));
 
-  /** Fails if a control in view is smaller than a fingertip (44 px), or the page scrolls sideways. */
+  /**
+   * Fails if a control in view is smaller than a fingertip (44 px), or the page scrolls sideways.
+   * Written as text: it runs in the page, and this file is typed without the browser's globals.
+   */
+  const FINGER_CHECK = `(() => {
+    const out = [];
+    for (const el of document.querySelectorAll(
+      "main button, main select, main input[type=checkbox], nav button",
+    )) {
+      // A checkbox counts by the label around it.
+      const box = (el.closest("label") ?? el).getBoundingClientRect();
+      const shown = box.width > 0 && box.bottom > 0 && box.top < innerHeight;
+      if (shown && (box.height < 44 || box.width < 44))
+        out.push((el.getAttribute("aria-label") ?? el.textContent.trim()) + " " + box.width + "×" + box.height);
+    }
+    if (document.documentElement.scrollWidth > innerWidth) out.push("the page scrolls sideways");
+    return out;
+  })()`;
   const fingerSized = async (p: Page, where: string) => {
-    const small = await p.evaluate(() => {
-      const out: string[] = [];
-      for (const el of document.querySelectorAll<HTMLElement>(
-        "main button, main select, main input[type=checkbox], nav button",
-      )) {
-        // A checkbox counts by the label around it.
-        const box = (el.closest("label") ?? el).getBoundingClientRect();
-        const shown = box.width > 0 && box.bottom > 0 && box.top < innerHeight;
-        if (shown && (box.height < 44 || box.width < 44))
-          out.push(
-            `${el.getAttribute("aria-label") ?? el.textContent?.trim()} ${box.width}×${box.height}`,
-          );
-      }
-      if (document.documentElement.scrollWidth > innerWidth) out.push("the page scrolls sideways");
-      return out;
-    });
+    const small = await p.evaluate<string[]>(FINGER_CHECK);
     if (small.length) throw new Error(`${where}: too small to tap: ${small.join("; ")}`);
   };
 
@@ -295,7 +291,7 @@ try {
   await step("at 375 px, the menu drawer is opaque and closes when you pick", async () => {
     await tp.getByRole("button", { name: "More" }).tap();
     const drawer = tp.getByRole("dialog", { name: "Menu" });
-    const bg = await drawer.evaluate((el) => getComputedStyle(el).backgroundColor);
+    const bg = String(await drawer.evaluate("(el) => getComputedStyle(el).backgroundColor"));
     if (/rgba\(.*, 0(\.\d+)?\)$/.test(bg) || bg === "transparent")
       throw new Error(`the drawer shows the page through it (${bg})`);
     await drawer.getByRole("button", { name: "Trash" }).tap();
