@@ -227,13 +227,16 @@ What to expect:
   the **Hearth Chrome** task.
 - Service logs are in `C:\ProgramData\Hearth\services\` (one set per service).
 - Restart a service: `Restart-Service hearth-server` (or `hearth-worker`). Jarvis's log is
-  `hearth-jarvis.log` in the same folder; to restart it, run `.\ops\windows\install.ps1` again.
+  `hearth-jarvis.log` in the same folder; to restart it, run
+  `Stop-ScheduledTask "Hearth Jarvis"; Start-ScheduledTask "Hearth Jarvis"`. Neither needs an
+  administrator once `install.ps1` has run.
 - If a service log says `EPERM`, its account can't read `node_modules`: run
   `Remove-Item -Recurse -Force node_modules`, then `pnpm install`, then restart the services.
-- To update Hearth: `git pull`, `pnpm install`, `pnpm build:web`, `pnpm hearth migrate`, then
-  restart the two services and Jarvis (`.\ops\windows\install.ps1` does all three). If you set Hearth up before it could open Chrome by itself, run
-  `.\ops\windows\install.ps1` again once instead (as administrator), to add the **Hearth
-  Chrome** task and the services' newer settings.
+- To update Hearth: `.\ops\windows\update.ps1`, from a normal (not elevated) PowerShell. It takes
+  a safety dump, updates, migrates, restarts the services and Jarvis, checks that Hearth answers,
+  and puts the previous version back if anything fails. Its log is in `data\logs`. When an update
+  changes how the services are installed, it says to run `.\ops\windows\install.ps1` again as
+  administrator.
 
 ### Restoring from a backup
 
