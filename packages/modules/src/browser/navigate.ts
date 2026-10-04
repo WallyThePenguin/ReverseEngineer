@@ -18,7 +18,17 @@ const moveOf = (url: string) => {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-type History = { currentIndex: number; entries: { id: number; url: string; title: string }[] };
+type History = {
+  currentIndex: number;
+  entries: { id: number; url: string; title: string; transitionType?: string }[];
+};
+
+/**
+ * How a page a form sent shows in the tab's history: "form_submit", and "reload" once it has been
+ * reloaded. Reloading one would send the form again (a second order, a second payment) without
+ * the "Confirm form resubmission" question Chrome asks you, so its address is loaded afresh.
+ */
+const FROM_A_FORM = new Set(["form_submit", "reload"]);
 
 /** Sends the tab where it was asked, and says why Chrome couldn't load it, if it couldn't. */
 async function go(
@@ -31,6 +41,12 @@ async function go(
   const send = <T>(method: string, params: object = {}) =>
     cdp(client, tab.tabId, method, params) as Promise<T>;
   if (move === "reload") {
+    const history = await send<History>("Page.getNavigationHistory");
+    const now = history.entries[history.currentIndex];
+    if (now && FROM_A_FORM.has(now.transitionType ?? "")) {
+      const res = await send<{ errorText?: string }>("Page.navigate", { url: now.url });
+      return res?.errorText || null;
+    }
     await send("Page.reload");
     return null;
   }
