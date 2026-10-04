@@ -4,14 +4,19 @@ import { latestSeq, readEventsAfter } from "@hearth/kernel";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { requireCaller } from "../auth/middleware.ts";
+import { checkToken } from "../auth/tokens.ts";
 import type { AppEnv } from "../env.ts";
 
+/** How often the feed says it's alive, and checks the session it was opened with still is. */
 const KEEP_ALIVE_MS = 20_000;
+/** How long a browser waits before connecting again after the feed drops. */
+const RETRY_MS = 2_000;
 
-export function eventRoutes() {
+export function eventRoutes(keepAliveMs = KEEP_ALIVE_MS) {
   const app = new Hono<AppEnv>();
   app.get("/", requireCaller(["owner"]), (c) => {
     const { kernel, hub } = c.get("deps");
+    const token = c.get("token");
     const fromHeader = Number(c.req.header("last-event-id"));
     const fromQuery = Number(c.req.query("after"));
     const start = Number.isFinite(fromHeader) && fromHeader > 0 ? fromHeader : fromQuery;
@@ -53,13 +58,26 @@ export function eventRoutes() {
           void stream.writeSSE({ event: "stream", data: payload }).catch(() => {}),
         onStop: () => stream.abort(),
       });
-      const keepAlive = setInterval(
-        () => void stream.write(": keep-alive\n\n").catch(() => {}),
-        KEEP_ALIVE_MS,
-      );
+      // A named event, not a comment, so the page can tell a quiet feed from a dead one. A
+      // session that ended (signed out, revoked, expired) ends its feed too. Watching doesn't
+      // count as using it, so an open tab alone never keeps a session alive.
+      const keepAlive = setInterval(() => {
+        void stream.writeSSE({ event: "ping", data: "{}" }).catch(() => {});
+        if (!token) return;
+        void checkToken(kernel.db, token, new Date(), { touch: false })
+          .then((r) => {
+            if (!r.ok) stream.abort();
+          })
+          // The database being out of reach doesn't end anyone's session.
+          .catch(() => {});
+      }, keepAliveMs);
       const done = new Promise<void>((resolve) => stream.onAbort(resolve));
 
-      await stream.writeSSE({ event: "ready", data: JSON.stringify({ after: cursor }) });
+      await stream.writeSSE({
+        event: "ready",
+        data: JSON.stringify({ after: cursor }),
+        retry: RETRY_MS,
+      });
       wake();
       await done;
       clearInterval(keepAlive);

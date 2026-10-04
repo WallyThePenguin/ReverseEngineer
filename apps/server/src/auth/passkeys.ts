@@ -8,10 +8,39 @@ import {
   verifyAuthenticationResponse,
   verifyRegistrationResponse,
 } from "@simplewebauthn/server";
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, gt, lt } from "drizzle-orm";
 import { hashToken, safeEqual } from "./tokens.ts";
 
 const CHALLENGE_TTL_MS = 5 * 60_000;
+
+/** Why a passkey sign-in or registration failed, for the server log; the screen stays plain. */
+function authFailed(what: "sign-in" | "registration", why: string) {
+  console.warn(`[auth] passkey ${what} failed: ${why}`);
+}
+
+/** Runs a check that can throw (SimpleWebAuthn explains origin and RP ID mismatches that way). */
+async function explained<T>(
+  what: "sign-in" | "registration",
+  fn: () => Promise<T>,
+  failed: T,
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    authFailed(what, (err as Error).message);
+    return failed;
+  }
+}
+
+/** Notes a failure on Hearth's side (the database, say) before passing it on. */
+async function logged<T>(what: "sign-in" | "registration", fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    authFailed(what, `Hearth couldn't check it: ${(err as Error).message}`);
+    throw err;
+  }
+}
 export const SETUP_CODE_KEY = "auth.setupCodeHash";
 
 export interface RelyingParty {
@@ -55,6 +84,8 @@ async function saveChallenge(
 ): Promise<string> {
   const id = randomBytes(18).toString("base64url");
   const now = new Date();
+  // Abandoned sign-ins leave challenges behind; clear the expired ones as new ones are made.
+  await db.delete(authChallenge).where(lt(authChallenge.expiresAt, now));
   await db.insert(authChallenge).values({
     id,
     challenge,
@@ -104,15 +135,36 @@ export async function verifyRegistration(
   response: Parameters<typeof verifyRegistrationResponse>[0]["response"],
   label: string,
 ): Promise<boolean> {
+  return logged("registration", () => checkRegistration(db, rp, challengeId, response, label));
+}
+
+async function checkRegistration(
+  db: Db,
+  rp: RelyingParty,
+  challengeId: string,
+  response: Parameters<typeof verifyRegistrationResponse>[0]["response"],
+  label: string,
+): Promise<boolean> {
   const challenge = await takeChallenge(db, challengeId, "register");
-  if (!challenge) return false;
-  const result = await verifyRegistrationResponse({
-    response,
-    expectedChallenge: challenge,
-    expectedOrigin: rp.origin,
-    expectedRPID: rp.rpID,
-  });
-  if (!result.verified) return false;
+  if (!challenge) {
+    authFailed("registration", "the challenge expired or was already used");
+    return false;
+  }
+  const result = await explained(
+    "registration",
+    () =>
+      verifyRegistrationResponse({
+        response,
+        expectedChallenge: challenge,
+        expectedOrigin: rp.origin,
+        expectedRPID: rp.rpID,
+      }),
+    null,
+  );
+  if (!result?.verified) {
+    if (result) authFailed("registration", "the authenticator's response didn't verify");
+    return false;
+  }
   const c = result.registrationInfo.credential;
   await db.insert(credential).values({
     id: c.id,
@@ -142,23 +194,46 @@ export async function verifyLogin(
   challengeId: string,
   response: Parameters<typeof verifyAuthenticationResponse>[0]["response"],
 ): Promise<string | null> {
+  return logged("sign-in", () => checkLogin(db, rp, challengeId, response));
+}
+
+async function checkLogin(
+  db: Db,
+  rp: RelyingParty,
+  challengeId: string,
+  response: Parameters<typeof verifyAuthenticationResponse>[0]["response"],
+): Promise<string | null> {
   const challenge = await takeChallenge(db, challengeId, "login");
-  if (!challenge) return null;
+  if (!challenge) {
+    authFailed("sign-in", "the challenge expired or was already used");
+    return null;
+  }
   const [cred] = await db.select().from(credential).where(eq(credential.id, response.id));
-  if (!cred) return null;
-  const result = await verifyAuthenticationResponse({
-    response,
-    expectedChallenge: challenge,
-    expectedOrigin: rp.origin,
-    expectedRPID: rp.rpID,
-    credential: {
-      id: cred.id,
-      publicKey: new Uint8Array(cred.publicKey),
-      counter: cred.counter,
-      transports: cred.transports,
-    },
-  });
-  if (!result.verified) return null;
+  if (!cred) {
+    authFailed("sign-in", "Hearth doesn't know that passkey (it may have been removed)");
+    return null;
+  }
+  const result = await explained(
+    "sign-in",
+    () =>
+      verifyAuthenticationResponse({
+        response,
+        expectedChallenge: challenge,
+        expectedOrigin: rp.origin,
+        expectedRPID: rp.rpID,
+        credential: {
+          id: cred.id,
+          publicKey: new Uint8Array(cred.publicKey),
+          counter: cred.counter,
+          transports: cred.transports,
+        },
+      }),
+    null,
+  );
+  if (!result?.verified) {
+    if (result) authFailed("sign-in", "the passkey's signature didn't verify");
+    return null;
+  }
   await db
     .update(credential)
     .set({ counter: result.authenticationInfo.newCounter, lastUsedAt: new Date() })
