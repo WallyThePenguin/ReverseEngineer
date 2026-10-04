@@ -1,11 +1,13 @@
 // Mail and the people it comes from (M2). Mirrors migrations/0006_mail.up.sql and
-// 0007_mail_drafts.up.sql, 0008_mail_waiting.up.sql and 0009_mail_invites.up.sql.
+// 0007_mail_drafts.up.sql, 0008_mail_waiting.up.sql, 0009_mail_invites.up.sql and
+// 0022_google_pacing.up.sql.
 import { sql } from "drizzle-orm";
 import {
   boolean,
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   unique,
@@ -25,8 +27,31 @@ export const mailAccount = pgTable(
     cursor: jsonb("cursor").$type<Record<string, unknown>>(),
     syncedAt: ts("synced_at"),
     lastError: text("last_error"),
+    /** Gmail asked Hearth to slow down: no syncing until then. */
+    pausedUntil: ts("paused_until"),
+    syncState: text("sync_state").$type<MailSyncState>().notNull().default("ok"),
+    /** Failed syncs in a row, and when the first of them was. A slowdown isn't a failure. */
+    failures: integer("failures").notNull().default(0),
+    failingSince: ts("failing_since"),
   },
   (t) => [unique().on(t.provider, t.address)],
+);
+
+/** ok, still bringing mail in, asked by Gmail to slow down, or failing (the only bad one). */
+export type MailSyncState = "ok" | "catching_up" | "paused" | "failing";
+
+/** Messages that failed to save a few times, set aside so they never hold up the rest. */
+export const mailQuarantine = pgTable(
+  "mail_quarantine",
+  {
+    accountId: text("account_id").notNull(),
+    providerId: text("provider_id").notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    firstFailedAt: ts("first_failed_at").notNull(),
+    lastFailedAt: ts("last_failed_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.accountId, t.providerId] })],
 );
 
 export interface MailAddress {

@@ -1,6 +1,18 @@
-// Google accounts and Calendar. Mirrors migrations/0004_google_calendar.up.sql.
+// Google accounts and Calendar. Mirrors migrations/0004_google_calendar.up.sql and the pacing
+// tables of 0022_google_pacing.up.sql.
 import { sql } from "drizzle-orm";
-import { boolean, jsonb, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  unique,
+  uuid,
+} from "drizzle-orm/pg-core";
 
 const ts = (name: string) => timestamp(name, { withTimezone: true, mode: "date" });
 
@@ -14,6 +26,29 @@ export const googleAccount = pgTable("google_account", {
   status: text("status").$type<"ok" | "failing" | "revoked">().notNull().default("ok"),
   lastError: text("last_error"),
 });
+
+/** Per account and service ("gmail", "calendar"): a pause Google asked for, shared by every process. */
+export const googleQuota = pgTable(
+  "google_quota",
+  {
+    account: text("account").notNull(),
+    service: text("service").notNull(),
+    pausedUntil: ts("paused_until"),
+  },
+  (t) => [primaryKey({ columns: [t.account, t.service] })],
+);
+
+/** Every Google call, written before it goes out, so all processes pace against one minute. */
+export const googleSpend = pgTable(
+  "google_spend",
+  {
+    account: text("account").notNull(),
+    service: text("service").notNull(),
+    at: ts("at").notNull(),
+    units: integer("units").notNull(),
+  },
+  (t) => [index("google_spend_window").on(t.account, t.service, t.at)],
+);
 
 export const oauthState = pgTable("oauth_state", {
   state: text("state").primaryKey(),
