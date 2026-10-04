@@ -47,7 +47,15 @@ export interface DeepHealth {
   } | null;
   components: Record<string, JudgedHealth>;
   jarvisTurns24h: TurnStats | null;
-  browser: { connected: boolean; version: string | null; since: string | null } | null;
+  /** The Chrome extension's link; the server doesn't know the extension's id, only its version. */
+  browser: {
+    connected: boolean;
+    version: string | null;
+    since: string | null;
+    paired: boolean | null;
+    /** Why Hearth last couldn't open Chrome, until it connects. */
+    openError: string | null;
+  } | null;
 }
 
 export interface DeepHealthInput {
@@ -113,6 +121,8 @@ export async function deepHealth(input: DeepHealthInput): Promise<DeepHealth> {
           connected: input.browser.connected,
           version: input.browser.version,
           since: input.browser.since,
+          paired: input.browser.paired ?? null,
+          openError: input.browser.openError ?? null,
         }
       : null,
   };

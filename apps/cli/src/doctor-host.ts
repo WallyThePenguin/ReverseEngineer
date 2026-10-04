@@ -126,17 +126,30 @@ export async function probeServer(
 export function checkChromeLink(report: DeepHealth | null): Check | null {
   const b = report?.browser;
   if (!b) return null;
-  return b.connected
-    ? {
-        name: "Chrome link",
-        mark: "ok",
-        detail: `Extension ${b.version ?? "(no version)"} connected since ${b.since}`,
-      }
-    : {
-        name: "Chrome link",
-        mark: "warn",
-        detail: "The Hearth extension isn't connected. Hearth opens Chrome when Jarvis needs it.",
-      };
+  const name = "Chrome link";
+  if (b.connected)
+    return {
+      name,
+      mark: "ok",
+      detail: `Extension ${b.version ?? "(no version)"} connected since ${b.since}`,
+    };
+  if (b.paired === false)
+    return {
+      name,
+      mark: "warn",
+      detail: "No extension is paired yet. See section 10 of docs/setup-windows.md.",
+    };
+  if (b.openError)
+    return {
+      name,
+      mark: "warn",
+      detail: `Not connected, and Hearth couldn't open Chrome: ${b.openError}`,
+    };
+  return {
+    name,
+    mark: "warn",
+    detail: "The Hearth extension isn't connected. Hearth opens Chrome when Jarvis needs it.",
+  };
 }
 
 /** The web build's stamp against the code on disk, and against what the server runs. */
