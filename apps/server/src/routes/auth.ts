@@ -6,7 +6,7 @@ import type { Context } from "hono";
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { z } from "zod";
-import { pairDevice } from "../auth/devices.ts";
+import { DESKTOP_WINDOW, pairDevice, revokeDesktopWindow } from "../auth/devices.ts";
 import { type Handoffs, handoffs as sharedHandoffs } from "../auth/handoff.ts";
 import { SESSION_COOKIE } from "../auth/middleware.ts";
 import {
@@ -62,12 +62,12 @@ function takeChallengeCookie(c: Context<AppEnv>): string | null {
   return id;
 }
 
-async function signIn(c: Context<AppEnv>, principal: string) {
+async function signIn(c: Context<AppEnv>, principal: string, label?: string) {
   const { kernel } = c.get("deps");
   const token = await createSession(kernel.db, {
     principal,
     kind: "browser",
-    label: c.req.header("user-agent")?.slice(0, 120) ?? "browser",
+    label: label ?? c.req.header("user-agent")?.slice(0, 120) ?? "browser",
     ttlDays: SESSION_DAYS,
   });
   setCookie(c, SESSION_COOKIE, token, {
@@ -121,12 +121,14 @@ export function authRoutes(handoffs: Handoffs = sharedHandoffs) {
     return c.json({ token, code: handoffs.codes.issue(principal) });
   });
 
-  // The app's window trades the code for an ordinary session, then opens the inbox.
+  // The app's window trades the code for an ordinary session, then opens the inbox. It has one
+  // such session: connecting again signs the last one out, and so does disconnecting the app.
   app.get("/desktop/window", async (c) => {
     const principal = handoffs.codes.take(c.req.query("code"));
     c.header("Cache-Control", "no-store");
     if (!principal) return c.html(RUN_OUT_PAGE, 410);
-    await signIn(c, principal);
+    await revokeDesktopWindow(c.get("deps").kernel.db);
+    await signIn(c, principal, DESKTOP_WINDOW);
     return c.redirect("/inbox", 302);
   });
 

@@ -3,12 +3,12 @@
 import { PRINCIPAL } from "@hearth/core";
 import { jarvisCaller, latestSeq, readEventsAfter, systemCaller } from "@hearth/kernel";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { pairDevice } from "./auth/devices.ts";
+import { pairDevice, revokeDevice } from "./auth/devices.ts";
 import { Handoffs } from "./auth/handoff.ts";
 import { SESSION_COOKIE } from "./auth/middleware.ts";
 import { createSession } from "./auth/tokens.ts";
 import { loadServerConfig, type ServerConfig } from "./config.ts";
-import { healthMessage, messagesFor } from "./routes/desktop.ts";
+import { healthMessage, messagesFor, stillSignedIn } from "./routes/desktop.ts";
 import { createTestServer, type TestServer } from "./testing/server.ts";
 
 const TS_NET = "https://pc.example.ts.net";
@@ -132,6 +132,37 @@ describe("connecting the desktop app", () => {
       json: { decision: "approve" },
     });
     expect(decide.status).toBe(403);
+  });
+
+  it("keeps one window session, and signs it out when the app is disconnected", async () => {
+    await serve();
+    await signInBrowser();
+    const openWindow = async () => {
+      const { token, code } = await connect();
+      const cookie = sessionCookie(await fromApp(`/api/auth/desktop/window?code=${code}`))!;
+      return { token, cookie: cookie.split(";")[0]! };
+    };
+    const signedIn = async (cookie?: string) => {
+      const res = cookie
+        ? await fromApp("/api/auth/me", { headers: { cookie } })
+        : await t.browser("/api/auth/me");
+      return ((await res.json()) as { signedIn: boolean }).signedIn;
+    };
+    const status = (token: string) =>
+      t.api("/api/actions/system.status", token, { method: "POST", json: {} });
+
+    const first = await openWindow();
+    const second = await openWindow();
+    // Connecting again replaces both the app's token and its window's session.
+    expect((await status(first.token)).status).toBe(401);
+    expect(await signedIn(first.cookie)).toBe(false);
+    expect(await signedIn(second.cookie)).toBe(true);
+
+    // Disconnecting it in Settings signs both out; the browser you did it in stays signed in.
+    expect((await t.browser("/api/devices/desktop", { method: "DELETE" })).status).toBe(200);
+    expect((await status(second.token)).status).toBe(401);
+    expect(await signedIn(second.cookie)).toBe(false);
+    expect(await signedIn()).toBe(true);
   });
 
   it("forgets nonces after a minute, by the clock it's given", () => {
@@ -259,6 +290,21 @@ describe("the desktop notification feed", () => {
     const text = await feed.until("event: notify");
     await feed.stop();
     expect(notes(text)).toMatchObject([{ title: "Your brief is ready" }]);
+  });
+
+  it("ends when the app is disconnected, rather than keep telling it things", async () => {
+    await serve();
+    const token = await pairDevice(t.kernel.db, "desktop");
+    const feed = sse((await t.api("/api/desktop/notify", token)).body!);
+    await feed.until("event: ready");
+    expect(await stillSignedIn(t.kernel.db, token)).toBe(true);
+
+    await revokeDevice(t.kernel.db, "desktop");
+    expect(await stillSignedIn(t.kernel.db, token)).toBe(false);
+    await publishBrief();
+    t.server.hub.publish(await latestSeq(t.kernel.db));
+    // The stream closes instead of sending the brief.
+    expect(await feed.until("event: notify")).not.toContain("event: notify");
   });
 
   it("is only for you and your devices, and isn't the whole event feed", async () => {

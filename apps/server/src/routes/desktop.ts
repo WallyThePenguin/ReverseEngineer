@@ -2,9 +2,9 @@
 // items your phone is told about (push.ts decides which) and Hearth's health changing, as
 // server-sent events. The desktop app's token may read it; nothing here can approve anything,
 // and a notification only opens a page.
-import { notification } from "@hearth/db";
+import { hashToken, notification, session } from "@hearth/db";
 import { type HearthEvent, latestSeq, readEventsAfter } from "@hearth/kernel";
-import { inArray } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { requireCaller } from "../auth/middleware.ts";
@@ -67,10 +67,35 @@ export async function messagesFor(
   return out;
 }
 
+/**
+ * Whether the token the feed was opened with still signs in. The feed outlives the request that
+ * checked it, so disconnecting the app (or connecting it again, which replaces its token) has to
+ * end it here, or a signed-out PC would go on being told about your inbox.
+ */
+export async function stillSignedIn(
+  db: ServerDeps["kernel"]["db"],
+  token: string | null,
+): Promise<boolean> {
+  // Development login on loopback has no token to sign out.
+  if (!token) return true;
+  const [row] = await db
+    .select({ hash: session.tokenHash })
+    .from(session)
+    .where(
+      and(
+        eq(session.tokenHash, hashToken(token)),
+        isNull(session.revokedAt),
+        or(isNull(session.expiresAt), gt(session.expiresAt, new Date())),
+      ),
+    );
+  return !!row;
+}
+
 export function desktopRoutes() {
   const app = new Hono<AppEnv>();
   app.get("/notify", requireCaller(["owner"]), (c) => {
     const deps = c.get("deps");
+    const token = c.get("token");
     const header = c.req.header("last-event-id");
     const from = header ? Number(header) : Number.NaN;
     return streamSSE(c, async (stream) => {
@@ -89,7 +114,11 @@ export function desktopRoutes() {
               kinds: KINDS,
             });
             const now = deps.kernel.clock.now().getTime();
-            for (const { seq, message } of await messagesFor(deps.kernel.db, events, now)) {
+            const messages = await messagesFor(deps.kernel.db, events, now);
+            if (messages.length && !(await stillSignedIn(deps.kernel.db, token))) {
+              return stream.abort();
+            }
+            for (const { seq, message } of messages) {
               await stream.writeSSE({
                 event: "notify",
                 id: String(seq),
@@ -120,10 +149,14 @@ export function desktopRoutes() {
         onStream: () => {},
         onStop: () => stream.abort(),
       });
-      const keepAlive = setInterval(
-        () => void stream.write(": keep-alive\n\n").catch(() => {}),
-        KEEP_ALIVE_MS,
-      );
+      const keepAlive = setInterval(() => {
+        void stillSignedIn(deps.kernel.db, token)
+          .then(async (ok) => {
+            if (ok) await stream.write(": keep-alive\n\n");
+            else stream.abort();
+          })
+          .catch(() => {});
+      }, KEEP_ALIVE_MS);
       const done = new Promise<void>((resolve) => stream.onAbort(resolve));
 
       await stream.writeSSE({ event: "ready", id: String(cursor), data: "{}" });
