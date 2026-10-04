@@ -1185,8 +1185,9 @@ later as your instructions, however they're stored or replayed.
   reading, still just works; a new conversation starts fresh, and the conversation shows a badge
   saying so. This is the "taint survives a resumed session" D52 waited on before per-task site
   grants.
-- **Mentions come only from you or Jarvis.** A mention tag written by an integration or an outside
-  agent links nothing and calls no one, and a tag whose id isn't a record's id is plain text. An
+- **Only you or Jarvis call Jarvis.** An @Jarvis written by an integration or an outside agent
+  calls no one, whatever type its tag claims; its links to records stay (a Notion import links its
+  pages), as links from outside content. A tag whose id isn't a record's id is plain text. An
   @Jarvis written on outside content's say-so (heard words, D46) starts an untrusted turn.
 - **Outside agents are outside content.** MCP clients and integrations act with an untrusted
   origin. Memory and Jarvis's watches and observations are only for you and Jarvis. `/mcp`

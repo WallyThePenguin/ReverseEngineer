@@ -149,13 +149,14 @@ export async function restoreEntity(ctx: ActionContext, id: string): Promise<Ent
 
 /**
  * Re-derives this record's mention links from its body and emits what changed. Only text you or
- * an agent wrote mentions anything: an email or an outside agent's note that holds a mention tag
- * can't link records or call Jarvis (D58).
+ * an agent wrote calls an agent: a mention of Jarvis in an email or an outside agent's note does
+ * nothing (D58). Its links to records stay (a Notion import's links between its pages), as links
+ * from outside content: a record's id can't be guessed, and reading them lowers a turn's trust.
  */
 export async function syncMentions(ctx: ActionContext, source: EntityRow): Promise<void> {
   const body = source.body ?? "";
   const outsider = ctx.caller.kind === "integration" || ctx.caller.kind === "mcp_client";
-  const mentions = outsider ? [] : parseMentions(body).filter((m) => m.id !== source.id);
+  const mentions = parseMentions(body).filter((m) => m.id !== source.id);
   const targetIds = [...new Set(mentions.map((m) => m.id))];
   const targets = targetIds.length
     ? await ctx.tx
@@ -164,8 +165,11 @@ export async function syncMentions(ctx: ActionContext, source: EntityRow): Promi
         .where(and(inArray(entity.id, targetIds), isNull(entity.deletedAt)))
     : [];
   const typeOf = new Map(targets.map((t) => [t.id, t.type]));
+  const callsAgent = (id: string) => id === JARVIS_ENTITY_ID || typeOf.get(id) === "agent";
   const desired = new Map(
-    mentions.filter((m) => typeOf.has(m.id)).map((m) => [`${m.id}|#${m.occurrence}`, m]),
+    mentions
+      .filter((m) => typeOf.has(m.id) && !(outsider && callsAgent(m.id)))
+      .map((m) => [`${m.id}|#${m.occurrence}`, m]),
   );
 
   const existing = await ctx.tx
