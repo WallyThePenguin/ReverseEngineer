@@ -8,6 +8,7 @@ import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
 import { toast } from "../lib/live.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
+import { createSelection } from "../lib/selection.ts";
 import type { MemoryNote, MemoryRevision } from "../lib/types.ts";
 
 // The live editor loads when a memory note opens, like a note's.
@@ -20,15 +21,20 @@ function ScopeBadge(props: { scope: MemoryNote["scope"] }) {
 export function Memory(props: { pane: number }) {
   const notes = useAction<MemoryNote[]>("memory.list");
   const [title, setTitle] = createSignal("");
-  const [index, setIndex] = createSignal(0);
   const list = () => notes.data ?? [];
+  const sel = createSelection(list, (n) => n.id);
   const focused = () => layout.focused() === props.pane;
   const open = (n: MemoryNote | undefined) =>
     n && layout.show({ view: "record", id: n.id }, props.pane);
 
   useHotkeys([
-    ...listKeys({ count: () => list().length, index, setIndex, when: focused }),
-    { keys: "enter", run: () => open(list()[index()]), when: focused, label: "Open memory" },
+    ...listKeys({
+      count: () => list().length,
+      index: sel.index,
+      setIndex: sel.select,
+      when: focused,
+    }),
+    { keys: "enter", run: () => open(sel.current()), when: focused, label: "Open memory" },
   ]);
 
   return (
@@ -68,9 +74,9 @@ export function Memory(props: { pane: number }) {
               {(n, i) => (
                 <li
                   class="flex cursor-pointer items-baseline gap-3 border-b border-line px-4 py-2"
-                  data-active={focused() && i() === index()}
+                  data-active={focused() && i() === sel.index()}
                   onClick={() => {
-                    setIndex(i());
+                    sel.select(i());
                     open(n);
                   }}
                 >

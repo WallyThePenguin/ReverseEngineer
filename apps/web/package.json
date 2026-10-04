@@ -11,6 +11,7 @@
     "e2e": "node e2e/smoke.ts",
     "e2e:browser": "node e2e/browser.ts",
     "e2e:resilience": "node e2e/resilience.ts",
+    "e2e:daily": "node e2e/daily.ts",
     "e2e:offline": "node e2e/offline.ts",
     "e2e:chrome-launch": "node e2e/chrome-launch.ts"
   },

@@ -1,11 +1,12 @@
 // Spreadsheets (PLAN.md section 8.5): a list, and a spreadsheet per pane.
 
-import { createSignal, For, lazy, Show } from "solid-js";
+import { For, lazy, Show } from "solid-js";
 import { Button, Empty, PaneHeader } from "../components/ui.tsx";
 import { ago } from "../lib/format.ts";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
+import { createSelection } from "../lib/selection.ts";
 
 // The grid (and its formula engine) is only needed once one opens.
 const Grid = lazy(() => import("../sheets/Grid.tsx").then((m) => ({ default: m.SheetGrid })));
@@ -19,8 +20,8 @@ export async function newSheet(pane: number) {
 
 export function Sheets(props: { pane: number }) {
   const sheets = useAction<Row[]>("sheet.list", () => ({ limit: 100 }));
-  const [index, setIndex] = createSignal(0);
   const list = () => sheets.data ?? [];
+  const sel = createSelection(list, (r) => r.id);
   const focused = () => layout.focused() === props.pane;
   const open = (r: Row | undefined, beside = false) => {
     if (!r) return;
@@ -29,8 +30,13 @@ export function Sheets(props: { pane: number }) {
   };
 
   useHotkeys([
-    ...listKeys({ count: () => list().length, index, setIndex, when: focused }),
-    { keys: "enter", run: () => open(list()[index()]), when: focused, label: "Open spreadsheet" },
+    ...listKeys({
+      count: () => list().length,
+      index: sel.index,
+      setIndex: sel.select,
+      when: focused,
+    }),
+    { keys: "enter", run: () => open(sel.current()), when: focused, label: "Open spreadsheet" },
     { keys: "c", run: () => void newSheet(props.pane), when: focused, label: "New spreadsheet" },
   ]);
 
@@ -57,9 +63,9 @@ export function Sheets(props: { pane: number }) {
               {(r, i) => (
                 <li
                   class="flex cursor-pointer items-baseline gap-3 border-b border-line px-4 py-2.5"
-                  data-active={focused() && i() === index()}
+                  data-active={focused() && i() === sel.index()}
                   onClick={(e) => {
-                    setIndex(i());
+                    sel.select(i());
                     open(r, e.shiftKey);
                   }}
                 >

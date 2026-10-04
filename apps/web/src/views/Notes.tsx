@@ -11,6 +11,7 @@ import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
 import { toast } from "../lib/live.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
+import { createSelection } from "../lib/selection.ts";
 import type { Entity, NoteRow } from "../lib/types.ts";
 
 // The editor and its CRDT are big, so they load when a note opens.
@@ -23,8 +24,8 @@ export async function newNote(pane: number) {
 
 export function Notes(props: { pane: number }) {
   const notes = useAction<NoteRow[]>("note.list", () => ({ limit: 100 }));
-  const [index, setIndex] = createSignal(0);
   const list = () => notes.data ?? [];
+  const sel = createSelection(list, (n) => n.id);
   const focused = () => layout.focused() === props.pane;
   const open = (n: NoteRow | undefined, beside = false) => {
     if (!n) return;
@@ -33,8 +34,13 @@ export function Notes(props: { pane: number }) {
   };
 
   useHotkeys([
-    ...listKeys({ count: () => list().length, index, setIndex, when: focused }),
-    { keys: "enter", run: () => open(list()[index()]), when: focused, label: "Open note" },
+    ...listKeys({
+      count: () => list().length,
+      index: sel.index,
+      setIndex: sel.select,
+      when: focused,
+    }),
+    { keys: "enter", run: () => open(sel.current()), when: focused, label: "Open note" },
     { keys: "c", run: () => void newNote(props.pane), when: focused, label: "New note" },
   ]);
 
@@ -55,9 +61,9 @@ export function Notes(props: { pane: number }) {
               {(n, i) => (
                 <li
                   class="cursor-pointer border-b border-line px-4 py-2.5"
-                  data-active={focused() && i() === index()}
+                  data-active={focused() && i() === sel.index()}
                   onClick={(e) => {
-                    setIndex(i());
+                    sel.select(i());
                     open(n, e.shiftKey);
                   }}
                 >

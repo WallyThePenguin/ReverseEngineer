@@ -5,6 +5,7 @@ import { Empty, PaneHeader } from "../components/ui.tsx";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
+import { createSelection } from "../lib/selection.ts";
 import type { Company, Person } from "../lib/types.ts";
 import { PeopleRows } from "./Person.tsx";
 
@@ -19,17 +20,22 @@ export function People(props: { pane: number }) {
     () => tab() === "companies",
   );
   const [name, setName] = createSignal("");
-  const [index, setIndex] = createSignal(0);
   const due = () => (people.data ?? []).filter((p) => p.overdueDays);
   const rows = (): { id: string }[] =>
     tab() === "companies" ? (companies.data ?? []) : tab() === "due" ? due() : (people.data ?? []);
+  const sel = createSelection(rows, (r) => r.id);
   const focused = () => layout.focused() === props.pane;
   const open = (r: { id: string } | undefined) =>
     r && layout.show({ view: "record", id: r.id }, props.pane);
 
   useHotkeys([
-    ...listKeys({ count: () => rows().length, index, setIndex, when: focused }),
-    { keys: "enter", run: () => open(rows()[index()]), when: focused, label: "Open" },
+    ...listKeys({
+      count: () => rows().length,
+      index: sel.index,
+      setIndex: sel.select,
+      when: focused,
+    }),
+    { keys: "enter", run: () => open(sel.current()), when: focused, label: "Open" },
   ]);
 
   const tabButton = (t: Tab, label: string) => (
@@ -39,7 +45,7 @@ export function People(props: { pane: number }) {
       classList={{ "bg-sunk text-ink": tab() === t, "text-muted": tab() !== t }}
       onClick={() => {
         setTab(t);
-        setIndex(0);
+        sel.reset();
       }}
     >
       {label}
@@ -77,9 +83,9 @@ export function People(props: { pane: number }) {
             fallback={
               <PeopleRows
                 rows={tab() === "due" ? due() : (people.data ?? [])}
-                active={focused() ? index() : undefined}
+                active={focused() ? sel.index() : undefined}
                 onOpen={(p) => {
-                  setIndex(rows().indexOf(p));
+                  sel.select(rows().indexOf(p));
                   open(p);
                 }}
               />
@@ -89,9 +95,9 @@ export function People(props: { pane: number }) {
               {(companies.data ?? []).map((c, i) => (
                 <li
                   class="flex cursor-pointer items-baseline gap-3 border-b border-line px-4 py-2"
-                  data-active={focused() && i === index()}
+                  data-active={focused() && i === sel.index()}
                   onClick={() => {
-                    setIndex(i);
+                    sel.select(i);
                     open(c);
                   }}
                 >

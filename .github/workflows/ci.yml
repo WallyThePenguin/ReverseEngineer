@@ -94,9 +94,16 @@ jobs:
       - name: The app opens while Hearth is stopped or not answering, end-to-end
         # Starts and stops its own server on this port.
         run: HEARTH_E2E_PORT=4404 pnpm --filter @hearth/web e2e:offline
+      - name: Split panes, the trash and triage by touch, end-to-end
+        run: |
+          export HEARTH_WEB_DIST="$PWD/apps/web/dist"
+          HEARTH_DEV_AUTH=1 HEARTH_PORT=4405 HEARTH_ORIGIN=http://localhost:4405 HEARTH_CHROME_LAUNCH=off \
+            pnpm -s hearth serve > server-daily.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf localhost:4405/api/health > /dev/null && break; sleep 1; done
+          HEARTH_E2E_URL=http://localhost:4405 pnpm --filter @hearth/web e2e:daily
       - name: Server log
         if: failure()
-        run: cat server.log server-dev.log server-launch.log server-resilience.log || true
+        run: cat server.log server-dev.log server-launch.log server-resilience.log server-daily.log || true
 
   # Hearth runs on Windows, so it's checked there too: Node 22 (what the PC runs), PostgreSQL 17
   # (what the PC runs), a real server start, and a backup restored into a fresh database.

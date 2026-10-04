@@ -11,6 +11,7 @@ import { affectedByChange } from "../lib/invalidate.ts";
 import { live, toast } from "../lib/live.ts";
 import { layout, routeFor } from "../lib/panes.ts";
 import { act, inboxInput, useAction } from "../lib/query.ts";
+import { createSelection } from "../lib/selection.ts";
 import type { InboxRow } from "../lib/types.ts";
 
 type View = "live" | "snoozed" | "done";
@@ -28,11 +29,12 @@ export async function decide(approvalId: string, decision: "approve" | "deny") {
 export function Inbox(props: { pane: number }) {
   const [view, setView] = createSignal<View>("live");
   const [lane, setLane] = createSignal<"signal" | "noise">("signal");
-  const [index, setIndex] = createSignal(0);
   const [snoozing, setSnoozing] = createSignal<string | null>(null);
   const rows = useAction<InboxRow[]>("inbox.list", () => inboxInput(view(), lane()));
   const list = () => rows.data ?? [];
-  const current = () => list()[Math.min(index(), list().length - 1)];
+  // Kept by id: a new arrival above it doesn't move the keys onto a different row.
+  const sel = createSelection(list, (r) => r.notification.id);
+  const current = sel.current;
   const focused = () => layout.focused() === props.pane;
 
   const open = (row: InboxRow | undefined, beside = false) => {
@@ -56,7 +58,12 @@ export function Inbox(props: { pane: number }) {
   };
 
   useHotkeys([
-    ...listKeys({ count: () => list().length, index, setIndex, when: focused }),
+    ...listKeys({
+      count: () => list().length,
+      index: sel.index,
+      setIndex: sel.select,
+      when: focused,
+    }),
     { keys: "enter", run: () => open(current()), when: focused, label: "Open" },
     { keys: "o", run: () => open(current()), when: focused },
     { keys: "e", run: () => done(current()), when: focused, label: "Done" },
@@ -93,6 +100,10 @@ export function Inbox(props: { pane: number }) {
     { keys: "escape", run: () => setSnoozing(null), when: () => snoozing() !== null },
   ]);
 
+  const pickLane = (l: "signal" | "noise") => {
+    setLane(l);
+    sel.reset();
+  };
   const tab = (active: boolean) =>
     `rounded-md px-2 py-1 text-sm ${active ? "bg-sunk font-medium" : "text-muted hover:text-ink"}`;
 
@@ -100,10 +111,10 @@ export function Inbox(props: { pane: number }) {
     <div class="flex h-full flex-col">
       <PaneHeader title="Inbox">
         <Show when={view() === "live"}>
-          <button type="button" class={tab(lane() === "signal")} onClick={() => setLane("signal")}>
+          <button type="button" class={tab(lane() === "signal")} onClick={() => pickLane("signal")}>
             Signal
           </button>
-          <button type="button" class={tab(lane() === "noise")} onClick={() => setLane("noise")}>
+          <button type="button" class={tab(lane() === "noise")} onClick={() => pickLane("noise")}>
             Noise
           </button>
           <span class="mx-1 h-4 w-px bg-line" />
@@ -113,7 +124,7 @@ export function Inbox(props: { pane: number }) {
           value={view()}
           onChange={(e) => {
             setView(e.currentTarget.value as View);
-            setIndex(0);
+            sel.reset();
           }}
         >
           <option value="live">Live</option>
@@ -141,9 +152,9 @@ export function Inbox(props: { pane: number }) {
                   return (
                     <li
                       class="cursor-pointer border-b border-line px-4 py-3"
-                      data-active={focused() && i() === index()}
+                      data-active={focused() && i() === sel.index()}
                       onClick={(e) => {
-                        setIndex(i());
+                        sel.select(i());
                         open(row, e.shiftKey);
                       }}
                     >

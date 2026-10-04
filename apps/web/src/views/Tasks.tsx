@@ -8,6 +8,7 @@ import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
 import { toast } from "../lib/live.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
+import { createSelection } from "../lib/selection.ts";
 import type { Task } from "../lib/types.ts";
 
 type Filter = "open" | "mine" | "jarvis" | "done";
@@ -76,12 +77,12 @@ export function TaskRow(props: { task: Task; active: boolean; onOpen: (beside: b
 
 export function Tasks(props: { pane: number }) {
   const [filter, setFilter] = createSignal<Filter>("open");
-  const [index, setIndex] = createSignal(0);
   const [title, setTitle] = createSignal("");
   const [forJarvis, setForJarvis] = createSignal(false);
   const tasks = useAction<Task[]>("task.list", () => query(filter()));
   // Subtasks show inside their parent.
   const list = () => (tasks.data ?? []).filter((t) => !t.parentId);
+  const sel = createSelection(list, (t) => t.id);
   const focused = () => layout.focused() === props.pane;
   let input!: HTMLInputElement;
 
@@ -105,14 +106,19 @@ export function Tasks(props: { pane: number }) {
   };
 
   useHotkeys([
-    ...listKeys({ count: () => list().length, index, setIndex, when: focused }),
-    { keys: "enter", run: () => open(list()[index()]), when: focused, label: "Open task" },
+    ...listKeys({
+      count: () => list().length,
+      index: sel.index,
+      setIndex: sel.select,
+      when: focused,
+    }),
+    { keys: "enter", run: () => open(sel.current()), when: focused, label: "Open task" },
     {
       keys: "x",
       when: focused,
       label: "Complete",
       run: () => {
-        const t = list()[index()];
+        const t = sel.current();
         if (t)
           void act("task.update", {
             id: t.id,
@@ -133,7 +139,7 @@ export function Tasks(props: { pane: number }) {
               class={`rounded-md px-2 py-1 text-sm ${filter() === f.id ? "bg-sunk font-medium" : "text-muted hover:text-ink"}`}
               onClick={() => {
                 setFilter(f.id);
-                setIndex(0);
+                sel.reset();
               }}
             >
               {f.label}
@@ -177,9 +183,9 @@ export function Tasks(props: { pane: number }) {
                 {(t, i) => (
                   <TaskRow
                     task={t}
-                    active={focused() && i() === index()}
+                    active={focused() && i() === sel.index()}
                     onOpen={(beside) => {
-                      setIndex(i());
+                      sel.select(i());
                       open(t, beside);
                     }}
                   />
