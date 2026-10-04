@@ -1,10 +1,12 @@
 import type { AddressInfo } from "node:net";
 import { PRINCIPAL } from "@hearth/core";
-import { createSession } from "@hearth/db";
+import { createSession, session } from "@hearth/db";
 import { BRIDGE_PROTOCOL, EXTENSION_ID } from "@hearth/modules";
 import { type ServerType, serve } from "@hono/node-server";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createApiToken } from "./auth/tokens.ts";
+import { eq } from "drizzle-orm";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SESSION_COOKIE } from "./auth/middleware.ts";
+import { createApiToken, revokeToken } from "./auth/tokens.ts";
 import {
   fakeExtension as fakeExtensionAt,
   type Msg,
@@ -24,12 +26,15 @@ beforeEach(async () => {
   base = `ws://127.0.0.1:${(http.address() as AddressInfo).port}`;
 });
 afterEach(async () => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   await t.destroy();
   (http as import("node:http").Server).closeAllConnections();
   await new Promise((r) => http.close(r));
 });
 
-const socket = (path: string, origin: string) => socketTo(base, path, origin);
+const socket = (path: string, origin: string, headers?: Record<string, string>) =>
+  socketTo(base, path, origin, headers);
 const fakeExtension = (token: string, answers: Record<string, (p: Msg) => unknown>) =>
   fakeExtensionAt(base, token, answers);
 
@@ -155,5 +160,55 @@ describe("the browser bridge", () => {
         windowsVirtualKeyCode: 13,
       }),
     ]);
+  });
+});
+
+describe("the live view", () => {
+  it("closes when the sign-in it was opened with ends, and not before", async () => {
+    const token = await createSession(t.kernel.db, {
+      principal: PRINCIPAL.owner,
+      kind: "browser",
+      label: "test browser",
+      ttlDays: 1,
+    });
+    const seen = async () =>
+      (await t.kernel.db.select().from(session)).find((r) => r.label === "test browser");
+    // Only the re-check's clock is pretend: the database and the socket run for real.
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const viewer = socket("/api/browser/live", TEST_ORIGIN, {
+      cookie: `${SESSION_COOKIE}=${token}`,
+    });
+    const closed = new Promise<number>((resolve) => viewer.ws.once("close", resolve));
+    await viewer.opened;
+    await viewer.next("state");
+    const settle = () => new Promise((r) => setTimeout(r, 200));
+
+    // Still signed in: it stays open. Watching isn't using, so even a sign-in last used a while
+    // ago isn't renewed by it (D56).
+    const earlier = new Date(Date.now() - 10 * 60_000);
+    await t.kernel.db
+      .update(session)
+      .set({ lastSeenAt: earlier })
+      .where(eq(session.label, "test browser"));
+    const before = await seen();
+    await vi.advanceTimersByTimeAsync(20_000);
+    await settle();
+    expect(viewer.ws.readyState).toBe(viewer.ws.OPEN);
+    expect(await seen()).toMatchObject({ lastSeenAt: earlier, expiresAt: before?.expiresAt });
+
+    // The database being out of reach ends no one's session.
+    vi.spyOn(t.kernel.db, "select").mockImplementation(() => {
+      throw new Error("connect ECONNREFUSED");
+    });
+    await vi.advanceTimersByTimeAsync(20_000);
+    vi.mocked(t.kernel.db.select).mockRestore();
+    await settle();
+    expect(viewer.ws.readyState).toBe(viewer.ws.OPEN);
+
+    // Signed out (in another tab, or by Disconnect): the next check closes it.
+    await revokeToken(t.kernel.db, token);
+    await vi.advanceTimersByTimeAsync(20_000);
+    const open = new Promise((r) => setTimeout(() => r("still open"), 3000));
+    expect(await Promise.race([closed, open])).toBe(4401);
   });
 });
