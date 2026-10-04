@@ -11,12 +11,15 @@ const disk = vi.hoisted(() => ({
   updates: new Map<string, PendingUpdate>(),
   /** Every claim of a peer hands out this one, as a device's first slot would. */
   peer: 1001n,
+  /** Writing ahead fails, as it does where IndexedDB can't be opened. */
+  full: false,
 }));
 
 vi.mock("./docStore.ts", () => ({
   loadDoc: async (id: string) => disk.docs.get(id) ?? null,
   pendingUpdates: async (doc: string) => [...disk.updates.values()].filter((u) => u.doc === doc),
   appendUpdate: async (u: PendingUpdate) => {
+    if (disk.full) return false;
     disk.updates.set([u.doc, u.tab, u.n].join("|"), u);
     return true;
   },
@@ -52,6 +55,7 @@ beforeEach(() => {
   disk.docs.clear();
   disk.updates.clear();
   disk.peer = 1001n;
+  disk.full = false;
   hearth = new LoroDoc();
   hearth.getText("body").insert(0, "Plan");
   hearth.commit();
@@ -181,6 +185,33 @@ describe("a note's edits, written ahead", () => {
     }
     // 2.4 seconds without a pause: a 500 ms pause alone would never have synced.
     expect(syncs).toBeGreaterThan(before);
+    await a.doc.close();
+  });
+
+  it("asks before the page closes only when an unsent edit isn't kept on this device", async () => {
+    /** Whether closing the page now would ask first. */
+    const asks = () => {
+      const e = new Event("beforeunload", { cancelable: true });
+      Object.defineProperty(e, "returnValue", { writable: true, value: true });
+      window.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    const a = await open();
+    mode = "down";
+    a.type(" kept");
+    await vi.advanceTimersByTimeAsync(600);
+    // Unsent, but on disk: the next open sends it, so closing doesn't ask.
+    expect(asks()).toBe(false);
+    disk.full = true;
+    a.type(" here only");
+    await vi.advanceTimersByTimeAsync(600);
+    expect(asks()).toBe(true);
+    mode = "up";
+    a.doc.schedule(0);
+    await vi.advanceTimersByTimeAsync(0);
+    // Hearth has it now.
+    expect(hearthText()).toBe("Plan kept here only");
+    expect(asks()).toBe(false);
     await a.doc.close();
   });
 

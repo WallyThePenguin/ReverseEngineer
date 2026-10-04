@@ -67,6 +67,8 @@ export class LiveDoc {
   /** Writes ahead, in order, and how many haven't finished. */
   private writes: Promise<unknown> = Promise.resolve();
   private writing = 0;
+  /** An edit couldn't be written ahead (no IndexedDB here): unsent edits exist only in this page. */
+  private diskless = false;
   private claim: Claim | null = null;
   private channel: BroadcastChannel | null = null;
   private timer: number | undefined;
@@ -139,8 +141,8 @@ export class LiveDoc {
     on("online", () => this.schedule(0));
     on("pagehide", () => this.flush());
     on("beforeunload", (e) => {
-      // Not yet written ahead: leaving now could lose it.
-      if (this.writing === 0) return;
+      // Not yet written ahead, or never can be here: leaving now could lose it.
+      if (this.writing === 0 && !(this.diskless && this.unsent())) return;
       e.preventDefault();
       e.returnValue = "";
     });
@@ -160,8 +162,11 @@ export class LiveDoc {
     this.writes = this.writes
       .then(() => appendUpdate(entry))
       .then((written) => {
-        // Not on disk, but maybe sent: this peer could reopen without it, so it's retired.
-        if (!written) this.claim?.retire();
+        if (!written) {
+          // Not on disk, but maybe sent: this peer could reopen without it, so it's retired.
+          this.diskless = true;
+          this.claim?.retire();
+        }
         this.channel?.postMessage(entry);
       })
       .finally(() => {
