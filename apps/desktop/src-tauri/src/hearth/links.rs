@@ -87,7 +87,10 @@ pub fn relative_path(path: &str) -> Result<String, String> {
     }
     let (route, _) = path.split_once('?').unwrap_or((path, ""));
     let lower = path.to_ascii_lowercase();
-    if route.contains("//")
+    // Hearth's routes are plain ASCII. An encoded character in one could only be hiding
+    // something, like "/%61pi/…", which the server would read as "/api/…".
+    if route.contains('%')
+        || route.contains("//")
         || route.split('/').any(|s| s == "." || s == "..")
         || ["%2e", "%2f", "%5c", "%00"]
             .iter()
@@ -194,6 +197,8 @@ mod tests {
             "hearth://open/api/auth/desktop/window?code=abcdefghijklmnopqrstuvwx",
             "hearth://open/API/devices",
             "hearth://open/mcp",
+            "hearth://open/%61pi/auth/desktop/window?code=abcdefghijklmnopqrstuvwx",
+            "hearth://open/%6dcp",
         ] {
             assert!(!matches!(parse(bad), Ok(Link::Open(_))), "{bad}");
         }
@@ -206,6 +211,9 @@ mod tests {
         assert!(relative_path("/a/./b").is_err());
         assert!(relative_path("inbox").is_err());
         assert!(relative_path("/inbox x").is_err());
+        // Encoded characters may only be in the query.
+        assert!(relative_path("/search?q=oat%20milk").is_ok());
+        assert!(relative_path("/in%62ox").is_err());
         assert!(relative_path(&format!("/{}", "a".repeat(3000))).is_err());
     }
 
