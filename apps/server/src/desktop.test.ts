@@ -16,6 +16,7 @@ const TS_NET = "https://pc.example.ts.net";
 let t: TestServer;
 let running: TestServer | null = null;
 afterEach(async () => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   await running?.destroy();
   running = null;
@@ -214,6 +215,27 @@ describe("Hearth's address on this PC", () => {
     };
     expect(await open("localhost:4400")).not.toMatch(/;\s*Secure/i);
     expect(await open("pc.example.ts.net")).toMatch(/;\s*Secure/i);
+  });
+
+  it("keeps it that way when a sign-in slides and its cookie is sent again", async () => {
+    await serve();
+    await signInBrowser();
+    const { code } = await connect();
+    const res = await fromApp(`/api/auth/desktop/window?code=${code}`, {
+      headers: { host: "localhost:4400" },
+    });
+    const cookie = sessionCookie(res)!.split(";")[0]!;
+    // Used a while later, the sign-in slides and the cookie comes again (D56).
+    const later = Date.now() + 10 * 60_000;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const renewed = async (host: string, at: number) => {
+      vi.setSystemTime(at);
+      return sessionCookie(await fromApp("/api/auth/me", { headers: { host, cookie } }));
+    };
+    const here = await renewed("localhost:4400", later);
+    expect(here).toBeDefined();
+    expect(here).not.toMatch(/;\s*Secure/i);
+    expect(await renewed("pc.example.ts.net", later + 10 * 60_000)).toMatch(/;\s*Secure/i);
   });
 
   it("never makes it Secure when Hearth itself is on plain http", async () => {

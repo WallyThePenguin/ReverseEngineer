@@ -8,7 +8,7 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { z } from "zod";
 import { DESKTOP_WINDOW, pairDevice, revokeDesktopWindow } from "../auth/devices.ts";
 import { type Handoffs, handoffs as sharedHandoffs } from "../auth/handoff.ts";
-import { SESSION_COOKIE } from "../auth/middleware.ts";
+import { SESSION_COOKIE, secureCookies } from "../auth/middleware.ts";
 import {
   checkSetupCode,
   hasPasskey,
@@ -19,7 +19,6 @@ import {
   verifyRegistration,
 } from "../auth/passkeys.ts";
 import { createSession, revokeToken } from "../auth/tokens.ts";
-import { localOriginOf } from "../config.ts";
 import type { AppEnv } from "../env.ts";
 
 const CHALLENGE_COOKIE = "hearth_challenge";
@@ -33,24 +32,11 @@ const verifyBody = z.object({
   setupCode: z.string().max(40).optional(),
 });
 
-/**
- * Cookies are Secure when Hearth is on https, except on its plain-http address on this PC, which
- * the desktop app's window opens (D53): there a Secure cookie would never come back.
- */
-function secure(c: Context<AppEnv>): boolean {
-  const { config } = c.get("deps");
-  if (!config.origin.startsWith("https://")) return false;
-  const local = new URL(localOriginOf(config));
-  if (local.protocol === "https:") return true;
-  const host = c.req.header("host") ?? new URL(c.req.url).host;
-  return host.toLowerCase() !== local.host;
-}
-
 function setChallenge(c: Context<AppEnv>, id: string) {
   setCookie(c, CHALLENGE_COOKIE, id, {
     httpOnly: true,
     sameSite: "Strict",
-    secure: secure(c),
+    secure: secureCookies(c),
     path: "/api/auth",
     maxAge: 300,
   });
@@ -73,7 +59,7 @@ async function signIn(c: Context<AppEnv>, principal: string, label?: string) {
   setCookie(c, SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "Strict",
-    secure: secure(c),
+    secure: secureCookies(c),
     path: "/",
     maxAge: SESSION_DAYS * 86_400,
   });

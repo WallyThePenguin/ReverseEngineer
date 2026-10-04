@@ -12,12 +12,25 @@ import { checkToken, SESSION_DAYS, type SessionPrincipal, type TokenRefusal } fr
 
 export const SESSION_COOKIE = "hearth_session";
 
+/**
+ * Cookies are Secure when Hearth is on https, except on its plain-http address on this PC, which
+ * the desktop app's window opens (D53): there a Secure cookie would never come back.
+ */
+export function secureCookies(c: Context<AppEnv>): boolean {
+  const { config } = c.get("deps");
+  if (!config.origin.startsWith("https://")) return false;
+  const local = new URL(localOriginOf(config));
+  if (local.protocol === "https:") return true;
+  const host = c.req.header("host") ?? new URL(c.req.url).host;
+  return host.toLowerCase() !== local.host;
+}
+
 /** The sign-in cookie, as routes/auth.ts sets it at sign-in, for a session that just slid. */
 function renewCookie(c: Context<AppEnv>, token: string) {
   setCookie(c, SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "Strict",
-    secure: c.get("deps").config.origin.startsWith("https://"),
+    secure: secureCookies(c),
     path: "/",
     maxAge: SESSION_DAYS * 86_400,
   });
