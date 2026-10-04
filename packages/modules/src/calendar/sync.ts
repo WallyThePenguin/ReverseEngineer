@@ -38,7 +38,7 @@ export function syncWindow(now: Date, tz: string): { from: Date; to: Date } {
 }
 
 async function syncCalendarList(ctx: ActionContext, api: CalendarApi, account: string) {
-  const list = (await api.calendars(account)).filter((c) => !c.deleted);
+  const list = cleanDeep(await api.calendars(account)).filter((c) => !c.deleted);
   const known = await ctx.tx.select().from(calendar).where(eq(calendar.account, account));
   for (const c of list) {
     const values = {
@@ -49,15 +49,19 @@ async function syncCalendarList(ctx: ActionContext, api: CalendarApi, account: s
       isPrimary: Boolean(c.primary),
       canWrite: c.accessRole === "owner" || c.accessRole === "writer",
     };
-    if (known.some((k) => k.id === c.id)) {
-      await ctx.tx.update(calendar).set(values).where(eq(calendar.id, c.id));
-    } else {
-      // New calendars you own are synced; ones shared with you (holidays, a colleague's)
-      // start off, and you can turn them on in Settings.
-      await ctx.tx
-        .insert(calendar)
-        .values({ id: c.id, ...values, selected: c.accessRole === "owner" });
-    }
+    // One calendar that won't save (a shared one another connected account already has) is
+    // left out on its own; before, it undid the whole sync, every account's (6.2).
+    await savepoint(ctx, async (sp) => {
+      if (known.some((k) => k.id === c.id)) {
+        await sp.tx.update(calendar).set(values).where(eq(calendar.id, c.id));
+      } else {
+        // New calendars you own are synced; ones shared with you (holidays, a colleague's)
+        // start off, and you can turn them on in Settings.
+        await sp.tx
+          .insert(calendar)
+          .values({ id: c.id, ...values, selected: c.accessRole === "owner" });
+      }
+    }).catch(() => {});
   }
   const gone = known.filter((k) => !list.some((c) => c.id === k.id)).map((k) => k.id);
   if (gone.length) await ctx.tx.delete(calendar).where(inArray(calendar.id, gone));

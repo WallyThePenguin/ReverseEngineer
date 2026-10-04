@@ -1,7 +1,7 @@
 // Calendar sync, paced and hard to stall (D55, 6.2): a slowdown waits for the next round, and one
 // event that won't save is skipped instead of failing the rest.
 import { randomBytes } from "node:crypto";
-import { calendarEvent, entity } from "@hearth/db";
+import { calendar, calendarEvent, entity, googleAccount } from "@hearth/db";
 import { integrationCaller, ownerCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { eq } from "drizzle-orm";
@@ -89,6 +89,26 @@ describe("calendar sync", () => {
     expect(await sync()).toMatchObject({ failed: [], skipped: 1, events: 3 });
     expect(await titles()).toEqual(["Lunch with Ana", "Review"]);
     expect(await t.events("calendar.sync_failed")).toEqual([]);
+  });
+
+  it("keeps syncing when another account already has a shared calendar", async () => {
+    // Shared calendars (holidays, a colleague's) have the same id in every account.
+    g.addCalendar({ id: "holidays", summary: "Holidays", accessRole: "reader" });
+    await t.tdb.db
+      .insert(googleAccount)
+      .values({ email: "other@example.com", refreshToken: "rt", connectedAt: t.clock.now() });
+    await t.tdb.db
+      .insert(calendar)
+      .values({ id: "holidays", account: "other@example.com", title: "Holidays" });
+    g.put(ME, {
+      summary: "Standup",
+      start: at("2026-10-02T14:00:00Z"),
+      end: at("2026-10-02T14:30:00Z"),
+    });
+    expect(await sync()).toMatchObject({ failed: [], calendars: 1, events: 1 });
+    expect(await titles()).toEqual(["Standup"]);
+    const [shared] = await t.tdb.db.select().from(calendar).where(eq(calendar.id, "holidays"));
+    expect(shared?.account).toBe("other@example.com");
   });
 
   it("says plainly when Google asks it to slow down on a change you make", async () => {
