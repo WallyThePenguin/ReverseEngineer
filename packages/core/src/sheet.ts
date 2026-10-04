@@ -50,7 +50,8 @@ export const WorksheetSchema = z.object({
     .trim()
     .min(1)
     .max(31)
-    .regex(/^[^[\]:*?/\\']+$/, "sheet names can't use [ ] : * ? / \\ or '"),
+    // biome-ignore lint/complexity/noUselessEscapeInRegex: the model API's regex engine reads a bare "[" in a class as a nested class and rejects every Jarvis turn.
+    .regex(/^[^\[\]:*?/\\']+$/, "sheet names can't use [ ] : * ? / \\ or '"),
   cells: z.record(cellKey, z.string().max(MAX_CELL)).default({}),
   /** Column widths in pixels, by column letter. */
   widths: z.record(z.string().regex(/^[A-Z]{1,2}$/), z.number().min(30).max(800)).default({}),
