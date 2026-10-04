@@ -16,9 +16,37 @@ import {
 import { Button } from "../components/ui.tsx";
 import { Conversation } from "../jarvis/Conversation.tsx";
 import { getMe, setSignedOutHandler } from "../lib/api.ts";
-import { captureToTask, closeMiniWindow, type MiniPage } from "../lib/desktop.ts";
+import { captureToTask, closeMiniWindow, type MiniPage, pageLink } from "../lib/desktop.ts";
 import { live, queryClient, toast } from "../lib/live.ts";
+import { layout } from "../lib/panes.ts";
 import { act } from "../lib/query.ts";
+
+/**
+ * A record Jarvis mentions opens in Hearth's main window (or, in a browser, this tab): a small
+ * window has no panes to show it in. Opening one changes the address (lib/panes.ts), so that's
+ * where it's caught. The panes are then put back, so a second click on the same mention works.
+ */
+function sendPagesToMain() {
+  const home = layout.panes()[0];
+  const push = history.pushState.bind(history);
+  let restoring = false;
+  history.pushState = (state, unused, url) => {
+    // Putting the panes back: this window's own address never changed.
+    if (restoring) return;
+    const link = url == null ? null : pageLink(String(url), location);
+    if (!link) return push(state, unused, url);
+    location.href = link;
+    restoring = true;
+    try {
+      if (home) layout.reset(home);
+    } finally {
+      restoring = false;
+    }
+  };
+  return () => {
+    history.pushState = push;
+  };
+}
 
 function Capture() {
   const [text, setText] = createSignal("");
@@ -74,6 +102,7 @@ function Ask() {
   const [id, setId] = createSignal<string | null>(null);
   onMount(() => live.start());
   onCleanup(() => live.stop());
+  onCleanup(sendPagesToMain());
   return (
     <div class="flex h-full flex-col bg-panel">
       <div class="flex items-center gap-2 border-b border-line px-3 py-2">

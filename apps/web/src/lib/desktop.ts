@@ -22,6 +22,27 @@ export function closeMiniWindow() {
   if (inDesktopApp()) location.href = "hearth://close";
 }
 
+/**
+ * Where a small window sends a page of Hearth it has no room for, like a record Jarvis mentions:
+ * Hearth's main window in the app (a hearth://open link), or this tab in a browser. Null for
+ * anything that isn't one of Hearth's pages.
+ */
+export function pageLink(
+  url: string,
+  here: { origin: string; href: string },
+  app = inDesktopApp(),
+): string | null {
+  let to: URL;
+  try {
+    to = new URL(url, here.href);
+  } catch {
+    return null;
+  }
+  if (to.origin !== here.origin) return null;
+  const page = `${to.pathname}${to.search}`;
+  return app ? `hearth://open${page}` : page;
+}
+
 /** Splits quick capture's text into a task: the first line is its title, the rest its notes. */
 export function captureToTask(text: string): { title: string; body?: string } | null {
   const [first = "", ...rest] = text.trim().split(/\r?\n/);
