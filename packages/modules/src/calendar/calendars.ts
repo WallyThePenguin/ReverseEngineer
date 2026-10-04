@@ -29,6 +29,35 @@ export async function dropCalendars(ctx: ActionContext, ids: string[]) {
   await ctx.tx.delete(calendar).where(inArray(calendar.id, ids));
 }
 
+/**
+ * Before an account and its calendars go: each calendar it synced that another account shares
+ * syncs through that one from now on (the first connected), and stays where new events go if it
+ * was, so a shared calendar doesn't quietly stop.
+ */
+export async function handOver(ctx: ActionContext, account: string) {
+  const synced = await ctx.tx
+    .select()
+    .from(calendar)
+    .where(and(eq(calendar.account, account), eq(calendar.selected, true)));
+  for (const c of synced) {
+    const [next] = await ctx.tx
+      .select({ id: calendar.id, canWrite: calendar.canWrite })
+      .from(calendar)
+      .innerJoin(googleAccount, eq(googleAccount.email, calendar.account))
+      .where(and(eq(calendar.googleId, c.googleId), ne(calendar.account, account)))
+      .orderBy(asc(googleAccount.connectedAt), asc(calendar.account))
+      .limit(1);
+    if (!next) continue;
+    const keepDefault = c.writeDefault && next.canWrite;
+    if (keepDefault)
+      await ctx.tx.update(calendar).set({ writeDefault: false }).where(eq(calendar.id, c.id));
+    await ctx.tx
+      .update(calendar)
+      .set({ selected: true, ...(keepDefault ? { writeDefault: true } : {}) })
+      .where(eq(calendar.id, next.id));
+  }
+}
+
 /** Brings one account's calendar list up to date. */
 export async function syncCalendarList(ctx: ActionContext, api: CalendarApi, account: string) {
   const list = cleanDeep(await api.calendars(account)).filter((c) => !c.deleted);

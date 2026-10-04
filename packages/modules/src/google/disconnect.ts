@@ -15,7 +15,7 @@ import {
 import { type ActionContext, defineAction } from "@hearth/kernel";
 import { and, eq, inArray, isNotNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { dropCalendars } from "../calendar/calendars.ts";
+import { dropCalendars, handOver } from "../calendar/calendars.ts";
 import { BLOB_SERVICE, type BlobStore } from "../mail/blobs.ts";
 import { closeMailAlerts } from "../mail/sync-state.ts";
 import { GOOGLE_SERVICE, type GoogleClient } from "./client.ts";
@@ -79,6 +79,7 @@ export const disconnectAction = defineAction({
   callers: ["owner"],
   async handler(i, ctx) {
     const email = i.email.toLowerCase();
+    await handOver(ctx, email);
     const cals = await ctx.tx
       .select({ id: calendar.id })
       .from(calendar)

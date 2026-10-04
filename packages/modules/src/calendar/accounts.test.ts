@@ -136,6 +136,22 @@ describe("two Google accounts", () => {
     ]);
   });
 
+  it("hands a shared calendar to the other account when the one syncing it is disconnected", async () => {
+    g.shareCalendar({ id: "team", summary: "Team" }, { [ME]: "owner", [WORK]: "owner" });
+    g.put("team", {
+      summary: "Retro",
+      start: at("2026-10-02T18:00:00Z"),
+      end: at("2026-10-02T19:00:00Z"),
+    });
+    await sync();
+    await run("calendar.set_default", { id: (await rowOf(ME, "team")).id });
+    await run("google.disconnect", { email: ME });
+    // The work account has it now, and new events still go there.
+    expect(await rowOf(WORK, "team")).toMatchObject({ selected: true, writeDefault: true });
+    await sync();
+    expect(await events()).toEqual([{ title: "Retro", account: WORK }]);
+  });
+
   it("leaves a calendar you turned off out of your busy time", async () => {
     g.shareCalendar({ id: "ana", summary: "Ana" }, { [ME]: "reader" });
     g.put("ana", {
