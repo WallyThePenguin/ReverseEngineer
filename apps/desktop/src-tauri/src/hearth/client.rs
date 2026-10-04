@@ -66,14 +66,15 @@ impl Hearth {
             .timeout(timeout)
             .send()
             .await
-            .map_err(|e| format!("Couldn't reach Hearth: {e}"))?;
+            .map_err(|e| {
+                // The details are for the log; what you see is what happened (it's a notification).
+                log::warn!("Hearth's {name} didn't go through: {e}");
+                unreachable(&e)
+            })?;
         let status = res.status();
         let body: Value = res.json().await.unwrap_or(Value::Null);
         if status.as_u16() == 401 {
-            return Err(
-                "Hearth didn't accept the pairing code. Pair the app again in Hearth's Settings."
-                    .into(),
-            );
+            return Err(SIGNED_OUT.into());
         }
         if !status.is_success() {
             let why = body["message"]
@@ -228,6 +229,19 @@ impl Hearth {
     }
 }
 
+/// What a 401 from Hearth means for this app: its token was signed out (D53).
+const SIGNED_OUT: &str = "Hearth signed this PC out. In Hearth's Settings, under Desktop app, \
+                          choose Connect Hearth on this PC.";
+
+/// A request that never got an answer, said plainly.
+fn unreachable(e: &reqwest::Error) -> String {
+    if e.is_timeout() {
+        "Hearth took too long to answer. Try again in a moment.".into()
+    } else {
+        "Couldn't reach Hearth. Is it running?".into()
+    }
+}
+
 fn http() -> &'static reqwest::Client {
     static HTTP: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
     HTTP.get_or_init(reqwest::Client::new)
@@ -327,6 +341,17 @@ mod tests {
         ]))
         .unwrap();
         assert_eq!(replies(&log), (vec!["It's at 3.".to_string()], true));
+    }
+
+    #[tokio::test]
+    async fn says_plainly_when_hearth_is_away() {
+        // Nothing listens on port 1; the request fails at once, with no raw error to show.
+        let h = Hearth::new("http://127.0.0.1:1", "abc").unwrap();
+        let err = h
+            .call("voice.clean", json!({}), Duration::from_secs(5))
+            .await
+            .unwrap_err();
+        assert_eq!(err, "Couldn't reach Hearth. Is it running?");
     }
 
     #[test]
