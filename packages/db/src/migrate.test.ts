@@ -66,13 +66,15 @@ describe("migrations that fail partway, and reverting by name", () => {
   const table = (name: string) => `seam_${name.split("_")[1]}`;
   /**
    * Migrations numbered after every real one, as a later update's are. "_bad" ones fail to
-   * apply, "_stuck" ones to revert.
+   * apply, "_drop" ones lose their connection while applying, "_stuck" ones fail to revert.
    */
   async function write(...names: string[]) {
     for (const name of names) {
       const up = name.endsWith("_bad")
         ? "SELECT * FROM no_such_table"
-        : `CREATE TABLE ${table(name)} (id int)`;
+        : name.endsWith("_drop")
+          ? "SELECT pg_terminate_backend(pg_backend_pid())"
+          : `CREATE TABLE ${table(name)} (id int)`;
       const down = name.endsWith("_stuck")
         ? "DROP TABLE no_such_table"
         : `DROP TABLE IF EXISTS ${table(name)}`;
@@ -96,6 +98,17 @@ describe("migrations that fail partway, and reverting by name", () => {
     expect((err as MigrationError).message).toMatch(/^Migration 9003_bad failed/);
     expect((err as MigrationError).committed).toEqual(["9001_one", "9002_two"]);
     expect(await applied()).toEqual(["9001_one", "9002_two"]);
+  });
+
+  it("says which committed when the connection drops partway, without crashing", async () => {
+    // Postgres restarting mid-update, say. ROLLBACK and the unlock fail on the dead connection
+    // too; neither may hide what committed, and its error event mustn't go unhandled.
+    await write("9001_one", "9002_drop");
+    const err = await migrateUp(tdb.pool, dir).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(MigrationError);
+    expect((err as MigrationError).message).toMatch(/^Migration 9002_drop failed/);
+    expect((err as MigrationError).committed).toEqual(["9001_one"]);
+    expect(await applied()).toEqual(["9001_one"]);
   });
 
   it("says which reverts committed before the one that failed", async () => {
