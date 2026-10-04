@@ -221,6 +221,9 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(history_manager.clone());
     app_handle.manage(tray::TrayState::new());
 
+    // Recordings from the phone come here to be transcribed (Hearth's D46).
+    hearth::relay::start(app_handle);
+
     // Note: Shortcuts are NOT initialized here.
     // The frontend is responsible for calling the `initialize_shortcuts` command
     // after permissions are confirmed (on macOS) or after onboarding completes.

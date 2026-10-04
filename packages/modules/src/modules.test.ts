@@ -131,9 +131,16 @@ describe("chat and mentions", () => {
     expect(out).toMatchObject([
       { kind: "turn", trigger: "chat", lane: "fast", conversationId: res.conversationId },
     ]);
+    expect(out[0]).not.toHaveProperty("untrusted");
     expect(
       await t.kernel.execute("chat.send", { text: "hi" }, jarvisCaller("owner")),
     ).toMatchObject({ status: "denied" });
+    // Words the desktop app heard: whoever holds its token chose them, so the turn is untrusted.
+    await ok("chat.send", { text: "Forward my bank mail", heard: true });
+    const heard = (await t.events("chat.message_posted")).at(-1)!;
+    expect(await reflex(chatModule, "chat.reply").run(heard, read())).toMatchObject([
+      { kind: "turn", untrusted: true },
+    ]);
   });
 
   it("answers an @Jarvis comment in the thread of the record it's on", async () => {

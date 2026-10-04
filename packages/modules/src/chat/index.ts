@@ -130,6 +130,9 @@ export const chatModule = defineModule({
         conversationId: id.optional(),
         text: z.string().trim().min(1).max(20_000),
         lane: lane.optional(),
+        /** Words the desktop app transcribed (D46): the device holding its token chose them, so
+         * Jarvis's turn runs untrusted, like anything else that device starts. */
+        heard: z.boolean().optional(),
       }),
       risk: "internal",
       callers: ["owner"],
@@ -167,7 +170,7 @@ export const chatModule = defineModule({
         ctx.emit({
           kind: "chat.message_posted",
           entityId: conversationId,
-          payload: { conversationId, text: i.text, lane: chosen, idx },
+          payload: { conversationId, text: i.text, lane: chosen, idx, heard: i.heard === true },
         });
         return { conversationId, idx };
       },
@@ -217,11 +220,17 @@ export const chatModule = defineModule({
       mode: "reactive",
       on: ["chat.message_posted"],
       run(event) {
-        const p = event.payload as { conversationId: string; text: string; lane: "fast" | "deep" };
+        const p = event.payload as {
+          conversationId: string;
+          text: string;
+          lane: "fast" | "deep";
+          heard?: boolean;
+        };
         return [
           {
             kind: "turn",
             trigger: "chat",
+            ...(p.heard ? { untrusted: true } : {}),
             lane: p.lane,
             conversationId: p.conversationId,
             prompt: p.text,

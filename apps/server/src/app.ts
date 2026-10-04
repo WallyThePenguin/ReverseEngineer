@@ -36,7 +36,9 @@ import { eventRoutes } from "./routes/events.ts";
 import { googleRoutes } from "./routes/google.ts";
 import { mailRoutes } from "./routes/mail.ts";
 import { pushRoutes } from "./routes/push.ts";
+import { speechRoutes } from "./routes/speech.ts";
 import { voiceRoutes } from "./routes/voice.ts";
+import { SpeechRelay } from "./speech.ts";
 
 const CSP = [
   "default-src 'self'",
@@ -65,6 +67,7 @@ export interface AppOptions {
 
 export function createApp(opts: AppOptions) {
   const hub = new EventHub(opts.pool ?? null);
+  const speech = new SpeechRelay();
   const bridge =
     opts.bridge ??
     new BrowserBridge({
@@ -106,6 +109,7 @@ export function createApp(opts: AppOptions) {
   app.route("/api/google", googleRoutes());
   app.route("/api/mail", mailRoutes());
   app.route("/api/devices", deviceRoutes());
+  app.route("/api/voice", speechRoutes(speech));
   app.route("/api/voice", voiceRoutes());
   app.route("/api/push", pushRoutes(sendPush));
   app.route("/api", actionRoutes());
@@ -140,6 +144,7 @@ export function createApp(opts: AppOptions) {
     },
     /** Resolves once phone notifications for the events so far are sent (for tests). */
     pushIdle: () => push?.idle() ?? Promise.resolve(),
+    speech,
     /** Adds the WebSockets (the extension's link and the live view) to the HTTP server. */
     attach(server: Server) {
       detachSockets = attachBrowserSockets(server, {

@@ -11,6 +11,7 @@ pub mod chunker;
 pub mod client;
 pub mod foreground;
 pub mod meeting;
+pub mod relay;
 pub mod selection;
 pub mod speak;
 
