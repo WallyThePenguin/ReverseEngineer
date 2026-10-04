@@ -61,6 +61,20 @@ if ($hash -ne $WinSWSha256) {
 }
 
 $me = "$env:USERDOMAIN\$env:USERNAME"
+$mySid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+
+# Lets your own (unelevated) account start, stop and query one of Hearth's services, so updates
+# (ops/windows/update.ps1) don't need an administrator. Nothing else about the service changes.
+function Grant-ServiceControl([string]$Id, [string]$Sid) {
+  $sddl = ((& sc.exe sdshow $Id) -join "").Trim()
+  if (-not $sddl.Contains("D:")) { throw "Couldn't read $Id's permissions: $sddl" }
+  if ($sddl -match "\(A;;[A-Z]*RP[A-Z]*;;;$Sid\)") { return }
+  $ace = "(A;;CCLCSWRPWPLORC;;;$Sid)"
+  $at = $sddl.IndexOf("S:")
+  $new = if ($at -ge 0) { $sddl.Insert($at, $ace) } else { $sddl + $ace }
+  & sc.exe sdset $Id $new | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw "Couldn't let you start and stop $Id (sc sdset exit $LASTEXITCODE)." }
+}
 
 # LocalService needs to read the app and write its own logs; Jarvis (you) writes its log there too.
 # No /T: the folder's (OI)(CI) grant is inherited by everything in it, which Windows applies in
@@ -89,6 +103,7 @@ foreach ($svc in "server", "worker") {
     Set-Content -Encoding UTF8 $xml
   & $exe install
   if ($LASTEXITCODE -ne 0) { throw "Installing $id failed (exit $LASTEXITCODE)." }
+  Grant-ServiceControl $id $mySid
   & $exe start
   if ($LASTEXITCODE -ne 0) {
     Write-Warning "$id is installed but didn't start. Windows Event Viewer (Windows Logs > System) says why."
@@ -128,6 +143,17 @@ Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" |
 Register-ScheduledTask -TaskName "Hearth Jarvis" -TaskPath "\" -Action $action -Trigger $atSignIn `
   -Settings $settings -Principal $user -Force `
   -Description "Runs Jarvis, Hearth's agent, as you so it can use your Claude login." | Out-Null
+# Your unelevated account may start and stop this task (for updates), and so may LocalService (the
+# worker, which restarts Jarvis when it stops checking in). Like "Hearth Chrome" below: read and
+# run this one task, nothing more.
+$scheduler = New-Object -ComObject Schedule.Service
+$scheduler.Connect()
+$jarvisTask = $scheduler.GetFolder("\").GetTask("Hearth Jarvis")
+$sddl = $jarvisTask.GetSecurityDescriptor(7)
+foreach ($who in $mySid, "LS") {
+  if ($sddl -notmatch "\(A;[^;]*;[^;]*GX[^;]*;;;$who\)") { $sddl += "(A;;GRGX;;;$who)" }
+}
+$jarvisTask.SetSecurityDescriptor($sddl, 0)
 Start-ScheduledTask -TaskName "Hearth Jarvis"
 Start-Sleep -Seconds 5
 $running = Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" |

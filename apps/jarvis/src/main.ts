@@ -1,5 +1,7 @@
 // Runs Jarvis: `hearth jarvis`, or `node apps/jarvis/src/main.ts`. Uses your Claude Code login
 // (Claude Max), so turns cost nothing extra.
+import { rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { PRINCIPAL } from "@hearth/core";
 import { connect, databaseUrl } from "@hearth/db";
 import { ClaudeBrain, startJarvis } from "@hearth/jarvis";
@@ -44,10 +46,29 @@ export async function runJarvis(): Promise<() => Promise<void>> {
   });
   const service = await startJarvis({ kernel, pool: database.pool, brain });
   console.log("Jarvis is running: reacting to you and watching for things to handle.");
+  const pidFile = writePidFile();
   return async () => {
     await service.stop();
     await database.close();
+    if (pidFile) rmSync(pidFile, { force: true });
   };
+}
+
+/**
+ * As the "Hearth Jarvis" task, says which process is Jarvis, so ops/windows/update.ps1 can stop
+ * it: an unelevated account can't read the command lines of the task's processes.
+ */
+function writePidFile(): string | null {
+  const dir = process.env.ProgramData;
+  if (process.env.HEARTH_AS_SERVICE !== "1" || !dir) return null;
+  const file = join(dir, "Hearth", "services", "hearth-jarvis.pid");
+  try {
+    writeFileSync(file, String(process.pid));
+    return file;
+  } catch (err) {
+    console.error(`Couldn't write ${file}: ${err instanceof Error ? err.message : err}`);
+    return null;
+  }
 }
 
 if (import.meta.main) {
