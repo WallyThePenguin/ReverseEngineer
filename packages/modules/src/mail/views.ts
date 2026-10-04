@@ -10,7 +10,7 @@ import {
   mailMessage,
   mailThread,
 } from "@hearth/db";
-import { and, asc, desc, eq, inArray, isNotNull, lt, type SQL, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, lt, or, type SQL, sql } from "drizzle-orm";
 import { loadEvent } from "../calendar/store.ts";
 import type { BlobStore } from "./blobs.ts";
 import { matchInvite } from "./invites.ts";
@@ -116,13 +116,25 @@ export async function listThreads(
     lane?: MailLane;
     account?: string;
     unread?: boolean;
+    /**
+     * The next page: older than the last one shown. With `beforeId` (its id), ones from the same
+     * moment come next too, so a page break between two of them loses neither.
+     */
     before?: Date;
+    beforeId?: string;
     ids?: string[];
     /** Only conversations waiting on you (or on them), longest-waiting first. */
     waiting?: "you" | "them";
     limit: number;
   },
 ): Promise<ThreadSummary[]> {
+  const older = (before: Date) =>
+    q.beforeId
+      ? or(
+          lt(mailThread.lastMessageAt, before),
+          and(eq(mailThread.lastMessageAt, before), lt(mailThread.entityId, q.beforeId)),
+        )
+      : lt(mailThread.lastMessageAt, before);
   return db
     .select(summaryFields)
     .from(mailThread)
@@ -134,12 +146,16 @@ export async function listThreads(
         q.lane ? eq(mailThread.lane, q.lane) : undefined,
         q.account ? eq(mailAccount.address, q.account.toLowerCase()) : undefined,
         q.unread !== undefined ? eq(mailThread.unread, q.unread) : undefined,
-        q.before ? lt(mailThread.lastMessageAt, q.before) : undefined,
+        q.before ? older(q.before) : undefined,
         q.ids ? inArray(mailThread.entityId, q.ids) : undefined,
         q.waiting ? eq(mailThread.waiting, q.waiting) : undefined,
       ),
     )
-    .orderBy(q.waiting ? asc(mailThread.waitingSince) : desc(mailThread.lastMessageAt))
+    .orderBy(
+      ...(q.waiting
+        ? [asc(mailThread.waitingSince), asc(mailThread.entityId)]
+        : [desc(mailThread.lastMessageAt), desc(mailThread.entityId)]),
+    )
     .limit(q.limit);
 }
 

@@ -172,6 +172,7 @@ export const mailModule = defineModule({
           .optional()
           .describe("you: needs the owner's reply. them: the owner wrote last and is waiting."),
         before: isoDateTime.optional().describe("For the next page: the last one's lastMessageAt."),
+        beforeId: id.optional().describe("With before: the last one's id."),
         limit: z.number().int().min(1).max(200).default(50),
       }),
       risk: "read",

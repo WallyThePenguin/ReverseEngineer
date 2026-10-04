@@ -44,7 +44,11 @@ function mailThreads(
   change: Record<string, unknown>,
   how: (list: Record<string, unknown>) => "gone" | Partial<MailThread> | null,
 ): Patch[] {
-  const edit = (data: unknown, input: Record<string, unknown>) => {
+  const edit = (data: unknown, input: Record<string, unknown>): unknown => {
+    // A list read a page at a time: each page is edited the same way.
+    const paged = data as { pages?: unknown } | undefined;
+    if (paged && Array.isArray(paged.pages))
+      return { ...paged, pages: paged.pages.map((page) => edit(page, input)) };
     const which = ids(change);
     const what = how(input);
     if (what === null || !Array.isArray(data)) return data;
