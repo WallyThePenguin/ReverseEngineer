@@ -10,12 +10,12 @@ import { streamSSE } from "hono/streaming";
 import { requireCaller } from "../auth/middleware.ts";
 import { checkToken } from "../auth/tokens.ts";
 import type { AppEnv, ServerDeps } from "../env.ts";
-import { messageFor, type PushMessage, worthPushing } from "../push.ts";
+import { messageFor, PUSH_KINDS, type PushMessage, worthPushing } from "../push.ts";
 
 const KEEP_ALIVE_MS = 20_000;
 /** A reconnect catches up on what it missed, but nothing older than this: it's news, not a log. */
 const REPLAY_MS = 10 * 60_000;
-const KINDS = ["notification.created", "system.health_changed"];
+const KINDS = [...PUSH_KINDS, "system.health_changed"];
 
 const NAMES: Record<string, string> = {
   worker: "Hearth's worker",
@@ -48,9 +48,9 @@ export async function messagesFor(
   now: number,
 ): Promise<{ seq: number; message: PushMessage }[]> {
   const fresh = events.filter((e) => now - e.at.getTime() <= REPLAY_MS);
-  const ids = fresh
-    .filter((e) => e.kind === "notification.created" && worthPushing(e.payload))
-    .map((e) => String(e.payload.notificationId));
+  // An interrupt held for quiet hours has two events: only its delivery is worth one.
+  const worth = fresh.filter((e) => PUSH_KINDS.includes(e.kind) && worthPushing(e.payload));
+  const ids = worth.map((e) => String(e.payload.notificationId));
   const rows = ids.length
     ? await db.select().from(notification).where(inArray(notification.id, ids))
     : [];
@@ -60,7 +60,7 @@ export async function messagesFor(
     if (e.kind === "system.health_changed") {
       const message = healthMessage(e.payload, e.seq);
       if (message) out.push({ seq: e.seq, message });
-    } else {
+    } else if (worth.includes(e)) {
       const row = byId.get(String(e.payload.notificationId));
       if (row) out.push({ seq: e.seq, message: messageFor(row) });
     }

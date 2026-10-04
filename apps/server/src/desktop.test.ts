@@ -1,14 +1,12 @@
-// Hearth on the PC (D53): the sign-in hand-off, Hearth's address on this PC, and the
-// notification feed the desktop app shows.
+// Hearth on the PC (D53): the sign-in hand-off and Hearth's address on this PC. The notification
+// feed the desktop app shows is in desktop-notify.test.ts.
 import { PRINCIPAL } from "@hearth/core";
-import { jarvisCaller, latestSeq, readEventsAfter, systemCaller } from "@hearth/kernel";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { pairDevice, revokeDevice, unpairDevice } from "./auth/devices.ts";
+import { pairDevice, unpairDevice } from "./auth/devices.ts";
 import { Handoffs } from "./auth/handoff.ts";
 import { SESSION_COOKIE } from "./auth/middleware.ts";
 import { createSession } from "./auth/tokens.ts";
 import { loadServerConfig, type ServerConfig } from "./config.ts";
-import { healthMessage, messagesFor, stillSignedIn } from "./routes/desktop.ts";
 import { createTestServer, type TestServer } from "./testing/server.ts";
 
 const TS_NET = "https://pc.example.ts.net";
@@ -264,126 +262,5 @@ describe("Hearth's address on this PC", () => {
       headers: { host: "pc.example.ts.net" },
     });
     expect(sessionCookie(res)).not.toMatch(/;\s*Secure/i);
-  });
-});
-
-/** Reads a server-sent event stream as it arrives. */
-function sse(body: ReadableStream<Uint8Array>) {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let text = "";
-  return {
-    /** Everything so far, once `marker` has arrived. */
-    async until(marker: string) {
-      while (!text.includes(marker)) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        text += decoder.decode(value, { stream: true });
-      }
-      return text;
-    },
-    stop: () => reader.cancel(),
-  };
-}
-
-const notes = (text: string) =>
-  text
-    .split("\n")
-    .filter((l) => l.startsWith('data: {"title"'))
-    .map((l) => JSON.parse(l.slice("data: ".length)) as { title: string; url: string });
-
-const publishBrief = () =>
-  t.kernel.execute(
-    "brief.publish",
-    { markdown: "## Today\n- nothing", date: "2026-10-01" },
-    jarvisCaller("system"),
-  );
-
-describe("the desktop notification feed", () => {
-  it("sends the desktop app what's worth a notification, and nothing else", async () => {
-    await serve();
-    const token = await pairDevice(t.kernel.db, "desktop");
-    const res = await t.api("/api/desktop/notify", token);
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toContain("text/event-stream");
-    const feed = sse(res.body!);
-    await feed.until("event: ready");
-
-    await t.kernel.execute("task.create", { title: "Not worth a buzz" }, jarvisCaller("owner"));
-    await publishBrief();
-    t.server.hub.publish(await latestSeq(t.kernel.db));
-    const text = await feed.until("event: notify");
-    await feed.stop();
-    expect(notes(text)).toMatchObject([{ title: "Your brief is ready", url: "/inbox" }]);
-    expect(text).not.toContain("Not worth a buzz");
-  });
-
-  it("catches up after a reconnect", async () => {
-    await serve();
-    const token = await pairDevice(t.kernel.db, "desktop");
-    const before = await latestSeq(t.kernel.db);
-    await publishBrief();
-    const res = await t.api("/api/desktop/notify", token, {
-      headers: { "last-event-id": `${before}` },
-    });
-    const feed = sse(res.body!);
-    const text = await feed.until("event: notify");
-    await feed.stop();
-    expect(notes(text)).toMatchObject([{ title: "Your brief is ready" }]);
-  });
-
-  it("ends when the app is disconnected, rather than keep telling it things", async () => {
-    await serve();
-    const token = await pairDevice(t.kernel.db, "desktop");
-    const feed = sse((await t.api("/api/desktop/notify", token)).body!);
-    await feed.until("event: ready");
-    expect(await stillSignedIn(t.kernel.db, token)).toBe(true);
-
-    await revokeDevice(t.kernel.db, "desktop");
-    expect(await stillSignedIn(t.kernel.db, token)).toBe(false);
-    await publishBrief();
-    t.server.hub.publish(await latestSeq(t.kernel.db));
-    // The stream closes instead of sending the brief.
-    expect(await feed.until("event: notify")).not.toContain("event: notify");
-  });
-
-  it("is only for you and your devices, and isn't the whole event feed", async () => {
-    await serve();
-    expect((await fromApp("/api/desktop/notify")).status).toBe(401);
-    const token = await pairDevice(t.kernel.db, "desktop");
-    expect((await t.api("/api/events", token)).status).toBe(403);
-  });
-
-  it("tells you when something starts or stops failing, and leaves old news out", async () => {
-    await serve();
-    const before = await latestSeq(t.kernel.db);
-    await publishBrief();
-    const report = (status: string) =>
-      t.kernel.execute(
-        "system.report",
-        { component: "jarvis", status, detail: "x" },
-        systemCaller(),
-      );
-    await report("failing");
-    await report("ok");
-    await report("ok");
-    const events = await readEventsAfter(t.kernel.db, before, {
-      kinds: ["notification.created", "system.health_changed"],
-    });
-    const now = t.kernel.clock.now().getTime();
-    const titles = (await messagesFor(t.kernel.db, events, now)).map((m) => m.message.title);
-    expect(titles).toEqual([
-      "Your brief is ready",
-      "Jarvis isn't working",
-      "Jarvis: working again",
-    ]);
-    expect(await messagesFor(t.kernel.db, events, now + 11 * 60_000)).toEqual([]);
-    expect(
-      healthMessage({ component: "disk", status: "degraded", previous: "ok" }, 1),
-    ).toMatchObject({
-      title: "Disk space needs a look",
-      url: "/settings",
-    });
-    expect(healthMessage({ component: "disk", status: "ok", previous: null }, 2)).toBeNull();
   });
 });
