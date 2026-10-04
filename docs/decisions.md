@@ -1150,3 +1150,77 @@ Restoring over the live database (one bad dump and both are gone). A Windows run
 
 **Why:** The 2026-10-03 update broke every Jarvis turn while health said "ok", the doctor printed
 checkmarks and the updater said "update OK". Each of those now checks the thing that broke.
+
+## D58. Approvals happen once; outside text stays outside (2026-10-04)
+
+**Decision:** A yes runs its action at most once, and words from outside content (email, web
+pages, Slack, GitHub, invitations, outside agents, what the desktop app hears) never come back
+later as your instructions, however they're stored or replayed.
+
+- **Exactly-once approvals.** A yes claims the approval first (`pending` to `executing` in one
+  conditional update). A second yes from another tab or the phone, or a yes racing a no, is told
+  "This was already ..." (409), and nothing runs twice. The same request from the same asker
+  waits once (a partial unique index on action, input hash and requester for pending rows); a
+  copy asked after reading outside content marks the waiting one untrusted. The input is checked
+  against the action again before it runs. Approvals run out by risk (two hours for a held
+  browser step, a day for sending, three for the trash); the scheduler closes them and their
+  cards, and closes a yes that a restart cut short. The inbox and a conversation switch Approve
+  and Deny off while a decision is on its way, and a card waiting for a yes or a no can't be
+  marked done or snoozed.
+- **What an approval's result shows.** The turn Jarvis gets after you decide is untrusted when the
+  action is external or its result holds outside content (an email it found), not only for pages.
+- **Records remember where their words came from.** `entity.outside` marks a record written or
+  edited by a turn that had read outside content; an edit never clears it, and records already
+  written that way were found from the event log. Watches, observations and heartbeat items keep
+  their origin. A watch can't be set up by an outside agent or after reading outside content, and
+  its turns are no more trusted than what set it up or what fired it; old watches count as
+  outside, except ones you made. Replayed text reaches the model inside `<untrusted>` marks: a
+  watch's event, outside heartbeat items, and the outside lines of the brief's digest (tasks,
+  people and calendar preps by their mark, someone else's invitation by its organizer). The
+  nightly memory update skips a journal written after outside content.
+- **A conversation stays careful.** Every turn in a conversation resumes the same agent session,
+  so once a turn reads outside content the conversation keeps `tainted_at`, what it read in plain
+  words, the addresses it saw (D25) and the sites it opened first (D30). Its later turns start
+  untrusted with those, so following a link it read, or working on a site it opened before
+  reading, still just works; a new conversation starts fresh, and the conversation shows a badge
+  saying so. This is the "taint survives a resumed session" D52 waited on before per-task site
+  grants.
+- **Mentions come only from you or Jarvis.** A mention tag written by an integration or an outside
+  agent links nothing and calls no one, and a tag whose id isn't a record's id is plain text. An
+  @Jarvis written on outside content's say-so (heard words, D46) starts an untrusted turn.
+- **Outside agents are outside content.** MCP clients and integrations act with an untrusted
+  origin. Memory and Jarvis's watches and observations are only for you and Jarvis. `/mcp`
+  answers only while a token made with `hearth token create` is live, and takes POST only (GET
+  and the rest get 405).
+- **D25/D30 in the kernel.** The checks on what a call opens and where it acts, its pin to the
+  page and its snapshot of what it sends run in `Kernel.execute` for every call made as Jarvis,
+  not only in a turn's tools: a reflex's "act" and the browser self-test get them too, and an
+  approval runs the pinned, snapshotted input that was checked and shown. A call without a turn's
+  trust is checked as having seen no addresses. D25 and D30 are otherwise unchanged.
+- **Secrets at rest.** Google's refresh and access tokens are sealed with the vault key, like
+  saved sign-ins and the Slack and GitHub tokens. Migration 0028 has code steps that seal the
+  tokens already saved (run by `hearth migrate`, `setup`, `dev` and `restore`) and open them
+  again on the way down; a token that can't be opened stops the way down. If the key can't be
+  read, a refreshed access token stays in memory rather than being saved in the clear.
+  **`vault.key` must be kept somewhere safe off this PC**, such as your password manager:
+  backups never hold it (D29), and without it every saved sign-in and the Google, Slack and
+  GitHub connections need setting up again after a rebuild. The backups folder holds whole
+  database dumps and, through the folder Hearth lives in, Hearth's services can read it; locking
+  it down is a step for you ("Lock down the backups folder" in `docs/setup-windows.md`), not
+  something Hearth changes by itself.
+- **Proof.** One test per laundering path (email, web page, Slack, watch, observation, resumed
+  session, @mention) has the scripted brain obey an injected "send the draft to Eve", with a
+  standing rule that lets a trusted turn send at once: each ends with nothing sent and every card
+  marked as outside content.
+
+**Alternatives:** A lock held by the process deciding (a second process, or a restart, forgets
+it). Dropping the taint when a conversation is reopened (the session still holds the email).
+Leaving outside text out of what's kept (Jarvis needs it to be useful; marking it keeps it usable
+without trusting it). Wrapping `vault.key` with Windows DPAPI (the server and worker run as
+LocalService and Jarvis as you, so a per-user key wouldn't open in all three, and a machine-wide
+one adds little against someone who already has the PC).
+
+**Why:** Jarvis now drives your signed-in Chrome and can send as you. A double tap that sends an
+email twice, or an email whose words come back the next morning as a trusted instruction, are the
+two ways that power could turn on you. Both now fail closed: a second yes is refused, and outside
+words stay marked as outside wherever they go.

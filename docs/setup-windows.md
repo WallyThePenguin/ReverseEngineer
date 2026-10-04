@@ -125,12 +125,28 @@ pnpm hearth backup
 ```
 
 It dumps the database and uploads it in one snapshot with mail's stored files and your voice
-samples (never `vault.key`, the key to saved sign-ins: keep a copy of `data\vault.key` in your
-password manager if you want those back after a rebuild). It prunes old snapshots (keeping 7
+samples (never `vault.key`, the key to saved sign-ins and to the Google, Slack and GitHub
+connections: keep a copy of `data\vault.key` in your password manager, or after a rebuild you'll
+save those sign-ins and connect those accounts again; D58). It prunes old snapshots (keeping 7
 daily, 4 weekly and 12 monthly), downloads the dump and a few stored files again, restores the
 dump into a scratch database and checks it all. The result shows under **Settings → Health**.
 If a night's backup fails, it lands in your inbox. Restic must be 0.17 or newer; `pnpm hearth
 doctor` says if it isn't.
+
+### Lock down the backups folder
+
+The local dumps in `data\backups` hold your whole database, mail included. The services can read
+everything in Hearth's folder, so they can read these too. Hearth doesn't change file permissions
+by itself; to keep the dumps to you, run this once in PowerShell (elevated if Windows refuses):
+
+```powershell
+$backups = "C:\Hearth\data\backups"   # or your HEARTH_BACKUP_DIR
+icacls $backups /inheritance:r /grant:r "${env:USERDOMAIN}\${env:USERNAME}:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F"
+icacls $backups
+```
+
+That leaves you, SYSTEM and Administrators, and takes away the services' and everyone else's
+access. The nightly backup and `update.ps1` run as you, so they still write there.
 
 ## 8. Check everything
 
@@ -298,7 +314,8 @@ switch to it:
 
 Add `--switch` to have it do 1 and 2; it keeps your old `.env` as `.env.before-restore-<time>`.
 To go back, put the old database name back and restart: the old database is never touched.
-Saved sign-ins come back only if `data\vault.key` is the one they were saved with.
+Saved sign-ins, and the Google, Slack and GitHub connections, come back only if `data\vault.key`
+is the one they were saved with; otherwise save and connect them again in Settings.
 
 ### Removing Hearth's services
 
