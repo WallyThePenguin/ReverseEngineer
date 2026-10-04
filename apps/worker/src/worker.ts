@@ -4,6 +4,7 @@
 import { githubAccount, googleAccount, slackWorkspace } from "@hearth/db";
 import { integrationCaller, type Kernel, startScheduler } from "@hearth/kernel";
 import { checkHealth, type HealthOptions, reportHealth } from "./health.ts";
+import { jarvisWatchdog } from "./jarvis-watchdog.ts";
 import { type MailRoundOptions, mailRound } from "./mail-loop.ts";
 import { checkDueWatches } from "./watches.ts";
 
@@ -27,12 +28,14 @@ export function startWorker(opts: WorkerOptions) {
     intervalMs: opts.scheduleIntervalMs ?? 5000,
     log: (err) => log("running schedules failed", err),
   });
+  const watchdog = jarvisWatchdog(kernel, { log });
   let checking = false;
   const health = async () => {
     if (checking) return;
     checking = true;
     try {
       await reportHealth(kernel, await checkHealth(kernel, opts));
+      await watchdog();
     } catch (err) {
       log("health check failed", err);
     } finally {

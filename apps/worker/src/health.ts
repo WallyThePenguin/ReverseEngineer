@@ -12,6 +12,8 @@ export interface HealthReport {
   component: string;
   status: Status;
   detail: string;
+  /** Tells one outage from the next, so each gets its own alert. */
+  key?: string;
 }
 
 export interface HealthOptions {
@@ -68,13 +70,18 @@ export async function checkHealth(kernel: Kernel, opts: HealthOptions): Promise<
     });
   }
 
+  // Jarvis says it's alive every 30 seconds, whatever its turns are doing (D54). One from before
+  // that is judged by its own health report, while that still says ok.
+  const alive = await getSetting(kernel.db, "jarvis.alive");
   const jarvis = await lastReport(kernel, "jarvis");
+  const seen = alive ? new Date(alive.at) : jarvis?.status === "ok" ? jarvis.updatedAt : null;
   const staleMs = opts.jarvisStaleMs ?? 5 * 60_000;
-  if (jarvis && jarvis.status === "ok" && now.getTime() - jarvis.updatedAt.getTime() > staleMs) {
+  if (seen && now.getTime() - seen.getTime() > staleMs) {
     reports.push({
       component: "jarvis",
       status: "failing",
-      detail: `Jarvis hasn't checked in since ${formatDateTime(jarvis.updatedAt, rules.timeZone)}. Its service may have stopped.`,
+      detail: `Jarvis hasn't checked in since ${formatDateTime(seen, rules.timeZone)}. Its service may have stopped.`,
+      key: `jarvis_down:${seen.toISOString()}`,
     });
   }
   return reports;
@@ -82,7 +89,7 @@ export async function checkHealth(kernel: Kernel, opts: HealthOptions): Promise<
 
 export async function reportHealth(kernel: Kernel, reports: HealthReport[]): Promise<void> {
   const caller = systemCaller();
-  for (const r of reports) {
+  for (const { key, ...r } of reports) {
     await kernel.execute("system.report", r, caller);
     // Jarvis delivers system alerts, so if Jarvis itself is down the worker tells you directly.
     if (r.component === "jarvis" && r.status === "failing") {
@@ -93,7 +100,7 @@ export async function reportHealth(kernel: Kernel, reports: HealthReport[]): Pro
           title: "Jarvis is down",
           body: r.detail,
           urgency: "normal",
-          dedupeKey: `jarvis_down:${kernel.clock.now().toISOString().slice(0, 10)}`,
+          dedupeKey: key ?? `jarvis_down:${kernel.clock.now().toISOString().slice(0, 10)}`,
         },
         caller,
       );
