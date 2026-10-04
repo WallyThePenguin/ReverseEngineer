@@ -2,12 +2,50 @@
 
 import { createRoot, createSignal, For, Show } from "solid-js";
 import { Badge, Button } from "../components/ui.tsx";
-import { ago } from "../lib/format.ts";
+import { ago, day, time } from "../lib/format.ts";
+import { jarvisLiveness } from "../lib/jarvis-health.ts";
 import { narrow } from "../lib/narrow.ts";
 import { layout } from "../lib/panes.ts";
 import { useAction } from "../lib/query.ts";
 import type { ConversationRow, SystemStatus } from "../lib/types.ts";
 import { Conversation } from "./Conversation.tsx";
+
+/** A clock for "since when", ticking often enough for a two-minute threshold. */
+const clock = createRoot(() => {
+  const [now, setNow] = createSignal(Date.now());
+  window.setInterval(() => setNow(Date.now()), 15_000);
+  return now;
+});
+
+/** Whether Jarvis is up and well, checked every minute as well as on every change (D54). */
+function useLiveness() {
+  const status = useAction<SystemStatus>(
+    "system.status",
+    () => ({}),
+    () => true,
+    () => 60_000,
+  );
+  return { status, liveness: () => jarvisLiveness(status.data, clock()) };
+}
+
+/** "12:47 p.m." today, "Fri 9 a.m." before: the end of a sentence either way. */
+function when(d: Date): string {
+  const at = day(d) === "today" ? time(d) : `${day(d)} ${time(d)}`;
+  return at.endsWith(".") ? at : `${at}.`;
+}
+
+/** A red dot for Jarvis's button while it isn't running or its turns are failing. */
+export function JarvisDot() {
+  const { liveness } = useLiveness();
+  return (
+    <Show when={liveness().unwell}>
+      <span
+        class="ml-1.5 inline-block size-2 rounded-full bg-bad align-middle"
+        title={liveness().downSince ? "Jarvis isn't running" : "Jarvis's turns are failing"}
+      />
+    </Show>
+  );
+}
 
 function createJarvisState() {
   // On a phone Jarvis covers the screen, so it starts closed there.
@@ -42,7 +80,7 @@ export const jarvis = createRoot(createJarvisState);
 
 export function JarvisPane() {
   const conversations = useAction<ConversationRow[]>("conversation.list", () => ({ limit: 20 }));
-  const status = useAction<SystemStatus>("system.status");
+  const { status, liveness } = useLiveness();
   const [picking, setPicking] = createSignal(false);
   const current = () => (conversations.data ?? []).find((c) => c.id === jarvis.conversationId());
 
@@ -82,6 +120,27 @@ export function JarvisPane() {
           </Button>
         </Show>
       </header>
+      <Show
+        when={liveness().downSince}
+        fallback={
+          <Show when={liveness().detail}>
+            {(detail) => (
+              <p
+                class={`border-b border-line px-3 py-1.5 text-xs ${liveness().unwell ? "text-bad" : "text-muted"}`}
+              >
+                {detail()}
+              </p>
+            )}
+          </Show>
+        }
+      >
+        {(since) => (
+          <p class="border-b border-line bg-accent-soft px-3 py-1.5 text-xs text-bad">
+            Jarvis hasn't been running since {when(since())} Hearth is trying to restart it;
+            anything you send waits until it's back.
+          </p>
+        )}
+      </Show>
       <Show when={picking()}>
         <ul class="max-h-72 overflow-auto border-b border-line py-1">
           <For each={conversations.data ?? []}>

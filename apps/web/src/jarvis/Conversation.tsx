@@ -2,7 +2,7 @@
 // reply streaming in as it's written. Live and reloaded views come from the same fold.
 
 import { type ConversationItem, foldConversation, fromEditForm } from "@hearth/core";
-import { createEffect, createSignal, For, Match, on, Show, Switch } from "solid-js";
+import { createEffect, createSignal, For, Match, on, onCleanup, Show, Switch } from "solid-js";
 import { Body } from "../components/Body.tsx";
 import { MentionEditor } from "../components/MentionEditor.tsx";
 import { Button, PaneHeader } from "../components/ui.tsx";
@@ -11,6 +11,9 @@ import { act, useAction } from "../lib/query.ts";
 import { hush, mic, say, talkTaken, talkWanted } from "../lib/speech.ts";
 import type { LogRecord } from "../lib/types.ts";
 import { decide } from "../views/Inbox.tsx";
+
+/** How long what you sent may wait for Jarvis to start before it says so. */
+const SLOW_MS = 20_000;
 
 interface ConversationData {
   conversation: { id: string; title: string };
@@ -67,6 +70,23 @@ export function Conversation(props: {
   const [draft, setDraft] = createSignal("");
   const [sending, setSending] = createSignal(false);
   let scroller!: HTMLDivElement;
+
+  // Jarvis is working on this, or what you sent is waiting for it (D54).
+  const busy = () => view().activeTurns.length > 0 || view().waitingSince !== null;
+  const [now, setNow] = createSignal(Date.now());
+  const tick = window.setInterval(() => setNow(Date.now()), 5000);
+  onCleanup(() => window.clearInterval(tick));
+  const slow = () => {
+    const since = view().waitingSince;
+    return since !== null && view().activeTurns.length === 0 && now() - Date.parse(since) > SLOW_MS;
+  };
+  const [stopping, setStopping] = createSignal(false);
+  const stop = async () => {
+    if (!props.id || stopping()) return;
+    setStopping(true);
+    await act("jarvis.cancel_turn", { conversationId: props.id });
+    setStopping(false);
+  };
 
   createEffect(
     on([() => view().items.length, () => streaming().join("").length], () =>
@@ -144,6 +164,20 @@ export function Conversation(props: {
                   {(n) => (
                     <p class={`text-xs ${n().tone === "error" ? "text-bad" : "text-muted"}`}>
                       {n().text}
+                      <Show when={n().retry && n().turnId}>
+                        {(turnId) => (
+                          <>
+                            {" "}
+                            <button
+                              type="button"
+                              class="font-medium underline hover:text-ink"
+                              onClick={() => void act("jarvis.retry_turn", { turnId: turnId() })}
+                            >
+                              Retry
+                            </button>
+                          </>
+                        )}
+                      </Show>
                     </p>
                   )}
                 </Match>
@@ -158,9 +192,21 @@ export function Conversation(props: {
               </div>
             )}
           </For>
-          <Show when={view().activeTurns.length > 0 && streaming().length === 0}>
-            <p class="flex items-center gap-2 text-sm text-jarvis">
-              <span class="inline-block size-2 animate-pulse rounded-full bg-jarvis" /> Thinking…
+          <Show when={busy()}>
+            <div class="flex items-center gap-2 text-sm text-jarvis">
+              <Show when={streaming().length === 0}>
+                <span class="inline-block size-2 animate-pulse rounded-full bg-jarvis" /> Thinking…
+              </Show>
+              <span class="flex-1" />
+              <Button small disabled={stopping()} title="Stop Jarvis" onClick={() => void stop()}>
+                Stop
+              </Button>
+            </div>
+          </Show>
+          <Show when={slow()}>
+            <p class="text-xs text-muted">
+              Jarvis hasn't started on this yet. It may still be busy, or not running. Stop lets it
+              go.
             </p>
           </Show>
         </Show>

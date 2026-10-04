@@ -4,6 +4,7 @@
 import { createSignal, For, Show } from "solid-js";
 import { Badge, Button } from "../components/ui.tsx";
 import { ago } from "../lib/format.ts";
+import { outcomeLabel } from "../lib/jarvis-health.ts";
 import { toast } from "../lib/live.ts";
 import { act, useAction } from "../lib/query.ts";
 
@@ -15,6 +16,8 @@ interface Routine {
   active: boolean;
   nextRunAt: string | null;
   lastRunAt: string | null;
+  /** How its last turn went (D54). */
+  lastOutcome: string | null;
 }
 
 type Every = "day" | "weekday" | "week" | "hours";
@@ -50,6 +53,11 @@ export function RoutineSettings() {
     }
   }
 
+  async function runNow(r: Routine) {
+    if (await act("routine.run_now", { id: r.id }))
+      toast.show(`Queued "${r.title}". Jarvis will start on it in a moment.`);
+  }
+
   return (
     <section class="space-y-2">
       <h2 class="font-semibold">Routines</h2>
@@ -66,8 +74,13 @@ export function RoutineSettings() {
                 <Badge tone={r.active ? "ok" : "muted"}>{r.active ? r.when : "paused"}</Badge>
                 <span class="flex-1 text-xs text-faint">
                   {r.lastRunAt ? `last ran ${ago(r.lastRunAt)}` : "hasn't run yet"}
+                  <Show when={outcomeLabel(r.lastOutcome)}>
+                    {(label) => (
+                      <span class={r.lastOutcome === "failed" ? "text-bad" : ""}> · {label()}</span>
+                    )}
+                  </Show>
                 </span>
-                <Button small onClick={() => void act("routine.run_now", { id: r.id })}>
+                <Button small onClick={() => void runNow(r)}>
                   Run now
                 </Button>
                 <Button

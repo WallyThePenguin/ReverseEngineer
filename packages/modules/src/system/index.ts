@@ -60,6 +60,8 @@ export const systemModule = defineModule({
           .limit(20);
         return {
           jarvisPaused: await getSetting(ctx.tx, "jarvis.paused"),
+          /** When the Jarvis process last checked in (every 30 s) and since when it's up (D54). */
+          jarvisAlive: await getSetting(ctx.tx, "jarvis.alive"),
           components: Object.fromEntries(
             health.map((h) => [h.key.slice("health.".length), h.value as HealthRecord]),
           ),
