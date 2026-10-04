@@ -921,7 +921,7 @@ pixels.
 
 | Action | Input | Risk | Phase |
 |---|---|---|---|
-| `browser.tabs` | `{}`; adds `active`, `openerTabId`, `dialog` | read | B0 |
+| `browser.tabs` | `{}`; adds `active`, `openedFrom` (the tab that opened it), `dialog`, `error` | read | B0 |
 | `browser.open` | `{url \| tabId + link, tabId?, newTab?}` | read | today |
 | `browser.navigate` | `{tabId, url}`: an address, `back`, `forward` or `reload`; returns `finalUrl`, `title`, `errorText` | read | B0 |
 | `browser.scroll` | `{tabId, direction, amount?, coordinate?}` | read | B0 |
