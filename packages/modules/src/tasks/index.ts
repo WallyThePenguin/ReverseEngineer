@@ -41,12 +41,14 @@ export const tasksModule = defineModule({
       const t = await loadTask(ctx.db, { id: entityId });
       if (!t) return null;
       const e = (await ctx.db.select().from(entity).where(eq(entity.id, entityId)))[0]!;
+      // Dates and times in the owner's own time zone, as everywhere else Jarvis reads them.
+      const { timeZone } = await getSetting(ctx.db, "owner.dayRules");
       const extra = [
         t.key,
         TASK_STATUS_LABELS[t.status],
         `priority ${t.priority}`,
         t.dueAt
-          ? `due ${t.dueIsDate ? localDate(t.dueAt, "America/New_York") : formatDateTime(t.dueAt)}`
+          ? `due ${t.dueIsDate ? localDate(t.dueAt, timeZone) : formatDateTime(t.dueAt, timeZone)}`
           : "no due date",
         `assignee ${t.assignee ?? "nobody"}`,
       ];
@@ -60,7 +62,10 @@ export const tasksModule = defineModule({
       const thread = kids
         .filter((k) => k.type === "comment")
         .slice(-10)
-        .map((k) => `- ${k.createdBy} at ${formatDateTime(k.createdAt)}: ${preview(k.body, 600)}`);
+        .map(
+          (k) =>
+            `- ${k.createdBy} at ${formatDateTime(k.createdAt, timeZone)}: ${preview(k.body, 600)}`,
+        );
       const tail = [
         subtasks.length ? `## Subtasks\n${subtasks.join("\n")}` : "",
         thread.length ? `## Thread (latest ${thread.length})\n${thread.join("\n")}` : "",
