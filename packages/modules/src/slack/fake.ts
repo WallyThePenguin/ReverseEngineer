@@ -25,6 +25,8 @@ export class FakeSlack {
   pageSize = 1000;
   /** Set to an error code (token_revoked) to have every call fail with it. */
   failWith: string | null = null;
+  /** Error codes for some calls only, by what `calls` would note: "replies C1", "history C2". */
+  failCalls = new Map<string, string>();
   /** Every call Hearth made, of any kind. */
   requests = 0;
 
@@ -34,6 +36,11 @@ export class FakeSlack {
     list.push({ ts, user, text, threadTs });
     this.messages.set(channel, list);
     return ts;
+  }
+
+  private failIf(call: string) {
+    const code = this.failCalls.get(call);
+    if (code) throw new SlackError(code);
   }
 
   private page(list: SlackMessage[], cursor: string | undefined, limit: number): SlackPage {
@@ -70,6 +77,7 @@ export class FakeSlack {
       history: async (token, channel, p) => {
         check(token);
         this.calls.push(`history ${channel}`);
+        this.failIf(`history ${channel}`);
         // Like Slack: thread replies aren't in a channel's history.
         const list = (this.messages.get(channel) ?? [])
           .filter(
@@ -85,6 +93,7 @@ export class FakeSlack {
       replies: async (token, channel, threadTs, p) => {
         check(token);
         this.calls.push(`replies ${channel} ${threadTs}`);
+        this.failIf(`replies ${channel}`);
         const list = (this.messages.get(channel) ?? []).filter(
           (m) => m.threadTs === threadTs && m.ts !== threadTs && after(m.ts, p.oldest),
         );

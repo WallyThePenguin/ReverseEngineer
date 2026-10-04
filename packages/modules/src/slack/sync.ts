@@ -7,7 +7,15 @@ import { type ActionContext, savepoint } from "@hearth/kernel";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { closeAlerts, nextHealth, type Trouble, worst } from "../connector-health.ts";
 import { SlackError } from "./api.ts";
-import { type Budget, CALLS_PER_SYNC, readChannel, readThreads } from "./read.ts";
+import {
+  type Budget,
+  CALLS_PER_SYNC,
+  onlyThis,
+  PASSING,
+  readChannel,
+  readThreads,
+  setAside,
+} from "./read.ts";
 import {
   later,
   openToken,
@@ -24,10 +32,6 @@ export { openToken, plainText, sealToken, slackApi, type WorkspaceRow } from "./
 export const CHANNELS_PER_SYNC = 15;
 const FIRST_LOOK_DAYS = 3;
 const CHANNEL_LIST_MS = 30 * 60_000;
-/** A channel that's gone, or that you left: it stops being read in, quietly. */
-const CHANNEL_GONE = new Set(["channel_not_found", "not_in_channel", "is_archived"]);
-/** Slack's own trouble, which passes by itself. */
-const PASSING = /^(http_5\d\d|internal_error|fatal_error|service_unavailable|request_timeout)$/;
 
 async function refreshChannels(ctx: ActionContext, ws: WorkspaceRow, token: string) {
   for (const c of await slackApi(ctx).conversations(token)) {
@@ -140,17 +144,12 @@ export async function syncSlack(ctx: ActionContext): Promise<SlackSyncResult> {
         );
         result.channels++;
       } catch (err) {
-        if (!(err instanceof SlackError) || err.revoked || err.code === "ratelimited") throw err;
+        if (!onlyThis(err)) throw err;
         // This channel only: the others carry on.
-        const gone = CHANNEL_GONE.has(err.code);
-        if (!gone) troubles.push({ kind: "refused", message: `#${channel.name}: ${err.message}` });
-        await ctx.tx
-          .update(slackChannel)
-          .set({ polledAt: ctx.now, ...(gone ? { ingest: false } : {}) })
-          .where(eq(slackChannel.id, channel.id));
+        await setAside(ctx, channel, err, troubles, true);
       }
     }
-    result.replies = await readThreads(ctx, ws, token, budget, settled);
+    result.replies = await readThreads(ctx, ws, token, budget, settled, troubles);
   } catch (err) {
     // Slowing down when asked is normal; the next round picks up where this one stopped.
     if (err instanceof SlackError && err.code === "ratelimited") slowed = true;

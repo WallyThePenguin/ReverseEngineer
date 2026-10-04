@@ -125,6 +125,45 @@ describe("reading Slack in", () => {
     t.clock.advance(11 * 60_000);
     expect((await sync()).replies).toBe(0);
   });
+
+  it("reads the other threads when one can't be read", async () => {
+    s.conversations.push({ id: "C2", name: "random", kind: "channel" });
+    const lunch = s.post("C1", "UBOB", "Lunch?");
+    const deploy = s.post("C2", "UANA", "Deploy today?");
+    await connect();
+    await sync();
+    s.post("C1", "UANA", "Count me in", lunch);
+    s.post("C2", "UBOB", "Yes, at 3", deploy);
+    // Slack won't give #general's thread: the one in #random still comes in.
+    s.failCalls.set("replies C1", "missing_scope");
+    t.clock.advance(11 * 60_000);
+    const round = await sync();
+    expect(round.replies).toBe(1);
+    expect(round.error).toMatch(/#general/);
+    expect(await texts("C2")).toContain("Yes, at 3");
+    // Nor does it hold up the rest from now on.
+    s.post("C2", "UBOB", "Or at 4", deploy);
+    t.clock.advance(11 * 60_000);
+    expect((await sync()).replies).toBe(1);
+    expect(await texts("C2")).toContain("Or at 4");
+
+    // You left #general: it stops being read, quietly, and all is well again.
+    s.failCalls.set("replies C1", "not_in_channel");
+    s.post("C1", "UBOB", "Still on?", lunch);
+    t.clock.advance(11 * 60_000);
+    expect((await sync()).error).toBeUndefined();
+    expect(await channel("C1")).toMatchObject({ ingest: false });
+    expect(await status()).toMatchObject({ state: "ok" });
+  });
+
+  it("doesn't tell you at once about Slack's own hiccup on one channel", async () => {
+    await connect();
+    await sync();
+    s.failCalls.set("history C1", "internal_error");
+    expect((await sync()).error).toMatch(/#general/);
+    expect(await status()).toMatchObject({ state: "ok" });
+    expect(await t.events("slack.sync_failed")).toEqual([]);
+  });
 });
 
 describe("when Slack stops working", () => {

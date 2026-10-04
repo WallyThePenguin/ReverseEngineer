@@ -4,6 +4,7 @@
 import { slackChannel, slackMessage } from "@hearth/db";
 import { type ActionContext, savepoint } from "@hearth/kernel";
 import { and, asc, eq, isNotNull, sql } from "drizzle-orm";
+import type { Trouble } from "../connector-health.ts";
 import { SlackError, type SlackMessage } from "./api.ts";
 import {
   type ChannelRow,
@@ -25,6 +26,41 @@ export const THREADS_PER_SYNC = 10;
 /** How far back a channel is looked over for new replies, and how often. */
 const THREAD_WATCH_S = 3 * 86_400;
 const THREAD_SCAN_MS = 10 * 60_000;
+/** A channel that's gone, or that you left: it stops being read in, quietly. */
+const CHANNEL_GONE = new Set(["channel_not_found", "not_in_channel", "is_archived"]);
+/** Slack's own trouble, which passes by itself. */
+export const PASSING =
+  /^(http_5\d\d|internal_error|fatal_error|service_unavailable|request_timeout)$/;
+
+/** Trouble with one channel or thread only, which the rest of the round can go on past. */
+export const onlyThis = (err: unknown): err is SlackError =>
+  err instanceof SlackError && !err.revoked && err.code !== "ratelimited";
+
+/**
+ * Notes that a channel (or a thread in it) couldn't be read. A channel that's gone is no longer
+ * read in; anything else is a trouble for the round to tell. `polled`: the channel's own messages
+ * were asked for, so it waits behind the others next round.
+ */
+export async function setAside(
+  ctx: ActionContext,
+  channel: ChannelRow,
+  err: SlackError,
+  troubles: Trouble[],
+  polled: boolean,
+) {
+  const gone = CHANNEL_GONE.has(err.code);
+  if (!gone)
+    troubles.push({
+      // Slack's own hiccup on one channel is told only if it keeps on, like any other.
+      kind: PASSING.test(err.code) ? "transient" : "refused",
+      message: `#${channel.name}: ${err.message}`,
+    });
+  if (gone || polled)
+    await ctx.tx
+      .update(slackChannel)
+      .set({ ...(polled ? { polledAt: ctx.now } : {}), ...(gone ? { ingest: false } : {}) })
+      .where(eq(slackChannel.id, channel.id));
+}
 
 export interface Budget {
   calls: number;
@@ -106,13 +142,17 @@ async function scanThreads(ctx: ActionContext, token: string, channel: ChannelRo
     if (m.latestReply) await noteReplies(ctx, channel.id, m.ts, m.latestReply);
 }
 
-/** Reads the replies Hearth hasn't, in threads it knows have some, least recently read first. */
+/**
+ * Reads the replies Hearth hasn't, in threads it knows have some, least recently read first. A
+ * thread that can't be read waits behind the others, so it never holds them up.
+ */
 export async function readThreads(
   ctx: ActionContext,
   ws: WorkspaceRow,
   token: string,
   budget: Budget,
   settled: boolean,
+  troubles: Trouble[],
 ): Promise<number> {
   const due = await ctx.tx
     .select({ m: slackMessage, channel: slackChannel })
@@ -129,9 +169,22 @@ export async function readThreads(
     .orderBy(sql`${slackMessage.repliesAt} ASC NULLS FIRST`, asc(slackMessage.sentAt))
     .limit(THREADS_PER_SYNC);
   let added = 0;
+  const failed = new Set<string>();
   for (const { m, channel } of due) {
     if (budget.calls <= 0) break;
-    added += await savepoint(ctx, (sp) => readThread(sp, ws, token, channel, m, budget, settled));
+    // The channel's other threads would fail the same way this round.
+    if (failed.has(channel.id)) continue;
+    try {
+      added += await savepoint(ctx, (sp) => readThread(sp, ws, token, channel, m, budget, settled));
+    } catch (err) {
+      if (!onlyThis(err)) throw err;
+      failed.add(channel.id);
+      await ctx.tx
+        .update(slackMessage)
+        .set({ repliesAt: ctx.now })
+        .where(eq(slackMessage.entityId, m.entityId));
+      await setAside(ctx, channel, err, troubles, false);
+    }
   }
   return added;
 }
