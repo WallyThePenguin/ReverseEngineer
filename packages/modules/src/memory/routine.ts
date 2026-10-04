@@ -10,7 +10,10 @@ import { isOutside, preview } from "../shared.ts";
 
 const DAY_MS = 24 * 3600_000;
 
-/** What the owner said in the last day, in chat and in comments: the best source for memory. */
+/**
+ * What the owner said in the last day, in chat and in comments: the best source for memory. Not
+ * words a device heard or sent on its own say-so (D42): those are outside content (D58).
+ */
 async function ownerWords(db: Db, since: Date): Promise<string[]> {
   const chat = await db
     .select({ at: conversationLog.at, text: sql<string>`${conversationLog.payload}->>'text'` })
@@ -19,6 +22,7 @@ async function ownerWords(db: Db, since: Date): Promise<string[]> {
       and(
         eq(conversationLog.kind, "user_message"),
         sql`${conversationLog.payload}->>'by' = 'owner'`,
+        sql`(${conversationLog.payload}->>'heard') IS DISTINCT FROM 'true'`,
         gte(conversationLog.at, since),
       ),
     )
@@ -31,6 +35,7 @@ async function ownerWords(db: Db, since: Date): Promise<string[]> {
       and(
         eq(entity.type, "comment"),
         eq(entity.createdBy, "owner"),
+        eq(entity.outside, false),
         isNull(entity.deletedAt),
         gte(entity.createdAt, since),
       ),

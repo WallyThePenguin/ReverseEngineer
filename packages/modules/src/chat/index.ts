@@ -162,10 +162,18 @@ export const chatModule = defineModule({
           conversationId = e.id;
         }
         const chosen = i.lane ?? routeLane(i.text);
+        // Heard, or sent by a device on its own say-so (D42): kept as such, so the nightly memory
+        // update doesn't take it for your words (D58).
+        const heard = i.heard === true || ctx.caller.origin === "untrusted";
         const [idx] = await appendLog(
           ctx.tx,
           conversationId,
-          [{ kind: "user_message", payload: { text: i.text, by: ctx.caller.principal } }],
+          [
+            {
+              kind: "user_message",
+              payload: { text: i.text, by: ctx.caller.principal, ...(heard ? { heard } : {}) },
+            },
+          ],
           ctx.now,
         );
         ctx.emit({
