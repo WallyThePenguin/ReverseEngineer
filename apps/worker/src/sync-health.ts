@@ -106,11 +106,14 @@ async function google(kernel: Kernel, clock: ErrorClock, now: Date): Promise<Syn
     });
   }
   for (const m of await kernel.db.select().from(mailAccount)) {
+    // Mail judges itself (D55): failing only once its own state says so (access to reconnect, or
+    // three failures with nothing synced for half an hour), so no `since` here. A pause Google
+    // asked for is calm, even with an earlier error still on the row.
+    const paused = m.syncState === "paused" && m.pausedUntil !== null && m.pausedUntil > now;
     out.push({
       name: `${m.address} mail`,
-      error: m.lastError,
+      error: paused ? null : m.lastError,
       failing: m.syncState === "failing",
-      since: m.failingSince,
       lastGood: m.syncState === "paused" ? null : m.syncedAt,
       pausedUntil: m.pausedUntil,
     });

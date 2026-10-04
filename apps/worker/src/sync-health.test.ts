@@ -142,4 +142,37 @@ describe("checkSyncs", () => {
       detail: "Not connected",
     });
   });
+
+  it("leaves mail's verdict to mail itself: a pause is calm, an error fails only once mail says so (D55)", async () => {
+    const clock = new ErrorClock();
+    const now = t.kernel.clock.now();
+    await t.tdb.db.insert(mailAccount).values({
+      id: "gmail:me@example.com",
+      provider: "gmail",
+      address: "me@example.com",
+      syncedAt: new Date(now.getTime() - 50 * 60_000),
+      // A network error 40 minutes ago, then Google asked Hearth to slow down: the error stays on
+      // the row while the account waits out the pause.
+      lastError: "socket hang up",
+      failures: 1,
+      failingSince: new Date(now.getTime() - 40 * 60_000),
+      syncState: "paused",
+      pausedUntil: new Date(now.getTime() + 2 * 60_000),
+    });
+    let [google] = await checkSyncs(t.kernel, clock);
+    expect(google).toMatchObject({ component: "sync.google", status: "ok" });
+    expect(google?.detail).toMatch(/slow down/);
+
+    // The pause is over and it failed again, but mail hasn't called it failing yet (D55 waits for
+    // three in a row): worth a look, not an alert.
+    await t.tdb.db
+      .update(mailAccount)
+      .set({ syncState: "catching_up", pausedUntil: null, failures: 2 });
+    [google] = await checkSyncs(t.kernel, clock);
+    expect(google).toMatchObject({ status: "degraded" });
+
+    await t.tdb.db.update(mailAccount).set({ syncState: "failing", failures: 3 });
+    [google] = await checkSyncs(t.kernel, clock);
+    expect(google).toMatchObject({ status: "failing" });
+  });
 });
