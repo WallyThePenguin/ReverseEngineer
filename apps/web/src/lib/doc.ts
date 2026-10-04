@@ -118,6 +118,9 @@ export class LiveDoc {
         await this.close();
         throw new Error("This note isn't available offline yet.");
       }
+      // Edits written ahead by a copy that never saved one: that first sync only fetched the
+      // note, so they go now rather than at the next edit or tick.
+      if (pending.length) void this.sync();
     } else void this.sync();
     if (!this.closed) this.listen();
   }

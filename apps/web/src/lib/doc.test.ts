@@ -140,6 +140,21 @@ describe("a note's edits, written ahead", () => {
     await b.doc.close();
   });
 
+  it("sends at once an edit written ahead by a copy that never saved one", async () => {
+    // A tab typed and died before its first saved copy was written.
+    const dead = new LoroDoc();
+    dead.import(hearth.export({ mode: "snapshot" }));
+    dead.setPeerId(3003n);
+    const from = dead.oplogVersion();
+    dead.getText("body").insert(4, " today");
+    dead.commit();
+    const data = dead.export({ mode: "update", from });
+    disk.updates.set("n1|dead|1", { doc: "n1", tab: "dead", n: 1, data });
+    const a = await open();
+    expect(hearthText()).toBe("Plan today");
+    await a.doc.close();
+  });
+
   it("drops edits from disk only once a saved copy holds them", async () => {
     const a = await open();
     mode = "down";
