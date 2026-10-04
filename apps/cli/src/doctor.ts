@@ -1,10 +1,11 @@
-// `hearth doctor`: checks everything Hearth needs and says how to fix what's wrong.
+// `hearth doctor`: checks everything Hearth needs and says how to fix what's wrong. Any fail
+// makes it exit non-zero. This file has the setup checks; doctor-db.ts what the database says,
+// doctor-host.ts the running install (services, the server, the build, Tailscale, the drives),
+// and doctor-run.ts puts them together.
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { credential, type Database, loadMigrations, setting } from "@hearth/db";
 import { findChrome, loadLaunchConfig } from "@hearth/server";
-import { like } from "drizzle-orm";
 import { type Runner, runProgram } from "./backup.ts";
 
 export type Mark = "ok" | "warn" | "fail";
@@ -166,53 +167,4 @@ export async function checkChrome(
         mark: "warn",
         detail: "Can't find Chrome, so Hearth can't open it by itself. Set HEARTH_CHROME_PATH.",
       };
-}
-
-export async function checkDatabase(database: Database): Promise<Check[]> {
-  const checks: Check[] = [];
-  try {
-    await database.pool.query("SELECT 1");
-    checks.push({ name: "Database", mark: "ok", detail: "Connected" });
-  } catch (err) {
-    return [{ name: "Database", mark: "fail", detail: `Can't connect: ${(err as Error).message}` }];
-  }
-
-  const known = loadMigrations().map((m) => m.name);
-  const applied = await database.pool
-    .query<{ name: string }>("SELECT name FROM _migration")
-    .then((r) => new Set(r.rows.map((x) => x.name)))
-    .catch(() => new Set<string>());
-  const missing = known.filter((n) => !applied.has(n));
-  checks.push(
-    missing.length
-      ? {
-          name: "Migrations",
-          mark: "fail",
-          detail: `${missing.length} not applied. Run \`hearth migrate\`.`,
-        }
-      : { name: "Migrations", mark: "ok", detail: `${known.length} applied` },
-  );
-  if (missing.length) return checks;
-
-  const passkeys = await database.db.select({ id: credential.id }).from(credential);
-  checks.push(
-    passkeys.length
-      ? { name: "Login", mark: "ok", detail: `${passkeys.length} passkey(s)` }
-      : { name: "Login", mark: "warn", detail: "No passkey yet. Run `hearth setup`." },
-  );
-
-  const health = await database.db.select().from(setting).where(like(setting.key, "health.%"));
-  if (!health.some((h) => h.key === "health.backup")) {
-    checks.push({
-      name: "backup",
-      mark: "warn",
-      detail: "No backup has run yet. See docs/setup-windows.md.",
-    });
-  }
-  for (const h of health) {
-    const v = h.value as { status: string; detail: string };
-    const mark: Mark = v.status === "ok" ? "ok" : v.status === "degraded" ? "warn" : "fail";
-    checks.push({ name: h.key.slice("health.".length), mark, detail: v.detail || v.status });
-  }
-  return checks;
 }

@@ -15,15 +15,8 @@ import {
   revokeDevice,
 } from "@hearth/server";
 import { runBackup } from "./backup.ts";
-import {
-  checkBackupTools,
-  checkChrome,
-  checkClaudeLogin,
-  checkDatabase,
-  checkNode,
-  checkOrigin,
-  formatChecks,
-} from "./doctor.ts";
+import { formatChecks } from "./doctor.ts";
+import { runDoctor } from "./doctor-run.ts";
 import { guardSchema } from "./schema-guard.ts";
 
 const HELP = `hearth: your personal workspace, with Jarvis.
@@ -35,7 +28,7 @@ const HELP = `hearth: your personal workspace, with Jarvis.
   hearth jarvis             Run Jarvis
   hearth dev [--no-jarvis]  Run all three in one process
   hearth backup             Back up now (dump, upload with restic, prune, test a restore)
-  hearth doctor             Check that everything is set up
+  hearth doctor [--json]    Check that everything is set up and running; exits 1 on any fail
   hearth eval [--record] [name...]
                             Run Jarvis's eval scenarios with the real model (needs
                             HEARTH_TEST_DATABASE_URL); --record saves passing runs as fixtures
@@ -188,16 +181,10 @@ async function main(argv: string[]): Promise<number> {
     }
 
     case "doctor": {
-      const checks = [
-        checkNode(),
-        checkOrigin(),
-        checkClaudeLogin(),
-        await checkChrome(),
-        ...(await checkBackupTools()),
-      ];
-      checks.push(...(await withDatabase(checkDatabase)));
-      console.log(formatChecks(checks));
-      return checks.some((c) => c.mark === "fail") ? 1 : 0;
+      const { values } = parseArgs({ args: rest, options: { json: { type: "boolean" } } });
+      const result = await runDoctor();
+      console.log(values.json ? JSON.stringify(result) : formatChecks(result.checks));
+      return result.ok ? 0 : 1;
     }
 
     case "status":
