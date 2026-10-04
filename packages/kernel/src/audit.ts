@@ -25,7 +25,7 @@ export function isAudited(def: Pick<ActionDef, "risk">, caller: Caller): boolean
   return !(def.risk === "read" && caller.kind === "owner" && caller.origin === "owner");
 }
 
-/** One row per action call. Inputs of secret actions are never stored. */
+/** One row per audited action call (see isAudited). Inputs of secret actions are never stored. */
 export async function writeAudit(db: DbOrTx, e: AuditEntry): Promise<void> {
   await db.insert(audit).values({
     id: newId(),
