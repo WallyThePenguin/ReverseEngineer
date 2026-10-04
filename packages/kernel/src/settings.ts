@@ -1,7 +1,14 @@
 // Typed settings with defaults. Stored as JSON rows in the setting table.
-import { type DayRules, DEFAULT_DAY_RULES, DEFAULT_SITE_RULES, type SiteRules } from "@hearth/core";
+import {
+  type DayRules,
+  DEFAULT_DAY_RULES,
+  DEFAULT_SITE_RULES,
+  isValidTimeZone,
+  type SiteRules,
+} from "@hearth/core";
 import { type DbOrTx, setting } from "@hearth/db";
 import { eq } from "drizzle-orm";
+import { ActionError } from "./errors.ts";
 
 export interface Settings {
   /** Stops all proactive work. Jarvis still answers when you talk to it. */
@@ -60,11 +67,27 @@ export async function getSetting<K extends keyof Settings>(
   return row ? (row.value as Settings[K]) : SETTING_DEFAULTS[key];
 }
 
+/**
+ * Refuses a value that would break what reads it. A time zone with a typo in your day rules
+ * made every schedule fail to work out its next run, so nothing scheduled ran at all.
+ */
+export function checkSetting<K extends keyof Settings>(key: K, value: Settings[K]): void {
+  if (key === "owner.dayRules" && value) {
+    const { timeZone } = value as DayRules;
+    if (!isValidTimeZone(timeZone))
+      throw new ActionError(
+        "invalid_input",
+        `"${timeZone}" isn't a time zone Hearth knows. Use a name like America/New_York.`,
+      );
+  }
+}
+
 export async function setSetting<K extends keyof Settings>(
   db: DbOrTx,
   key: K,
   value: Settings[K],
 ): Promise<void> {
+  checkSetting(key, value);
   // Null clears the setting (the column can't hold SQL null), which reads back as its default.
   if (value === null) {
     await db.delete(setting).where(eq(setting.key, key));

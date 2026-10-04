@@ -14,6 +14,7 @@ const LABELS: Readonly<Record<string, string>> = {
   worker: "Hearth's worker",
   server: "Hearth's server",
   disk: "Disk space",
+  schedules: "Scheduling",
   browser: "The Chrome link",
 };
 

@@ -8,7 +8,8 @@ export const REPORT_EVERY_MS: Readonly<Record<string, number>> = {
   worker: 60_000,
   disk: 60_000,
   jarvis: 60_000,
-  // The worker reports the syncs with the rest, every minute.
+  // The worker reports schedules and the syncs with the rest, every minute.
+  schedules: 60_000,
   "sync.google": 60_000,
   "sync.slack": 60_000,
   "sync.github": 60_000,
