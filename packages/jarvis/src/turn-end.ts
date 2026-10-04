@@ -2,7 +2,6 @@
 // again when that's safe and worth it; otherwise it fails for good: the owner reads why in plain
 // words, a routine publishes its plain version, set-aside heartbeat items go back on the pile,
 // and an alert goes out when Jarvis looks broken rather than unlucky.
-import { localDate } from "@hearth/core";
 import { conversationLog, event, heartbeatItem, jarvisTurn, schedule } from "@hearth/db";
 import {
   appendEvents,
@@ -11,15 +10,14 @@ import {
   type Kernel,
   newId,
   type ReflexOutcome,
-  systemCaller,
   toHearthEvent,
 } from "@hearth/kernel";
 import type { LogEntry } from "@hearth/modules";
-import { and, count, eq, inArray, lt, sql } from "drizzle-orm";
+import { and, count, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import { BACKOFF_MINUTES, type Failure, failure, friendlyError, PASSING } from "./failures.ts";
-import { failureStreak, STREAK_ALERT } from "./health.ts";
 import { applyOutcomes } from "./outcomes.ts";
 import { writeLog } from "./threads.ts";
+import { alertFailure } from "./turn-alerts.ts";
 import type { TurnLog } from "./turn-log.ts";
 
 type TurnRow = typeof jarvisTurn.$inferSelect;
@@ -39,8 +37,6 @@ const ASKED_AT = sql`coalesce((${jarvisTurn.context}->>'askedAt')::timestamptz, 
 const FALLBACK_WAIT_MS = 30 * 60_000;
 /** With no reset time given, a usage limit is checked again after this. */
 const LIMIT_WAIT_MS = 15 * 60_000;
-/** Failures that need the owner (or a fix), however they started. */
-const NEEDS_YOU = new Set(["invalid_request", "auth", "bad_tool"]);
 
 export interface EndEnv {
   kernel: Kernel;
@@ -51,12 +47,36 @@ export interface EndEnv {
 export interface Ending {
   turn: TurnRow;
   conversationId: string | null;
-  /** Hearth tools called this attempt. Once one has, the turn is never tried again. */
+  /** Hearth tools that finished this attempt. */
   calls: { action: string; risk: string; status: string }[];
+  /** Hearth tools started this attempt, finished or not. Once one has, the turn is never tried
+   * again: one still running when the model failed may yet do its thing. */
+  started: number;
   /** The model answered; something failing after that isn't worth another try either. */
   answered: boolean;
   durationMs: number;
   firstTokenMs: number | null;
+}
+
+/** An attempt at a turn, before anything has happened in it. */
+export const newEnding = (turn: TurnRow): Ending => ({
+  turn,
+  conversationId: turn.conversationId,
+  calls: [],
+  started: 0,
+  answered: false,
+  durationMs: 0,
+  firstTokenMs: null,
+});
+
+/** Whether the owner pressed Stop on a turn, as its row says (the signal can be missed). */
+export async function stopRequested(kernel: Kernel, turnId: string): Promise<boolean> {
+  const rows = await kernel.db
+    .select({ id: jarvisTurn.id })
+    .from(jarvisTurn)
+    .where(and(eq(jarvisTurn.id, turnId), isNotNull(jarvisTurn.cancelRequestedAt)))
+    .catch(() => []);
+  return rows.length > 0;
 }
 
 /** Writes how an attempt ended: the turn row, the conversation, the routine's schedule. */
@@ -118,9 +138,12 @@ export async function recordEnd(
   );
 }
 
+/** Whether the attempt used a Hearth tool, or started one that may still be running. */
+export const usedTools = (e: Ending): boolean => e.started > 0 || e.calls.length > 0;
+
 /** When to try a failed attempt again, or null to give up now. */
 export function nextTry(e: Ending, f: Failure, now: Date): Date | null {
-  if (!PASSING.has(f.kind) || e.calls.length > 0 || e.answered) return null;
+  if (!PASSING.has(f.kind) || usedTools(e) || e.answered) return null;
   const tries = Math.max(1, e.turn.attempts);
   if (tries > BACKOFF_MINUTES.length) return null;
   const at =
@@ -249,74 +272,6 @@ async function releaseHeartbeat(env: EndEnv, turn: TurnRow): Promise<void> {
     .where(inArray(heartbeatItem.id, ids.map(String)));
 }
 
-const ROUTINE_NAMES: Record<string, string> = {
-  brief: "your morning brief",
-  journal: "the evening journal",
-  memory: "the nightly memory update",
-  prep: "meeting prep",
-  heartbeat: "a heartbeat check",
-};
-
-/**
- * Alerts (pushed to the phone) on a routine failing and on anything that needs the owner, and
- * again after several failures in a row. Each is raised once per kind per day within a run of
- * failures, so a new outage after Jarvis recovered is never swallowed by an earlier one.
- */
-async function alertFailure(
-  env: EndEnv,
-  turn: TurnRow,
-  f: Failure,
-  said: string,
-  fellBack: boolean,
-): Promise<void> {
-  const { kernel } = env;
-  const now = kernel.clock.now();
-  const { timeZone } = await getSetting(kernel.db, "owner.dayRules");
-  const { failed, firstFailedId } = await failureStreak(kernel.db, now);
-  const start = firstFailedId ?? turn.id;
-  const notify = async (title: string, body: string, dedupeKey: string) => {
-    const res = await kernel.execute(
-      "inbox.notify",
-      { kind: "system.alert", title, body, urgency: "interrupt", dedupeKey },
-      systemCaller(),
-    );
-    if (res.status !== "ok") env.log(`alert "${title}" wasn't raised: ${JSON.stringify(res)}`);
-  };
-  const routine = turn.trigger === "routine" ? String(turn.context.routine ?? "") : null;
-  if (routine !== null || NEEDS_YOU.has(f.kind)) {
-    const what = routine ? (ROUTINE_NAMES[routine] ?? `"${routine}"`) : null;
-    const title = what
-      ? `Jarvis couldn't finish ${what}`
-      : f.kind === "auth"
-        ? "Jarvis is signed out of Claude"
-        : "Jarvis's turns are failing";
-    const body = fellBack ? `${said} Hearth published the plain version instead.` : said;
-    await notify(title, body, `jarvis_failed:${f.kind}:${localDate(now, timeZone)}:${start}`);
-  }
-  if (failed >= STREAK_ALERT)
-    await notify(
-      `Jarvis has failed ${failed} turns in a row`,
-      `The latest: ${said}`,
-      `jarvis_streak:${start}`,
-    );
-}
-
-/** Tells the owner a tool was left out because Claude rejected it: once per tool per restart. */
-export async function alertLeftOut(env: EndEnv, tool: string, since: Date): Promise<void> {
-  const res = await env.kernel.execute(
-    "inbox.notify",
-    {
-      kind: "system.alert",
-      title: "Jarvis is working without one of its tools",
-      body: `Claude rejected the definition of ${tool}, so Jarvis left it out and carried on. Hearth needs a fix for it; the tool stays off until Jarvis restarts.`,
-      urgency: "interrupt",
-      dedupeKey: `jarvis_left_out:${tool}:${since.toISOString()}`,
-    },
-    systemCaller(),
-  );
-  if (res.status !== "ok") env.log(`the alert about ${tool} wasn't raised: ${JSON.stringify(res)}`);
-}
-
 /**
  * Queued turns past their time-to-live are dropped rather than answered late: a chat after an
  * hour, a voice command after two minutes. The conversation says so, with a Retry.
@@ -350,13 +305,19 @@ export async function expireQueued(env: EndEnv): Promise<number> {
 }
 
 /**
- * After a restart, turns left "running" were cut short. One that hadn't used a tool yet is
- * simply run again; the rest fail, with their conversation told why.
+ * After a restart, turns left "running" were cut short. One you pressed Stop on stays stopped
+ * (Jarvis may have been stuck or down when you did). One that hadn't used a tool yet is simply
+ * run again; the rest fail, with their conversation told why.
  */
 export async function recoverInterrupted(env: EndEnv): Promise<number> {
   const { kernel } = env;
   const rows = await kernel.db.select().from(jarvisTurn).where(eq(jarvisTurn.status, "running"));
   for (const turn of rows) {
+    const end = newEnding(turn);
+    if (turn.cancelRequestedAt) {
+      await failTurn(env, end, failure("canceled", "Stopped by the owner"), 0);
+      continue;
+    }
     const [used] = await kernel.db
       .select({ n: count() })
       .from(conversationLog)
@@ -377,14 +338,6 @@ export async function recoverInterrupted(env: EndEnv): Promise<number> {
         ]);
       continue;
     }
-    const end: Ending = {
-      turn,
-      conversationId: turn.conversationId,
-      calls: [],
-      answered: false,
-      durationMs: 0,
-      firstTokenMs: null,
-    };
     await failTurn(env, end, failure("interrupted", "Interrupted by a restart"), 0);
   }
   return rows.length;

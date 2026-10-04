@@ -4,7 +4,7 @@
 import { conversation, jarvisTurn, type TurnOutcome } from "@hearth/db";
 import { getSetting, jarvisCaller, type Kernel } from "@hearth/kernel";
 import { type LogEntry, recallMemory, renderMemory } from "@hearth/modules";
-import { and, asc, desc, eq, isNotNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, lte, sql } from "drizzle-orm";
 import type pg from "pg";
 import type { Brain, BrainEvents, BrainRequest, BrainResult } from "./brain.ts";
 import { classifyFailure, type Failure, failure } from "./failures.ts";
@@ -13,13 +13,16 @@ import { buildSystemPrompt } from "./prompt.ts";
 import { ensureConversation, recapConversation, streamer, withRecap, writeLog } from "./threads.ts";
 import { buildTools, readRecord, type ToolCallRecord, type TurnState } from "./tools.ts";
 import { checkOpen, readOutsideContent } from "./trust.ts";
+import { alertLeftOut } from "./turn-alerts.ts";
 import {
-  alertLeftOut,
   type Ending,
   expireQueued,
   failTurn,
+  newEnding,
   recordEnd,
   recoverInterrupted,
+  stopRequested,
+  usedTools,
 } from "./turn-end.ts";
 import type { TurnLog } from "./turn-log.ts";
 
@@ -46,6 +49,8 @@ const REPLY_IN_THREAD = new Set(["mention", "assignment", "watch", "approval"]);
 const NO_TOOLS = new Set(["voice_command"]);
 const QUIET_ACTIONS = new Set(["inbox.notify", "jarvis.observe", "record.read"]);
 const WEB_TOOLS = new Set(["WebSearch", "WebFetch"]);
+/** What a tool says once its turn has been stopped or run out of time. */
+const ENDED = "Not run: this turn has been stopped. Don't call any more tools.";
 
 export function classifyOutcome(calls: ToolCallRecord[]): TurnOutcome {
   const ok = calls.filter((c) => c.status === "ok");
@@ -160,18 +165,13 @@ export class TurnRunner {
     this.aborts.set(turn.id, stop);
     const signal = AbortSignal.any([stop.signal, AbortSignal.timeout(limit)]);
     const watching = this.watchForStop(turn.id, stop);
-    const end: Ending = {
-      turn,
-      conversationId: turn.conversationId,
-      calls: [],
-      answered: false,
-      durationMs: 0,
-      firstTokenMs: null,
-    };
+    const end = newEnding(turn);
     try {
       await this.attempt(end, signal, started);
     } catch (err) {
-      const f: Failure = stop.signal.aborted
+      // Stop may be on the row before its signal arrives: a turn you stopped isn't queued again.
+      const canceled = stop.signal.aborted || (await stopRequested(this.kernel, turn.id));
+      const f: Failure = canceled
         ? failure("canceled", "Stopped by the owner")
         : signal.aborted
           ? failure("timeout", `Ran past its ${Math.round(limit / 60_000)}-minute limit`)
@@ -191,14 +191,9 @@ export class TurnRunner {
   /** Backs up the Stop signal: the owner's press is also on the turn row. */
   private watchForStop(turnId: string, stop: AbortController): NodeJS.Timeout {
     const timer = setInterval(() => {
-      void this.kernel.db
-        .select({ at: jarvisTurn.cancelRequestedAt })
-        .from(jarvisTurn)
-        .where(and(eq(jarvisTurn.id, turnId), isNotNull(jarvisTurn.cancelRequestedAt)))
-        .then((rows) => {
-          if (rows.length) stop.abort();
-        })
-        .catch(() => {});
+      void stopRequested(this.kernel, turnId).then((yes) => {
+        if (yes) stop.abort();
+      });
     }, this.stopCheckMs);
     timer.unref();
     return timer;
@@ -272,9 +267,15 @@ export class TurnRunner {
       .where(eq(conversation.entityId, cid));
     const tools = bare
       ? []
-      : buildTools(this.kernel, state, (kind, payload) =>
-          log([{ kind, payload, turnId: turn.id }]),
-        );
+      : buildTools(this.kernel, state, (kind, payload) => {
+          // Counted as it starts: one still running when the model fails may yet do its thing.
+          if (kind === "tool_call") end.started++;
+          return log([{ kind, payload, turnId: turn.id }]);
+        }).map((t) => ({
+          ...t,
+          // Stopped or out of time: nothing more runs, whatever the brain goes on to ask.
+          run: (input: unknown) => (signal.aborted ? Promise.resolve(ENDED) : t.run(input)),
+        }));
     const stream = streamer(this.pool, cid, turn.id);
     const events: BrainEvents = {
       onText: (d) => stream.push(d),
@@ -353,7 +354,7 @@ export class TurnRunner {
       try {
         return await Promise.race<BrainResult>([this.brain.run(req, events), stopped]);
       } catch (err) {
-        if (signal.aborted || end.calls.length > 0) throw err;
+        if (signal.aborted || usedTools(end)) throw err;
         const f = classifyFailure(err);
         if (f.kind === "bad_tool" && f.tool && !leftOut) {
           leftOut = true;
