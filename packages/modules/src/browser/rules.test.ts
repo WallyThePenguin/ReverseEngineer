@@ -141,6 +141,20 @@ const EVENTS = new Set([
   "Log.entryAdded",
 ]);
 
+/** The protocol commands and events named in these files. */
+function namedIn(files: string[]): Set<string> {
+  const named = new Set<string>();
+  for (const file of files)
+    for (const m of read(file).matchAll(/"((?:[A-Z][a-zA-Z]+)\.[a-z][a-zA-Z]+)"/g))
+      if (
+        /^(Page|Runtime|Input|Emulation|DOM|Network|Storage|Browser|Target|Accessibility|Log|Fetch|Hearth)\./.test(
+          m[1]!,
+        )
+      )
+        named.add(m[1]!);
+  return named;
+}
+
 describe("what Hearth sends Chrome", () => {
   it("is all on the extension's list", () => {
     const files = [
@@ -148,17 +162,19 @@ describe("what Hearth sends Chrome", () => {
       ...sources("apps/server/src/browser/"),
     ];
     expect(files.length).toBeGreaterThan(10);
-    const named = new Set<string>();
-    for (const file of files)
-      for (const m of read(file).matchAll(/"((?:[A-Z][a-zA-Z]+)\.[a-z][a-zA-Z]+)"/g))
-        if (
-          /^(Page|Runtime|Input|Emulation|DOM|Network|Storage|Browser|Target|Accessibility|Log|Fetch|Hearth)\./.test(
-            m[1]!,
-          )
-        )
-          named.add(m[1]!);
-    const sent = [...named].filter((m) => !EVENTS.has(m));
+    const sent = [...namedIn(files)].filter((m) => !EVENTS.has(m));
     expect(sent.length).toBeGreaterThan(10);
     expect(sent.filter((m) => !ALLOWED.has(m))).toEqual([]);
+  });
+
+  it("and the list holds nothing Hearth doesn't send, so a page gets no more than it needs", () => {
+    const used = namedIn([
+      ...sources("packages/modules/src/browser/"),
+      ...sources("apps/server/src/browser/"),
+      "apps/extension/background.js",
+      "apps/extension/debugger.js",
+    ]);
+    for (const [method] of [...SESSION_SETUP, ...CHILD_SETUP]) used.add(method);
+    expect([...ALLOWED].filter((m) => !used.has(m))).toEqual([]);
   });
 });

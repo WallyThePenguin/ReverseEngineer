@@ -31,22 +31,18 @@ export const ALLOWED = new Set([
   // B1, the server's driver (D52): load progress, the accessibility tree, where things are on
   // the page by their node numbers, and Hearth's own isolated worlds. Frames from other sites
   // come in as child sessions of the tab.
-  "Page.bringToFront",
   "Page.setLifecycleEventsEnabled",
   "Accessibility.enable",
   "Accessibility.getFullAXTree",
   "Accessibility.getPartialAXTree",
-  "Accessibility.queryAXTree",
   "DOM.describeNode",
   "DOM.resolveNode",
   "DOM.getContentQuads",
   "DOM.getBoxModel",
   "DOM.getNodeForLocation",
   "DOM.scrollIntoViewIfNeeded",
-  "DOM.focus",
   "Runtime.callFunctionOn",
   "Runtime.getProperties",
-  "Runtime.releaseObject",
   "Runtime.releaseObjectGroup",
   "Log.enable",
   "Target.setAutoAttach",
