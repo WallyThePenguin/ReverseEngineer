@@ -79,6 +79,7 @@ export function jarvisWatchdog(kernel: Kernel, opts: WatchdogOptions = {}) {
     opts.enabled ?? (process.platform === "win32" && process.env.HEARTH_AS_SERVICE === "1");
   const log = opts.log ?? (() => {});
   let last: { at: number; outage: string } | null = null;
+  const startedAt = kernel.clock.now().getTime();
 
   return async function check(): Promise<WatchdogResult> {
     const alive = await getSetting(kernel.db, "jarvis.alive");
@@ -89,6 +90,9 @@ export function jarvisWatchdog(kernel: Kernel, opts: WatchdogOptions = {}) {
     if (now.getTime() - seen.getTime() <= staleMs) return "ok";
     await deliverHeld(kernel).catch((err) => log("sending held interrupts failed", err));
     if (!enabled) return "off";
+    // The worker just started, as after a reboot: Jarvis starts when you sign in, so it gets the
+    // same few minutes to check in before it's restarted and you're told.
+    if (now.getTime() - startedAt < staleMs) return "waiting";
     if (last && now.getTime() - last.at < gapMs) return "waiting";
     // The same outage as the last restart: that one didn't bring Jarvis back.
     const again = last?.outage === alive.at;

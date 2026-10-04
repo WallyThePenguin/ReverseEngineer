@@ -60,6 +60,27 @@ describe("the Jarvis watchdog", () => {
     expect((await alerts()).filter((a) => a.title.startsWith("Jarvis stopped"))).toHaveLength(2);
   });
 
+  it("gives Jarvis its few minutes after a reboot before restarting it", async () => {
+    await checkIn();
+    // The PC was off overnight: the worker starts long after Jarvis last checked in.
+    t.clock.advance(8 * 3600_000);
+    let restarts = 0;
+    const check = jarvisWatchdog(t.kernel, {
+      enabled: true,
+      restart: async () => {
+        restarts++;
+      },
+    });
+    expect(await check()).toBe("waiting");
+    // You signed in and Jarvis started: nothing to do, nothing to tell.
+    t.clock.advance(60_000);
+    await checkIn();
+    t.clock.advance(2 * 60_000);
+    expect(await check()).toBe("ok");
+    expect(restarts).toBe(0);
+    expect(await alerts()).toHaveLength(0);
+  });
+
   it("says so when Windows won't run the task", async () => {
     const check = jarvisWatchdog(t.kernel, {
       enabled: true,
