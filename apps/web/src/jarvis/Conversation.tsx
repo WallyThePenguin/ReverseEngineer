@@ -6,11 +6,11 @@ import { createEffect, createSignal, For, Match, on, onCleanup, Show, Switch } f
 import { Body } from "../components/Body.tsx";
 import { MentionEditor } from "../components/MentionEditor.tsx";
 import { Button, PaneHeader } from "../components/ui.tsx";
+import { decide, deciding, isDecided } from "../lib/approvals.ts";
 import { live } from "../lib/live.ts";
 import { act, useAction } from "../lib/query.ts";
 import { hush, mic, say, talkTaken, talkWanted } from "../lib/speech.ts";
 import type { LogRecord } from "../lib/types.ts";
-import { decide } from "../views/Inbox.tsx";
 
 /** How long what you sent may wait for Jarvis to start before it says so. */
 const SLOW_MS = 20_000;
@@ -29,15 +29,31 @@ function ToolLine(props: { item: Extract<ConversationItem, { type: "tool" }> }) 
         {props.item.status === "running" ? "Using" : "Used"} {name()}
         {props.item.isError ? " (failed)" : ""}
       </button>
-      <Show when={props.item.status === "pending_approval" && props.item.approvalId}>
+      <Show
+        when={
+          props.item.status === "pending_approval" &&
+          props.item.approvalId &&
+          !isDecided(props.item.approvalId)
+        }
+      >
         <div class="mt-1 flex items-center gap-2 rounded-md bg-accent-soft px-2 py-1.5 text-ink">
           <span class="flex-1 whitespace-pre-wrap">
             Waiting for your yes: {props.item.output || "see the Inbox."}
           </span>
-          <Button kind="primary" small onClick={() => decide(props.item.approvalId!, "approve")}>
+          <Button
+            kind="primary"
+            small
+            disabled={deciding(props.item.approvalId!)}
+            onClick={() => decide(props.item.approvalId!, "approve")}
+          >
             Approve
           </Button>
-          <Button kind="danger" small onClick={() => decide(props.item.approvalId!, "deny")}>
+          <Button
+            kind="danger"
+            small
+            disabled={deciding(props.item.approvalId!)}
+            onClick={() => decide(props.item.approvalId!, "deny")}
+          >
             Deny
           </Button>
         </div>
