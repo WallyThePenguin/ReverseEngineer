@@ -1150,3 +1150,50 @@ Restoring over the live database (one bad dump and both are gone). A Windows run
 
 **Why:** The 2026-10-03 update broke every Jarvis turn while health said "ok", the doctor printed
 checkmarks and the updater said "update OK". Each of those now checks the thing that broke.
+
+## D59. Edits are written ahead and merged, never dropped (2026-10-04)
+
+**Decision:** Nothing typed in Hearth exists only in a page or only in one writer's head.
+
+- **Notes write ahead.** Every edit to a note goes to IndexedDB before it's sent anywhere (D38
+  kept a copy only after a sync came back). An open note syncs half a second after a pause and
+  at least every 2 seconds while you type, gives up on a sync after 10 seconds and tries again
+  with backoff, and sends what's unsent as the page hides or closes. The next open of the note,
+  or the next start of Hearth in that browser, sends whatever never arrived. Written-ahead edits
+  are dropped only once the saved copy holds them, and a saved copy is only replaced by one
+  holding everything it did, so two tabs can't undo each other's. Other tabs with the note open
+  get each edit at once over a BroadcastChannel.
+- **One peer per device slot.** A device edits a note as one of a few Loro peers it keeps, claimed
+  with a Web Lock while the note is open; the server edits as one fixed peer per writer (a hash of
+  who it is). The doc's version grows by a peer per device and writer, not per visit or edit.
+  Reusing a peer is safe because nothing is sent before it's on disk, so whoever claims the peer
+  next opens with all of its edits; a peer whose edit failed to reach disk is retired.
+- **Boards, spreadsheets and meeting notes are saved whole, with a version.** A save carries the
+  version it was made on. The server locks the row, checks the version and bumps it in SQL; a
+  save over a newer version is refused (409). The screen then reads the newer copy, merges and
+  saves again: board cards and arrows by id, workbook sheets by id and cells by name (a piece
+  only one side changed takes that side, one both changed takes this screen's), meeting notes by
+  line (this screen's text, then the lines only the other side wrote). Until Hearth has a change,
+  a copy waits in IndexedDB with the version it was made on; the page sends it as it closes, and
+  the next open sends what never arrived. Jarvis must pass the version it read.
+- **Whole-note writes don't erase typing.** Jarvis rewriting a whole note must pass the revision
+  it read; checklist-to-tasks locks the note and changes only the items it links. A rewrite's
+  diff gets 200 ms and then goes line by line.
+- **Mentions have their own ids.** The note editor writes each mention with a `data-mid`, which is
+  its link's anchor and the key that stops Jarvis answering twice, wherever it moves. In a live
+  doc Jarvis answers once the note has been still for 8 seconds (at most a minute), reading the
+  paragraph as it is by then.
+- **Failures say what happened.** "Can't reach Hearth" only when it can't; when Hearth turns a
+  change down, its own reason. A note deleted while open turns read-only with Copy text, and
+  keeps what it never sent on the device in case it's restored. Signing out asks first when
+  edits haven't reached Hearth, since it deletes this device's copies.
+
+**Alternatives:** A sync socket with a server-side log (PLAN 8.5; more moving parts than an
+action that is already ordered and durable). Loro for boards and sheets too (a rewrite of both
+editors and of everything that reads them, for edits that rarely collide). Last write wins with a
+warning (still drops someone's change). A random peer per session (the version grows until syncs
+fail validation). Answering a mention at once (it fires on half a sentence).
+
+**Why:** The owner's edits must survive a closed tab, a crash, an offline spell and Jarvis editing
+the same thing, without the owner noticing anything but the result. Each rule closes a way an
+edit was being lost.
