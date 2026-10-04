@@ -99,7 +99,9 @@ export async function recordOutcome(
     return { status: "paced", ...base, more: true, retryAt: new Date(ctx.now.getTime() + wait) };
   }
   if (kind === "slow_down") {
-    const until = new Date(ctx.now.getTime() + Math.max(MIN_PAUSE_MS, wait));
+    // Google's own slowdown already says a minute or more (client.ts); a pause another process
+    // ran into first says what's left of it, and the account waits just that long.
+    const until = new Date(ctx.now.getTime() + (wait > 0 ? wait : MIN_PAUSE_MS));
     if (work.progressed) await succeeded("paused");
     await set({ syncState: "paused", pausedUntil: until });
     return { status: "paused", ...base, more: true, retryAt: until };

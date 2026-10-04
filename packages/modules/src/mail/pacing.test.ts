@@ -90,6 +90,20 @@ describe("when Gmail says slow down", () => {
     expect(await account()).toMatchObject({ state: "ok", pausedUntil: null, waiting: 0 });
   });
 
+  it("waits only as long as a pause another process ran into", async () => {
+    await sync();
+    // Jarvis, say, was told to slow down first.
+    g.gmail.failNext(1, 429);
+    const jarvis = g.client(t.tdb.db);
+    await expect(
+      jarvis.call(t.tdb.db, ME, "GET", "https://gmail.googleapis.com/gmail/v1/users/me/profile"),
+    ).rejects.toMatchObject({ kind: "rate_limited" });
+    const ends = t.clock.now().getTime() + 60_000;
+    t.clock.advance(40_000);
+    expect(await sync()).toMatchObject({ paused: [ME] });
+    expect(new Date((await account()).pausedUntil!).getTime()).toBe(ends);
+  });
+
   it("brings in a 1,000-message backlog over several minutes without going over", async () => {
     await sync();
     for (let i = 0; i < 1000; i++)
