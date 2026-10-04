@@ -57,6 +57,16 @@ export function errorReply(status: number, limit?: number): Response {
       },
     });
   }
+  if (status === 400)
+    // What Gmail says when it's turned off for the account (a work account's admin did it).
+    return json(400, {
+      error: {
+        code: 400,
+        message: "Mail service not enabled",
+        errors: [{ message: "Mail service not enabled", reason: "failedPrecondition" }],
+        status: "FAILED_PRECONDITION",
+      },
+    });
   if (status === 401)
     return json(401, {
       error: {
@@ -160,7 +170,7 @@ export class FakeGmail {
   }
 
   /** The next `n` calls (after letting `after` through) fail with `status`. */
-  failNext(n: number, status: 401 | 403 | 429 | 500 | 503, after = 0) {
+  failNext(n: number, status: 400 | 401 | 403 | 429 | 500 | 503, after = 0) {
     for (let i = 0; i < n; i++) this.failures.push({ status, after });
   }
 

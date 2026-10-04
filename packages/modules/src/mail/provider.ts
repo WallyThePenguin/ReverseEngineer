@@ -41,6 +41,8 @@ export interface MailProvider {
   fetch(address: string, id: string): Promise<RawMail | null>;
   /** A message's current flags, or null if it no longer exists. */
   labels(address: string, id: string): Promise<string[] | null>;
+  /** A cheap call that throws if the account itself is turned away, not just one message. */
+  check(address: string): Promise<void>;
   /** Changes flags on up to 1,000 messages at once. */
   modify(address: string, ids: string[], add: string[], remove: string[]): Promise<void>;
   /** Sends a raw message (its Bcc header is used for delivery and not shown to others). */

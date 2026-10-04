@@ -128,6 +128,31 @@ describe("sync safety", () => {
     expect(await t.events("mail.sync_failed")).toEqual([]);
   });
 
+  it("stops, and sets no mail aside, when Gmail turns the whole account away", async () => {
+    await sync();
+    g.gmail.deliver({ from: ANA, subject: "One", text: "." });
+    g.gmail.deliver({ from: ANA, subject: "Two", text: "." });
+    // Gmail asks for a pause right after listing them, so the next syncs start on that list.
+    g.gmail.failNext(1, 429, 1);
+    expect(await sync()).toMatchObject({ added: 0, paused: [ME] });
+    t.clock.advance(5 * 60_000);
+    // Then Gmail is turned off for the account: every call is refused, not just one message.
+    g.gmail.failNext(6, 400);
+    for (let i = 0; i < 3; i++)
+      expect(await sync()).toMatchObject({
+        added: 0,
+        failed: [expect.stringContaining("Mail service not enabled")],
+      });
+    expect(await t.tdb.db.select().from(mailQuarantine)).toEqual([]);
+    expect(await account()).toMatchObject({ setAside: 0, waiting: 2, state: "failing" });
+    expect(await t.events("mail.sync_failed")).toHaveLength(1);
+    // Once it's back on, nothing was lost.
+    expect(await sync()).toMatchObject({ added: 2, failed: [] });
+    expect(await subjects()).toEqual(["One", "Two"]);
+    expect(await sync()).toMatchObject({ failed: [], more: false });
+    expect(await account()).toMatchObject({ setAside: 0, waiting: 0, state: "ok" });
+  });
+
   it("lets the rest through when one message never arrives in time, then sets it aside", async () => {
     t.kernel.services[GOOGLE_SERVICE] = g.client(t.tdb.db, { timeoutMs: 50 });
     await sync();

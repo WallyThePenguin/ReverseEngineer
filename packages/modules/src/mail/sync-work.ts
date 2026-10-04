@@ -28,6 +28,22 @@ function stuckOn(err: unknown): "refused" | "timeout" | null {
   return err.kind === "transient" && err.reason === "timeout" ? "timeout" : null;
 }
 
+/**
+ * A refusal before anything else worked in this sync could be the account's (Gmail turned off for
+ * it, say) rather than the message's: one cheap call tells which, and throws if it's the account,
+ * so trouble with the account stops the sync instead of setting its mail aside one by one.
+ */
+async function onlyThisOne(
+  provider: MailProvider,
+  account: AccountRow,
+  work: Work,
+  stuck: "refused" | "timeout",
+) {
+  if (stuck !== "refused" || work.progressed) return;
+  await provider.check(account.address);
+  work.progressed = true;
+}
+
 /** The cursor as the sync keeps it: the provider's own, plus what's left to do. */
 export interface SyncCursor {
   provider: Record<string, unknown>;
@@ -116,6 +132,7 @@ export async function bringIn(
         // message, so the sync stops there for now.
         const stuck = stuckOn(err);
         if (!stuck) throw err;
+        await onlyThisOne(provider, account, work, stuck);
         c.pending.shift();
         const spacing = stuck === "timeout" ? TIMEOUT_STRIKE_MS : 0;
         if ((await quarantine(ctx, account.id, id, err, spacing)) < QUARANTINE_AFTER)
@@ -154,6 +171,7 @@ export async function bringIn(
         // Only its flags were to be looked up: they stay as they are rather than block the rest.
         const stuck = stuckOn(err);
         if (!stuck) throw err;
+        await onlyThisOne(provider, account, work, stuck);
         c.relabel.shift();
         if (stuck === "timeout") throw err;
         continue;

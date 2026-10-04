@@ -133,6 +133,10 @@ export class GmailProvider implements MailProvider {
     };
   }
 
+  async check(address: string): Promise<void> {
+    await this.call(address, "GET", "/profile", GMAIL_COST.profile);
+  }
+
   /** Recent mail, a page at a time; history picks up from where the first page started. */
   private async firstSync(
     address: string,
