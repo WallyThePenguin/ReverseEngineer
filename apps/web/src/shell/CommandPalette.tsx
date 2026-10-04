@@ -1,9 +1,10 @@
 // Cmd+K: jump to anything, run a command, or ask Jarvis. Enter opens, Shift+Enter opens beside.
 
-import { createEffect, createSignal, For, on } from "solid-js";
+import { createEffect, createSignal, For, on, onCleanup } from "solid-js";
 import { Kbd } from "../components/ui.tsx";
 import { jarvis } from "../jarvis/JarvisPane.tsx";
 import { action } from "../lib/api.ts";
+import { TYPING_PAUSE_MS } from "../lib/debounce.ts";
 import { TYPE_LABEL } from "../lib/format.ts";
 import { type ListView, layout, routeFor } from "../lib/panes.ts";
 import { act } from "../lib/query.ts";
@@ -67,28 +68,62 @@ function commands(): Item[] {
   ];
 }
 
+/** How long Enter waits for the results for what's typed before going with what's shown. */
+const ENTER_WAITS_MS = 1500;
+const wait = (ms: number) => new Promise((r) => window.setTimeout(r, ms));
+
 export function CommandPalette(props: { onClose: () => void }) {
   const [text, setText] = createSignal("");
-  const [hits, setHits] = createSignal<SearchHit[]>([]);
+  /** Records found, and the text they were found for. */
+  const [hits, setHits] = createSignal<{ query: string; list: SearchHit[] }>({
+    query: "",
+    list: [],
+  });
   const [active, setActive] = createSignal(0);
   let input!: HTMLInputElement;
   let seq = 0;
+  let timer: number | undefined;
+  /** Settles once the records for what's typed now are in. */
+  let landed: Promise<void> = Promise.resolve();
+  let closed = false;
+  onCleanup(() => {
+    closed = true;
+    window.clearTimeout(timer);
+  });
+
+  const search = async (q: string, mine: number) => {
+    const found = q
+      ? await action<SearchHit[]>("entity.search", { query: q, limit: 8 }).catch(() => [])
+      : await action<SearchHit[]>("entity.recent", { limit: 6 }).catch(() => []);
+    // An answer for something typed earlier is dropped, not shown over a newer one.
+    if (mine !== seq) return;
+    setHits({ query: q, list: found.filter((h) => h.type !== "comment") });
+    setActive(0);
+  };
 
   createEffect(
-    on(text, async (q) => {
+    on(text, (raw) => {
+      const q = raw.trim();
       const mine = ++seq;
-      const found = q.trim()
-        ? await action<SearchHit[]>("entity.search", { query: q, limit: 8 }).catch(() => [])
-        : await action<SearchHit[]>("entity.recent", { limit: 6 }).catch(() => []);
-      if (mine === seq) setHits(found.filter((h) => h.type !== "comment"));
       setActive(0);
+      window.clearTimeout(timer);
+      // Searches go out once typing pauses, not for every letter.
+      landed = new Promise((done) => {
+        timer = window.setTimeout(
+          () => void search(q, mine).finally(done),
+          q ? TYPING_PAUSE_MS : 0,
+        );
+      });
     }),
   );
+
+  /** Whether the records shown were found for an earlier version of what's typed. */
+  const stale = () => hits().query !== text().trim();
 
   const items = (): Item[] => {
     const q = text().trim().toLowerCase();
     const cmds = commands().filter((c) => !q || c.label.toLowerCase().includes(q));
-    const records: Item[] = hits().map((h) => ({
+    const records: Item[] = hits().list.map((h) => ({
       id: h.id,
       label: h.title || "Untitled",
       hint: TYPE_LABEL[h.type] ?? h.type,
@@ -156,7 +191,13 @@ export function CommandPalette(props: { onClose: () => void }) {
               setActive((a) => (a + n - 1) % Math.max(n, 1));
             } else if (e.key === "Enter") {
               e.preventDefault();
-              choose(items()[active()], e.shiftKey);
+              const beside = e.shiftKey;
+              // Typed quickly then Enter: open what matches what's typed, not the last letter's.
+              if (!stale()) choose(items()[active()], beside);
+              else
+                void Promise.race([landed, wait(ENTER_WAITS_MS)]).then(() => {
+                  if (!closed) choose(items()[active()], beside);
+                });
             } else if (e.key === "Escape") {
               e.preventDefault();
               props.onClose();

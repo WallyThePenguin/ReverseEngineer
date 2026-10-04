@@ -187,11 +187,11 @@ function Message(props: { m: MailMessage; open: boolean; onToggle: () => void })
 
 export function MailThreadPane(props: { id: string; pane: number }) {
   const t = useAction<MailThreadView>("mail.thread", () => ({ id: props.id }));
-  const drafts = useAction<MailDraft[]>(
-    "mail.drafts",
-    () => ({ threadId: t.data?.id }),
-    () => Boolean(t.data),
-  );
+  // Asked for alongside the conversation, not after it. The id opened is almost always the
+  // conversation's own; when it's one of its messages', this asks again once that's known.
+  const drafts = useAction<MailDraft[]>("mail.drafts", () => ({
+    threadId: t.data?.id ?? props.id,
+  }));
   const draftIds = () => (drafts.data ?? []).map((d) => d.id);
   const reply = (all: boolean) =>
     t.data && void act("mail.draft", { threadId: t.data.id, replyAll: all, text: "" });
