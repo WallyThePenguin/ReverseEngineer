@@ -25,9 +25,10 @@ export function noticeFor(mine: string | null, server: ServerBuild | null): Noti
 export const CHECK_EVERY_MS = 5 * 60_000;
 
 /**
- * Runs `check` now, every few minutes while the page is in view, when it comes back into view,
- * and when the network is back. A hidden page doesn't ask: it asks as soon as it's back, and an
- * open tab alone shouldn't keep your sign-in alive (D56). Returns the cleanup.
+ * Runs `check` now, then every few minutes while the page is in view, when it comes back into
+ * view, and when the network is back while it's in view. A hidden page doesn't ask (not even when
+ * a laptop wakes and its network comes back): it asks as soon as it's back, and an open tab alone
+ * shouldn't keep your sign-in alive (D56). Returns the cleanup.
  */
 export function watchBuild(
   check: () => void,
@@ -40,10 +41,10 @@ export function watchBuild(
   check();
   const timer = setInterval(ifVisible, CHECK_EVERY_MS);
   doc.addEventListener("visibilitychange", ifVisible);
-  win.addEventListener("online", check);
+  win.addEventListener("online", ifVisible);
   return () => {
     clearInterval(timer);
     doc.removeEventListener("visibilitychange", ifVisible);
-    win.removeEventListener("online", check);
+    win.removeEventListener("online", ifVisible);
   };
 }

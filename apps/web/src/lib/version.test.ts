@@ -53,10 +53,12 @@ describe("asking which build is running", () => {
     expect(asked).toBe(1);
     vi.advanceTimersByTime(CHECK_EVERY_MS);
     expect(asked).toBe(2);
-    // A tab left in the background doesn't ask.
+    // A tab left in the background doesn't ask, not even when the network comes back (a laptop
+    // waking up).
     doc.visibilityState = "hidden";
     doc.dispatchEvent(new Event("visibilitychange"));
     vi.advanceTimersByTime(6 * CHECK_EVERY_MS);
+    win.dispatchEvent(new Event("online"));
     expect(asked).toBe(2);
     // Back in view, or back online: it asks at once.
     doc.visibilityState = "visible";
