@@ -1,15 +1,21 @@
 // One open spreadsheet: the workbook as typed, its results, undo and redo, and saving. Every change
-// is saved whole a moment after you stop (last write wins, D20); a save from elsewhere (Jarvis, another
-// screen) is taken in when you have nothing unsaved.
+// is saved whole a moment after you stop, kept on this device until Hearth has it, and merged cell
+// by cell with anything saved elsewhere meanwhile (Jarvis, another screen): D59.
 
-import { emptyWorkbook, type Results, type Workbook } from "@hearth/core";
+import {
+  emptyWorkbook,
+  mergeWorkbook,
+  type Results,
+  renameSheetRefs,
+  type Workbook,
+} from "@hearth/core";
 import { batch, createMemo, createSignal } from "solid-js";
 import { createStore, reconcile, unwrap } from "solid-js/store";
 import { action } from "../lib/api.ts";
 import { reportError } from "../lib/live.ts";
+import { createSaver } from "../lib/wholeSave.ts";
 import { engine } from "./engine.ts";
 
-const SAVE_AFTER_MS = 700;
 const MAX_UNDO = 100;
 
 const copy = (b: Workbook): Workbook => structuredClone(unwrap(b));
@@ -24,15 +30,8 @@ export function createSheet(id: string) {
   };
   const [title, setTitle] = createSignal("");
   const [loaded, setLoaded] = createSignal(false);
-  const [saving, setSaving] = createSignal(false);
   const [served, setServed] = createSignal<Results>([]);
   const [calc, setCalc] = createSignal<((b: Workbook) => Results) | null>(null);
-  let version = 0;
-  let dirty = false;
-  let saves = 0;
-  let edits = 0;
-  let renaming = false;
-  let timer: number | undefined;
   const undo: Workbook[] = [];
   const redo: Workbook[] = [];
 
@@ -53,29 +52,36 @@ export function createSheet(id: string) {
     }
   });
 
-  const save = async () => {
-    if (!dirty) return;
-    dirty = false;
-    setSaving(true);
-    saves += 1;
-    try {
-      const r = await action<{ version: number }>("sheet.save", { id, book: copy(book) });
-      version = Math.max(version, r.version);
-    } catch (err) {
-      dirty = true;
-      reportError(err);
-    } finally {
-      saves -= 1;
-      setSaving(saves > 0);
-    }
-  };
-
-  const changed = () => {
-    dirty = true;
-    edits += 1;
-    window.clearTimeout(timer);
-    timer = window.setTimeout(() => void save(), SAVE_AFTER_MS);
-  };
+  const saver = createSaver<Workbook>({
+    key: `sheet:${id}`,
+    noun: "spreadsheet",
+    action: "sheet.save",
+    input: (data, baseVersion, name) => ({
+      id,
+      book: data,
+      baseVersion,
+      ...(name !== undefined ? { title: name } : {}),
+    }),
+    async get() {
+      const r = await action<{
+        title: string;
+        book: Workbook;
+        results: Results;
+        version: number;
+      }>("sheet.get", { id });
+      setServed(r.results);
+      return { title: r.title, data: r.book, version: r.version };
+    },
+    merge: mergeWorkbook,
+    current: () => copy(book),
+    show(data, name) {
+      batch(() => {
+        if (name !== undefined && !saver.renaming()) setTitle(name);
+        setBook(data);
+        setLoaded(true);
+      });
+    },
+  });
 
   /** Changes the workbook as one undoable step. */
   const change = (fn: (draft: Workbook) => void) => {
@@ -85,7 +91,7 @@ export function createSheet(id: string) {
     const next = copy(book);
     fn(next);
     setBook(next);
-    changed();
+    saver.changed();
   };
 
   const swap = (from: Workbook[], to: Workbook[]) => {
@@ -93,38 +99,19 @@ export function createSheet(id: string) {
     if (!prev) return;
     to.push(copy(book));
     setBook(prev);
-    changed();
+    saver.changed();
   };
 
   return {
     book,
     title,
     loaded,
-    saving,
+    saving: saver.saving,
+    /** Why the spreadsheet isn't saved, in plain words, or null. */
+    problem: saver.problem,
     results,
-    async load() {
-      const at = edits;
-      try {
-        const r = await action<{
-          title: string;
-          book: Workbook;
-          results: Results;
-          version: number;
-        }>("sheet.get", { id });
-        // What you've done since asking, or haven't saved yet, wins over the copy that came back.
-        if (dirty || saves > 0 || edits !== at) return;
-        if (loaded() && r.version <= version) return;
-        version = r.version;
-        batch(() => {
-          if (!renaming) setTitle(r.title);
-          setServed(r.results);
-          setBook(r.book);
-          setLoaded(true);
-        });
-      } catch (err) {
-        reportError(err);
-      }
-    },
+    /** Reads it from Hearth, keeping what's unsaved here on top. */
+    load: saver.load,
     change,
     /** Sets cells on one sheet: "" clears. */
     set(sheet: number, cells: Record<string, string>) {
@@ -138,29 +125,20 @@ export function createSheet(id: string) {
         }
       });
     },
+    /** Renames a sheet, and every formula that points at it. */
+    renameSheet(sheet: number, name: string) {
+      change((d) => {
+        Object.assign(d, renameSheetRefs(d, sheet, name));
+      });
+    },
     undo: () => swap(undo, redo),
     redo: () => swap(redo, undo),
-    async rename(t: string) {
+    rename(t: string) {
       setTitle(t);
-      renaming = true;
-      try {
-        const r = await action<{ version: number }>("sheet.save", {
-          id,
-          book: copy(book),
-          title: t,
-        });
-        version = Math.max(version, r.version);
-      } catch (err) {
-        reportError(err);
-      } finally {
-        renaming = false;
-      }
+      saver.rename(t);
     },
-    /** Saves now (closing the spreadsheet). */
-    flush: () => {
-      window.clearTimeout(timer);
-      return save();
-    },
+    /** Saves now and stops watching for the page closing (closing the spreadsheet). */
+    flush: saver.close,
   };
 }
 

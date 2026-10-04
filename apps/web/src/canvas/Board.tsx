@@ -280,7 +280,10 @@ export function CanvasBoard(props: { id: string; pane: number }) {
             onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
           />
         }
-        sub="Double-click to write · drag the background to move around · Ctrl+scroll to zoom"
+        sub={
+          b.problem() ??
+          "Double-click to write · drag the background to move around · Ctrl+scroll to zoom"
+        }
       />
       <div
         ref={el}
