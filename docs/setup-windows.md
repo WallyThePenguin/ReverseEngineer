@@ -259,7 +259,8 @@ stops Hearth, moves to the latest commit, installs, builds, migrates and starts 
 Then the new version has three minutes to prove itself, or it's rolled back (D57):
 
 - the server reports the new commit, with every migration it expects applied;
-- the worker and Jarvis report in after the restart, not failing;
+- the worker and Jarvis report in after the restart, not failing (if one was failing before the
+  update, reporting in is enough: the update may be what fixes it);
 - Jarvis's tools pass the model's check, when that probe (`scripts\probe-jarvis-tools.ts`) exists;
 - `hearth doctor` finds nothing failing that wasn't failing before the update.
 

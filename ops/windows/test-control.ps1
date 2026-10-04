@@ -66,6 +66,21 @@ $down.components.worker.status = "failing"
 $down.components.worker.detail = "Won't start: the database is missing 1 update(s)"
 Assert-Equal (Get-DeepProblem $down $since $sha $all) "the worker says: Won't start: the database is missing 1 update(s)" "a worker that refuses to start"
 
+# Jarvis's health says how its last turn went, which a restart doesn't change: failing before
+# the update, it only has to report in, or the update that fixes its turns would be rolled back.
+$turns = New-Deep
+$turns.components.jarvis.status = "failing"
+$turns.components.jarvis.detail = "A turn failed at 9:14: Claude rejected a tool."
+Assert-Equal (Get-DeepProblem $turns $since $sha $all) "the jarvis says: A turn failed at 9:14: Claude rejected a tool." "Jarvis failing, and it wasn't before"
+Assert-Equal (Get-DeepProblem $turns $since $sha $all @("jarvis")) "" "Jarvis failing before too: reporting in is enough"
+$turns.components.jarvis.at = "2026-10-04T11:59:00.000Z"
+Assert-Equal (Get-DeepProblem $turns $since $sha $all @("jarvis")) "the jarvis hasn't reported in since it started" "Jarvis failing before still has to report in"
+Assert-Equal (Get-FailingParts $turns) "jarvis" "what deep health said was failing before a restart"
+Assert-Equal (Get-FailingParts $null) "" "nothing known before a restart"
+$doctorBefore = [pscustomobject]@{ Checks = @([pscustomobject]@{ name = "jarvis"; mark = "fail"; detail = "x" }, [pscustomobject]@{ name = "worker"; mark = "ok"; detail = "Running" }); Text = $null }
+Assert-Equal (Get-FailingChecks $doctorBefore) "jarvis" "what the doctor said was failing before an update"
+Assert-Equal (Get-FailingChecks ([pscustomobject]@{ Checks = $null; Text = "$([char]0x2717) jarvis         stale`r`n" })) "jarvis" "the same from the text doctor"
+
 # Wait-Hearth, with the server faked.
 $script:answers = @()
 function Get-DeepHealth {
