@@ -1,6 +1,6 @@
 // One inbox: Jarvis's results, approvals, due dates and alerts, split into Signal and Noise.
 // j/k to move, Enter to open, e done, s snooze, a/d approve or deny. An approval waiting for
-// you can't be put away with e or s: it needs a yes or a no.
+// you can't be put away with e, s or its menu: it needs a yes or a no.
 
 import { createSignal, For, Match, Show, Switch } from "solid-js";
 import { Body } from "../components/Body.tsx";
@@ -8,26 +8,18 @@ import { Overflow, ROW_MENU } from "../components/Menu.tsx";
 import { NoRows } from "../components/QueryView.tsx";
 import { SetupChecklist } from "../components/SetupChecklist.tsx";
 import { Badge, Button, Empty, Kbd, PaneHeader } from "../components/ui.tsx";
-import { approvalStateText, decide, deciding, isDecided } from "../lib/approvals.ts";
+import { approvalStateText, decide, deciding } from "../lib/approvals.ts";
 import { ago, due, snoozeOptions, who } from "../lib/format.ts";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
+import { type InboxView, NEEDS_DECISION, rowMenu, waitingOnYou } from "../lib/inbox.ts";
 import { toast } from "../lib/live.ts";
 import { layout, routeFor } from "../lib/panes.ts";
 import { act, inboxInput, useAction } from "../lib/query.ts";
 import { createSelection } from "../lib/selection.ts";
 import type { InboxRow } from "../lib/types.ts";
 
-type View = "live" | "snoozed" | "done";
-
-/** An approval card still waiting for your yes or no (and not decided here a moment ago). */
-const waitingOnYou = (row: InboxRow | undefined) =>
-  !!row?.notification.approvalId &&
-  row.approvalStatus === "pending" &&
-  !isDecided(row.notification.approvalId);
-const NEEDS_DECISION = "This one needs a yes or a no first: press a or d.";
-
 export function Inbox(props: { pane: number }) {
-  const [view, setView] = createSignal<View>("live");
+  const [view, setView] = createSignal<InboxView>("live");
   const [lane, setLane] = createSignal<"signal" | "noise">("signal");
   const [snoozing, setSnoozing] = createSignal<string | null>(null);
   const rows = useAction<InboxRow[]>("inbox.list", () => inboxInput(view(), lane()));
@@ -123,7 +115,7 @@ export function Inbox(props: { pane: number }) {
           aria-label="Which items"
           value={view()}
           onChange={(e) => {
-            setView(e.currentTarget.value as View);
+            setView(e.currentTarget.value as InboxView);
             sel.reset();
           }}
         >
@@ -258,15 +250,10 @@ export function Inbox(props: { pane: number }) {
                         <Overflow
                           class={ROW_MENU}
                           label={`Actions for ${n.title}`}
-                          items={[
-                            {
-                              label: view() === "done" ? "Not done" : "Done",
-                              run: () => done(row),
-                            },
-                            ...(view() === "live"
-                              ? [{ label: "Snooze…", run: () => setSnoozing(n.id) }]
-                              : []),
-                          ]}
+                          items={rowMenu(row, view(), {
+                            done: () => done(row),
+                            snooze: () => startSnooze(row),
+                          })}
                         />
                       </div>
                     </li>
