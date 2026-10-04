@@ -5,10 +5,11 @@
 import { startOfLocalDay } from "@hearth/core";
 import { calendar, calendarEvent, entity, googleAccount } from "@hearth/db";
 import { type ActionContext, getSetting, savepoint } from "@hearth/kernel";
-import { and, arrayContains, asc, eq, gt, lt, ne, notInArray } from "drizzle-orm";
-import { CalendarApi } from "../google/calendar-api.ts";
+import { and, arrayContains, asc, eq, gt, isNull, lt, ne, notInArray } from "drizzle-orm";
+import { CalendarApi, type GEvent } from "../google/calendar-api.ts";
 import { cleanDeep } from "../google/clean.ts";
 import { GOOGLE_SERVICE, GoogleApiError, type GoogleClient, SCOPES } from "../google/client.ts";
+import { id } from "../shared.ts";
 import { syncCalendarList } from "./calendars.ts";
 import { emitChange, mapEvent, saveEvent } from "./store.ts";
 
@@ -36,6 +37,20 @@ export function syncWindow(now: Date, tz: string): { from: Date; to: Date } {
     from: new Date(today.getTime() - SYNC_BACK_DAYS * DAY_MS),
     to: new Date(today.getTime() + SYNC_AHEAD_DAYS * DAY_MS),
   };
+}
+
+/**
+ * The task a time block is for, as Hearth marked it at Google, if that task is still here: so a
+ * block Google made while Hearth didn't hear back is still known as the task's (D61).
+ */
+async function blockOf(ctx: ActionContext, g: GEvent): Promise<{ taskId?: string }> {
+  const taskId = g.extendedProperties?.private?.hearthTask;
+  if (!taskId || !id.safeParse(taskId).success) return {};
+  const [row] = await ctx.tx
+    .select({ id: entity.id })
+    .from(entity)
+    .where(and(eq(entity.id, taskId), eq(entity.type, "task"), isNull(entity.deletedAt)));
+  return row ? { taskId: row.id } : {};
 }
 
 /** Pulls every connected account's selected calendars. One calendar failing doesn't stop the rest. */
@@ -100,7 +115,7 @@ export async function syncCalendars(ctx: ActionContext): Promise<SyncResult> {
         result.events++;
         let saved: Awaited<ReturnType<typeof saveEvent>>;
         try {
-          saved = await savepoint(ctx, (sp) => saveEvent(sp, m));
+          saved = await savepoint(ctx, async (sp) => saveEvent(sp, m, await blockOf(sp, g)));
         } catch {
           result.skipped++;
           continue;

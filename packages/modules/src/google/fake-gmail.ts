@@ -7,6 +7,15 @@ interface FakeMessage {
   id: string;
   labelIds: string[];
   raw: Buffer;
+  /** When it arrived or was sent, for "after:" searches. */
+  at: number;
+}
+
+/** One header of a raw message, unfolded. */
+function headerOf(raw: Buffer, name: string): string | null {
+  const head = raw.toString("utf8").split(/\r?\n\r?\n/)[0] ?? "";
+  const m = head.replace(/\r?\n[ \t]+/g, " ").match(new RegExp(`^${name}:[ \\t]*(.*)$`, "im"));
+  return m ? m[1]!.trim() : null;
 }
 
 type Entry =
@@ -98,6 +107,10 @@ export class FakeGmail {
   limit: { units: number; windowMs: number } | null = null;
   /** Whether history says what labels each message has (the real one does). */
   historyLabels = true;
+  /** The next `n` sends go out, but the reply is lost (Hearth sees a 503). */
+  loseSendReplies = 0;
+  /** Sends get a Message-ID of Gmail's own, as Gmail might do for mail sent through its API. */
+  rewriteMessageIds = false;
   /** Units spent, all told. */
   units = 0;
   /** Calls turned away by the limit. */
@@ -138,7 +151,7 @@ export class FakeGmail {
     labels = ["INBOX", "UNREAD", "CATEGORY_PERSONAL"],
   ): string {
     const { id, raw } = this.build(m);
-    this.messages.set(id, { id, labelIds: labels, raw });
+    this.messages.set(id, { id, labelIds: labels, raw, at: this.now() });
     this.record({ kind: "added", id, labels });
     return id;
   }
@@ -149,7 +162,7 @@ export class FakeGmail {
     labels = ["CATEGORY_PERSONAL"],
   ): string {
     const { id, raw } = this.build(m);
-    this.messages.set(id, { id, labelIds: labels, raw });
+    this.messages.set(id, { id, labelIds: labels, raw, at: this.now() });
     return id;
   }
 
@@ -205,8 +218,16 @@ export class FakeGmail {
     if (path === "/profile")
       return json(200, { emailAddress: this.address, historyId: String(this.historyId) });
     if (path === "/messages" && method === "GET") {
+      // The searches Hearth makes: by Message-ID, and what was sent after a time.
+      const q = u.searchParams.get("q") ?? "";
+      const msgId = q.match(/rfc822msgid:(\S+)/)?.[1];
+      const after = /\bin:sent\b/.test(q) ? Number(q.match(/after:(\d+)/)?.[1] ?? 0) * 1000 : null;
       const all = [...this.messages.values()].filter(
-        (m) => !m.labelIds.includes("SPAM") && !m.labelIds.includes("TRASH"),
+        (m) =>
+          (u.searchParams.get("includeSpamTrash") === "true" ||
+            (!m.labelIds.includes("SPAM") && !m.labelIds.includes("TRASH"))) &&
+          (!msgId || headerOf(m.raw, "Message-ID") === `<${msgId}>`) &&
+          (after === null || (m.labelIds.includes("SENT") && m.at >= after)),
       );
       const size = Number(u.searchParams.get("maxResults") ?? 100);
       const from = Number(u.searchParams.get("pageToken") ?? 0);
@@ -232,11 +253,19 @@ export class FakeGmail {
       return json(204, null);
     }
     if (path === "/messages/send" && method === "POST") {
-      const raw = Buffer.from(String(body?.raw ?? ""), "base64url");
-      this.sent.push(raw);
+      let raw = Buffer.from(String(body?.raw ?? ""), "base64url");
       const id = `m${++this.seq}`;
-      this.messages.set(id, { id, labelIds: ["SENT"], raw });
+      if (this.rewriteMessageIds)
+        raw = Buffer.from(
+          raw.toString("utf8").replace(/^Message-ID:.*$/im, `Message-ID: <${id}@mail.gmail.com>`),
+        );
+      this.sent.push(raw);
+      this.messages.set(id, { id, labelIds: ["SENT"], raw, at: this.now() });
       this.record({ kind: "added", id, labels: ["SENT"] });
+      if (this.loseSendReplies > 0) {
+        this.loseSendReplies--;
+        return errorReply(503);
+      }
       return json(200, { id, threadId: id, labelIds: ["SENT"] });
     }
     if (one && method === "GET") {
@@ -246,12 +275,17 @@ export class FakeGmail {
       if (broken) return json(broken, { error: { code: broken, message: "Invalid id value" } });
       const m = this.messages.get(id);
       if (!m) return json(404, { error: { message: "Requested entity was not found." } });
-      const raw = u.searchParams.get("format") === "raw";
+      const format = u.searchParams.get("format");
+      const headers = u.searchParams.getAll("metadataHeaders").flatMap((name) => {
+        const value = headerOf(m.raw, name);
+        return value === null ? [] : [{ name, value }];
+      });
       return json(200, {
         id: m.id,
         threadId: m.id,
         labelIds: m.labelIds,
-        ...(raw ? { raw: m.raw.toString("base64url") } : {}),
+        ...(format === "raw" ? { raw: m.raw.toString("base64url") } : {}),
+        ...(format === "metadata" ? { payload: { headers } } : {}),
       });
     }
     return json(404, { error: { message: "Not found" } });

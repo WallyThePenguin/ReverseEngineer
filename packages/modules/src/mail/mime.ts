@@ -159,6 +159,11 @@ export interface OutgoingMail {
   text: string;
   html?: string;
   messageId?: string;
+  /**
+   * Sent as X-Hearth-Id too, so Hearth can find the message in Sent even if the provider gave it
+   * a Message-ID of its own.
+   */
+  hearthId?: string;
   inReplyTo?: string | null;
   references?: string[];
   date?: Date;
@@ -182,6 +187,7 @@ export function buildMessage(m: OutgoingMail): Buffer {
     `Subject: ${headerText(m.subject)}`,
     `Date: ${(m.date ?? new Date()).toUTCString().replace("GMT", "+0000")}`,
     `Message-ID: <${m.messageId ?? newMessageId(m.from.address)}>`,
+    ...(m.hearthId ? [`X-Hearth-Id: ${m.hearthId.replace(/[^\w.@-]/g, "")}`] : []),
     ...(m.inReplyTo ? [`In-Reply-To: <${m.inReplyTo}>`] : []),
     ...(m.references?.length ? [`References: ${m.references.map((r) => `<${r}>`).join(" ")}`] : []),
     "MIME-Version: 1.0",

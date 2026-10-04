@@ -47,6 +47,11 @@ export interface MailProvider {
   modify(address: string, ids: string[], add: string[], remove: string[]): Promise<void>;
   /** Sends a raw message (its Bcc header is used for delivery and not shown to others). */
   send(address: string, raw: Buffer): Promise<{ providerId: string }>;
+  /**
+   * A message Hearth sent, found by its Message-ID, or by its X-Hearth-Id among what was sent
+   * since `since` (in case the provider gave it a Message-ID of its own). Null if it isn't there.
+   */
+  findSent(address: string, messageId: string, since: Date): Promise<string | null>;
 }
 
 /**

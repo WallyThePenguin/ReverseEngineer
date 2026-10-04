@@ -1,6 +1,6 @@
 // Mail and the people it comes from (M2). Mirrors migrations/0006_mail.up.sql and
-// 0007_mail_drafts.up.sql, 0008_mail_waiting.up.sql, 0009_mail_invites.up.sql and
-// 0022_google_pacing.up.sql.
+// 0007_mail_drafts.up.sql, 0008_mail_waiting.up.sql, 0009_mail_invites.up.sql,
+// 0022_google_pacing.up.sql and 0032_integrations.up.sql.
 import { sql } from "drizzle-orm";
 import {
   boolean,
@@ -172,4 +172,6 @@ export const mailDraft = pgTable("mail_draft", {
   bccAddresses: jsonb("bcc_addresses").$type<MailAddress[]>().notNull().default([]),
   inReplyTo: text("in_reply_to"),
   refs: text("refs").array().notNull().default(sql`'{}'`),
+  /** Chosen when the draft is written, so a send can be looked for in Sent (0032). */
+  messageId: text("message_id").notNull(),
 });

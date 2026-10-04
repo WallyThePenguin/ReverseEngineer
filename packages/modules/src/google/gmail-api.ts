@@ -21,6 +21,8 @@ export const FIRST_SYNC_MAX = 1000;
 const PAGE = 100;
 /** History is read up to about this many messages at a time; the rest waits for the next call. */
 export const CHANGES_PER_CALL = 200;
+/** Before a send, this many of the newest sent messages are checked for Hearth's own header. */
+const SENT_CHECKS = 5;
 
 interface GMessage {
   id: string;
@@ -62,11 +64,13 @@ export class GmailProvider implements MailProvider {
     path: string,
     cost: number,
     body?: unknown,
+    // A send, or a call a send waits on: it may use the budget's headroom.
+    priority = cost === GMAIL_COST.send,
   ): Promise<T> {
     try {
       return await this.google.call<T>(this.db, address, method, `${BASE}${path}`, body, {
         cost,
-        priority: cost === GMAIL_COST.send,
+        priority,
       });
     } catch (err) {
       if (!(err instanceof GoogleApiError)) throw err;
@@ -225,5 +229,37 @@ export class GmailProvider implements MailProvider {
       raw: raw.toString("base64url"),
     });
     return { providerId: sent.id };
+  }
+
+  async findSent(address: string, messageId: string, since: Date): Promise<string | null> {
+    const list = async (q: string, max: number) => {
+      const params = new URLSearchParams({ q, maxResults: String(max), includeSpamTrash: "true" });
+      const res = await this.call<{ messages?: GMessage[] }>(
+        address,
+        "GET",
+        `/messages?${params}`,
+        GMAIL_COST.list,
+        undefined,
+        true,
+      );
+      return res.messages ?? [];
+    };
+    const [byId] = await list(`rfc822msgid:${messageId}`, 1);
+    if (byId) return byId.id;
+    // Gmail may give a message sent through its API a Message-ID of its own; Hearth's header stays.
+    const after = Math.floor(since.getTime() / 1000) - 60;
+    for (const m of await list(`in:sent after:${after}`, SENT_CHECKS)) {
+      const meta = await this.call<{ payload?: { headers?: { name: string; value: string }[] } }>(
+        address,
+        "GET",
+        `/messages/${encodeURIComponent(m.id)}?format=metadata&metadataHeaders=X-Hearth-Id`,
+        GMAIL_COST.get,
+        undefined,
+        true,
+      );
+      const ours = meta.payload?.headers?.find((h) => h.name.toLowerCase() === "x-hearth-id");
+      if (ours?.value.trim() === messageId) return m.id;
+    }
+    return null;
   }
 }

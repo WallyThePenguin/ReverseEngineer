@@ -1,6 +1,5 @@
-// Drafts and sending. Anyone may write a draft (you, or Jarvis drafting a reply); sending one is
-// `mail.send`, which is outward: Jarvis's sends wait for your yes, with the recipients and text on
-// the card, and a draft changed after you were asked isn't sent.
+// Drafts. Anyone may write one (you, or Jarvis drafting a reply); sending one is `mail.send`
+// (send.ts), which is outward and waits for your yes.
 import {
   type DbOrTx,
   entity,
@@ -15,16 +14,12 @@ import {
   createEntity,
   defineAction,
   type ReadContext,
-  stableStringify,
   updateEntity,
 } from "@hearth/kernel";
 import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { body, id } from "../shared.ts";
-import { buildMessage, cleanName } from "./mime.ts";
-import { MailProviderError } from "./provider.ts";
-import { saveMail } from "./store.ts";
-import { providerFor } from "./sync.ts";
+import { cleanName, newMessageId } from "./mime.ts";
 import { loadThread } from "./views.ts";
 
 const address = z.string().trim().max(320).describe('An email address, or "Name <address>".');
@@ -48,7 +43,7 @@ function clean(a: MailAddress): MailAddress {
 /** Address first, so a name can't pass for another recipient: "ana@x.example (Ana Silva)". */
 const shown = (a: MailAddress) => (a.name ? `${a.address} (${a.name})` : a.address);
 /** Subjects on one line, without characters that change how the line reads. */
-const oneLine = (s: string) => s.replace(/[\p{Cc}\p{Cf}]/gu, " ");
+export const oneLine = (s: string) => s.replace(/[\p{Cc}\p{Cf}]/gu, " ");
 
 function parseAll(list: string[] | undefined): MailAddress[] | undefined {
   if (!list) return undefined;
@@ -103,9 +98,9 @@ export function snapshotOf(d: DraftView) {
     text: d.text,
   };
 }
-type Snapshot = ReturnType<typeof snapshotOf>;
+export type Snapshot = ReturnType<typeof snapshotOf>;
 
-const snapshotSchema = z
+export const snapshotSchema = z
   .object({
     from: z.string(),
     to: z.array(z.string()),
@@ -201,6 +196,7 @@ export const draftActions = [
         bccAddresses: parseAll(i.bcc) ?? [],
         inReplyTo: reply?.inReplyTo ?? null,
         refs: reply?.refs ?? [],
+        messageId: newMessageId(account.address),
       });
       return loadDraft(ctx.tx, draft.id);
     },
@@ -274,113 +270,7 @@ export const draftActions = [
       return { discarded: true };
     },
   }),
-  defineAction({
-    name: "mail.send",
-    description:
-      "Send a draft by its id. Get it right first: the owner sees exactly what goes out.",
-    input: z.object({ id, snapshot: snapshotSchema.optional() }),
-    risk: "outward",
-    async snapshot(i: { id: string }, ctx: ReadContext) {
-      const d = await loadDraft(ctx.db, i.id);
-      if (!d) throw new Error("No draft with that id.");
-      return { snapshot: snapshotOf(d) };
-    },
-    summarize: (i: { id: string; snapshot?: Snapshot }) => {
-      const s = i.snapshot;
-      if (!s) return `Send draft ${i.id}`;
-      const cc = s.cc.length ? `, cc ${s.cc.join(", ")}` : "";
-      const bcc = s.bcc.length ? `, bcc ${s.bcc.join(", ")}` : "";
-      // All of it: the card shows exactly what goes out.
-      return `Send email from ${s.from} to ${s.to.join(", ")}${cc}${bcc}: "${oneLine(s.subject)}"\n\n${s.text}`;
-    },
-    async handler(i, ctx) {
-      // Held until this send finishes, so two Sends can't both go out.
-      await ctx.tx.select().from(mailDraft).where(eq(mailDraft.entityId, i.id)).for("update");
-      const d = await loadDraft(ctx.tx, i.id);
-      if (!d)
-        throw new ActionError("not_found", "No draft with that id. Was it sent or thrown away?");
-      const now = snapshotOf(d);
-      if (i.snapshot && stableStringify(i.snapshot) !== stableStringify(now))
-        throw new ActionError(
-          "conflict",
-          "The draft changed since you were asked, so nothing was sent.",
-        );
-      if (!i.snapshot && ctx.caller.kind !== "owner")
-        throw new ActionError(
-          "conflict",
-          "Hearth couldn't show the owner what this would send, so nothing was sent.",
-        );
-      if (d.to.length + d.cc.length + d.bcc.length === 0)
-        throw new ActionError("invalid_input", "The draft has no recipients.");
-      const [draftRow] = await ctx.tx.select().from(mailDraft).where(eq(mailDraft.entityId, d.id));
-      const [account] = await ctx.tx
-        .select()
-        .from(mailAccount)
-        .where(eq(mailAccount.id, draftRow!.accountId));
-      const raw = buildMessage({
-        from: { address: account!.address },
-        to: d.to,
-        cc: d.cc,
-        bcc: d.bcc,
-        subject: d.subject,
-        text: d.text,
-        inReplyTo: draftRow!.inReplyTo,
-        references: draftRow!.refs,
-        date: ctx.now,
-      });
-      const sent = await providerFor(ctx, account!)
-        .send(account!.address, raw)
-        .catch((err: unknown) => {
-          throw sendError(err, account!.address);
-        });
-      // Kept here at once, so it shows in the conversation before the next sync. It has gone
-      // out either way, so failing to keep it mustn't undo the send (the next sync brings it in).
-      const saved = await ctx.tx
-        .transaction((tx) =>
-          saveMail({ ...ctx, tx }, account!, {
-            providerId: sent.providerId,
-            labels: ["SENT"],
-            raw,
-          }),
-        )
-        .catch(() => null);
-      await ctx.tx.delete(entity).where(eq(entity.id, d.id));
-      ctx.emit({
-        kind: "mail.sent",
-        entityId: saved?.threadId ?? null,
-        payload: { to: now.to, subject: d.subject },
-      });
-      return { sent: true, threadId: saved?.threadId ?? null, messageId: saved?.id ?? null };
-    },
-  }),
 ];
-
-/** Why a send didn't go, in words for the owner. The draft stays either way. */
-function sendError(err: unknown, from: string): unknown {
-  if (!(err instanceof MailProviderError)) return err;
-  if (err.slowDown) {
-    const seconds = Math.max(5, Math.ceil((err.retryAfterMs ?? 60_000) / 1000));
-    const when =
-      seconds < 90 ? `in about ${seconds} seconds` : `in ${Math.ceil(seconds / 60)} minutes`;
-    // "paced": Hearth held it back itself, to keep Gmail from turning it away.
-    const why =
-      err.kind === "paced"
-        ? "Hearth is spacing out its Gmail calls"
-        : "Gmail asked Hearth to slow down";
-    return new ActionError("unavailable", `${why}, so nothing was sent. Try again ${when}.`);
-  }
-  if (err.kind === "auth")
-    return new ActionError(
-      "unavailable",
-      `Google stopped accepting Hearth's access to ${from}, so nothing was sent. Connect it again in Settings.`,
-    );
-  if (err.kind === "transient")
-    return new ActionError(
-      "unavailable",
-      "Gmail didn't answer, so Hearth can't tell whether it went out. Check Sent in Gmail before sending it again.",
-    );
-  return err;
-}
 
 /** A draft as markdown, for Jarvis. */
 export async function describeDraft(entityId: string, ctx: ReadContext): Promise<string | null> {

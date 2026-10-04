@@ -19,3 +19,11 @@ ALTER TABLE calendar_event ADD CONSTRAINT calendar_event_calendar_id_fkey
 -- none, it's the primary calendar of the account connected first.
 ALTER TABLE calendar ADD COLUMN write_default boolean NOT NULL DEFAULT false;
 CREATE UNIQUE INDEX calendar_write_default ON calendar (write_default) WHERE write_default;
+
+-- A draft's Message-ID is chosen when it's written, not when it's sent, so a send that may have
+-- gone out (Gmail didn't answer, or Hearth stopped mid-way) is found in Sent, not sent twice.
+ALTER TABLE mail_draft ADD COLUMN message_id text;
+UPDATE mail_draft d
+  SET message_id = replace(gen_random_uuid()::text, '-', '') || '@' || split_part(a.address, '@', 2)
+  FROM mail_account a WHERE a.id = d.account_id;
+ALTER TABLE mail_draft ALTER COLUMN message_id SET NOT NULL;

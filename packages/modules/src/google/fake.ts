@@ -40,6 +40,8 @@ export class FakeGoogle {
   signingIn: string;
   /** How long each call takes, for tests where calls overlap. */
   latencyMs = 0;
+  /** The next `n` Calendar changes are made, but the reply is lost (Hearth sees a 503). */
+  loseCalendarReplies = 0;
   /** The time clients and the fake Gmail see; set it to the test kernel's clock. */
   clock: { now(): Date } = { now: () => new Date() };
   /** What clients made by client() logged. */
@@ -211,7 +213,12 @@ export class FakeGoogle {
     }
     const failing = this.calendarFailures.shift();
     if (failing) return errorReply(failing);
-    return this.calendarCall(account, u, method, body);
+    const res = this.calendarCall(account, u, method, body);
+    if (method !== "GET" && this.loseCalendarReplies > 0) {
+      this.loseCalendarReplies--;
+      return errorReply(503);
+    }
+    return res;
   }
 
   private calendarCall(account: FakeAccount, u: URL, method: string, body: GEvent | undefined) {

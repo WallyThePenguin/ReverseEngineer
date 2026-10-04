@@ -85,7 +85,7 @@ export async function insertEvent(
     ...(input.taskId ? { extendedProperties: { private: { hearthTask: input.taskId } } } : {}),
   };
   const send: SendUpdates = input.attendees?.length ? "all" : "none";
-  const g = await api(ctx).insert(cal.account, cal.googleId, body, send);
+  const g = await api(ctx).insertOnce(cal.account, cal.googleId, body, send);
   return save(ctx, cal.id, g, input.taskId ?? null);
 }
 

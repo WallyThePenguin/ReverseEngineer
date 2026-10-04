@@ -1,3 +1,5 @@
+ALTER TABLE mail_draft DROP COLUMN message_id;
+
 DROP INDEX calendar_write_default;
 ALTER TABLE calendar DROP COLUMN write_default;
 

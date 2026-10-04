@@ -92,4 +92,22 @@ describe("0032_integrations", () => {
     expect(await migrateUp(tdb.pool)).toEqual([NAME]);
     expect(await eventsOf()).toHaveLength(3);
   });
+
+  it("gives drafts written before it a Message-ID on their account's domain", async () => {
+    expect(await migrateDown(tdb.pool, 1)).toEqual([NAME]);
+    await q(
+      "INSERT INTO mail_account (id, provider, address) VALUES ('gmail:me@example.com', 'gmail', 'me@example.com')",
+    );
+    await q(
+      "INSERT INTO entity (id, type, title, created_by, updated_by) VALUES ('00000000-0000-7000-8000-0000000000d1', 'email_draft', 'Hi', 'owner', 'owner')",
+    );
+    await q(
+      "INSERT INTO mail_draft (entity_id, account_id) VALUES ('00000000-0000-7000-8000-0000000000d1', 'gmail:me@example.com')",
+    );
+    expect(await migrateUp(tdb.pool)).toEqual([NAME]);
+    const [draft] = (await q("SELECT message_id FROM mail_draft")).rows;
+    expect(draft.message_id).toMatch(/^[0-9a-f]{32}@example\.com$/);
+    expect(await migrateDown(tdb.pool, 1)).toEqual([NAME]);
+    expect(await migrateUp(tdb.pool)).toEqual([NAME]);
+  });
 });

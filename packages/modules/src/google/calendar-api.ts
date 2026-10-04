@@ -1,8 +1,9 @@
 // The few Google Calendar API calls Hearth makes, typed. Reading counts against Calendar's own
 // paced budget; adding, changing or removing an event is something you're waiting on, so it may
 // use the headroom reads leave, and a slowdown then says so plainly (D55).
+import { createHash, randomBytes } from "node:crypto";
 import type { DbOrTx } from "@hearth/db";
-import { ActionError } from "@hearth/kernel";
+import { ActionError, stableStringify } from "@hearth/kernel";
 import type { GoogleClient } from "./client.ts";
 import { GoogleApiError } from "./errors.ts";
 
@@ -56,6 +57,22 @@ export interface GEvent {
 export type SendUpdates = "all" | "none";
 
 const enc = encodeURIComponent;
+
+/** An event id from what the event is. Hex is within Google's allowed letters (a-v, 0-9). */
+export function eventIdFor(calendarId: string, event: Partial<GEvent>): string {
+  return createHash("sha256").update(stableStringify({ calendarId, event })).digest("hex");
+}
+
+const instant = (t?: GTime) => (t?.dateTime ? new Date(t.dateTime).getTime() : (t?.date ?? null));
+
+/** The same title and times: the event Hearth asked for, not one changed since. */
+function sameEvent(a: Partial<GEvent>, b: Partial<GEvent>): boolean {
+  return (
+    (a.summary ?? "") === (b.summary ?? "") &&
+    instant(a.start) === instant(b.start) &&
+    instant(a.end) === instant(b.end)
+  );
+}
 
 /** A slowdown on something you asked for, said plainly; anything else as it was. */
 function plain(err: unknown): never {
@@ -129,6 +146,43 @@ export class CalendarApi {
     return this.google
       .call<T>(this.db, account, method, url, body, { priority: true })
       .catch(plain);
+  }
+
+  /** One event, or null if Google never had it. One deleted there comes back "cancelled". */
+  async get(account: string, calendarId: string, eventId: string): Promise<GEvent | null> {
+    try {
+      return await this.write<GEvent>(
+        account,
+        "GET",
+        `${BASE}/calendars/${enc(calendarId)}/events/${enc(eventId)}`,
+      );
+    } catch (err) {
+      if (err instanceof GoogleApiError && err.kind === "not_found") return null;
+      throw err;
+    }
+  }
+
+  /**
+   * Adds an event under an id worked out from what it is, so trying again after Google made it
+   * but Hearth didn't hear back finds that one instead of adding a second (D61).
+   */
+  async insertOnce(
+    account: string,
+    calendarId: string,
+    event: Partial<GEvent>,
+    send: SendUpdates,
+  ): Promise<GEvent> {
+    const id = eventIdFor(calendarId, event);
+    try {
+      return await this.insert(account, calendarId, { ...event, id }, send);
+    } catch (err) {
+      if (!(err instanceof GoogleApiError && err.status === 409)) throw err;
+    }
+    const there = await this.get(account, calendarId, id);
+    if (there && there.status !== "cancelled" && sameEvent(there, event)) return there;
+    // The id is taken by one deleted since, or one moved since: this is a new event.
+    const fresh = randomBytes(16).toString("hex");
+    return this.insert(account, calendarId, { ...event, id: fresh }, send);
   }
 
   insert(account: string, calendarId: string, event: Partial<GEvent>, send: SendUpdates) {
