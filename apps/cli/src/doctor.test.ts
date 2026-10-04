@@ -52,4 +52,22 @@ describe("hearth doctor", () => {
       ["rclone", "ok"],
     ]);
   });
+
+  it("fails a restic too old to restore from", async () => {
+    const version =
+      (v: string): Runner =>
+      async (cmd) => ({
+        code: 0,
+        stdout: cmd === "restic" ? `restic ${v} compiled with go1.22 on windows/amd64\n` : "",
+        stderr: "",
+      });
+    const env = { HEARTH_BACKUP_REPOSITORY: "D:\\backups", RESTIC_PASSWORD: "x" };
+    const old = await checkBackupTools(env, version("0.16.4"));
+    expect(old.find((c) => c.name === "restic")).toMatchObject({
+      mark: "fail",
+      detail: expect.stringContaining("0.16.4 is too old"),
+    });
+    const now = await checkBackupTools(env, version("0.19.1"));
+    expect(now.find((c) => c.name === "restic")?.mark).toBe("ok");
+  });
 });

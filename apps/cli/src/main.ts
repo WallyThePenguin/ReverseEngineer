@@ -1,5 +1,6 @@
 // The `hearth` command. Run `hearth help` for the list.
 
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { connect, databaseUrl, migrateDown, migrateUp } from "@hearth/db";
@@ -14,10 +15,11 @@ import {
   revokeApiTokens,
   revokeDevice,
 } from "@hearth/server";
-import { runBackup } from "./backup.ts";
+import { dataFolders, runBackup } from "./backup.ts";
 import { formatChecks } from "./doctor.ts";
 import { runDoctor } from "./doctor-run.ts";
 import { restart } from "./restart.ts";
+import { restoreReport, runRestore, switchEnv } from "./restore.ts";
 import { guardSchema } from "./schema-guard.ts";
 
 const HELP = `hearth: your personal workspace, with Jarvis.
@@ -31,6 +33,9 @@ const HELP = `hearth: your personal workspace, with Jarvis.
   hearth restart [server|worker|jarvis|all]
                             Restart Hearth's Windows services (all by default) and wait for them
   hearth backup             Back up now (dump, upload with restic, prune, test a restore)
+  hearth restore [snapshot | file.dump] [--into name] [--switch]
+                            Restore a backup (the newest by default) into a new database and
+                            say how to switch to it; --switch also updates .env and restarts
   hearth doctor [--json]    Check that everything is set up and running; exits 1 on any fail
   hearth eval [--record] [name...]
                             Run Jarvis's eval scenarios with the real model (needs
@@ -136,11 +141,13 @@ async function main(argv: string[]): Promise<number> {
     case "backup":
       return withDatabase(async (database) => {
         const dataDir = process.env.HEARTH_DATA_DIR ?? process.cwd();
+        const { blobs, voice } = dataFolders(dataDir);
         const result = await runBackup({
           databaseUrl: databaseUrl(),
           dir: process.env.HEARTH_BACKUP_DIR ?? join(dataDir, "backups"),
           repository: process.env.HEARTH_BACKUP_REPOSITORY || null,
           restoreDatabase: "hearth_restore_check",
+          folders: [blobs, voice],
         });
         const kernel = kernelFor(database);
         const { offsite, ...report } = result;
@@ -155,6 +162,30 @@ async function main(argv: string[]): Promise<number> {
         console.log(result.detail);
         return result.ok ? 0 : 1;
       });
+
+    case "restore": {
+      const { values, positionals } = parseArgs({
+        args: rest,
+        options: { into: { type: "string" }, switch: { type: "boolean", default: false } },
+        allowPositionals: true,
+      });
+      const dataDir = process.env.HEARTH_DATA_DIR ?? process.cwd();
+      const current = databaseUrl();
+      const result = await runRestore({
+        databaseUrl: current,
+        source: positionals[0] ?? null,
+        repository: process.env.HEARTH_BACKUP_REPOSITORY || null,
+        backupDir: process.env.HEARTH_BACKUP_DIR ?? join(dataDir, "backups"),
+        dataDir,
+        ...(values.into ? { into: values.into } : {}),
+      });
+      const switched = values.switch
+        ? await switchEnv(join(process.cwd(), ".env"), result.url)
+        : null;
+      const vaultKey = !!process.env.HEARTH_VAULT_KEY || existsSync(join(dataDir, "vault.key"));
+      console.log(restoreReport(result, current, switched, vaultKey));
+      return switched ? restart(["all"]) : 0;
+    }
 
     case "eval": {
       const { values, positionals } = parseArgs({
