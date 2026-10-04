@@ -84,6 +84,27 @@ describe("sliding sign-ins", () => {
     expect((await row(internal)).expiresAt).toEqual(at(DAY));
   });
 
+  it("keeps you signed in when 'last seen' can't be written, and logs it without the token", async () => {
+    const token = await browserSession();
+    const hash = hashToken(token);
+    // The shape Drizzle gives a failed write: the query's values, the token's hash among them.
+    const failing = new Proxy(t.kernel.db, {
+      get: (db, prop) =>
+        prop === "update"
+          ? () => {
+              throw new Error(`Failed query: update "session" set ...\nparams: ${hash}`);
+            }
+          : Reflect.get(db, prop),
+    });
+    const logged: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((line) => logged.push(String(line)));
+    const r = await checkToken(failing, token, at(MIN));
+    spy.mockRestore();
+    expect(r).toMatchObject({ ok: true, extendedUntil: null });
+    expect(logged.join("\n")).toContain("couldn't record a session's use");
+    expect(logged.join("\n")).not.toContain(hash);
+  });
+
   it("says why a token is refused", async () => {
     const token = await browserSession();
     expect(await checkToken(t.kernel.db, "nope", at(MIN))).toEqual({

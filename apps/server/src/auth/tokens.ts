@@ -3,6 +3,7 @@
 import { timingSafeEqual } from "node:crypto";
 import type { PrincipalKind } from "@hearth/core";
 import { createSession, type DbOrTx, hashToken, newToken, principal, session } from "@hearth/db";
+import { logLine } from "@hearth/kernel";
 import { and, eq, isNull, like, lte, not, or } from "drizzle-orm";
 
 export { createSession, hashToken, newToken };
@@ -101,8 +102,9 @@ export async function checkToken(
       .returning({ hash: session.tokenHash });
     if (touched.length > 0) result.extendedUntil = until;
   } catch (err) {
-    // A database that can't take writes right now shouldn't sign anyone out.
-    console.error(`[auth] couldn't record a session's use: ${(err as Error).message}`);
+    // A database that can't take writes right now shouldn't sign anyone out. (logLine leaves out
+    // the query's values: the token's hash among them.)
+    console.error(`[auth] couldn't record a session's use: ${logLine(err)}`);
   }
   return result;
 }

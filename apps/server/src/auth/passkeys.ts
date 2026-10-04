@@ -2,6 +2,7 @@
 // `hearth setup`; more can be added from a signed-in session.
 import { randomBytes } from "node:crypto";
 import { authChallenge, credential, type Db, setting } from "@hearth/db";
+import { logLine } from "@hearth/kernel";
 import {
   generateAuthenticationOptions,
   generateRegistrationOptions,
@@ -37,7 +38,8 @@ async function logged<T>(what: "sign-in" | "registration", fn: () => Promise<T>)
   try {
     return await fn();
   } catch (err) {
-    authFailed(what, `Hearth couldn't check it: ${(err as Error).message}`);
+    // Without the query's values: they hold the challenge and the passkey's public key.
+    authFailed(what, `Hearth couldn't check it: ${logLine(err)}`);
     throw err;
   }
 }
