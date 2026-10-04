@@ -3,7 +3,7 @@
 import { type Db, principal, standingRule, type Tx } from "@hearth/db";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { requestApproval, resolveApproval } from "./approvals.ts";
+import { type Deferred, requestApproval, resolveApproval } from "./approvals.ts";
 import { isAudited, writeAudit } from "./audit.ts";
 import { type Clock, systemClock } from "./clock.ts";
 import {
@@ -128,7 +128,7 @@ export class Kernel {
     def: ActionDef,
     input: unknown,
     caller: Caller & { correlationId: string },
-    hooks: { approvalId?: string; inTx?: (tx: Tx, result: unknown) => Promise<void> } = {},
+    hooks: { approvalId?: string; inTx?: (tx: Tx, result: unknown) => Promise<Deferred> } = {},
   ): Promise<ExecuteResult<R>> {
     const started = performance.now();
     const now = this.clock.now();
@@ -138,13 +138,6 @@ export class Kernel {
         const buffered: EmitEvent[] = [];
         const ctx = this.context(tx, caller, now, buffered);
         const r = await def.handler(input, ctx);
-        await appendEvents(tx, buffered, {
-          actor: caller.principal,
-          origin: caller.origin,
-          correlationId: caller.correlationId,
-          causationId: caller.causationId ?? null,
-          at: now,
-        });
         if (audited) {
           await writeAudit(tx, {
             def,
@@ -157,7 +150,17 @@ export class Kernel {
             at: now,
           });
         }
-        if (hooks.inTx) await hooks.inTx(tx, r);
+        // The approval closes before the event log's lock is taken: that lock comes last, so a
+        // concurrent write to the approval's inbox card can't wait on it while holding the card.
+        const after = hooks.inTx ? await hooks.inTx(tx, r) : null;
+        await appendEvents(tx, buffered, {
+          actor: caller.principal,
+          origin: caller.origin,
+          correlationId: caller.correlationId,
+          causationId: caller.causationId ?? null,
+          at: now,
+        });
+        if (after) await appendEvents(tx, after.events, after.stamp);
         return r as R;
       });
       return { status: "ok", result };

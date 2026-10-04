@@ -1,3 +1,4 @@
+export * from "./approval-life.ts";
 export * from "./approvals.ts";
 export * from "./audit.ts";
 export * from "./callers.ts";
