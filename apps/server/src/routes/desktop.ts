@@ -2,12 +2,13 @@
 // items your phone is told about (push.ts decides which) and Hearth's health changing, as
 // server-sent events. The desktop app's token may read it; nothing here can approve anything,
 // and a notification only opens a page.
-import { hashToken, notification, session } from "@hearth/db";
+import { notification } from "@hearth/db";
 import { type HearthEvent, latestSeq, readEventsAfter } from "@hearth/kernel";
-import { and, eq, gt, inArray, isNull, or } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { requireCaller } from "../auth/middleware.ts";
+import { checkToken } from "../auth/tokens.ts";
 import type { AppEnv, ServerDeps } from "../env.ts";
 import { messageFor, type PushMessage, worthPushing } from "../push.ts";
 
@@ -78,17 +79,8 @@ export async function stillSignedIn(
 ): Promise<boolean> {
   // Development login on loopback has no token to sign out.
   if (!token) return true;
-  const [row] = await db
-    .select({ hash: session.tokenHash })
-    .from(session)
-    .where(
-      and(
-        eq(session.tokenHash, hashToken(token)),
-        isNull(session.revokedAt),
-        or(isNull(session.expiresAt), gt(session.expiresAt, new Date())),
-      ),
-    );
-  return !!row;
+  // Listening isn't using: this mustn't keep a sign-in alive (D56).
+  return (await checkToken(db, token, new Date(), { touch: false })).ok;
 }
 
 export function desktopRoutes() {
