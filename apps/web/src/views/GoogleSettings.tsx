@@ -7,6 +7,7 @@ import { ago } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
 import { act, useAction } from "../lib/query.ts";
 import type { CalendarSetup, MailAccount } from "../lib/types.ts";
+import { DisconnectGoogle } from "./GoogleDisconnect.tsx";
 import { syncLine } from "./MailSyncStatus.tsx";
 
 export function GoogleSettings() {
@@ -36,22 +37,13 @@ export function GoogleSettings() {
         <ul class="space-y-1">
           <For each={setup.data?.accounts ?? []}>
             {(a) => (
-              <li class="flex items-center gap-3 rounded-md bg-sunk px-3 py-2 text-sm">
+              <li class="flex flex-wrap items-center gap-3 rounded-md bg-sunk px-3 py-2 text-sm">
                 <Badge tone={a.status === "ok" ? "ok" : "bad"}>
                   {a.status === "ok" ? "connected" : a.status}
                 </Badge>
                 <span class="flex-1 font-medium">{a.email}</span>
                 <span class="text-xs text-faint">since {ago(a.connectedAt)}</span>
-                <Button
-                  small
-                  kind="danger"
-                  onClick={async () => {
-                    if (await act("google.disconnect", { email: a.email }))
-                      toast.show(`Disconnected ${a.email}.`);
-                  }}
-                >
-                  Disconnect
-                </Button>
+                <DisconnectGoogle email={a.email} />
               </li>
             )}
           </For>

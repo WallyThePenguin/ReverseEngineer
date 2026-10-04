@@ -49,6 +49,19 @@ export class BlobStore {
     return Boolean(await stat(this.path(hash)).catch(() => null));
   }
 
+  /** Deletes these, one at a time. Returns how many went. */
+  async remove(hashes: Iterable<string>): Promise<number> {
+    let removed = 0;
+    for (const hash of hashes) {
+      if (!/^[0-9a-f]{64}$/.test(hash)) continue;
+      const file = this.path(hash);
+      if (!(await stat(file).catch(() => null))) continue;
+      await rm(file, { force: true }).catch(() => {});
+      removed++;
+    }
+    return removed;
+  }
+
   /**
    * Deletes what nothing keeps, once it's older than `graceMs`: a file another process just
    * saved, for a record not written yet, stays. Returns how many went.

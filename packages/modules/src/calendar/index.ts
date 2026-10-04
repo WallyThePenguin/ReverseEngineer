@@ -2,16 +2,7 @@
 // calendar directly and asking before anything guests would see, prep packets each morning,
 // conflict warnings, and time blocks for big tasks (PLAN.md sections 6.1, 6.2 and 8.2).
 import { formatTime, localDate } from "@hearth/core";
-import {
-  calendar,
-  calendarEvent,
-  entity,
-  googleAccount,
-  mailAccount,
-  mailDraft,
-  mailMessage,
-  mailThread,
-} from "@hearth/db";
+import { calendar, calendarEvent, entity } from "@hearth/db";
 import {
   type DigestItem,
   defineAction,
@@ -19,13 +10,13 @@ import {
   getSetting,
   type ReflexDef,
 } from "@hearth/kernel";
-import { and, asc, eq, gt, gte, inArray, isNull, lt, ne } from "drizzle-orm";
+import { and, asc, eq, gt, gte, isNull, lt, ne } from "drizzle-orm";
 import { z } from "zod";
-import { GOOGLE_SERVICE, type GoogleClient } from "../google/client.ts";
+import { disconnectAction } from "../google/disconnect.ts";
 import { describeRow, id, isoDateTime, liveEntity } from "../shared.ts";
 import { calendarWriteActions } from "./actions.ts";
 import { blockAction, blockReflex, blockRoutine } from "./blocks.ts";
-import { calendarSetupActions, dropCalendars, inSelectedCalendar } from "./calendars.ts";
+import { calendarSetupActions, inSelectedCalendar } from "./calendars.ts";
 import { freeSlots } from "./free.ts";
 import { prepPublish, prepRoutine } from "./prep.ts";
 import { respondAction } from "./respond.ts";
@@ -264,49 +255,7 @@ export const calendarModule = defineModule({
       callers: ["owner", "system", "integration"],
       handler: (_i, ctx) => syncCalendars(ctx),
     }),
-    defineAction({
-      name: "google.disconnect",
-      description: "Forget a Google account: its tokens, calendars and mail leave Hearth.",
-      input: z.object({ email: z.string().email() }),
-      risk: "internal",
-      callers: ["owner"],
-      async handler(i, ctx) {
-        const email = i.email.toLowerCase();
-        const cals = await ctx.tx
-          .select({ id: calendar.id })
-          .from(calendar)
-          .where(eq(calendar.account, email));
-        await dropCalendars(
-          ctx,
-          cals.map((c) => c.id),
-        );
-        // Its mail too: messages, conversations, drafts and the account (raw copies stay on disk).
-        const mailId = `gmail:${email}`;
-        for (const table of [mailMessage, mailThread, mailDraft] as const)
-          await ctx.tx
-            .delete(entity)
-            .where(
-              inArray(
-                entity.id,
-                ctx.tx
-                  .select({ id: table.entityId })
-                  .from(table)
-                  .where(eq(table.accountId, mailId)),
-              ),
-            );
-        await ctx.tx.delete(mailAccount).where(eq(mailAccount.id, mailId));
-        const gone = await ctx.tx
-          .delete(googleAccount)
-          .where(eq(googleAccount.email, email))
-          .returning({ email: googleAccount.email, token: googleAccount.refreshToken });
-        let google: GoogleClient | null = null;
-        try {
-          google = ctx.service<GoogleClient>(GOOGLE_SERVICE);
-        } catch {}
-        for (const g of gone) await google?.revoke(g.token);
-        return { removed: gone.length };
-      },
-    }),
+    disconnectAction,
     ...calendarWriteActions,
     respondAction,
     blockAction,

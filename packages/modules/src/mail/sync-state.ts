@@ -41,8 +41,11 @@ function kindOf(err: unknown): Kind {
   return "transient";
 }
 
-/** Marks the account's open "Mail isn't syncing" alerts done: it syncs again. */
-async function closeAlerts(ctx: ActionContext, account: AccountRow) {
+/**
+ * Marks the account's open "Mail isn't syncing" alerts done: it syncs again, or it's gone.
+ * `legacy`: the day-keyed ones from before D55 too, which didn't say which account.
+ */
+export async function closeMailAlerts(ctx: ActionContext, accountId: string, legacy = true) {
   const rows = await ctx.tx
     .update(notification)
     .set({ state: "done", updatedAt: ctx.now })
@@ -50,8 +53,8 @@ async function closeAlerts(ctx: ActionContext, account: AccountRow) {
       and(
         ne(notification.state, "done"),
         or(
-          sql`starts_with(${notification.dedupeKey}, ${`mail.sync_failed:${account.id}:`})`,
-          sql`${notification.dedupeKey} ~ ${OLD_ALERT}`,
+          sql`starts_with(${notification.dedupeKey}, ${`mail.sync_failed:${accountId}:`})`,
+          legacy ? sql`${notification.dedupeKey} ~ ${OLD_ALERT}` : undefined,
         ),
       ),
     )
@@ -83,7 +86,7 @@ export async function recordOutcome(
       failingSince: null,
       pausedUntil: null,
     });
-    if (account.failures > 0) await closeAlerts(ctx, account);
+    if (account.failures > 0) await closeMailAlerts(ctx, account.id);
   };
   if (!work.stopped) {
     await succeeded(busy);
