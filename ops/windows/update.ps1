@@ -4,29 +4,50 @@
 
 .DESCRIPTION
   install.ps1 lets your account stop and start Hearth's two services and the "Hearth Jarvis" task,
-  so this runs unelevated. It takes a safety dump, stops Hearth, moves to the latest commit of the
-  branch, installs, builds, migrates, starts everything again and checks that Hearth answers.
+  so this runs unelevated. It asks hearth doctor how things are, takes a safety dump, stops Hearth,
+  moves to the latest commit of the branch, installs, builds, migrates and starts everything again.
+  Then the update has to prove itself (D57), or it's rolled back:
 
-  - Any failure puts the previous code back and starts that. Migrations this update applied are
-    reverted first (`hearth migrate down`, newest first); should that fail, the new code stays and
-    the safety dump in data\backups is the way back.
-  - When the update changes the service definitions or install.ps1, it says to run install.ps1
-    again as administrator; everything else still updates.
+  - The server reports the new commit through /api/health/deep, its database has every migration
+    the new code expects, and the worker and Jarvis report in after the restart, not failing.
+    Within three minutes.
+  - When scripts\probe-jarvis-tools.ts exists, it passes (exit 0). That's the hook for the Jarvis
+    tool-schema probe: it sends Jarvis's whole tool list to the model in one small call, so a tool
+    the API rejects stops the update instead of every Jarvis turn.
+  - hearth doctor finds nothing failing that wasn't failing before the update. What already failed
+    (a full disk, say) is listed but doesn't block a fix; a check the old doctor didn't have can't
+    be compared, so it's listed as a warning.
 
-  Log: data\logs\update-<time>.log. Exit code 0 means Hearth is up on the new code.
+  Rolling back reverts the migrations this update applied (`hearth migrate down`, newest first),
+  puts the previous code back, starts it and checks that it came back. Should a migration not
+  revert, the new code stays and the safety dump in data\backups is the way back.
+
+  When the update changes the service definitions or install.ps1, it says to run install.ps1
+  again as administrator; everything else still updates.
+
+  Log: data\logs\update-<date>.log, one per day, appended. Exit code 0 means Hearth is up and
+  healthy on the new code.
 #>
 [CmdletBinding()]
 param(
   [string]$Root = (Resolve-Path "$PSScriptRoot\..\..").Path,
   [string]$Branch = "claude/admiring-wright-ghc2o3",
   # Run every step even when already on the latest commit.
-  [switch]$Force
+  [switch]$Force,
+  # The optional Jarvis tool-schema probe, relative to $Root (see above).
+  [string]$JarvisProbe = "scripts\probe-jarvis-tools.ts",
+  # How long the new code gets to report in healthy.
+  [int]$HealthTimeoutSec = 180
 )
 $ErrorActionPreference = "Stop"
 Set-Location $Root
+. "$PSScriptRoot\control.ps1"
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 New-Item -ItemType Directory -Force "$Root\data\logs", "$Root\data\backups" | Out-Null
-Start-Transcript -Path "$Root\data\logs\update-$stamp.log" | Out-Null
+Start-Transcript -Append -Path "$Root\data\logs\update-$(Get-Date -Format yyyy-MM-dd).log" | Out-Null
+# hearth doctor writes UTF-8; read it as UTF-8 (for this window only, put back at the end).
+$consoleEncoding = [Console]::OutputEncoding
+try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch {}
 
 # One update at a time: the lock file stays open (and locked) until this script ends.
 try {
@@ -43,57 +64,32 @@ function Invoke-Native([string]$What, [scriptblock]$Do) {
   if ($LASTEXITCODE -ne 0) { throw "$What failed (exit $LASTEXITCODE)." }
 }
 
-function Get-EnvValue([string]$Name) {
-  $line = Get-Content "$Root\.env" | Where-Object { $_ -match "^$Name=" } | Select-Object -First 1
-  if ($line) { return ($line -replace "^$Name=", "").Trim() }
-  return $null
+function Write-Doctor($Report) {
+  foreach ($c in $Report.Checks) { Write-Host ("{0,-5} {1,-14} {2}" -f $c.mark, $c.name, $c.detail) }
 }
 
-function Stop-Jarvis {
-  # Jarvis runs under cmd in the task; stopping the task ends cmd but not always the node under
-  # it, and an unelevated account can't read session-0 command lines. So: the pid Jarvis wrote at
-  # startup, plus every child of the task's running process.
-  $pids = @()
-  $pidFile = "$env:ProgramData\Hearth\services\hearth-jarvis.pid"
-  if (Test-Path $pidFile) { $pids += [int](Get-Content $pidFile -Raw).Trim() }
-  $scheduler = New-Object -ComObject Schedule.Service
-  $scheduler.Connect()
-  $task = $scheduler.GetFolder("\").GetTask("Hearth Jarvis")
-  foreach ($run in @($task.GetInstances(0))) {
-    $pids += @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $($run.EnginePID)" |
-      Where-Object { $_.Name -eq "node.exe" } | ForEach-Object { $_.ProcessId })
+# The new code must prove itself: deep health, the Jarvis probe if there is one, then the doctor.
+function Assert-Healthy([string]$Sha, [datetime]$Since, $Before) {
+  Write-Host "== Waiting for Hearth to report in on $(Format-Sha $Sha)"
+  $why = Wait-Hearth -Since $Since -Sha $Sha -TimeoutSec $HealthTimeoutSec
+  if ($why) { throw "Hearth isn't healthy on the new code after $HealthTimeoutSec seconds: $why." }
+  $probe = Join-Path $Root $JarvisProbe
+  if (Test-Path $probe) {
+    Invoke-Native "Checking Jarvis's tools with the model ($JarvisProbe)" { node --env-file-if-exists=.env $probe }
+  } else {
+    Write-Host "== No Jarvis tool probe ($JarvisProbe), skipping it"
   }
-  Stop-ScheduledTask -TaskName "Hearth Jarvis" -ErrorAction SilentlyContinue
-  foreach ($p in ($pids | Select-Object -Unique)) {
-    $proc = Get-Process -Id $p -ErrorAction SilentlyContinue
-    if ($proc -and $proc.ProcessName -eq "node") { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue }
+  Write-Host "== Checking with hearth doctor"
+  $after = Get-DoctorReport
+  if (-not $after.Checks) { throw "hearth doctor didn't run on the new code: $($after.Text)" }
+  Write-Doctor $after
+  $diff = Compare-Doctor $Before $after
+  foreach ($c in $diff.Old) { Write-Host "Still failing, as before the update: $($c.name): $($c.detail)" }
+  foreach ($c in $diff.Unknown) { Write-Warning "Failing, and not checked before the update: $($c.name): $($c.detail)" }
+  if ($diff.New.Count) {
+    $what = ($diff.New | ForEach-Object { "$($_.name): $($_.detail)" }) -join "; "
+    throw "hearth doctor found new problems: $what"
   }
-}
-
-function Stop-Hearth {
-  Write-Host "== Stopping Hearth"
-  Stop-Jarvis
-  Stop-Service hearth-server, hearth-worker
-}
-
-function Start-Hearth {
-  Write-Host "== Starting Hearth"
-  Start-Service hearth-server, hearth-worker
-  Start-ScheduledTask -TaskName "Hearth Jarvis"
-}
-
-# Waits for the server to answer /api/health, up to a minute.
-function Test-Hearth {
-  $port = Get-EnvValue "HEARTH_PORT"
-  if (-not $port) { $port = "4400" }
-  for ($i = 0; $i -lt 30; $i++) {
-    try {
-      $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 "http://127.0.0.1:$port/api/health"
-      if ($r.StatusCode -eq 200) { return $true }
-    } catch {}
-    Start-Sleep -Seconds 2
-  }
-  return $false
 }
 
 $old = (git rev-parse HEAD).Trim()
@@ -113,6 +109,10 @@ try {
   git log --oneline "$old..$new"
   $needsInstall = @(git diff --name-only $old $new -- ops/windows/install.ps1 "ops/windows/*.xml").Count -gt 0
 
+  Write-Host "== Asking hearth doctor how things are before the update"
+  $before = Get-DoctorReport
+  if ($before.Checks) { Write-Doctor $before } else { Write-Host $before.Text }
+
   $dump = "$Root\data\backups\pre-update-$stamp.dump"
   Invoke-Native "Safety dump: $dump" { pg_dump --format=custom --file $dump --dbname (Get-EnvValue "HEARTH_DATABASE_URL") }
 
@@ -127,10 +127,10 @@ try {
   Write-Host $out
   if ($out -match "Applied: (.+)") { $applied = @($Matches[1].Trim() -split ",\s*") }
   if ($LASTEXITCODE -ne 0) { throw "Migrating the database failed (exit $LASTEXITCODE)." }
+  $since = [datetime]::UtcNow.AddSeconds(-5)
   Start-Hearth
   $stopped = $false
-  if (-not (Test-Hearth)) { throw "Hearth didn't answer /api/health within a minute after the update." }
-  Invoke-Native "Checking with hearth doctor" { pnpm hearth doctor }
+  Assert-Healthy $new $since $before
   if ($needsInstall) {
     Write-Warning "This update changed how the services are installed. Run ops\windows\install.ps1 again from an elevated PowerShell."
   }
@@ -159,10 +159,19 @@ try {
     }
   }
   if ($stopped) {
+    $since = [datetime]::UtcNow.AddSeconds(-5)
     try { Start-Hearth } catch { Write-Host "Couldn't start Hearth again: $_" }
+    $running = (git rev-parse HEAD).Trim()
+    $why = Wait-Hearth -Since $since -Sha $running -TimeoutSec $HealthTimeoutSec -AllowOld
+    if ($why) {
+      Write-Host "HEARTH ISN'T BACK UP on $(Format-Sha $running): $why. Run pnpm hearth doctor to see why."
+    } else {
+      Write-Host "== Hearth is back up on $(Format-Sha $running)."
+    }
   }
 } finally {
   $lock.Dispose()
+  try { [Console]::OutputEncoding = $consoleEncoding } catch {}
   Stop-Transcript | Out-Null
 }
 exit $exit
