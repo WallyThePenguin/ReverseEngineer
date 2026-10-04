@@ -27,7 +27,7 @@ describe("judgeSync", () => {
         "sync.slack",
         [
           { name: "Acme", error: null, lastGood: ago(1) },
-          { name: "Home", error: "ratelimited", since: ago(3) },
+          { name: "Home", error: "ratelimited", failing: false },
         ],
         now,
         NY,

@@ -31,7 +31,7 @@ export interface SyncSource {
   since?: Date | null;
   /** The sync's own verdict, or access only reconnecting can fix: failing at once. */
   failing?: boolean;
-  /** When it last worked (or, for GitHub, last ran). */
+  /** When it last worked. */
   lastGood?: Date | null;
   /** Google asked Hearth to slow down until then. */
   pausedUntil?: Date | null;
