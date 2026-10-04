@@ -25,16 +25,23 @@ const NAV: { view: ListView; label: string; keys: string }[] = [
   { view: "settings", label: "Settings", keys: "g s" },
 ];
 
-/** What's waiting for you: unseen inbox items and approvals. */
+/** What's waiting for you: unseen inbox items and approvals, each approval once (its inbox
+ * card and the approval itself are the same thing). */
 export function useWaiting() {
   const inbox = useAction<InboxRow[]>("inbox.list", () => inboxInput("live", "signal"));
   const approvals = useAction<Approval[]>("approval.list", () => ({
     status: "pending",
     limit: 50,
   }));
-  return () =>
-    (inbox.data ?? []).filter((r) => r.notification.state === "unseen").length +
-    (approvals.data?.length ?? 0);
+  return () => {
+    const pending = new Set((approvals.data ?? []).map((a) => a.id));
+    const unseen = (inbox.data ?? []).filter(
+      (r) =>
+        r.notification.state === "unseen" &&
+        !(r.notification.approvalId && pending.has(r.notification.approvalId)),
+    );
+    return unseen.length + pending.size;
+  };
 }
 
 export function Sidebar(props: {

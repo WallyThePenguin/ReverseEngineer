@@ -1,5 +1,5 @@
-// Google accounts and Calendar. Mirrors migrations/0004_google_calendar.up.sql and the pacing
-// tables of 0022_google_pacing.up.sql.
+// Google accounts and Calendar. Mirrors migrations/0004_google_calendar.up.sql, the pacing
+// tables of 0022_google_pacing.up.sql and the calendar keys of 0032_integrations.up.sql.
 import { sql } from "drizzle-orm";
 import {
   boolean,
@@ -11,6 +11,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -58,18 +59,32 @@ export const oauthState = pgTable("oauth_state", {
   expiresAt: ts("expires_at").notNull(),
 });
 
-export const calendar = pgTable("calendar", {
-  id: text("id").primaryKey(),
-  account: text("account").notNull(),
-  title: text("title").notNull(),
-  color: text("color"),
-  timeZone: text("time_zone"),
-  isPrimary: boolean("is_primary").notNull().default(false),
-  canWrite: boolean("can_write").notNull().default(false),
-  selected: boolean("selected").notNull().default(true),
-  lastSyncedAt: ts("last_synced_at"),
-  lastError: text("last_error"),
-});
+/**
+ * One account's view of a Google calendar. A calendar two accounts share has a row for each
+ * (0032_integrations): `id` is Hearth's own, `googleId` is Google's.
+ */
+export const calendar = pgTable(
+  "calendar",
+  {
+    id: text("id").primaryKey(),
+    account: text("account").notNull(),
+    googleId: text("google_id").notNull(),
+    title: text("title").notNull(),
+    color: text("color"),
+    timeZone: text("time_zone"),
+    isPrimary: boolean("is_primary").notNull().default(false),
+    canWrite: boolean("can_write").notNull().default(false),
+    selected: boolean("selected").notNull().default(true),
+    lastSyncedAt: ts("last_synced_at"),
+    lastError: text("last_error"),
+    /** Where Hearth puts new events; at most one calendar has it. */
+    writeDefault: boolean("write_default").notNull().default(false),
+  },
+  (t) => [
+    unique().on(t.account, t.googleId),
+    uniqueIndex("calendar_write_default").on(t.writeDefault).where(sql`write_default`),
+  ],
+);
 
 export interface Attendee {
   email: string;

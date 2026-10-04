@@ -10,7 +10,7 @@ import {
   mailMessage,
   mailThread,
 } from "@hearth/db";
-import { and, asc, desc, eq, inArray, isNotNull, lt, type SQL, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, lt, or, type SQL, sql } from "drizzle-orm";
 import { loadEvent } from "../calendar/store.ts";
 import type { BlobStore } from "./blobs.ts";
 import { matchInvite } from "./invites.ts";
@@ -63,6 +63,8 @@ export interface InviteView {
     cancelled: boolean;
     response: string | null;
     selfOrganizer: boolean;
+    /** One time of a repeating meeting: an answer is for this time or every time. */
+    recurring: boolean;
   } | null;
 }
 
@@ -114,13 +116,25 @@ export async function listThreads(
     lane?: MailLane;
     account?: string;
     unread?: boolean;
+    /**
+     * The next page: older than the last one shown. With `beforeId` (its id), ones from the same
+     * moment come next too, so a page break between two of them loses neither.
+     */
     before?: Date;
+    beforeId?: string;
     ids?: string[];
     /** Only conversations waiting on you (or on them), longest-waiting first. */
     waiting?: "you" | "them";
     limit: number;
   },
 ): Promise<ThreadSummary[]> {
+  const older = (before: Date) =>
+    q.beforeId
+      ? or(
+          lt(mailThread.lastMessageAt, before),
+          and(eq(mailThread.lastMessageAt, before), lt(mailThread.entityId, q.beforeId)),
+        )
+      : lt(mailThread.lastMessageAt, before);
   return db
     .select(summaryFields)
     .from(mailThread)
@@ -132,12 +146,16 @@ export async function listThreads(
         q.lane ? eq(mailThread.lane, q.lane) : undefined,
         q.account ? eq(mailAccount.address, q.account.toLowerCase()) : undefined,
         q.unread !== undefined ? eq(mailThread.unread, q.unread) : undefined,
-        q.before ? lt(mailThread.lastMessageAt, q.before) : undefined,
+        q.before ? older(q.before) : undefined,
         q.ids ? inArray(mailThread.entityId, q.ids) : undefined,
         q.waiting ? eq(mailThread.waiting, q.waiting) : undefined,
       ),
     )
-    .orderBy(q.waiting ? asc(mailThread.waitingSince) : desc(mailThread.lastMessageAt))
+    .orderBy(
+      ...(q.waiting
+        ? [asc(mailThread.waitingSince), asc(mailThread.entityId)]
+        : [desc(mailThread.lastMessageAt), desc(mailThread.entityId)]),
+    )
     .limit(q.limit);
 }
 
@@ -169,7 +187,7 @@ export async function loadThread(db: DbOrTx, id: string): Promise<ThreadView | n
   // The newest few: a conversation full of invitations doesn't slow every view.
   for (const { m } of rows.filter((r) => r.m.invite).slice(-10)) {
     if (!m.invite) continue;
-    const eventId = await matchInvite(db, m.invite);
+    const eventId = await matchInvite(db, m.invite, summary.account);
     const ev = eventId ? await loadEvent(db, eventId) : null;
     invites.set(m.entityId, {
       method: m.invite.method,
@@ -183,6 +201,7 @@ export async function loadThread(db: DbOrTx, id: string): Promise<ThreadView | n
         cancelled: ev.status === "cancelled",
         response: ev.selfResponse,
         selfOrganizer: ev.selfOrganizer,
+        recurring: Boolean(ev.recurringEventId),
       },
     });
   }
@@ -213,7 +232,8 @@ function inviteLine(i: InviteView): string {
       : `The sender says "${i.summary}" is cancelled; the calendar doesn't show that.`;
   if (!i.event) return `Invitation "${i.summary}": not on the calendar yet.`;
   const answer = i.event.response ?? "not answered";
-  return `Invitation: calendar event ${i.event.id} (owner's answer: ${answer}). Answer it with calendar_respond if the owner asks.`;
+  const repeats = i.event.recurring ? ' It repeats: say scope "this" or "all".' : "";
+  return `Invitation: calendar event ${i.event.id} (owner's answer: ${answer}). Answer it with calendar_respond if the owner asks.${repeats}`;
 }
 
 /** A conversation as markdown, for Jarvis. Quoted replies are cut to keep it short. */

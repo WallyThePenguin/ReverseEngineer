@@ -66,14 +66,15 @@ impl Hearth {
             .timeout(timeout)
             .send()
             .await
-            .map_err(|e| format!("Couldn't reach Hearth: {e}"))?;
+            .map_err(|e| {
+                // The details are for the log; what you see is what happened (it's a notification).
+                log::warn!("Hearth's {name} didn't go through: {e}");
+                unreachable(&e)
+            })?;
         let status = res.status();
         let body: Value = res.json().await.unwrap_or(Value::Null);
         if status.as_u16() == 401 {
-            return Err(
-                "Hearth didn't accept the pairing code. Pair the app again in Hearth's Settings."
-                    .into(),
-            );
+            return Err(SIGNED_OUT.into());
         }
         if !status.is_success() {
             let why = body["message"]
@@ -206,6 +207,89 @@ impl Hearth {
         serde_json::from_value(out["log"].clone())
             .map_err(|e| format!("odd answer from Hearth: {e}"))
     }
+
+    /// Hearth's notifications for this PC, as a live stream of server-sent events (D53).
+    pub async fn notify_feed(&self, after: Option<&str>) -> Result<reqwest::Response, String> {
+        let mut req = self
+            .http
+            .get(format!("{}/api/desktop/notify", self.base))
+            .bearer_auth(&self.token)
+            .header("accept", "text/event-stream");
+        if let Some(id) = after {
+            req = req.header("last-event-id", id);
+        }
+        let res = req
+            .send()
+            .await
+            .map_err(|e| format!("Couldn't reach Hearth: {e}"))?;
+        match res.status().as_u16() {
+            200 => Ok(res),
+            s => Err(format!("Hearth answered {s} when asked for notifications.")),
+        }
+    }
+}
+
+/// What a 401 from Hearth means for this app: its token was signed out (D53).
+const SIGNED_OUT: &str = "Hearth signed this PC out. In Hearth's Settings, under Desktop app, \
+                          choose Connect Hearth on this PC.";
+
+/// A request that never got an answer, said plainly.
+fn unreachable(e: &reqwest::Error) -> String {
+    if e.is_timeout() {
+        "Hearth took too long to answer. Try again in a moment.".into()
+    } else {
+        "Couldn't reach Hearth. Is it running?".into()
+    }
+}
+
+fn http() -> &'static reqwest::Client {
+    static HTTP: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    HTTP.get_or_init(reqwest::Client::new)
+}
+
+/// Whether Hearth's server answers at this address.
+pub async fn healthy(base: &str) -> bool {
+    http()
+        .get(format!("{}/api/health", base.trim_end_matches('/')))
+        .timeout(Duration::from_secs(3))
+        .send()
+        .await
+        .is_ok_and(|r| r.status().is_success())
+}
+
+/// What a connect link gets this PC: its device token, and a one-time code that signs Hearth's
+/// window in (D53).
+#[derive(Debug, Deserialize)]
+pub struct Connected {
+    pub token: String,
+    pub code: String,
+}
+
+/// Trades the nonce from a connect link for this PC's token and a sign-in code, at the address
+/// in this app's settings.
+pub async fn redeem(base: &str, nonce: &str) -> Result<Connected, String> {
+    let res = http()
+        .post(format!(
+            "{}/api/auth/desktop/redeem",
+            base.trim_end_matches('/')
+        ))
+        .json(&json!({ "nonce": nonce }))
+        .timeout(Duration::from_secs(10))
+        .send()
+        .await
+        .map_err(|_| "Couldn't reach Hearth to connect this PC. Is it running?".to_string())?;
+    match res.status().as_u16() {
+        200 => res
+            .json()
+            .await
+            .map_err(|_| "Hearth's answer didn't make sense. Try connecting again.".into()),
+        400 | 404 | 410 => Err(
+            "That connect link has run out or was used already. In Hearth's Settings, choose \
+             Connect Hearth on this PC again."
+                .into(),
+        ),
+        _ => Err("Hearth couldn't connect this PC. Try again in a minute.".into()),
+    }
 }
 
 /// At most `max` characters, cut on a character boundary.
@@ -257,6 +341,17 @@ mod tests {
         ]))
         .unwrap();
         assert_eq!(replies(&log), (vec!["It's at 3.".to_string()], true));
+    }
+
+    #[tokio::test]
+    async fn says_plainly_when_hearth_is_away() {
+        // Nothing listens on port 1; the request fails at once, with no raw error to show.
+        let h = Hearth::new("http://127.0.0.1:1", "abc").unwrap();
+        let err = h
+            .call("voice.clean", json!({}), Duration::from_secs(5))
+            .await
+            .unwrap_err();
+        assert_eq!(err, "Couldn't reach Hearth. Is it running?");
     }
 
     #[test]

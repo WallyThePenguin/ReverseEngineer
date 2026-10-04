@@ -2,6 +2,7 @@
 // again when that's safe and worth it; otherwise it fails for good: the owner reads why in plain
 // words, a routine publishes its plain version, set-aside heartbeat items go back on the pile,
 // and an alert goes out when Jarvis looks broken rather than unlucky.
+import { weakerOrigin } from "@hearth/core";
 import { conversationLog, event, heartbeatItem, jarvisTurn, schedule } from "@hearth/db";
 import {
   appendEvents,
@@ -238,8 +239,10 @@ async function applyFallback(env: EndEnv, turn: TurnRow): Promise<boolean> {
         causationId: null,
       };
   const name = typeof turn.context.source === "string" ? turn.context.source : turn.trigger;
+  // As trusted as the turn was: a brief quoting email is written untrusted (D58).
+  const from = { ...source, origin: weakerOrigin(source.origin, turn.origin) };
   try {
-    await applyOutcomes(kernel, revive(outcomes), { event: source, name, mode: turn.mode }, (m) =>
+    await applyOutcomes(kernel, revive(outcomes), { event: from, name, mode: turn.mode }, (m) =>
       env.log(m),
     );
     return true;

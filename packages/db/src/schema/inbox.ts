@@ -3,6 +3,9 @@ import { bigint, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-
 
 const ts = (name: string) => timestamp(name, { withTimezone: true, mode: "date" });
 
+/** A yes is "executing" while it runs: claimed first, so a second yes can't run it again (D58). */
+export type ApprovalStatus = "pending" | "executing" | "denied" | "executed" | "failed" | "expired";
+
 export const approval = pgTable("approval", {
   id: uuid("id").primaryKey(),
   action: text("action").notNull(),
@@ -13,10 +16,7 @@ export const approval = pgTable("approval", {
   reason: text("reason").notNull(),
   requestedBy: text("requested_by").notNull(),
   origin: text("origin").notNull(),
-  status: text("status")
-    .$type<"pending" | "denied" | "executed" | "failed" | "expired">()
-    .notNull()
-    .default("pending"),
+  status: text("status").$type<ApprovalStatus>().notNull().default("pending"),
   decidedBy: text("decided_by"),
   decidedAt: ts("decided_at"),
   result: jsonb("result"),

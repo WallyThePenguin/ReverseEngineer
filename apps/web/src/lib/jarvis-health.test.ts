@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { jarvisLiveness, outcomeLabel } from "./jarvis-health.ts";
 import type { SystemStatus } from "./types.ts";
 
@@ -17,10 +17,16 @@ const status = (
     : {},
   schedules: [],
 });
+/** The status as read at `now`. */
+const read = (data: SystemStatus | undefined) => ({ data, dataUpdatedAt: now });
 
 describe("jarvisLiveness", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("is well while Jarvis checks in and its turns finish", () => {
-    expect(jarvisLiveness(status(30_000, "ok"), now)).toEqual({
+    expect(jarvisLiveness(read(status(30_000, "ok")))).toEqual({
       downSince: null,
       detail: null,
       unwell: false,
@@ -28,25 +34,35 @@ describe("jarvisLiveness", () => {
   });
 
   it("says since when Jarvis hasn't been running", () => {
-    const l = jarvisLiveness(status(5 * 60_000, "ok"), now);
+    const l = jarvisLiveness(read(status(5 * 60_000, "ok")));
     expect(l.downSince).toEqual(new Date(now - 5 * 60_000));
     expect(l.unwell).toBe(true);
   });
 
   it("shows failing turns as unwell, and retries as a note only", () => {
-    expect(jarvisLiveness(status(10_000, "failing"), now)).toMatchObject({
+    expect(jarvisLiveness(read(status(10_000, "failing")))).toMatchObject({
       unwell: true,
       detail: "Jarvis is failing",
     });
-    expect(jarvisLiveness(status(10_000, "degraded"), now)).toMatchObject({
+    expect(jarvisLiveness(read(status(10_000, "degraded")))).toMatchObject({
       unwell: false,
       detail: "Jarvis is degraded",
     });
   });
 
+  it("judges by when the status was read, so an old answer doesn't call Jarvis down", () => {
+    // Hearth out of reach for ten minutes; the last answer came just after Jarvis checked in.
+    vi.useFakeTimers({ now: now + 10 * 60_000 });
+    expect(jarvisLiveness(read(status(30_000, "ok")))).toEqual({
+      downSince: null,
+      detail: null,
+      unwell: false,
+    });
+  });
+
   it("assumes nothing before Jarvis has ever checked in", () => {
-    expect(jarvisLiveness(status(null), now).unwell).toBe(false);
-    expect(jarvisLiveness(undefined, now).unwell).toBe(false);
+    expect(jarvisLiveness(read(status(null))).unwell).toBe(false);
+    expect(jarvisLiveness(read(undefined)).unwell).toBe(false);
   });
 });
 

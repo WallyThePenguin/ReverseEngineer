@@ -129,9 +129,10 @@ describe.skipIf(!hasChromium)("Jarvis's hands in Chrome", () => {
       { tabId, ref: "E8", label: "Place order", site: "shop.example" },
       jarvis,
     );
+    // The kernel pins it to what it sends, so the card shows that (D58).
     expect(asked).toMatchObject({
       status: "pending_approval",
-      summary: 'Press "Place order" on shop.example',
+      summary: 'Press "Place order" on shop.example, sending Note: "leave at door"',
     });
     expect(chrome.posts).toEqual([]);
     const [row] = await t.tdb.db.select().from(approval);

@@ -3,16 +3,30 @@
 
 import { createSignal, Show } from "solid-js";
 import { Button } from "../components/ui.tsx";
-import { ago } from "../lib/format.ts";
+import { ago, day } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
 import { act, useAction } from "../lib/query.ts";
+import { ReplaceToken } from "./ReplaceToken.tsx";
 
 interface Status {
   connected: boolean;
   login?: string;
   syncedAt?: string | null;
   lastError?: string | null;
+  /** "revoked": the token stopped working, and nothing new comes in until it's replaced. */
+  state?: "ok" | "failing" | "revoked";
+  tokenExpiresAt?: string | null;
   repos: string[];
+}
+
+/** You're told a week ahead that the token stops working. */
+const WEEK = 7 * 86_400_000;
+
+/** When the token stops working, if that's within a week. */
+function expiresSoon(s: Status): string | null {
+  if (!s.tokenExpiresAt) return null;
+  const at = new Date(s.tokenExpiresAt);
+  return at.getTime() - Date.now() < WEEK ? day(at) : null;
 }
 
 /** GitHub's page for a new fine-grained token, read-only pull requests. */
@@ -35,6 +49,13 @@ export function GithubSettings() {
   const [token, setToken] = createSignal("");
   const [repos, setRepos] = createSignal("");
   const [editing, setEditing] = createSignal(false);
+  const [replacing, setReplacing] = createSignal(false);
+
+  const disconnect = async () => {
+    if (!confirm("Disconnect GitHub? Its pull requests leave Hearth; your tasks stay as they are."))
+      return;
+    if (await act("github.disconnect")) toast.show("GitHub is disconnected.");
+  };
 
   const connect = async (e: Event) => {
     e.preventDefault();
@@ -105,9 +126,18 @@ export function GithubSettings() {
               <div class="flex-1">
                 <p class="font-medium">{s().login}</p>
                 <p class="text-sm text-muted">
-                  {s().lastError ||
-                    `${s().repos.join(", ")}${s().syncedAt ? ` · read ${ago(s().syncedAt!)}` : ""}`}
+                  {s().state === "revoked"
+                    ? "GitHub stopped accepting Hearth's token, so nothing new comes in."
+                    : s().lastError ||
+                      `${s().repos.join(", ")}${s().syncedAt ? ` · read ${ago(s().syncedAt!)}` : ""}`}
                 </p>
+                <Show when={s().state !== "revoked" && expiresSoon(s())}>
+                  {(when) => (
+                    <p class="text-sm text-bad">
+                      The token stops working {when()}. Paste a new one before then.
+                    </p>
+                  )}
+                </Show>
               </div>
               <Button
                 onClick={() => {
@@ -117,17 +147,20 @@ export function GithubSettings() {
               >
                 Repos
               </Button>
-              <Button
-                kind="danger"
-                onClick={() =>
-                  void act("github.disconnect").then(
-                    (r) => r && toast.show("GitHub is disconnected."),
-                  )
-                }
-              >
+              <Button onClick={() => setReplacing(!replacing())}>New token</Button>
+              <Button kind="danger" onClick={() => void disconnect()}>
                 Disconnect
               </Button>
             </div>
+            <Show when={replacing() || s().state === "revoked" || expiresSoon(s())}>
+              <ReplaceToken
+                action="github.replace_token"
+                label="GitHub"
+                placeholder="github_pat_…"
+                why={`Make a new token for ${s().login} and paste it here. Repos and pull requests read in stay.`}
+                onDone={() => setReplacing(false)}
+              />
+            </Show>
             <Show when={editing()}>
               <form class="flex gap-2" onSubmit={saveRepos}>
                 <input

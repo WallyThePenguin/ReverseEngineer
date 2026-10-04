@@ -265,8 +265,11 @@ function Shell(props: { onSignOut: () => void }) {
       <Show when={help()}>
         <Shortcuts onClose={() => setHelp(false)} />
       </Show>
-      <Reconnecting />
-      <UpdateNotice />
+      {/* One above the other, so an update notice never hides "Reconnecting…". */}
+      <div class="pointer-events-none fixed left-1/2 top-[calc(env(safe-area-inset-top)+0.5rem)] z-50 flex -translate-x-1/2 flex-col items-center gap-2">
+        <Reconnecting />
+        <UpdateNotice />
+      </div>
       <div class="pointer-events-none fixed bottom-16 left-1/2 md:bottom-4 z-50 flex -translate-x-1/2 flex-col items-center gap-2">
         <For each={toast.toasts()}>
           {(t) => (

@@ -9,7 +9,7 @@ import {
 import { entity, task } from "@hearth/db";
 import { type DigestItem, defineModule, getSetting } from "@hearth/kernel";
 import { and, asc, eq, gte, isNull, lt, notInArray, or } from "drizzle-orm";
-import { describeRow, preview, writtenOutside } from "../shared.ts";
+import { describeRow, isOutside, preview } from "../shared.ts";
 import { TASK_ACTIONS } from "./actions.ts";
 import { TASK_REFLEXES } from "./reflexes.ts";
 import { loadTask, toTaskView } from "./view.ts";
@@ -100,7 +100,7 @@ export const tasksModule = defineModule({
         bucket: "today",
         text: `${overdue ? "Overdue" : "Due today"}: ${t.key} ${t.title}${t.dueIsDate ? "" : ` (${formatDateTime(t.dueAt!)})`}`,
         entityId: t.id,
-        outside: writtenOutside(r.entity.createdBy),
+        outside: isOutside(r.entity),
       });
     }
     const handled = await ctx.db
@@ -121,7 +121,7 @@ export const tasksModule = defineModule({
           bucket: "handled",
           text: `${t.key} ${t.title} is ${TASK_STATUS_LABELS[t.status]}`,
           entityId: t.id,
-          outside: writtenOutside(r.entity.createdBy),
+          outside: isOutside(r.entity),
         });
       }
     }
@@ -142,7 +142,7 @@ export const tasksModule = defineModule({
         bucket: "fyi",
         text: `${formatTaskNumber(r.task.number)} ${r.entity.title} has been In Progress with no change for ${STALLED_DAYS}+ days`,
         entityId: r.entity.id,
-        outside: writtenOutside(r.entity.createdBy),
+        outside: isOutside(r.entity),
       });
     }
     return items;

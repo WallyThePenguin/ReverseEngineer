@@ -6,6 +6,8 @@ import { createHash, randomBytes } from "node:crypto";
 import { type Db, type DbOrTx, googleAccount, oauthState } from "@hearth/db";
 import { ActionError } from "@hearth/kernel";
 import { eq, lt } from "drizzle-orm";
+import { vaultFromEnv } from "../browser/vault.ts";
+import { openGoogleToken, type Sealer, sealGoogleToken } from "../secrets.ts";
 import {
   type Allowance,
   DbQuotaStore,
@@ -57,6 +59,8 @@ export interface GoogleConfig {
   /** Per-minute allowances by service, instead of the defaults in budget.ts. */
   allowances?: Partial<Record<GoogleService, Allowance>>;
   log?: (msg: string) => void;
+  /** Seals the tokens it saves (D58). Without it (some tests) they're saved as they are. */
+  vault?: Sealer | null;
 }
 
 export interface CallOptions {
@@ -97,6 +101,7 @@ export class GoogleClient {
       request: (url, init, what) => this.request(url, init, what),
       now: () => this.now().getTime(),
       credentials: () => this.requireConfig(),
+      vault: config.vault ?? null,
     });
   }
 
@@ -207,17 +212,30 @@ export class GoogleClient {
     const email = info.email.toLowerCase();
     const scopes = (tokens.scope ?? pending.scopes.join(" ")).split(" ").filter(Boolean);
     const [existing] = await db.select().from(googleAccount).where(eq(googleAccount.email, email));
-    const refreshToken = tokens.refresh_token ?? existing?.refreshToken;
+    const vault = this.config.vault ?? null;
+    const refreshToken =
+      tokens.refresh_token ??
+      (existing ? openGoogleToken(vault, email, "refresh", existing.refreshToken) : undefined);
     if (!refreshToken)
       throw new ActionError(
         "failed",
         "Google didn't return a refresh token. Try connecting again.",
       );
     const expiresAt = now.getTime() + (tokens.expires_in ?? 3600) * 1000;
+    const seal = (kind: "refresh" | "access", token: string) => {
+      try {
+        return sealGoogleToken(vault, email, kind, token);
+      } catch {
+        throw new ActionError(
+          "failed",
+          "Hearth couldn't lock this Google sign-in away: its vault key isn't available. Nothing was saved.",
+        );
+      }
+    };
     const values = {
-      refreshToken,
+      refreshToken: seal("refresh", refreshToken),
       scopes: [...new Set([...(existing?.scopes ?? []), ...scopes])],
-      accessToken: tokens.access_token,
+      accessToken: seal("access", tokens.access_token),
       accessExpiresAt: new Date(expiresAt),
       status: "ok" as const,
       lastError: null,
@@ -230,8 +248,17 @@ export class GoogleClient {
     return email;
   }
 
-  /** Tells Google to drop Hearth's access, so a forgotten token is useless. Best effort. */
-  async revoke(refreshToken: string): Promise<void> {
+  /**
+   * Tells Google to drop Hearth's access, so a forgotten token is useless. Best effort. Takes the
+   * token as saved; with the account's email, a sealed one is opened first.
+   */
+  async revoke(saved: string, email?: string): Promise<void> {
+    let refreshToken = saved;
+    try {
+      if (email) refreshToken = openGoogleToken(this.config.vault ?? null, email, "refresh", saved);
+    } catch {
+      return;
+    }
     await this.request(
       REVOKE_URL,
       {
@@ -340,5 +367,6 @@ export function googleFromEnv(db?: Db | null, env: NodeJS.ProcessEnv = process.e
     clientSecret: env.HEARTH_GOOGLE_CLIENT_SECRET || null,
     redirectUri: env.HEARTH_GOOGLE_REDIRECT ?? `http://localhost:${port}/api/google/callback`,
     db: db ?? null,
+    vault: vaultFromEnv(env),
   });
 }

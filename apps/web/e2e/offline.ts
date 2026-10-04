@@ -110,9 +110,20 @@ try {
       throw new Error("the build's files aren't kept");
   });
 
+  await step("a file opened as a page doesn't replace the kept page", async () => {
+    await page.goto(`${base}/version.json`);
+    // Saving happens after the file shows; give it the time it would take.
+    await page.waitForTimeout(1_000);
+    const kept = await page.evaluate(`(async () => {
+      const hit = await (await caches.open("hearth-shell-v2")).match("/");
+      return hit ? hit.headers.get("content-type") : null;
+    })()`);
+    if (!String(kept).startsWith("text/html")) throw new Error(`the kept page is now ${kept}`);
+  });
+
   await step("Hearth stopped: the last page opens and says so", async () => {
     await stop();
-    await page.reload({ timeout: 10_000 });
+    await page.goto(base, { timeout: 10_000 });
     await page.getByRole("heading", unreachable).waitFor({ timeout: 10_000 });
   });
 

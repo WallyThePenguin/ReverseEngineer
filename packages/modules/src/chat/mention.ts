@@ -2,7 +2,13 @@
 // link's anchor (the tag's own id where it has one, D59). A live doc syncs as you type, so the
 // mention reaches Hearth before the request after it does: there Jarvis waits until the note has
 // been still for a few seconds, then reads the paragraph again as it is by then.
-import { JARVIS_ENTITY_ID, mentionAnchor, mentionContext, parseMentions } from "@hearth/core";
+import {
+  asUntrusted,
+  JARVIS_ENTITY_ID,
+  mentionAnchor,
+  mentionContext,
+  parseMentions,
+} from "@hearth/core";
 import { entity, event } from "@hearth/db";
 import type { ReadContext, ReflexDef, ReflexOutcome } from "@hearth/kernel";
 import { and, eq, gt, isNull } from "drizzle-orm";
@@ -20,6 +26,8 @@ interface Mentioned {
   parentId: string | null;
   anchor: string;
   context: string;
+  /** Written in a record whose text is outside content (D58). */
+  outside?: boolean;
 }
 
 /** A mention in a doc, waiting for the note to settle. */
@@ -96,11 +104,15 @@ export const answerMention: ReflexDef = {
   run(event, ctx) {
     const p = event.payload as unknown as Mentioned;
     const entityId = event.entityId!;
-    if (!DOC_TYPES.has(p.type)) return [answer(entityId, p, p.context)];
+    // Written after reading outside content (or on a device's say-so), or in a record whose text
+    // is outside content, so what it asks is outside content too, and the turn starts untrusted
+    // (D58).
+    const untrusted = event.origin === "untrusted" || p.outside === true;
+    if (!DOC_TYPES.has(p.type)) return [answer(entityId, p, p.context, untrusted)];
     const w: Waiting = {
       ...p,
       entityId,
-      untrusted: event.origin === "untrusted",
+      untrusted,
       since: ctx.now.toISOString(),
       seq: event.seq,
     };

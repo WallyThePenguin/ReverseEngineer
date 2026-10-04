@@ -16,7 +16,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { connect, migrateUp, migrationState } from "@hearth/db";
+import { connect, type MigrationCode, migrateUp, migrationState } from "@hearth/db";
 import {
   blobIntact,
   dataFolders,
@@ -42,6 +42,8 @@ export interface RestoreOptions {
   /** The new database's name; hearth_restored_<date>_<time> by default. */
   into?: string;
   now?: Date;
+  /** Migration steps that need the vault key, as `hearth migrate` runs them. */
+  migrationCode?: MigrationCode;
 }
 
 export interface RestoreResult {
@@ -197,7 +199,7 @@ export async function runRestore(
         throw new StepError(
           `This backup is from a newer Hearth (it has ${before.unknown.join(", ")}). Update Hearth first, then restore it.`,
         );
-      migrated = await migrateUp(copy.pool);
+      migrated = await migrateUp(copy.pool, undefined, opts.migrationCode);
       const after = await migrationState(copy.pool);
       if (after.missing.length)
         throw new StepError(`Migrations didn't apply: ${after.missing.join(", ")}.`);

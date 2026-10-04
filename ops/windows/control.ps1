@@ -24,13 +24,25 @@ function Resolve-HearthParts([string]$Which) {
   return @($Which)
 }
 
+# Whether $Proc is the Jarvis that wrote its pid file at $Written. The file outlives a Jarvis that
+# was killed or crashed, and Windows reuses pids; a process that got the pid later started after
+# the file was written, so it isn't Jarvis. One whose start time can't be read isn't trusted.
+function Test-JarvisPid($Proc, [datetime]$Written) {
+  if (-not $Proc -or $Proc.ProcessName -ne "node") { return $false }
+  try { $started = $Proc.StartTime } catch { return $false }
+  return $null -ne $started -and $started -le $Written.AddSeconds(5)
+}
+
 function Stop-Jarvis {
   # Jarvis runs under cmd in the task; stopping the task ends cmd but not always the node under
   # it, and an unelevated account can't read session-0 command lines. So: the pid Jarvis wrote at
   # startup, plus every child of the task's running process.
   $pids = @()
   $pidFile = "$env:ProgramData\Hearth\services\hearth-jarvis.pid"
-  if (Test-Path $pidFile) { $pids += [int](Get-Content $pidFile -Raw).Trim() }
+  if (Test-Path $pidFile) {
+    $proc = Get-Process -Id ([int](Get-Content $pidFile -Raw).Trim()) -ErrorAction SilentlyContinue
+    if (Test-JarvisPid $proc (Get-Item $pidFile).LastWriteTime) { $pids += $proc.Id }
+  }
   $scheduler = New-Object -ComObject Schedule.Service
   $scheduler.Connect()
   $task = $scheduler.GetFolder("\").GetTask("Hearth Jarvis")
@@ -132,6 +144,14 @@ function Get-DeepProblem($Deep, [datetime]$Since, [string]$Sha, [string[]]$Parts
     if ($Parts -notcontains $part) { continue }
     $c = $Deep.components.$part
     if (-not $c -or (ConvertTo-UtcTime $c.at) -lt $Since) { return "the $part hasn't reported in since it started" }
+    # The jarvis component can be the worker saying Jarvis hasn't checked in; only a running
+    # Jarvis writes jarvisAlive, and its since says when that Jarvis started, so one the stop
+    # missed (still on the old code) doesn't count either. (A server from before jarvisAlive,
+    # gone back to, doesn't say.)
+    if ($part -eq "jarvis" -and $Deep.PSObject.Properties["jarvisAlive"] -and
+      (ConvertTo-UtcTime $Deep.jarvisAlive.since) -lt $Since) {
+      return "Jarvis hasn't checked in since it started"
+    }
     if ($c.status -eq "failing" -and $Failed -notcontains $part) { return "the $part says: $($c.detail)" }
   }
   return $null
@@ -217,4 +237,53 @@ function Compare-Doctor($Before, $After) {
     else { $result.Unknown += $c }
   }
   return $result
+}
+
+# The migrations `hearth migrate` printed as applied, oldest first. It prints them even when a
+# later one fails: each commits on its own, so a rollback has to revert them.
+function Get-AppliedMigrations([string]$Out) {
+  if ($Out -match "Applied: (.+)") { return @($Matches[1].Trim() -split ",\s*") }
+  return @()
+}
+
+# Reverts the migrations an update applied, newest first, each by name: the newest in the
+# database isn't always this update's (a lower number can arrive after a higher one). True when
+# every one reverted; it stops at the first that won't.
+function Undo-Migrations([string[]]$Applied) {
+  for ($i = $Applied.Count - 1; $i -ge 0; $i--) {
+    Write-Host "== Reverting migration $($Applied[$i])"
+    pnpm --silent hearth migrate down $Applied[$i] | Out-Host
+    if ($LASTEXITCODE -ne 0) { return $false }
+  }
+  return $true
+}
+
+# The arguments that run the updated update.ps1 ($Script) to carry on an update: the parameters
+# this run was given ($Bound, its $PSBoundParameters), with -Root and -Relaunched.
+function Get-RelaunchArgs($Bound, [string]$Script, [string]$Root) {
+  $list = @("-NoProfile", "-File", $Script, "-Root", $Root)
+  foreach ($p in $Bound.GetEnumerator()) {
+    if ($p.Key -in "Root", "Relaunched") { continue }
+    if ($p.Value -is [switch]) {
+      if ($p.Value.IsPresent) { $list += "-$($p.Key)" }
+    } else {
+      $list += "-$($p.Key)", "$($p.Value)"
+    }
+  }
+  return $list + "-Relaunched"
+}
+
+# Hands an update over to its updated update.ps1 (& $Exe $Arguments), which reads $State from
+# $Handover and deletes it before it carries on. Sets $ExitCode to its exit code. Throws when it
+# never took over (the file is still there), so the rollback of the run that called this applies.
+# Called as a statement, so the new update.ps1 writes straight to this window.
+function Invoke-Handover([string]$Exe, [string[]]$Arguments, $State, [string]$Handover, [ref]$ExitCode) {
+  $State | Export-Clixml -Depth 5 -Path $Handover
+  & $Exe @Arguments
+  $code = $LASTEXITCODE
+  if (Test-Path $Handover) {
+    Remove-Item $Handover
+    throw "The updated update.ps1 didn't start (exit $code)"
+  }
+  $ExitCode.Value = $code
 }

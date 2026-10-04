@@ -28,10 +28,13 @@ self.addEventListener("activate", (e) => {
 /** Which build a page is from: its main script's hashed name. */
 const buildOf = (html) => html.match(/\/assets\/index-[\w-]+\.js/)?.[0] ?? null;
 
+/** Hearth's page, as opposed to one of its files opened as a page (/version.json, an icon). */
+const isPage = (res) => (res.headers.get("content-type") ?? "").startsWith("text/html");
+
 /**
  * Saves the newest page. If it's from a new build, the old build's files go, unless the old
  * page is the one open right now (it opened from the cache) and may still ask for them; those
- * go with the next new build.
+ * go with the next new build. A page that isn't the app (no main script) isn't saved.
  */
 async function rememberPage(res, oldPageOpen) {
   const shell = await caches.open(SHELL);
@@ -40,8 +43,9 @@ async function rememberPage(res, oldPageOpen) {
     old ? old.text().then(buildOf) : null,
     res.clone().text().then(buildOf),
   ]);
+  if (!now) return;
   await shell.put("/", res);
-  if (before && now && before !== now && !oldPageOpen) await caches.delete(ASSETS);
+  if (before && before !== now && !oldPageOpen) await caches.delete(ASSETS);
 }
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -63,7 +67,7 @@ function navigate(e) {
   // Saved even when it arrives after the saved page has opened. (Copied before the page reads it.)
   e.waitUntil(
     network
-      .then((res) => (res.ok ? rememberPage(res.clone(), openedSaved) : undefined))
+      .then((res) => (res.ok && isPage(res) ? rememberPage(res.clone(), openedSaved) : undefined))
       .catch(() => {}),
   );
   const fromNetwork = network.then(

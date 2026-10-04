@@ -118,7 +118,13 @@ export const chatModule = defineModule({
           .where(eq(conversationLog.conversationId, i.id))
           .orderBy(asc(conversationLog.idx));
         return {
-          conversation: { ...e, subjectId: c?.subjectId ?? null },
+          conversation: {
+            ...e,
+            subjectId: c?.subjectId ?? null,
+            // Once it has read outside content, Jarvis asks more here: the app says why (D58).
+            taintedAt: c?.taintedAt ?? null,
+            taintSource: c?.taintSource ?? null,
+          },
           log: log.filter((l) => i.afterIdx === undefined || l.idx > i.afterIdx),
         };
       },
@@ -157,10 +163,18 @@ export const chatModule = defineModule({
           conversationId = e.id;
         }
         const chosen = i.lane ?? routeLane(i.text);
+        // Heard, or sent by a device on its own say-so (D42): kept as such, so the nightly memory
+        // update doesn't take it for your words (D58).
+        const heard = i.heard === true || ctx.caller.origin === "untrusted";
         const [idx] = await appendLog(
           ctx.tx,
           conversationId,
-          [{ kind: "user_message", payload: { text: i.text, by: ctx.caller.principal } }],
+          [
+            {
+              kind: "user_message",
+              payload: { text: i.text, by: ctx.caller.principal, ...(heard ? { heard } : {}) },
+            },
+          ],
           ctx.now,
         );
         ctx.emit({

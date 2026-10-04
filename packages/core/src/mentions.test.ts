@@ -57,6 +57,11 @@ describe("mentions", () => {
     expect(parseMentions(`<m-ref type="task">x</m-ref> <m-ref id="${TASK}">y</m-ref>`)).toEqual([]);
   });
 
+  it("ignores a tag whose id isn't a record's, so saving the text can't fail on it", () => {
+    const bad = `<m-ref type="agent" id="jarvis">Jarvis</m-ref> <m-ref type="task" id="1; drop">x</m-ref>`;
+    expect(parseMentions(bad)).toEqual([]);
+  });
+
   it("strips tags to labels and finds the paragraph a mention sits in", () => {
     const j = renderMention({ type: "agent", id: JARVIS, label: "Jarvis" });
     const body = `Intro line.\n\n${j} can you draft the agenda?\nThanks\n\nOutro.`;

@@ -1,0 +1,123 @@
+// A send goes out once (D61): when Gmail sent it but Hearth didn't hear back, pressing Send again
+// finds it in Sent instead of sending a second copy.
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { mailDraft } from "@hearth/db";
+import { type Caller, integrationCaller, ownerCaller } from "@hearth/kernel";
+import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
+import { eq } from "drizzle-orm";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { GOOGLE_SERVICE, SCOPES } from "../google/client.ts";
+import { FakeGoogle } from "../google/fake.ts";
+import { ALL_MODULES } from "../index.ts";
+import { BLOB_SERVICE, BlobStore } from "./blobs.ts";
+import type { DraftView } from "./drafts.ts";
+import { parseMail } from "./mime.ts";
+import type { ThreadView } from "./views.ts";
+
+const ME = "owner@example.com";
+
+let t: TestKernel;
+let g: FakeGoogle;
+let dir: string;
+
+beforeEach(async () => {
+  t = await createTestKernel(ALL_MODULES);
+  g = new FakeGoogle(ME);
+  g.clock = t.clock;
+  g.grants = ["openid", "email", ...SCOPES.gmail];
+  t.kernel.services[GOOGLE_SERVICE] = g.client();
+  dir = await mkdtemp(join(tmpdir(), "hearth-blobs-"));
+  t.kernel.services[BLOB_SERVICE] = new BlobStore(dir);
+  const client = g.client();
+  const url = new URL(await client.startSignIn(t.tdb.db, [...SCOPES.gmail]));
+  await client.finishSignIn(t.tdb.db, url.searchParams.get("state")!, "the-code");
+  await run("mail.sync", {}, integrationCaller("google"));
+});
+afterEach(async () => {
+  await t.destroy();
+  await rm(dir, { recursive: true, force: true });
+});
+
+const run = (name: string, input: unknown = {}, caller: Caller = ownerCaller()) =>
+  t.kernel.execute(name, input, caller);
+async function ok<T>(name: string, input: unknown = {}): Promise<T> {
+  const res = await run(name, input);
+  if (res.status !== "ok") throw new Error(`${name}: ${JSON.stringify(res)}`);
+  return res.result as T;
+}
+const draft = () =>
+  ok<DraftView>("mail.draft", {
+    to: ["ana@friends.example"],
+    subject: "Plans",
+    text: "See you at 6.",
+  });
+
+describe("sending once", () => {
+  it("chooses the Message-ID when the draft is written, and sends with it", async () => {
+    const d = await draft();
+    const [row] = await t.tdb.db.select().from(mailDraft).where(eq(mailDraft.entityId, d.id));
+    expect(row?.messageId).toMatch(/^[0-9a-f]+@example\.com$/);
+    await ok("mail.send", { id: d.id });
+    const sent = await parseMail(g.gmail.sent[0]!);
+    expect(sent.messageId).toBe(row?.messageId);
+  });
+
+  it("doesn't send twice when Gmail sent it but didn't answer", async () => {
+    const d = await draft();
+    t.clock.advance(60_000);
+    g.gmail.loseSendReplies = 1;
+    const first = await run("mail.send", { id: d.id });
+    expect(first).toMatchObject({ status: "error", code: "unavailable" });
+    expect(JSON.stringify(first)).toContain("won't go twice");
+    // It went out, and the draft is still here.
+    expect(g.gmail.sent).toHaveLength(1);
+    expect(await ok<DraftView[]>("mail.drafts")).toHaveLength(1);
+
+    const again = await ok<{ sent: boolean; alreadySent?: boolean; threadId: string }>(
+      "mail.send",
+      { id: d.id },
+    );
+    expect(again).toMatchObject({ sent: true, alreadySent: true });
+    expect(g.gmail.sent).toHaveLength(1);
+    expect(await ok<DraftView[]>("mail.drafts")).toEqual([]);
+    // What went out is in the conversation, as Gmail has it.
+    const thread = await ok<ThreadView>("mail.thread", { id: again.threadId });
+    expect(thread.messages).toMatchObject([{ text: "See you at 6.", outbound: true }]);
+  });
+
+  it("finds it by Hearth's own header when Gmail gave it a Message-ID of its own", async () => {
+    const d = await draft();
+    t.clock.advance(60_000);
+    g.gmail.rewriteMessageIds = true;
+    g.gmail.loseSendReplies = 1;
+    await run("mail.send", { id: d.id });
+    expect(await ok("mail.send", { id: d.id })).toMatchObject({ alreadySent: true });
+    expect(g.gmail.sent).toHaveLength(1);
+  });
+
+  it("finds it by that header even after the draft was changed since", async () => {
+    const d = await draft();
+    g.gmail.rewriteMessageIds = true;
+    g.gmail.loseSendReplies = 1;
+    expect(await run("mail.send", { id: d.id })).toMatchObject({ code: "unavailable" });
+    // A few minutes on, a change before pressing Send again: it went out already all the same.
+    t.clock.advance(3 * 60_000);
+    await ok("mail.draft_update", { id: d.id, text: "See you at 7." });
+    expect(await run("mail.send", { id: d.id })).toMatchObject({
+      status: "ok",
+      result: { alreadySent: true },
+    });
+    expect(g.gmail.sent).toHaveLength(1);
+  });
+
+  it("still sends a draft whose earlier Send never left", async () => {
+    const d = await draft();
+    g.gmail.failNext(1, 503);
+    expect(await run("mail.send", { id: d.id })).toMatchObject({ status: "error" });
+    expect(g.gmail.sent).toHaveLength(0);
+    expect(await ok("mail.send", { id: d.id })).not.toHaveProperty("alreadySent");
+    expect(g.gmail.sent).toHaveLength(1);
+  });
+});

@@ -51,6 +51,32 @@ describe("the Jarvis contract", () => {
     expect(bad).toEqual([]);
   });
 
+  it("has every connector that syncs on its own say when it stops, react to that, and add to the brief", () => {
+    // A sync only the integration runs is one nobody watches: if it stops, the module has to
+    // say so (an event), Jarvis has to tell you (a reflex), and the brief has to have its news.
+    const checked: string[] = [];
+    const missing: string[] = [];
+    for (const m of registry.modules) {
+      const sync = m.actions.find((a) => a.name === `${m.name}.sync`);
+      if (!sync?.callers?.includes("integration")) continue;
+      checked.push(m.name);
+      const kind = `${m.name}.sync_failed`;
+      if (!m.events.some((e) => e.kind === kind)) missing.push(`${m.name}: no ${kind} event`);
+      if (!m.reflexes.some((r) => r.on.includes(kind)))
+        missing.push(`${m.name}: nothing reacts to ${kind}`);
+      if (!m.digest) missing.push(`${m.name}: nothing for the brief`);
+    }
+    expect(checked.sort()).toEqual(["calendar", "github", "mail", "slack"]);
+    expect(missing).toEqual([]);
+  });
+
+  it("gives a pull request's changes their own events, so a watch can wait for a merge", () => {
+    const github = registry.modules.find((m) => m.name === "github")!;
+    expect(github.events.map((e) => e.kind)).toEqual(
+      expect.arrayContaining(["github.pr_opened", "github.pr_merged", "github.pr_closed"]),
+    );
+  });
+
   it("has Jarvis react to every kind of record a module owns", () => {
     // Each module either has reflexes or routines, or explains why not; none are silent.
     const silent = registry.modules.filter((m) => m.reflexes.length === 0 && !m.routines?.length);

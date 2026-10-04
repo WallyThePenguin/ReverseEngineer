@@ -2,7 +2,7 @@
 // matched to the live event on your calendar, so you can answer from the conversation. What the
 // conversation shows and answers is the calendar's event, never the email's description of it.
 import { atLocal } from "@hearth/core";
-import { calendarEvent, type DbOrTx, entity, type MailInvite } from "@hearth/db";
+import { calendar, calendarEvent, type DbOrTx, entity, type MailInvite } from "@hearth/db";
 import { and, eq, inArray, isNull, or } from "drizzle-orm";
 
 /** Lines with their continuations joined (RFC 5545 folding). */
@@ -77,9 +77,15 @@ export const isCalendar = (a: { mimeType: string; filename: string }) =>
 /**
  * The event on your calendar an invitation is about: the same UID (or, for Google's own
  * invitations, the same event id), from the same organizer. For a repeating meeting, the
- * occurrence nearest the invitation's start, else the series.
+ * occurrence nearest the invitation's start, else the series. An invitation to two of your
+ * accounts is on each one's calendar: the copy on the calendar of `account` (the address it came
+ * to) is the one, so it's answered as that address (D61); else one on a calendar you sync.
  */
-export async function matchInvite(db: DbOrTx, invite: MailInvite): Promise<string | null> {
+export async function matchInvite(
+  db: DbOrTx,
+  invite: MailInvite,
+  account?: string,
+): Promise<string | null> {
   const googleId = invite.uid.replace(/@google\.com$/i, "");
   const rows = await db
     .select({
@@ -87,9 +93,12 @@ export async function matchInvite(db: DbOrTx, invite: MailInvite): Promise<strin
       startsAt: calendarEvent.startsAt,
       organizer: calendarEvent.organizer,
       series: calendarEvent.recurringEventId,
+      account: calendar.account,
+      selected: calendar.selected,
     })
     .from(calendarEvent)
     .innerJoin(entity, eq(entity.id, calendarEvent.entityId))
+    .innerJoin(calendar, eq(calendar.id, calendarEvent.calendarId))
     .where(
       and(
         isNull(entity.deletedAt),
@@ -102,7 +111,10 @@ export async function matchInvite(db: DbOrTx, invite: MailInvite): Promise<strin
     )
     .limit(200);
   // Anyone can send an invitation naming any UID; only the meeting's organizer counts.
-  const same = rows.filter((r) => invite.organizer && r.organizer === invite.organizer);
+  const organized = rows.filter((r) => invite.organizer && r.organizer === invite.organizer);
+  const mine = organized.filter((r) => account && r.account === account.toLowerCase());
+  const synced = organized.filter((r) => r.selected);
+  const same = mine.length ? mine : synced.length ? synced : organized;
   if (same.length === 0) return null;
   const at = invite.start ? new Date(invite.start).getTime() : null;
   const pick =

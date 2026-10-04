@@ -1,61 +1,26 @@
 // Slack (M7, PLAN.md section 8.3): your team's Slack read in with your own token. What people
 // write there is outside content for Jarvis, @mentions and direct messages land in the inbox, and
 // Jarvis never posts: Hearth only reads.
-import { localDate } from "@hearth/core";
-import { entity, slackChannel, slackMessage, slackUser, slackWorkspace } from "@hearth/db";
-import {
-  ActionError,
-  type DigestItem,
-  defineAction,
-  defineModule,
-  getSetting,
-  type ReflexDef,
-} from "@hearth/kernel";
-import { and, desc, eq, gte, ilike, inArray } from "drizzle-orm";
+import { entity, slackChannel, slackMessage, slackWorkspace } from "@hearth/db";
+import { ActionError, type DigestItem, defineAction, defineModule } from "@hearth/kernel";
+import { and, desc, eq, gte, ilike } from "drizzle-orm";
 import { z } from "zod";
+import { syncFailedReflex } from "../connector-health.ts";
 import { describeRow, liveEntity, preview } from "../shared.ts";
-import { SlackError } from "./api.ts";
-import { sealToken, slackApi, syncSlack } from "./sync.ts";
+import { connectActions } from "./connect.ts";
+import { syncSlack } from "./sync.ts";
 
 export { httpSlack, SLACK_SERVICE, type SlackApi } from "./api.ts";
+export { SLACK_SCOPES } from "./connect.ts";
 export { FakeSlack } from "./fake.ts";
 
-/** What a Slack app for Hearth needs (user token scopes), shown in Settings. */
-export const SLACK_SCOPES = [
-  "channels:history",
-  "channels:read",
-  "groups:history",
-  "groups:read",
-  "im:history",
-  "im:read",
-  "mpim:history",
-  "mpim:read",
-  "users:read",
-  "users:read.email",
-  "search:read",
-];
-
-const syncFailed: ReflexDef = {
-  name: "slack.sync_failed",
-  description: "When Slack stops syncing, you get one notice a day about it.",
-  mode: "always",
-  on: ["slack.sync_failed"],
-  async run(event, ctx) {
-    const rules = await getSetting(ctx.db, "owner.dayRules");
-    return [
-      {
-        kind: "tell",
-        notification: {
-          kind: "system.alert",
-          title: "Slack isn't syncing",
-          body: String(event.payload.error ?? "").slice(0, 1000),
-          urgency: "normal",
-          dedupeKey: `slack.sync_failed:${localDate(event.at, rules.timeZone)}`,
-        },
-      },
-    ];
-  },
-};
+const syncFailed = syncFailedReflex("slack", "Slack", async (ctx) => {
+  const [ws] = await ctx.db
+    .select({ since: slackWorkspace.failingSince })
+    .from(slackWorkspace)
+    .limit(1);
+  return ws?.since;
+});
 
 interface MessageRow {
   id: string;
@@ -97,9 +62,13 @@ export const slackModule = defineModule({
       kind: "slack.mentioned",
       description: "Someone @mentioned you or sent you a direct message. Payload: channel, kind.",
     },
-    { kind: "slack.sync_failed", description: "Syncing Slack failed. Payload: error." },
+    {
+      kind: "slack.sync_failed",
+      description:
+        "Slack stopped syncing: its token stopped working (reconnect), or it kept failing. Sent once when it starts. Payload: error, since, reconnect.",
+    },
   ],
-  kernelEvents: ["entity.created"],
+  kernelEvents: ["entity.created", "notification.updated"],
   knowledge: {
     async slack_message(entityId, ctx) {
       const row = await liveEntity(ctx.db, entityId, "slack_message");
@@ -127,74 +96,7 @@ export const slackModule = defineModule({
     },
   },
   actions: [
-    defineAction({
-      name: "slack.connect",
-      description: "Connect your Slack workspace with a Slack app's User OAuth Token (xoxp-...).",
-      input: z.object({
-        token: z
-          .string()
-          .trim()
-          .regex(/^xox[pe]-[A-Za-z0-9-]{10,300}$/),
-      }),
-      // Only you, from Settings; the audit log keeps none of it.
-      risk: "secret",
-      callers: ["owner"],
-      async handler(i, ctx) {
-        let me: Awaited<ReturnType<ReturnType<typeof slackApi>["whoami"]>>;
-        try {
-          me = await slackApi(ctx).whoami(i.token);
-        } catch (err) {
-          throw new ActionError(
-            "invalid_input",
-            err instanceof SlackError ? err.message : "Slack couldn't be reached.",
-          );
-        }
-        const token = sealToken(ctx, me.teamId, i.token);
-        // One workspace: connecting another replaces it.
-        await ctx.tx.delete(slackWorkspace);
-        await ctx.tx.insert(slackWorkspace).values({
-          teamId: me.teamId,
-          teamName: me.team,
-          url: me.url,
-          userId: me.userId,
-          token,
-        });
-        return { team: me.team, url: me.url };
-      },
-    }),
-    defineAction({
-      name: "slack.status",
-      description: "Whether Slack is connected, which workspace, and how syncing is going.",
-      input: z.object({}),
-      risk: "read",
-      callers: ["owner"],
-      async handler(_i, ctx) {
-        const [ws] = await ctx.tx
-          .select({
-            team: slackWorkspace.teamName,
-            url: slackWorkspace.url,
-            syncedAt: slackWorkspace.syncedAt,
-            lastError: slackWorkspace.lastError,
-          })
-          .from(slackWorkspace)
-          .limit(1);
-        return { connected: Boolean(ws), ...(ws ?? {}), scopes: SLACK_SCOPES };
-      },
-    }),
-    defineAction({
-      name: "slack.disconnect",
-      description: "Forget the Slack workspace: its token, channels and messages leave Hearth.",
-      input: z.object({}),
-      risk: "internal",
-      callers: ["owner"],
-      async handler(_i, ctx) {
-        const ids = ctx.tx.select({ id: slackMessage.entityId }).from(slackMessage);
-        await ctx.tx.delete(entity).where(inArray(entity.id, ids));
-        await ctx.tx.delete(slackUser);
-        await ctx.tx.delete(slackWorkspace);
-        return { disconnected: true };
-      },
-    }),
+    ...connectActions,
     defineAction({
       name: "slack.channels",
       description: "The Slack channels and direct messages you're in, and which are read in.",
