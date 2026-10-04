@@ -43,6 +43,32 @@ export function pageLink(
   return app ? `hearth://open${page}` : page;
 }
 
+/**
+ * Calls `recheck` each time a small window is shown again, while `stale()` says it should. The
+ * app hides its small windows instead of closing them, so one that said "sign in first" has to
+ * look again once you have. WebView2 may report being shown as focus or as the page turning
+ * visible, so either counts. Returns the cleanup.
+ */
+export function whenShownAgain(
+  stale: () => boolean,
+  recheck: () => void,
+  win: EventTarget = window,
+  doc: EventTarget & { visibilityState: DocumentVisibilityState } = document,
+): () => void {
+  const onFocus = () => {
+    if (stale()) recheck();
+  };
+  const onVisible = () => {
+    if (doc.visibilityState === "visible") onFocus();
+  };
+  win.addEventListener("focus", onFocus);
+  doc.addEventListener("visibilitychange", onVisible);
+  return () => {
+    win.removeEventListener("focus", onFocus);
+    doc.removeEventListener("visibilitychange", onVisible);
+  };
+}
+
 /** Splits quick capture's text into a task: the first line is its title, the rest its notes. */
 export function captureToTask(text: string): { title: string; body?: string } | null {
   const [first = "", ...rest] = text.trim().split(/\r?\n/);

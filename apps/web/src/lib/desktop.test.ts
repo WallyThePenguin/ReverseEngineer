@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { captureToTask, inDesktopApp, miniPage, pageLink } from "./desktop.ts";
+import { captureToTask, inDesktopApp, miniPage, pageLink, whenShownAgain } from "./desktop.ts";
 
 const EDGE =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0";
@@ -40,5 +40,38 @@ describe("Hearth's Windows app", () => {
     });
     expect(captureToTask(" \n ")).toBeNull();
     expect(captureToTask("x".repeat(600))?.title).toHaveLength(500);
+  });
+
+  it("has a kept small window look again when it's shown, until it can show your Hearth", () => {
+    const win = new EventTarget();
+    const doc = Object.assign(new EventTarget(), {
+      visibilityState: "hidden" as DocumentVisibilityState,
+    });
+    let signedIn = false;
+    let checks = 0;
+    const stop = whenShownAgain(
+      () => !signedIn,
+      () => {
+        checks += 1;
+      },
+      win,
+      doc,
+    );
+    // Tucked away: nothing to do.
+    doc.dispatchEvent(new Event("visibilitychange"));
+    expect(checks).toBe(0);
+    // Shown again, whichever way WebView2 says so.
+    doc.visibilityState = "visible";
+    doc.dispatchEvent(new Event("visibilitychange"));
+    win.dispatchEvent(new Event("focus"));
+    expect(checks).toBe(2);
+    // Signed in: nothing more to look at.
+    signedIn = true;
+    win.dispatchEvent(new Event("focus"));
+    expect(checks).toBe(2);
+    signedIn = false;
+    stop();
+    win.dispatchEvent(new Event("focus"));
+    expect(checks).toBe(2);
   });
 });

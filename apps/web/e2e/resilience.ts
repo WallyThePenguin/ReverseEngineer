@@ -188,6 +188,21 @@ try {
     await sameLoad(p);
   });
 
+  await step("Ask Jarvis's window looks again when it's shown after you sign in", async (p) => {
+    await p.route("**/api/auth/me", (r) =>
+      r.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ signedIn: false, principal: null, kind: null, needsSetup: false }),
+      }),
+    );
+    await p.goto(`${base}/chat?compact=1`);
+    await p.getByText("Sign in to Hearth first", { exact: false }).waitFor();
+    await p.unroute("**/api/auth/me");
+    // The app shows its kept window again.
+    await p.evaluate("window.dispatchEvent(new Event('focus'))");
+    await p.getByText("Ask Jarvis", { exact: true }).waitFor({ timeout: 5_000 });
+  });
+
   await step("live feed: refused because the session ended goes to sign-in", async (p) => {
     let meCalls = 0;
     await p.route("**/api/events**", (r) =>
