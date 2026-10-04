@@ -162,6 +162,35 @@ Assert-Equal ($script:ran -join "; ") "--silent hearth migrate down 0026_b; --si
 Assert-Equal (Undo-Migrations @()) $true "nothing applied, nothing to revert"
 Remove-Item function:pnpm
 
+# An update that changes update.ps1 hands over to the new copy right after the merge.
+$bound = [ordered]@{ Root = "C:\old"; Branch = "main"; Force = [switch]$true; HealthTimeoutSec = 60; Verbose = [switch]$false }
+Assert-Equal ((Get-RelaunchArgs $bound "D:\My Hearth\ops\windows\update.ps1" "D:\My Hearth") -join "|") `
+  "-NoProfile|-File|D:\My Hearth\ops\windows\update.ps1|-Root|D:\My Hearth|-Branch|main|-Force|-HealthTimeoutSec|60|-Relaunched" `
+  "the new copy gets this run's parameters, -Root and -Relaunched"
+Assert-Equal ((Get-RelaunchArgs @{} "D:\H\ops\windows\update.ps1" "D:\H") -join "|") `
+  "-NoProfile|-File|D:\H\ops\windows\update.ps1|-Root|D:\H|-Relaunched" "a run given no parameters"
+# The new copy faked: it reads where the update left off and deletes the file, as update.ps1 does.
+$handoverFile = Join-Path ([IO.Path]::GetTempPath()) "hearth-test-handover-$PID.xml"
+$state = [pscustomobject]@{ Old = "0ld"; New = "n3w"; Before = $doctorBefore }
+function Invoke-NewCopy {
+  $s = Import-Clixml $handoverFile
+  Remove-Item $handoverFile
+  $script:carried = "$($s.Old) $($s.New) $(Get-FailingChecks $s.Before)"
+  $global:LASTEXITCODE = 3
+}
+$code = 1
+Invoke-Handover "Invoke-NewCopy" @() $state $handoverFile ([ref]$code)
+Assert-Equal $script:carried "0ld n3w jarvis" "the new copy reads where the update left off, the doctor's report included"
+Assert-Equal $code 3 "this run exits with the new copy's exit code"
+# A new copy that never takes over (it doesn't parse, say): this run must roll back itself.
+function Invoke-NewCopy { $global:LASTEXITCODE = 1 }
+$code = 1
+$threw = ""
+try { Invoke-Handover "Invoke-NewCopy" @() $state $handoverFile ([ref]$code) } catch { $threw = "$_" }
+Assert-Equal $threw "The updated update.ps1 didn't start (exit 1)" "a new copy that never took over"
+Assert-Equal (Test-Path $handoverFile) $false "leaves no handover behind"
+Remove-Item function:Invoke-NewCopy
+
 # Waiting for Jarvis's task to stop before it's started again, with Windows faked.
 $script:states = @()
 function Get-ScheduledTask {

@@ -255,3 +255,33 @@ function Undo-Migrations([string[]]$Applied) {
   }
   return $true
 }
+
+# The arguments that run the updated update.ps1 ($Script) to carry on an update: the parameters
+# this run was given ($Bound, its $PSBoundParameters), with -Root and -Relaunched.
+function Get-RelaunchArgs($Bound, [string]$Script, [string]$Root) {
+  $list = @("-NoProfile", "-File", $Script, "-Root", $Root)
+  foreach ($p in $Bound.GetEnumerator()) {
+    if ($p.Key -in "Root", "Relaunched") { continue }
+    if ($p.Value -is [switch]) {
+      if ($p.Value.IsPresent) { $list += "-$($p.Key)" }
+    } else {
+      $list += "-$($p.Key)", "$($p.Value)"
+    }
+  }
+  return $list + "-Relaunched"
+}
+
+# Hands an update over to its updated update.ps1 (& $Exe $Arguments), which reads $State from
+# $Handover and deletes it before it carries on. Sets $ExitCode to its exit code. Throws when it
+# never took over (the file is still there), so the rollback of the run that called this applies.
+# Called as a statement, so the new update.ps1 writes straight to this window.
+function Invoke-Handover([string]$Exe, [string[]]$Arguments, $State, [string]$Handover, [ref]$ExitCode) {
+  $State | Export-Clixml -Depth 5 -Path $Handover
+  & $Exe @Arguments
+  $code = $LASTEXITCODE
+  if (Test-Path $Handover) {
+    Remove-Item $Handover
+    throw "The updated update.ps1 didn't start (exit $code)"
+  }
+  $ExitCode.Value = $code
+}
