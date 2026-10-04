@@ -272,11 +272,13 @@ export const chatModule = defineModule({
           parentId: string | null;
           anchor: string;
           context: string;
+          outside?: boolean;
         };
         const subjectId = p.type === "comment" && p.parentId ? p.parentId : event.entityId;
-        // Written after reading outside content (or on a device's say-so), so what it asks is
-        // outside content too, and the turn starts untrusted (D58).
-        const outside = event.origin === "untrusted";
+        // Written after reading outside content (or on a device's say-so), or in a record whose
+        // text is outside content, so what it asks is outside content too, and the turn starts
+        // untrusted (D58).
+        const outside = event.origin === "untrusted" || p.outside === true;
         return [
           {
             kind: "turn",

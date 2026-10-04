@@ -5,6 +5,7 @@ import { type DbOrTx, entity, link } from "@hearth/db";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { ActionError, notFound } from "./errors.ts";
 import { newId } from "./ids.ts";
+import { fromOutsideTool } from "./outside.ts";
 import type { ActionContext } from "./types.ts";
 
 export type EntityRow = typeof entity.$inferSelect;
@@ -152,10 +153,13 @@ export async function restoreEntity(ctx: ActionContext, id: string): Promise<Ent
  * an agent wrote calls an agent: a mention of Jarvis in an email or an outside agent's note does
  * nothing (D58). Its links to records stay (a Notion import's links between its pages), as links
  * from outside content: a record's id can't be guessed, and reading them lowers a turn's trust.
+ * When you or Jarvis edit a record whose text is outside content, an @Jarvis that now links
+ * (maybe the email's own, kept by the edit) is marked outside, so its turn starts untrusted.
  */
 export async function syncMentions(ctx: ActionContext, source: EntityRow): Promise<void> {
   const body = source.body ?? "";
   const outsider = ctx.caller.kind === "integration" || ctx.caller.kind === "mcp_client";
+  const outsideText = source.outside === true || fromOutsideTool(source.createdBy);
   const mentions = parseMentions(body).filter((m) => m.id !== source.id);
   const targetIds = [...new Set(mentions.map((m) => m.id))];
   const targets = targetIds.length
@@ -224,6 +228,7 @@ export async function syncMentions(ctx: ActionContext, source: EntityRow): Promi
           type: source.type,
           parentId: source.parentId,
           context: mentionContext(body, m.index),
+          ...(outsideText ? { outside: true } : {}),
         },
       });
     }
