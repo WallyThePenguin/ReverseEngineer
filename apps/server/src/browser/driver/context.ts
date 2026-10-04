@@ -68,9 +68,8 @@ export class DriverContext {
       throw fail("blocked", `${host} is on the owner's list of sites Jarvis never opens.`);
   }
 
-  /** An approved step runs only on the site it was approved for. */
-  assertSite(): void {
-    const site = this.policy.site;
+  /** An approved step runs only on the site it was approved for (a batch, on its own). */
+  assertSite(site = this.policy.site): void {
     if (!site) return;
     const host = hostOf(this.url());
     if (host !== site && !host.endsWith(`.${site}`))

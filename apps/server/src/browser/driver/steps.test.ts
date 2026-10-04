@@ -1,8 +1,9 @@
 // The driver's steps on a real Chromium (B1): pop-ups, an endless list, what covers a ref, a
-// dialog in the way, trusted sites, what a page made clickable itself, and batches that stop
-// at the first step that fails.
+// dialog in the way, trusted sites, what a page made clickable itself, one step at a time per
+// tab, and batches that stop at the first step that fails, on another site, or out of time.
 import { describe, expect, it } from "vitest";
 import { refOf, useChrome } from "../../testing/drive.ts";
+import { BATCH_MS } from "./driver.ts";
 
 const h = useChrome("steps");
 const chrome = () => h.chrome();
@@ -102,6 +103,59 @@ describe.runIf(h.run)("the driver's steps", () => {
     // What doesn't send is free anywhere.
     await drive("click", { tabId, ref: refOf(page.text, "Show details") });
     expect(await chrome().peek(tabId, "document.title")).toBe("more");
+  });
+
+  it("waits out the site's pace after a page loads, as after any other step", async () => {
+    const started = Date.now();
+    const tabId = await chrome().open(chrome().url("a.test", "/"));
+    const page = await drive("read_page", { tabId });
+    const policy = { owner: false, trusted: [], blocked: [], pace: { seconds: 1, sites: {} } };
+    await drive("click", { tabId, ref: refOf(page.text, "Go"), policy });
+    expect(Date.now() - started).toBeGreaterThanOrEqual(1_000);
+    expect(await chrome().peek(tabId, "document.title")).toBe("clicked");
+  });
+
+  it("takes one tab's steps one at a time, so two at once don't type into each other", async () => {
+    const tabId = await chrome().open(chrome().url("a.test", "/widgets"));
+    const page = await drive("read_page", { tabId });
+    await Promise.all([
+      drive("type", { tabId, ref: refOf(page.text, "Name"), text: "aaaaaaaaaa" }),
+      drive("type", { tabId, ref: refOf(page.text, "Note"), text: "bbbbbbbbbb" }),
+    ]);
+    expect(await chrome().peek(tabId, `document.getElementById("name").value`)).toBe("aaaaaaaaaa");
+    expect(await chrome().peek(tabId, `document.querySelector("[name=note]").value`)).toBe(
+      "bbbbbbbbbb",
+    );
+  });
+
+  it("stops a batch once a step takes the tab to another site, or it runs out of time", async () => {
+    const tabId = await chrome().open(chrome().url("a.test", "/clickables"));
+    const page = await drive("read_page", { tabId });
+    const away = await drive("batch", {
+      tabId,
+      steps: [
+        { action: "click", input: { ref: refOf(page.text, "Elsewhere") } },
+        { action: "key", input: { keys: "Tab" } },
+      ],
+    });
+    expect(away).toMatchObject({
+      steps: 1,
+      url: expect.stringContaining("b.test"),
+      stopped: { step: 2, action: "key", reason: "changed" },
+    });
+    chrome().driver.batchMs = 100;
+    try {
+      const slow = await drive("batch", {
+        tabId,
+        steps: [
+          { action: "wait", input: { ms: 150 } },
+          { action: "wait", input: { ms: 10 } },
+        ],
+      });
+      expect(slow).toMatchObject({ steps: 1, stopped: { step: 2, reason: "timeout" } });
+    } finally {
+      chrome().driver.batchMs = BATCH_MS;
+    }
   });
 
   it("runs a batch of steps in order and stops at the first that fails", async () => {

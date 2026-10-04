@@ -24,16 +24,32 @@ import { Worlds } from "./world.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const MAX_TABS = 200;
+/**
+ * A batch starts no new step after this long, so the whole request stays well inside the time
+ * Jarvis's client waits for an answer (150 s) and never runs on unseen after it gave up.
+ */
+export const BATCH_MS = 60_000;
 
 export class Driver {
   private readonly transport: CdpTransport;
   private readonly tabs = new Map<number, TabState>();
   /** When Jarvis last stepped on each site, for pacing (shared by Jarvis and the worker). */
   private readonly lastStep = new Map<string, number>();
+  /** Each tab's requests, one at a time: two steps at once would type into each other's fields. */
+  private readonly queues = new Map<number, Promise<unknown>>();
+  /** How long a batch may go on starting steps (tests make it short). */
+  batchMs = BATCH_MS;
 
   constructor(transport: CdpTransport) {
     this.transport = transport;
-    transport.onEvent((e) => this.tab(e.tabId).handle(e));
+    transport.onEvent((e) => {
+      this.tab(e.tabId).handle(e);
+      // A new page counts as a step on its site: browser_open and browser_navigate pace in
+      // Jarvis's own process, so without this the first press after them wouldn't wait at all.
+      const frame = e.params.frame as { parentId?: string; url?: string } | undefined;
+      if (e.method === "Page.frameNavigated" && !e.sessionId && frame && !frame.parentId)
+        this.stepped(hostOf(String(frame.url ?? "")));
+    });
   }
 
   private tab(tabId: number): TabState {
@@ -64,12 +80,33 @@ export class Driver {
     if (!pace || d.policy.owner || !host || isLoopbackHost(host)) return;
     const wait = (this.lastStep.get(host) ?? 0) + paceFor(host, pace) * 1000 - Date.now();
     if (wait > 0) await sleep(Math.min(wait, 60_000));
+    this.stepped(host);
+  }
+
+  /** Remembers a step on a site, for the next one's pace. */
+  private stepped(host: string): void {
+    if (!host) return;
+    this.lastStep.delete(host);
     this.lastStep.set(host, Date.now());
     if (this.lastStep.size > 500) this.lastStep.delete(this.lastStep.keys().next().value as string);
   }
 
-  /** Runs one driver request: "read_page", "click", "batch"... */
+  /** Runs one driver request: "read_page", "click", "batch"... after the tab's earlier ones. */
   async run(op: string, raw: Record<string, unknown>): Promise<unknown> {
+    const tabId = typeof raw.tabId === "number" ? raw.tabId : Number.NaN;
+    const ahead = this.queues.get(tabId);
+    const mine = (ahead ? ahead.catch(() => {}) : Promise.resolve()).then(() =>
+      this.runNow(op, raw),
+    );
+    this.queues.set(tabId, mine);
+    try {
+      return await mine;
+    } finally {
+      if (this.queues.get(tabId) === mine) this.queues.delete(tabId);
+    }
+  }
+
+  private async runNow(op: string, raw: Record<string, unknown>): Promise<unknown> {
     let d: DriverContext | null = null;
     try {
       const tabId = z.object({ tabId: z.number().int() }).parse(raw).tabId;
@@ -251,11 +288,17 @@ export class Driver {
     return { ...out, image: (await screenshot(d)).image };
   }
 
-  /** Several steps in one tab, one after another, each judged as it runs; stops at the first error. */
+  /**
+   * Several steps in one tab, one after another, each judged as it runs. It stops at the first
+   * that fails, when a step has taken the tab to another site, or once it has run BATCH_MS.
+   */
   private async batch(d: DriverContext, i: z.output<typeof Batch>) {
     assertFree(d);
     d.assertSite();
     await this.pace(d);
+    const started = performance.now();
+    // The site the batch was asked for: every step runs there, or not at all.
+    const site = d.policy.site ?? hostOf(d.url());
     const b = await before(d);
     const done: string[] = [];
     let stopped: { step: number; action: string; reason: string | null; error: string } | null =
@@ -263,6 +306,13 @@ export class Driver {
     let last = { navigated: false, loading: false };
     for (const [n, s] of i.steps.entries()) {
       try {
+        if (n > 0 && performance.now() - started > this.batchMs)
+          throw fail(
+            "timeout",
+            `The batch ran past ${Math.round(this.batchMs / 1000)} seconds, so this step and the ones after it weren't run.`,
+          );
+        d.assertAllowed(d.url());
+        d.assertSite(site);
         if (d.tab.dialog) assertFree(d);
         const nb = await before(d);
         const did = await this.step(d, s.action, s.input);

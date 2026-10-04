@@ -186,7 +186,7 @@ export const driveActActions = [
   defineAction({
     name: "browser.batch",
     description:
-      "Several steps in one tab, one after another, in one call: faster when you know what comes next (fill in three fields, then click). Each step is judged as it runs, as on its own, and the batch stops at the first one that fails (`stopped` says which and why). Each step is {action, input}, its input as for its own tool without tabId: click {ref | coordinate, button?, clickCount?, modifiers?}, type {text, ref?, clear?}, key {keys, repeat?}, form_input {ref, value}, scroll {direction, amount?, coordinate?}, scroll_to {ref}, hover {ref | coordinate}, drag {fromRef | from, toRef | to}, wait {ms}. If a step loads a new page, the steps after it that use refs are not run.",
+      "Several steps in one tab, one after another, in one call: faster when you know what comes next (fill in three fields, then click). Each step is judged as it runs, as on its own, and the batch stops at the first one that fails (`stopped` says which and why). Each step is {action, input}, its input as for its own tool without tabId: click {ref | coordinate, button?, clickCount?, modifiers?}, type {text, ref?, clear?}, key {keys, repeat?}, form_input {ref, value}, scroll {direction, amount?, coordinate?}, scroll_to {ref}, hover {ref | coordinate}, drag {fromRef | from, toRef | to}, wait {ms}. If a step loads a new page, the steps after it that use refs are not run; none run once the tab is on another site, or after a minute.",
     input: z.object({
       tabId,
       steps: z
