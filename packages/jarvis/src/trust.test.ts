@@ -5,7 +5,15 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { fetchGuard, webTracker } from "./brains/claude.ts";
 import { createJarvisHarness, type JarvisHarness } from "./testing.ts";
-import { checkOpen, extractUrls, normalizeUrl, onSiteList, type TrustState } from "./trust.ts";
+import {
+  checkOpen,
+  exactUrls,
+  extractUrls,
+  normalizeUrl,
+  onSiteList,
+  readOutsideContent,
+  type TrustState,
+} from "./trust.ts";
 
 const sites = { allowed: ["docs.example.org"], blocked: ["bank.example"] };
 const state = (origin: TrustState["origin"], seen: string[] = []): TrustState => ({
@@ -36,6 +44,18 @@ describe("the untrusted-turn rules (D25)", () => {
     expect(checkOpen(s, "https://docs.example.org/guide", sites).kind).toBe("ok");
     const smuggle = checkOpen(s, "https://shop.example/item/7?note=my-secret", sites);
     expect(smuggle).toMatchObject({ kind: "ask" });
+  });
+
+  it("counts a page's links as seen exactly, even where text would cut them short", () => {
+    const odd = "https://shop.example/find?tags=[red|blue]&q={x}";
+    expect(extractUrls(`Link: ${odd}`)).not.toContain(normalizeUrl(odd));
+    expect(exactUrls({ links: { L1: odd, L2: "not a url" }, text: "hi" })).toEqual([
+      normalizeUrl(odd),
+    ]);
+    const s = state("agent");
+    readOutsideContent(s, "a page", { links: { L1: odd } });
+    expect(s.origin).toBe("untrusted");
+    expect(checkOpen(s, odd, sites).kind).toBe("ok");
   });
 });
 
