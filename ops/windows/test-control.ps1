@@ -112,6 +112,24 @@ $same = Compare-Doctor $twice ([pscustomobject]@{ Checks = @((& $okc "backup"), 
 Assert-Equal ($same.Old | ForEach-Object { $_.name }) "backup" "a name used twice: the failure from before stays old"
 Assert-Equal ($same.New | ForEach-Object { $_.name }) "Server" "names match exactly, not ignoring case"
 
+# Waiting for Jarvis's task to stop before it's started again, with Windows faked.
+$script:states = @()
+function Get-ScheduledTask {
+  param([string]$TaskName)
+  $next = $script:states[0]
+  if ($script:states.Count -gt 1) { $script:states = $script:states[1..($script:states.Count - 1)] }
+  if (-not $next) { return $null }
+  return [pscustomobject]@{ TaskName = $TaskName; State = $next }
+}
+function Start-Sleep { param([int]$Milliseconds, [int]$Seconds) }
+$script:states = @("Running", "Running", "Ready")
+Assert-Equal (Wait-TaskStopped "Hearth Jarvis" 5) $true "waits for the task to stop"
+Assert-Equal $script:states.Count 1 "asked until it stopped"
+$script:states = @("")
+Assert-Equal (Wait-TaskStopped "Hearth Jarvis" 5) $true "no task: nothing to wait for"
+$script:states = @("Running")
+Assert-Equal (Wait-TaskStopped "Hearth Jarvis" 0) $false "gives up when it won't stop"
+
 if ($failures) { Write-Host "$failures failed"; exit 1 }
 Write-Host "All passed."
 exit 0
