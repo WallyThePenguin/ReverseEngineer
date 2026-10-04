@@ -264,6 +264,10 @@ export class TurnRunner {
       paused: await getSetting(this.kernel.db, "jarvis.paused"),
       subject,
       memory,
+      // Untrusted only because of what an earlier turn here read: this one's ask is still yours.
+      ...(turn.origin !== "untrusted" && !record?.fromOutside && conv?.taintedAt
+        ? { readEarlier: conv.taintSource ?? "outside content" }
+        : {}),
     });
     const tools = bare
       ? []

