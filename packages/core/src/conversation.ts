@@ -134,6 +134,11 @@ export function foldConversation(log: LogRecord[]): ConversationView {
         });
         break;
       case "notice":
+        // You pressed Retry: that turn now waits for Jarvis, like something you said.
+        if (p.retrying === true) {
+          settle();
+          waitingSince = iso(r.at);
+        }
         items.push({
           type: "notice",
           text: String(p.text ?? ""),

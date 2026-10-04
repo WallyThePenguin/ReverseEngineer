@@ -49,8 +49,14 @@ describe("foldConversation", () => {
     expect(notice(log)).toMatchObject([{ tone: "error", retry: true, turnId: "t1" }]);
     expect(foldConversation(log).activeTurns).toEqual([]);
 
-    const retried = [...log, entry("turn_started", {}, "t2")];
-    expect(notice(retried)).toMatchObject([{ retry: false }]);
+    // Pressing Retry takes the link away at once, and the new turn waits like a message.
+    const pressed = [...log, entry("notice", { text: "Trying again.", retrying: true }, "t2")];
+    expect(notice(pressed)).toMatchObject([{ retry: false }, { text: "Trying again." }]);
+    expect(foldConversation(pressed).waitingSince).toBe(at(5));
+
+    const retried = [...pressed, entry("turn_started", {}, "t2")];
+    expect(notice(retried)).toMatchObject([{ retry: false }, {}]);
+    expect(foldConversation(retried).waitingSince).toBeNull();
 
     const waiting = [
       entry(

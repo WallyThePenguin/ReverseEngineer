@@ -125,6 +125,17 @@ export const turnActions = [
         queuedAt: ctx.now,
         notBefore: ctx.now,
       });
+      // Shown at once, so the press visibly did something, and the turn waits like a message.
+      if (t.conversationId) {
+        const payload = { text: "Trying again.", retrying: true };
+        const entry = { kind: "notice" as const, payload, turnId };
+        const [idx] = await appendLog(ctx.tx, t.conversationId, [entry], ctx.now);
+        ctx.emit({
+          kind: "conversation.appended",
+          entityId: t.conversationId,
+          payload: { conversationId: t.conversationId, idx, kind: "notice", turnId },
+        });
+      }
       return { turnId };
     },
   }),

@@ -209,7 +209,11 @@ describe("waiting too long", () => {
     const { turnId } = await ok<{ turnId: string }>("jarvis.retry_turn", { turnId: t!.id });
     await h.settle();
     expect(await turn(turnId)).toMatchObject({ status: "done" });
-    expect(await said(conversationId)).toHaveLength(2);
+    expect(await said(conversationId)).toEqual([
+      "Jarvis didn't get to this in time, so it let it go.",
+      "Trying again.",
+      "OK.",
+    ]);
   });
 
   it("lets go of a message Jarvis hasn't seen when you press Stop", async () => {
