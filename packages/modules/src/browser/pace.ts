@@ -1,5 +1,6 @@
 // Pacing (B2): Jarvis waits a moment between steps on the same site, the way a person would, so
-// sites don't take it for a bot. You set the wait, per site if you like; your own steps never wait.
+// sites don't take it for a bot. You set the wait, per site if you like; your own steps never wait,
+// and neither do Hearth's own pages on this PC (its Chrome self-test).
 import { onSiteList } from "@hearth/core";
 import { type ActionContext, getSetting } from "@hearth/kernel";
 
@@ -22,10 +23,19 @@ export function paceFor(
   return own ? own[1] : pace.seconds;
 }
 
+/** This PC: localhost, 127.x or ::1. */
+export function isLoopbackHost(host: string): boolean {
+  const h = host.replace(/^\[|\]$/g, "").toLowerCase();
+  return (
+    h === "localhost" || h.endsWith(".localhost") || h === "::1" || /^127(\.\d{1,3}){3}$/.test(h)
+  );
+}
+
 /** Waits until this site's pause since Jarvis's last step there has passed. */
 export async function pace(ctx: ActionContext, url: string): Promise<void> {
   if (!pacing.enabled || ctx.caller.kind === "owner") return;
   const host = new URL(url).hostname;
+  if (isLoopbackHost(host)) return;
   const seconds = paceFor(host, await getSetting(ctx.tx, "browser.pace"));
   const wait = (lastStep.get(host) ?? 0) + seconds * 1000 - Date.now();
   if (wait > 0) await sleep(Math.min(wait, 60_000));
