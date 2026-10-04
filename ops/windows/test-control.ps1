@@ -142,6 +142,26 @@ $same = Compare-Doctor $twice ([pscustomobject]@{ Checks = @((& $okc "backup"), 
 Assert-Equal ($same.Old | ForEach-Object { $_.name }) "backup" "a name used twice: the failure from before stays old"
 Assert-Equal ($same.New | ForEach-Object { $_.name }) "Server" "names match exactly, not ignoring case"
 
+# What a rollback reverts: what `hearth migrate` printed as applied, even when it then failed.
+Assert-Equal (Get-AppliedMigrations "Applied: 0025_a, 0026_b`r`n") "0025_a 0026_b" "reads the migrations an update applied"
+Assert-Equal (Get-AppliedMigrations "Up to date.`r`n").Count 0 "nothing applied"
+# Reverting them, with pnpm faked: newest first, each by name, stopping at one that won't revert.
+$script:ran = @()
+$script:stuck = ""
+function pnpm {
+  $script:ran += "$args"
+  $global:LASTEXITCODE = 0
+  if ($script:stuck -and $args[-1] -eq $script:stuck) { $global:LASTEXITCODE = 1 }
+}
+Assert-Equal (Undo-Migrations @("0023_late", "0025_a")) $true "reverts every migration the update applied"
+Assert-Equal ($script:ran -join "; ") "--silent hearth migrate down 0025_a; --silent hearth migrate down 0023_late" "newest first, each by name"
+$script:ran = @()
+$script:stuck = "0025_a"
+Assert-Equal (Undo-Migrations @("0023_late", "0025_a", "0026_b")) $false "a migration that won't revert"
+Assert-Equal ($script:ran -join "; ") "--silent hearth migrate down 0026_b; --silent hearth migrate down 0025_a" "stops at the one that won't revert"
+Assert-Equal (Undo-Migrations @()) $true "nothing applied, nothing to revert"
+Remove-Item function:pnpm
+
 # Waiting for Jarvis's task to stop before it's started again, with Windows faked.
 $script:states = @()
 function Get-ScheduledTask {

@@ -60,6 +60,19 @@ async function releaseMigrationClient(client: pg.PoolClient): Promise<void> {
   client.release(failed);
 }
 
+/**
+ * A run of migrations that stopped at one that failed. Each commits on its own, so the ones before
+ * it stay done: `committed` names them, for an update to revert (ops/windows/update.ps1).
+ */
+export class MigrationError extends Error {
+  readonly committed: string[];
+  constructor(message: string, committed: string[]) {
+    super(message);
+    this.committed = committed;
+    this.name = "MigrationError";
+  }
+}
+
 /** Applies every pending migration. Returns the names applied. */
 export async function migrateUp(pool: pg.Pool, dir = MIGRATIONS_DIR): Promise<string[]> {
   const client = await migrationClient(pool);
@@ -76,7 +89,7 @@ export async function migrateUp(pool: pg.Pool, dir = MIGRATIONS_DIR): Promise<st
         await client.query("COMMIT");
       } catch (err) {
         await client.query("ROLLBACK");
-        throw new Error(`Migration ${m.name} failed: ${(err as Error).message}`);
+        throw new MigrationError(`Migration ${m.name} failed: ${(err as Error).message}`, ran);
       }
       ran.push(m.name);
     }
@@ -134,20 +147,28 @@ export function schemaMismatch(state: MigrationState): string | null {
   return null;
 }
 
-/** Reverts the last `steps` migrations. Returns the names reverted. */
+/**
+ * Reverts the last `steps` migrations, or exactly the one named (nothing when it isn't applied):
+ * an update reverts what it applied by name, which isn't always the newest. Returns the names
+ * reverted.
+ */
 export async function migrateDown(
   pool: pg.Pool,
-  steps = 1,
+  which: number | string = 1,
   dir = MIGRATIONS_DIR,
 ): Promise<string[]> {
   const client = await migrationClient(pool);
   try {
     const done = await applied(client);
     const byName = new Map(loadMigrations(dir).map((m) => [m.name, m]));
+    if (typeof which === "string" && !byName.has(which) && !done.includes(which))
+      throw new Error(`No migration named ${which}`);
+    const names =
+      typeof which === "string" ? done.filter((n) => n === which) : done.reverse().slice(0, which);
     const reverted: string[] = [];
-    for (const name of done.reverse().slice(0, steps)) {
+    for (const name of names) {
       const m = byName.get(name);
-      if (!m) throw new Error(`No files for applied migration ${name}`);
+      if (!m) throw new MigrationError(`No files for applied migration ${name}`, reverted);
       await client.query("BEGIN");
       try {
         await client.query(m.down);
@@ -155,7 +176,7 @@ export async function migrateDown(
         await client.query("COMMIT");
       } catch (err) {
         await client.query("ROLLBACK");
-        throw new Error(`Reverting ${name} failed: ${(err as Error).message}`);
+        throw new MigrationError(`Reverting ${name} failed: ${(err as Error).message}`, reverted);
       }
       reverted.push(name);
     }

@@ -3,7 +3,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { connect, databaseUrl, migrateDown, migrateUp } from "@hearth/db";
+import { connect, databaseUrl, migrateUp } from "@hearth/db";
 import { guardProcess, Kernel, ownerCaller, Registry, systemCaller } from "@hearth/kernel";
 import { ALL_MODULES } from "@hearth/modules";
 import {
@@ -18,6 +18,7 @@ import {
 import { dataFolders, runBackup } from "./backup.ts";
 import { formatChecks } from "./doctor.ts";
 import { runDoctor } from "./doctor-run.ts";
+import { migrateCommand } from "./migrate.ts";
 import { restart } from "./restart.ts";
 import { restoreReport, runRestore, switchEnv } from "./restore.ts";
 import { guardSchema } from "./schema-guard.ts";
@@ -25,7 +26,8 @@ import { guardSchema } from "./schema-guard.ts";
 const HELP = `hearth: your personal workspace, with Jarvis.
 
   hearth setup              Prepare the database and print a one-time code for your first passkey
-  hearth migrate [down]     Apply database changes (or revert the last one)
+  hearth migrate [down [name]]
+                            Apply database changes (or revert the last one, or the one named)
   hearth serve              Run the web server
   hearth worker             Run schedules and health checks
   hearth jarvis             Run Jarvis
@@ -88,15 +90,7 @@ async function main(argv: string[]): Promise<number> {
       return 0;
 
     case "migrate":
-      return withDatabase(async ({ pool }) => {
-        const names = rest[0] === "down" ? await migrateDown(pool) : await migrateUp(pool);
-        console.log(
-          names.length
-            ? `${rest[0] === "down" ? "Reverted" : "Applied"}: ${names.join(", ")}`
-            : "Up to date.",
-        );
-        return 0;
-      });
+      return withDatabase(({ pool }) => migrateCommand(pool, rest));
 
     case "setup":
       return withDatabase(async ({ pool, db }) => {

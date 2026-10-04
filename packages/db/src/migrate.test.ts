@@ -1,8 +1,12 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   loadMigrations,
+  MigrationError,
   migrateDown,
   migrateUp,
   migrationState,
@@ -43,6 +47,77 @@ describe("migrations", () => {
       await admin.query(`DROP DATABASE ${name} WITH (FORCE)`);
       await admin.end();
     }
+  });
+});
+
+// What an update reverts when it rolls back (ops/windows/update.ps1): exactly what it applied.
+describe("migrations that fail partway, and reverting by name", () => {
+  let tdb: TestDatabase;
+  let dir: string;
+  beforeEach(async () => {
+    tdb = await createTestDatabase();
+    dir = await mkdtemp(join(tmpdir(), "hearth-migrations-"));
+  });
+  afterEach(async () => {
+    await tdb.destroy();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const table = (name: string) => `seam_${name.split("_")[1]}`;
+  /**
+   * Migrations numbered after every real one, as a later update's are. "_bad" ones fail to
+   * apply, "_stuck" ones to revert.
+   */
+  async function write(...names: string[]) {
+    for (const name of names) {
+      const up = name.endsWith("_bad")
+        ? "SELECT * FROM no_such_table"
+        : `CREATE TABLE ${table(name)} (id int)`;
+      const down = name.endsWith("_stuck")
+        ? "DROP TABLE no_such_table"
+        : `DROP TABLE IF EXISTS ${table(name)}`;
+      await writeFile(join(dir, `${name}.up.sql`), up);
+      await writeFile(join(dir, `${name}.down.sql`), down);
+    }
+  }
+  const applied = async () =>
+    (
+      await tdb.pool.query<{ name: string }>(
+        "SELECT name FROM _migration WHERE name LIKE '9%' ORDER BY name",
+      )
+    ).rows.map((r) => r.name);
+  const exists = async (name: string) =>
+    (await tdb.pool.query("SELECT to_regclass($1) AS t", [table(name)])).rows[0].t !== null;
+
+  it("says which migrations committed before the one that failed", async () => {
+    await write("9001_one", "9002_two", "9003_bad");
+    const err = await migrateUp(tdb.pool, dir).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(MigrationError);
+    expect((err as MigrationError).message).toMatch(/^Migration 9003_bad failed/);
+    expect((err as MigrationError).committed).toEqual(["9001_one", "9002_two"]);
+    expect(await applied()).toEqual(["9001_one", "9002_two"]);
+  });
+
+  it("says which reverts committed before the one that failed", async () => {
+    await write("9001_stuck", "9002_two");
+    expect(await migrateUp(tdb.pool, dir)).toEqual(["9001_stuck", "9002_two"]);
+    const err = await migrateDown(tdb.pool, 2, dir).catch((e: unknown) => e);
+    expect((err as MigrationError).message).toMatch(/^Reverting 9001_stuck failed/);
+    expect((err as MigrationError).committed).toEqual(["9002_two"]);
+    expect(await applied()).toEqual(["9001_stuck"]);
+  });
+
+  it("reverts exactly the migration named, not the newest", async () => {
+    await write("9001_one", "9002_two", "9003_three");
+    await migrateUp(tdb.pool, dir);
+    expect(await migrateDown(tdb.pool, "9002_two", dir)).toEqual(["9002_two"]);
+    expect(await applied()).toEqual(["9001_one", "9003_three"]);
+    expect([await exists("9002_two"), await exists("9003_three")]).toEqual([false, true]);
+    // Already reverted: nothing to do, which a rollback run twice needs.
+    expect(await migrateDown(tdb.pool, "9002_two", dir)).toEqual([]);
+    await expect(migrateDown(tdb.pool, "9009_typo", dir)).rejects.toThrow(
+      "No migration named 9009_typo",
+    );
   });
 });
 

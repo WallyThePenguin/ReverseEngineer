@@ -236,3 +236,22 @@ function Compare-Doctor($Before, $After) {
   }
   return $result
 }
+
+# The migrations `hearth migrate` printed as applied, oldest first. It prints them even when a
+# later one fails: each commits on its own, so a rollback has to revert them.
+function Get-AppliedMigrations([string]$Out) {
+  if ($Out -match "Applied: (.+)") { return @($Matches[1].Trim() -split ",\s*") }
+  return @()
+}
+
+# Reverts the migrations an update applied, newest first, each by name: the newest in the
+# database isn't always this update's (a lower number can arrive after a higher one). True when
+# every one reverted; it stops at the first that won't.
+function Undo-Migrations([string[]]$Applied) {
+  for ($i = $Applied.Count - 1; $i -ge 0; $i--) {
+    Write-Host "== Reverting migration $($Applied[$i])"
+    pnpm --silent hearth migrate down $Applied[$i] | Out-Host
+    if ($LASTEXITCODE -ne 0) { return $false }
+  }
+  return $true
+}

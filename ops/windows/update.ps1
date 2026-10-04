@@ -19,9 +19,10 @@
     (a full disk, say) is listed but doesn't block a fix; a check the old doctor didn't have can't
     be compared, so it's listed as a warning.
 
-  Rolling back reverts the migrations this update applied (`hearth migrate down`, newest first),
-  puts the previous code back, starts it and checks that it came back. Should a migration not
-  revert, the new code stays and the safety dump in data\backups is the way back.
+  Rolling back reverts the migrations this update applied, even those before one that failed
+  (`hearth migrate down <name>`, newest first), puts the previous code back, starts it and checks
+  that it came back. Should a migration not revert, the new code stays and the database is
+  migrated again to fit it; the safety dump in data\backups is the way back.
 
   When the update changes the service definitions or install.ps1, it says to run install.ps1
   again as administrator; everything else still updates.
@@ -127,9 +128,11 @@ try {
   Write-Host "== Migrating the database"
   # stdout only: in Windows PowerShell, redirected stderr would turn any Node warning into an error.
   $out = pnpm --silent hearth migrate | Out-String
+  $code = $LASTEXITCODE
   Write-Host $out
-  if ($out -match "Applied: (.+)") { $applied = @($Matches[1].Trim() -split ",\s*") }
-  if ($LASTEXITCODE -ne 0) { throw "Migrating the database failed (exit $LASTEXITCODE)." }
+  # Read before the exit code: when a migration fails, those before it are still applied.
+  $applied = @(Get-AppliedMigrations $out)
+  if ($code -ne 0) { throw "Migrating the database failed (exit $code)." }
   $since = [datetime]::UtcNow
   Start-Hearth
   $stopped = $false
@@ -146,19 +149,21 @@ try {
   Write-Host "UPDATE FAILED: $_"
   if ((git rev-parse HEAD).Trim() -ne $old) {
     if (-not $stopped) { Stop-Hearth; $stopped = $true }
-    $reverted = $true
-    foreach ($name in $applied) {
-      Write-Host "== Reverting migration (newest first; this update applied $($applied -join ', '))"
-      pnpm --silent hearth migrate down
-      if ($LASTEXITCODE -ne 0) { $reverted = $false; break }
-    }
-    if ($reverted) {
+    if ($applied.Count) { Write-Host "This update applied $($applied -join ', ')." }
+    if (Undo-Migrations $applied) {
       Write-Host "== Putting the previous code back ($($old.Substring(0, 7)))"
       git reset --hard $old
       pnpm install --frozen-lockfile
       pnpm build:web
     } else {
       Write-Host "A migration wouldn't revert, so the new code stays. The safety dump is in data\backups."
+      # Those reverted before it must come back, or the new code won't start on this database
+      # either (the services refuse a database that doesn't fit them).
+      Write-Host "== Migrating the database again, for the code that stays"
+      pnpm --silent hearth migrate | Out-Host
+      if ($LASTEXITCODE -ne 0) {
+        Write-Host "That failed too, so Hearth can't start until the safety dump is restored (docs\setup-windows.md)."
+      }
     }
   }
   if ($stopped) {
