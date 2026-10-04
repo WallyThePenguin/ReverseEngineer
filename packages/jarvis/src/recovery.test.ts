@@ -195,6 +195,43 @@ describe("waiting too long", () => {
       "Jarvis didn't get to this in time, so it let it go.",
     ]);
   });
+
+  it("counts from when you asked, not from when Jarvis came back", async () => {
+    await start();
+    const { conversationId } = await chat("hi");
+    // Jarvis is down for an hour: nothing even queues the turn.
+    h.clock.advance(61 * 60_000);
+    await h.settle();
+    expect(brain.requests).toHaveLength(0);
+    expect((await turns())[0]).toMatchObject({ status: "skipped", skipReason: "expired" });
+    // Retry asks again now.
+    const [t] = await turns();
+    const { turnId } = await ok<{ turnId: string }>("jarvis.retry_turn", { turnId: t!.id });
+    await h.settle();
+    expect(await turn(turnId)).toMatchObject({ status: "done" });
+    expect(await said(conversationId)).toHaveLength(2);
+  });
+
+  it("lets go of a message Jarvis hasn't seen when you press Stop", async () => {
+    await start();
+    const { conversationId } = await chat("hi");
+    expect(await ok("jarvis.cancel_turn", { conversationId })).toEqual({
+      canceled: 0,
+      stopping: 0,
+    });
+    await h.settle();
+    expect(brain.requests).toHaveLength(0);
+    expect(await turns()).toHaveLength(0);
+    expect(await said(conversationId)).toEqual(["Stopped before Jarvis started."]);
+    // What you send after that is answered as usual.
+    await chat("are you back?", conversationId);
+    await h.settle();
+    expect(brain.requests).toHaveLength(1);
+    // With nothing left waiting, Stop doesn't say it stopped anything.
+    const before = await said(conversationId);
+    await ok("jarvis.cancel_turn", { conversationId });
+    expect(await said(conversationId)).toEqual(before);
+  });
 });
 
 describe("routines", () => {

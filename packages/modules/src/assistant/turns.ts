@@ -1,7 +1,7 @@
 // Stop and Retry for Jarvis's turns (D54). Stop cancels what's waiting at once and asks the
 // Jarvis process to stop what's running; Retry queues a failed or stopped turn again.
-import { jarvisTurn } from "@hearth/db";
-import { ActionError, defineAction, newId, notFound } from "@hearth/kernel";
+import { conversationLog, jarvisTurn, type Tx } from "@hearth/db";
+import { ActionError, defineAction, newId, notFound, requireEntity } from "@hearth/kernel";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { appendLog } from "../chat/log.ts";
@@ -9,6 +9,23 @@ import { id } from "../shared.ts";
 
 /** The Jarvis process listens here for turns to stop. */
 export const CANCEL_CHANNEL = "hearth_jarvis_cancel";
+
+/** Whether your last message came after anything Jarvis did in the conversation (and after any
+ * Stop): Jarvis hasn't picked it up, so there's something for Stop to let go of. */
+async function unseen(tx: Tx, conversationId: string): Promise<boolean> {
+  const [log] = await tx
+    .select({
+      asked: sql<
+        number | null
+      >`max(${conversationLog.idx}) filter (where ${conversationLog.kind} = 'user_message')`,
+      seen: sql<
+        number | null
+      >`max(${conversationLog.idx}) filter (where ${conversationLog.turnId} is not null or ${conversationLog.payload}->>'stopped' = 'true')`,
+    })
+    .from(conversationLog)
+    .where(eq(conversationLog.conversationId, conversationId));
+  return log?.asked != null && Number(log.asked) > Number(log.seen ?? -1);
+}
 
 export const turnActions = [
   defineAction({
@@ -43,19 +60,26 @@ export const turnActions = [
         .returning({ id: jarvisTurn.id });
       for (const r of running)
         await ctx.tx.execute(sql`SELECT pg_notify(${CANCEL_CHANNEL}, ${r.id})`);
-      for (const w of waiting) {
-        if (!w.conversationId) continue;
+      // "stopped" also tells chat.reply not to answer a message Jarvis hasn't even seen yet
+      // (it was down): stopping a conversation lets go of everything sent before.
+      const stopped = async (conversationId: string, turnId: string | null) => {
+        const payload = { text: "Stopped before Jarvis started.", stopped: true };
         const [idx] = await appendLog(
           ctx.tx,
-          w.conversationId,
-          [{ kind: "notice", payload: { text: "Stopped before Jarvis started." }, turnId: w.id }],
+          conversationId,
+          [{ kind: "notice", payload, turnId }],
           ctx.now,
         );
         ctx.emit({
           kind: "conversation.appended",
-          entityId: w.conversationId,
-          payload: { conversationId: w.conversationId, idx, kind: "notice", turnId: w.id },
+          entityId: conversationId,
+          payload: { conversationId, idx, kind: "notice", turnId },
         });
+      };
+      for (const w of waiting) if (w.conversationId) await stopped(w.conversationId, w.id);
+      if (i.conversationId && waiting.length === 0 && running.length === 0) {
+        await requireEntity(ctx.tx, i.conversationId, "conversation");
+        if (await unseen(ctx.tx, i.conversationId)) await stopped(i.conversationId, null);
       }
       return { canceled: waiting.length, stopping: running.length };
     },
@@ -91,7 +115,8 @@ export const turnActions = [
         lane: t.lane,
         origin: t.origin,
         prompt: t.prompt,
-        context: { ...t.context, retryOf: t.id },
+        // Asked again now, so it isn't let go for being old.
+        context: { ...t.context, retryOf: t.id, askedAt: ctx.now.toISOString() },
         conversationId: t.conversationId,
         subjectId: t.subjectId,
         sourceEventSeq: t.sourceEventSeq,

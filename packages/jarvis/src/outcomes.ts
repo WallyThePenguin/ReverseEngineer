@@ -70,7 +70,13 @@ export async function applyOutcomes(
           lane: o.lane,
           origin: o.untrusted ? "untrusted" : src.event.origin,
           prompt: o.prompt,
-          context: { ...o.context, source: src.name, ...(scheduleId ? { scheduleId } : {}) },
+          // When it was asked, so a request isn't answered long after (D54): see TURN_TTL_MS.
+          context: {
+            ...o.context,
+            source: src.name,
+            askedAt: src.event.at.toISOString(),
+            ...(scheduleId ? { scheduleId } : {}),
+          },
           conversationId: o.conversationId ?? null,
           subjectId: o.subjectId ?? null,
           sourceEventSeq: src.event.seq,

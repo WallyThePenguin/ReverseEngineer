@@ -15,7 +15,7 @@ import {
   toHearthEvent,
 } from "@hearth/kernel";
 import type { LogEntry } from "@hearth/modules";
-import { and, count, eq, inArray, lt } from "drizzle-orm";
+import { and, count, eq, inArray, lt, sql } from "drizzle-orm";
 import { BACKOFF_MINUTES, type Failure, failure, friendlyError, PASSING } from "./failures.ts";
 import { failureStreak, STREAK_ALERT } from "./health.ts";
 import { applyOutcomes } from "./outcomes.ts";
@@ -24,12 +24,17 @@ import type { TurnLog } from "./turn-log.ts";
 
 type TurnRow = typeof jarvisTurn.$inferSelect;
 
-/** How long a queued turn is still worth running: a chat for an hour, a voice command for two
- * minutes (the owner is waiting with the cursor in place). */
+/** How long after it was asked a turn is still worth running: a chat for an hour, a voice
+ * command for two minutes (the owner is waiting with the cursor in place). */
 export const TURN_TTL_MS: Readonly<Record<string, number>> = {
   chat: 3600_000,
   voice_command: 120_000,
 };
+
+/** When the owner asked, which can be well before the turn was queued if Jarvis was down. */
+const askedAt = (turn: TurnRow): number =>
+  Date.parse(String(turn.context.askedAt ?? "")) || turn.queuedAt.getTime();
+const ASKED_AT = sql`coalesce((${jarvisTurn.context}->>'askedAt')::timestamptz, ${jarvisTurn.queuedAt})`;
 /** A routine with a plain version publishes that rather than wait longer than this for Claude. */
 const FALLBACK_WAIT_MS = 30 * 60_000;
 /** With no reset time given, a usage limit is checked again after this. */
@@ -128,7 +133,7 @@ export function nextTry(e: Ending, f: Failure, now: Date): Date | null {
         )
       : new Date(now.getTime() + BACKOFF_MINUTES[tries - 1]! * 60_000);
   const ttl = TURN_TTL_MS[e.turn.trigger];
-  if (ttl !== undefined && at.getTime() > e.turn.queuedAt.getTime() + ttl) return null;
+  if (ttl !== undefined && at.getTime() > askedAt(e.turn) + ttl) return null;
   if (e.turn.fallback?.length && at.getTime() - now.getTime() > FALLBACK_WAIT_MS) return null;
   return at;
 }
@@ -328,7 +333,7 @@ export async function expireQueued(env: EndEnv): Promise<number> {
         and(
           eq(jarvisTurn.status, "queued"),
           eq(jarvisTurn.trigger, trigger as TurnRow["trigger"]),
-          lt(jarvisTurn.queuedAt, new Date(now.getTime() - ttl)),
+          lt(ASKED_AT, new Date(now.getTime() - ttl)),
         ),
       )
       .returning();
