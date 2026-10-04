@@ -103,7 +103,8 @@ foreach ($svc in "server", "worker") {
     Set-Content -Encoding UTF8 $xml
   & $exe install
   if ($LASTEXITCODE -ne 0) { throw "Installing $id failed (exit $LASTEXITCODE)." }
-  Grant-ServiceControl $id $mySid
+  # A failed grant only means updates need an administrator; never let it stop the install.
+  try { Grant-ServiceControl $id $mySid } catch { Write-Warning "$_ Updates will need an administrator." }
   & $exe start
   if ($LASTEXITCODE -ne 0) {
     Write-Warning "$id is installed but didn't start. Windows Event Viewer (Windows Logs > System) says why."
@@ -146,14 +147,18 @@ Register-ScheduledTask -TaskName "Hearth Jarvis" -TaskPath "\" -Action $action -
 # Your unelevated account may start and stop this task (for updates), and so may LocalService (the
 # worker, which restarts Jarvis when it stops checking in). Like "Hearth Chrome" below: read and
 # run this one task, nothing more.
-$scheduler = New-Object -ComObject Schedule.Service
-$scheduler.Connect()
-$jarvisTask = $scheduler.GetFolder("\").GetTask("Hearth Jarvis")
-$sddl = $jarvisTask.GetSecurityDescriptor(7)
-foreach ($who in $mySid, "LS") {
-  if ($sddl -notmatch "\(A;[^;]*;[^;]*GX[^;]*;;;$who\)") { $sddl += "(A;;GRGX;;;$who)" }
+try {
+  $scheduler = New-Object -ComObject Schedule.Service
+  $scheduler.Connect()
+  $jarvisTask = $scheduler.GetFolder("\").GetTask("Hearth Jarvis")
+  $sddl = $jarvisTask.GetSecurityDescriptor(7)
+  foreach ($who in $mySid, "LS") {
+    if ($sddl -notmatch "\(A;[^;]*;[^;]*GX[^;]*;;;$who\)") { $sddl += "(A;;GRGX;;;$who)" }
+  }
+  $jarvisTask.SetSecurityDescriptor($sddl, 0)
+} catch {
+  Write-Warning "Couldn't let you and the worker run the Hearth Jarvis task ($_). Updates will need an administrator."
 }
-$jarvisTask.SetSecurityDescriptor($sddl, 0)
 Start-ScheduledTask -TaskName "Hearth Jarvis"
 Start-Sleep -Seconds 5
 $running = Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" |
