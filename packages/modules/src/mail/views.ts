@@ -187,7 +187,7 @@ export async function loadThread(db: DbOrTx, id: string): Promise<ThreadView | n
   // The newest few: a conversation full of invitations doesn't slow every view.
   for (const { m } of rows.filter((r) => r.m.invite).slice(-10)) {
     if (!m.invite) continue;
-    const eventId = await matchInvite(db, m.invite);
+    const eventId = await matchInvite(db, m.invite, summary.account);
     const ev = eventId ? await loadEvent(db, eventId) : null;
     invites.set(m.entityId, {
       method: m.invite.method,
