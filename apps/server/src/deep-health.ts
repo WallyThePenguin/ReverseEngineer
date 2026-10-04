@@ -1,0 +1,179 @@
+// Deep health (D57): what an update gate, `hearth doctor` or the web app needs to call Hearth
+// healthy, in one report. The database, whether its migrations fit this code, which build is
+// running, every component's last report (a stale one fails), Jarvis's turns, and the Chrome link.
+import {
+  type Db,
+  jarvisTurn,
+  migrationState,
+  type SqlRunner,
+  schemaMismatch,
+  setting,
+} from "@hearth/db";
+import {
+  type BrowserStatus,
+  type HealthRecord,
+  type HealthStatus,
+  type JudgedHealth,
+  judgeHealth,
+} from "@hearth/modules";
+import { and, desc, gt, isNotNull, like, sql } from "drizzle-orm";
+import { buildId, type VersionStamp } from "./version.ts";
+
+export interface TurnStats {
+  /** Turns that finished in the last 24 hours: done, failed or canceled. */
+  total: number;
+  failed: number;
+  last: { status: string; trigger: string; at: string; error: string | null } | null;
+}
+
+export interface DeepHealth {
+  /** The worst of everything below. */
+  status: HealthStatus;
+  /** What isn't ok, one line each. */
+  problems: string[];
+  /** The build the server started with: its commit, or its build time when there's no commit. */
+  build: string | null;
+  sha: string | null;
+  builtAt: string | null;
+  startedAt: string | null;
+  now: string;
+  db: { ok: boolean; ms: number | null };
+  migrations: {
+    ok: boolean;
+    expected: number;
+    applied: number;
+    missing: string[];
+    unknown: string[];
+  } | null;
+  components: Record<string, JudgedHealth>;
+  jarvisTurns24h: TurnStats | null;
+  browser: { connected: boolean; version: string | null; since: string | null } | null;
+}
+
+export interface DeepHealthInput {
+  db: Db;
+  now: Date;
+  version: VersionStamp | null;
+  startedAt: Date | null;
+  browser: BrowserStatus | null;
+}
+
+const RANK: Record<HealthStatus, number> = { ok: 0, degraded: 1, failing: 2 };
+
+const firstLine = (text: string | null) => (text ? text.split("\n")[0]!.slice(0, 200) : null);
+
+/** SQL text through Drizzle, for helpers written against a pool. */
+export const sqlRunner = (db: Db): SqlRunner => ({
+  query: async <R>(text: string) => ({ rows: (await db.execute(sql.raw(text))).rows as R[] }),
+});
+
+export async function turnStats(db: Db, now: Date): Promise<TurnStats> {
+  const since = new Date(now.getTime() - 24 * 3_600_000);
+  const rows = await db
+    .select({ status: jarvisTurn.status, n: sql<number>`count(*)::int` })
+    .from(jarvisTurn)
+    .where(and(isNotNull(jarvisTurn.finishedAt), gt(jarvisTurn.finishedAt, since)))
+    .groupBy(jarvisTurn.status);
+  const count = (s: string) => rows.find((r) => r.status === s)?.n ?? 0;
+  const [last] = await db
+    .select({
+      status: jarvisTurn.status,
+      trigger: jarvisTurn.trigger,
+      at: jarvisTurn.finishedAt,
+      error: jarvisTurn.error,
+    })
+    .from(jarvisTurn)
+    .where(isNotNull(jarvisTurn.finishedAt))
+    .orderBy(desc(jarvisTurn.finishedAt))
+    .limit(1);
+  return {
+    total: count("done") + count("failed") + count("canceled"),
+    failed: count("failed"),
+    last: last
+      ? {
+          status: last.status,
+          trigger: last.trigger,
+          at: last.at!.toISOString(),
+          error: firstLine(last.error),
+        }
+      : null,
+  };
+}
+
+export async function deepHealth(input: DeepHealthInput): Promise<DeepHealth> {
+  const { db, now, version } = input;
+  const base = {
+    build: version ? buildId(version) : null,
+    sha: version?.sha ?? null,
+    builtAt: version?.builtAt ?? null,
+    startedAt: input.startedAt?.toISOString() ?? null,
+    now: now.toISOString(),
+    browser: input.browser
+      ? {
+          connected: input.browser.connected,
+          version: input.browser.version,
+          since: input.browser.since,
+        }
+      : null,
+  };
+  const started = performance.now();
+  try {
+    await db.execute(sql`SELECT 1`);
+  } catch (err) {
+    return {
+      ...base,
+      status: "failing",
+      problems: [`Can't reach the database: ${firstLine(String((err as Error).message ?? err))}`],
+      db: { ok: false, ms: null },
+      migrations: null,
+      components: {},
+      jarvisTurns24h: null,
+    };
+  }
+  const ms = Math.round(performance.now() - started);
+
+  let status: HealthStatus = "ok";
+  const problems: string[] = [];
+  const add = (s: HealthStatus, problem: string) => {
+    problems.push(problem);
+    if (RANK[s] > RANK[status]) status = s;
+  };
+
+  const state = await migrationState(sqlRunner(db));
+  const mismatch = schemaMismatch(state);
+  if (mismatch) add("failing", mismatch);
+  if (version && version.migrations.join(",") !== state.expected.join(","))
+    add(
+      "degraded",
+      "The web app was built from other code than the server is running. Run `pnpm build:web`, then `hearth restart server`.",
+    );
+
+  const components: Record<string, JudgedHealth> = {};
+  const rows = await db.select().from(setting).where(like(setting.key, "health.%"));
+  for (const r of rows) {
+    const name = r.key.slice("health.".length);
+    const judged = judgeHealth(name, r.value as HealthRecord, now);
+    components[name] = judged;
+    if (judged.status !== "ok") add(judged.status, `${name}: ${judged.detail}`);
+  }
+
+  const turns = await turnStats(db, now);
+  if (turns.last?.status === "failed")
+    add("degraded", `Jarvis's last turn failed (${turns.last.at}).`);
+
+  return {
+    ...base,
+    status,
+    problems,
+    db: { ok: true, ms },
+    migrations: {
+      ok: !mismatch,
+      expected: state.expected.length,
+      applied: state.applied.length,
+      missing: state.missing,
+      unknown: state.unknown,
+    },
+    components,
+    jarvisTurns24h: turns,
+  };
+}

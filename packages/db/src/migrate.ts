@@ -87,6 +87,53 @@ export async function migrateUp(pool: pg.Pool, dir = MIGRATIONS_DIR): Promise<st
   }
 }
 
+export interface MigrationState {
+  /** What this code's migrations folder has, oldest first. */
+  expected: string[];
+  /** What the database has applied, oldest first. */
+  applied: string[];
+  /** Expected but not applied: the database is behind this code. */
+  missing: string[];
+  /** Applied but unknown to this code: the database is ahead of it. */
+  unknown: string[];
+}
+
+/** Anything that runs SQL text: a pool, a client, or a Drizzle database (db.execute). */
+export interface SqlRunner {
+  query<R extends pg.QueryResultRow>(text: string): Promise<{ rows: R[] }>;
+}
+
+/** Compares the database's migrations with this code's. Never changes anything. */
+export async function migrationState(
+  pool: SqlRunner,
+  dir = MIGRATIONS_DIR,
+): Promise<MigrationState> {
+  const expected = loadMigrations(dir).map((m) => m.name);
+  const exists = await pool.query<{ t: string | null }>("SELECT to_regclass('_migration') AS t");
+  const applied = exists.rows[0]?.t
+    ? (await pool.query<{ name: string }>("SELECT name FROM _migration ORDER BY name")).rows.map(
+        (r) => r.name,
+      )
+    : [];
+  const have = new Set(applied);
+  const known = new Set(expected);
+  return {
+    expected,
+    applied,
+    missing: expected.filter((n) => !have.has(n)),
+    unknown: applied.filter((n) => !known.has(n)),
+  };
+}
+
+/** Why this code and the database don't fit together, in words; null when they do. */
+export function schemaMismatch(state: MigrationState): string | null {
+  if (state.missing.length)
+    return `The database is missing ${state.missing.length} update(s) this code needs (${state.missing.join(", ")}). Run \`hearth migrate\`.`;
+  if (state.unknown.length)
+    return `The database has update(s) this code doesn't know (${state.unknown.join(", ")}), so it's newer than the code. Update Hearth, or restore the backup taken before the last update.`;
+  return null;
+}
+
 /** Reverts the last `steps` migrations. Returns the names reverted. */
 export async function migrateDown(
   pool: pg.Pool,
