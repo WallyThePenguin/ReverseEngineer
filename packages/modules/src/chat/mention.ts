@@ -53,7 +53,7 @@ function answer(entityId: string, p: Mentioned, context: string, untrusted = fal
     subjectId,
     dedupeKey: `mention:${entityId}:${p.anchor}`,
     context: { sourceId: entityId, sourceType: p.type },
-    prompt: `You were @mentioned in a ${p.type}. Read the record, then answer or do what was asked:\n\n${context}`,
+    prompt: `You were @mentioned in a ${p.type}. Read the record, then answer or do what was asked:\n\n${untrusted ? asUntrusted(context, p.type) : context}`,
     ...(untrusted ? { untrusted: true } : {}),
   } satisfies ReflexOutcome;
 }

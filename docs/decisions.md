@@ -1383,3 +1383,27 @@ fail validation). Answering a mention at once (it fires on half a sentence).
 **Why:** The owner's edits must survive a closed tab, a crash, an offline spell and Jarvis editing
 the same thing, without the owner noticing anything but the result. Each rule closes a way an
 edit was being lost.
+
+## D60. Routine audit rows age out; Hearth's own failures interrupt (2026-10-04)
+
+**Decision:** The audit log keeps what matters for as long as Hearth runs and lets routine rows
+go, and a part of Hearth that stops working tells you on your phone.
+
+- **What ages out.** Reads that went through (Jarvis's, outside agents', integrations') go after
+  90 days; health check-ins and integration syncs that worked go after 14 (`AUDIT_KEEP`). The
+  worker prunes every 6 hours, 5,000 rows at a time, so the table is never locked for long.
+  Failures, refusals and anything tied to an approval are kept, as is every other write. A
+  check-in that changed nothing doesn't get a row at all (`auditWhen`).
+- **Failures are interrupts.** "Google sync is failing", "Last night's backup failed" and the
+  like are written in the same transaction as the report that says so, not by a reflex, so they
+  arrive with Jarvis stopped too. Each is an interrupt: it counts toward the day's 8, waits out
+  quiet hours (a backup that fails at 2 a.m. buzzes at breakfast) and is raised once a day per
+  component, so a flapping one doesn't fill the inbox.
+
+**Alternatives:** Keeping every row forever (check-ins alone add thousands a day). A size cap
+(drops old failures to keep new reads). Alerts as plain inbox items (nobody opens the inbox to
+learn the backup stopped). Alerts outside the budget (a bad night could wake the owner hourly).
+
+**Why:** Owner's call, taking the defaults proposed with the daily-loops work: the audit log has
+to stay fast to query and small to back up, and a failure nobody hears about is the kind that
+loses a week of mail or backups.
