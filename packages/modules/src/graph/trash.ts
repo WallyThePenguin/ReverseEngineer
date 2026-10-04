@@ -3,7 +3,7 @@
 // record keep their own lifecycle: their sync owns them.
 import { entity, type Tx } from "@hearth/db";
 import { type ActionContext, notFound } from "@hearth/kernel";
-import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, notInArray, sql } from "drizzle-orm";
 
 /** Records that go to the trash, and come back, with the record they're under. */
 export const FOLLOWS_PARENT = ["comment", "task", "note"] as const;
@@ -118,9 +118,11 @@ export interface TrashRow {
 
 /**
  * What's in the trash, most recently trashed first. A record that went with the record it's
- * under is counted on that record's row instead of having its own.
+ * under is counted on that record's row instead of having its own. `hidden` are the types the
+ * caller can't read (memory, for outside agents: D58): they're neither listed nor counted.
  */
-export async function listTrash(tx: Tx, limit: number): Promise<TrashRow[]> {
+export async function listTrash(tx: Tx, limit: number, hidden: string[]): Promise<TrashRow[]> {
+  const visible = hidden.length ? notInArray(entity.type, hidden) : undefined;
   const parent = sql`(SELECT p.deleted_at FROM entity p WHERE p.id = ${entity.parentId})`;
   const rows = await tx
     .select({
@@ -135,6 +137,7 @@ export async function listTrash(tx: Tx, limit: number): Promise<TrashRow[]> {
       and(
         isNotNull(entity.deletedAt),
         inArray(entity.type, [...TRASH_TYPES]),
+        visible,
         sql`(${entity.parentId} IS NULL OR ${parent} IS DISTINCT FROM ${entity.deletedAt})`,
       ),
     )
@@ -146,9 +149,12 @@ export async function listTrash(tx: Tx, limit: number): Promise<TrashRow[]> {
         .select({ at: entity.deletedAt, n: sql<number>`count(*)::int` })
         .from(entity)
         .where(
-          inArray(
-            entity.deletedAt,
-            moments.map((m) => new Date(m)),
+          and(
+            inArray(
+              entity.deletedAt,
+              moments.map((m) => new Date(m)),
+            ),
+            visible,
           ),
         )
         .groupBy(entity.deletedAt)

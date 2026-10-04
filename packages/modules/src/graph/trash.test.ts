@@ -1,7 +1,7 @@
 // The trash: a record goes with its subtasks, subpages and comments, and comes back with exactly
 // what went with it. The Trash view shows one row per thing you trashed.
 import { entity } from "@hearth/db";
-import { integrationCaller, ownerCaller } from "@hearth/kernel";
+import { integrationCaller, jarvisCaller, ownerCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -117,6 +117,33 @@ describe("the trash", () => {
     await ok("entity.trash", { id: note.id });
     const again = await t.kernel.execute("entity.trash", { id: note.id }, ownerCaller());
     expect(again).toMatchObject({ status: "error", code: "not_found" });
+  });
+
+  it("keeps your memory notes out of an integration's trash, and out of Jarvis's reach after outside content", async () => {
+    const memory = await ok<{ id: string }>("memory.remember", {
+      title: "Banking",
+      body: "The owner banks with First Union.",
+    });
+    const note = await ok<{ id: string }>("note.create", { title: "Old idea" });
+    t.clock.advance(1000);
+    // Trashed in the same moment, so the note's row could count the memory note as going with it.
+    await ok("entity.trash", { id: memory.id });
+    await ok("entity.trash", { id: note.id });
+    const outside = integrationCaller("google");
+    const listed = await ok<TrashRow[]>("entity.trashed", {}, outside);
+    expect(listed.map((r) => [r.title, r.withIt])).toEqual([["Old idea", 0]]);
+    const back = await t.kernel.execute("entity.restore", { id: memory.id }, outside);
+    expect(back).toMatchObject({ status: "error", code: "not_found" });
+    // Memory back from the trash steers every turn again, so Jarvis can't after outside content.
+    const planted = await t.kernel.execute(
+      "entity.restore",
+      { id: memory.id },
+      jarvisCaller("untrusted"),
+    );
+    expect(planted).toMatchObject({ status: "error", code: "forbidden" });
+    expect(await live([memory.id])).toEqual([]);
+    await ok("entity.restore", { id: memory.id }, jarvisCaller("agent"));
+    expect(await live([memory.id])).toEqual([memory.id]);
   });
 
   it("undoes a Notion import, and brings the whole import back from its page", async () => {
