@@ -1,5 +1,6 @@
 // The heartbeat: every 25 minutes during the day, one model turn only if reflexes set something
 // aside since the last one. Watching is free; thinking costs a turn.
+import { asUntrusted } from "@hearth/core";
 import { heartbeatItem } from "@hearth/db";
 import type { HearthEvent, Kernel, ReflexOutcome } from "@hearth/kernel";
 import { asc, inArray, isNull } from "drizzle-orm";
@@ -31,14 +32,20 @@ export async function runHeartbeat(kernel: Kernel, event: HearthEvent): Promise<
         items.map((i) => i.id),
       ),
     );
-  const list = items
-    .map((i) => `- ${i.text}${i.aboutId ? ` (record ${i.aboutId})` : ""}`)
-    .join("\n");
+  // What came from outside content (an email's subject) is still outside content now, so the
+  // turn starts untrusted and the model sees which lines those are (D58).
+  const untrusted = items.some((i) => i.origin === "untrusted");
+  const line = (i: (typeof items)[number]) => {
+    const text = `${i.text}${i.aboutId ? ` (record ${i.aboutId})` : ""}`;
+    return `- ${i.origin === "untrusted" ? asUntrusted(text, "heartbeat item") : text}`;
+  };
+  const list = items.map(line).join("\n");
   return [
     {
       kind: "turn",
       trigger: "routine",
       lane: "fast",
+      ...(untrusted ? { untrusted: true } : {}),
       dedupeKey: `heartbeat:${String(event.payload.scheduledFor)}`,
       // A turn that fails for good puts these back for the next heartbeat (D54).
       context: { routine: "heartbeat", items: items.length, itemIds: items.map((i) => i.id) },

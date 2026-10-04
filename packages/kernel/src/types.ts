@@ -153,6 +153,8 @@ export type ReflexOutcome =
       fallback?: ReflexOutcome[];
       /** The prompt carries outside content, so the turn starts untrusted (D25). */
       untrusted?: boolean;
+      /** The turn is no more trusted than this (a watch replays what set it up, D58). */
+      origin?: Origin;
     }
   | { kind: "tell"; notification: NewNotification }
   | { kind: "note"; observation: NewObservation }

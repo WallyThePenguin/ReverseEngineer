@@ -13,6 +13,7 @@ import { appendEvents, type EventStamp } from "./events.ts";
 import { newId, stableHash } from "./ids.ts";
 import type { ExecuteResult, Kernel } from "./kernel.ts";
 import { createNotification } from "./notify.ts";
+import { holdsOutside } from "./outside.ts";
 import type { ActionDef, Caller, EmitEvent } from "./types.ts";
 
 export type ApprovalRow = typeof approval.$inferSelect;
@@ -201,6 +202,7 @@ export async function resolveApproval(
     from: ApprovalStatus,
     status: ApprovalStatus,
     extra: Partial<ApprovalRow>,
+    touchedOutside = false,
   ): Promise<Deferred | null> => {
     const updated = await tx
       .update(approval)
@@ -236,7 +238,12 @@ export async function resolveApproval(
           },
         },
       ],
-      stamp: { actor: caller.principal, origin: resolvedOrigin(row, def), correlationId, at: now },
+      stamp: {
+        actor: caller.principal,
+        origin: resolvedOrigin(row, def, touchedOutside),
+        correlationId,
+        at: now,
+      },
     };
   };
   const finish = async (
@@ -291,9 +298,10 @@ export async function resolveApproval(
   const result = await kernel.run(def, parsed.data, requester, {
     approvalId,
     inTx: async (tx, r) => {
-      const d = await close(tx, "executing", "executed", {
-        result: (r ?? null) as ApprovalRow["result"],
-      });
+      // A result that shows outside content (an email it found) reaches Jarvis as untrusted.
+      const touched = await holdsOutside(tx, (t) => kernel.registry.isOutsideType(t), r);
+      const result = (r ?? null) as ApprovalRow["result"];
+      const d = await close(tx, "executing", "executed", { result }, touched);
       if (!d) throw new ActionError("conflict", "This approval was closed while it ran.");
       return d;
     },

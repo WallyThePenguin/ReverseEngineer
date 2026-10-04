@@ -1,9 +1,10 @@
 // How long approvals wait, what runs them out, and how their cards name records (D58).
-import type { Origin, Risk } from "@hearth/core";
+import { type Origin, type Risk, weakerOrigin } from "@hearth/core";
 import { approval, type Db, type DbOrTx, entity, notification } from "@hearth/db";
 import { and, eq, inArray, lte, ne } from "drizzle-orm";
 import type { Clock } from "./clock.ts";
 import { appendEvents } from "./events.ts";
+import { isOutsideRecord } from "./outside.ts";
 import type { ActionDef } from "./types.ts";
 
 const HOUR = 3600_000;
@@ -26,14 +27,17 @@ const CUT_SHORT =
   "Hearth stopped while doing this, so it may or may not have happened. Check before asking again.";
 
 /**
- * What Jarvis hears about a decision carries the request's trust, and an action whose result is
- * outside content (a page it pressed something on) makes it untrusted whoever asked (D25).
+ * What Jarvis hears about a decision carries the request's trust (the turn it resumes is no more
+ * trusted than the one that asked), and an action whose result is outside content (a page it
+ * pressed something on, an email it found) makes it untrusted whoever asked (D25, D58).
  */
 export function resolvedOrigin(
   row: { origin: string },
   def: Pick<ActionDef, "external"> | undefined,
+  touchedOutside = false,
 ): Origin {
-  return row.origin === "untrusted" || def?.external ? "untrusted" : "owner";
+  if (def?.external || touchedOutside) return "untrusted";
+  return weakerOrigin(row.origin as Origin, "owner");
 }
 
 /**
@@ -115,7 +119,6 @@ export function expireApprovals(db: Db, clock: Clock): Promise<number> {
 }
 
 const UUID_IN_TEXT = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
-const fromOutsideTool = (by: string) => by.startsWith("integration:") || by.startsWith("mcp:");
 
 /**
  * A card's line with the records it names by id shown by their titles instead: "Move record
@@ -141,8 +144,7 @@ export async function withTitles(
     .where(inArray(entity.id, ids.slice(0, 20)));
   const titles = new Map(
     rows
-      .filter((r) => r.title.trim() && !r.outside && !fromOutsideTool(r.createdBy))
-      .filter((r) => !isOutsideType(r.type))
+      .filter((r) => r.title.trim() && !isOutsideRecord(r, isOutsideType))
       .map((r) => {
         const t = r.title.replace(/\s+/g, " ").trim();
         return [r.id, `"${t.length > 80 ? `${t.slice(0, 79)}…` : t}"`] as const;

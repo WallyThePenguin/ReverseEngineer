@@ -11,13 +11,15 @@ import {
 import { entity } from "@hearth/db";
 import {
   type Caller,
+  holdsOutside,
+  isOutsideRecord,
   isVisibleTo,
   jarvisCaller,
   type Kernel,
   type ModelImage,
   newId,
 } from "@hearth/kernel";
-import { eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { BrainTool } from "./brain.ts";
 import { checkActing, checkOpen, readOutsideContent, vouchFor } from "./trust.ts";
@@ -219,47 +221,16 @@ export function buildTools(kernel: Kernel, state: TurnState, log: LogFn): BrainT
   return tools;
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const UUID_IN_TEXT = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 
 /**
  * Whether a result shows records holding outside content (an email found by entity_search, a
- * conversation's title in a list of links). Reading those lowers trust like record_read does.
+ * conversation's title in a list of links, a watch kept as untrusted). Reading those lowers
+ * trust like record_read does. See holdsOutside.
  */
-export async function mentionsOutside(kernel: Kernel, value: unknown): Promise<boolean> {
-  const ids = new Set<string>();
-  let found = false;
-  const walk = (v: unknown, depth: number) => {
-    if (found || depth > 8) return;
-    // Too much to check: assume it holds something from outside.
-    if (ids.size > 500) {
-      found = true;
-      return;
-    }
-    if (typeof v === "string") {
-      if (UUID.test(v)) ids.add(v);
-    } else if (Array.isArray(v)) {
-      for (const x of v) walk(x, depth + 1);
-    } else if (v && typeof v === "object") {
-      for (const [k, x] of Object.entries(v)) {
-        if ((k === "type" || k === "otherType") && typeof x === "string")
-          found ||= kernel.registry.isOutsideType(x);
-        if (k === "createdBy" && typeof x === "string") found ||= fromOutsideTool(x);
-        walk(x, depth + 1);
-      }
-    }
-  };
-  walk(value, 0);
-  if (found) return true;
-  if (ids.size === 0) return false;
-  const rows = await kernel.db
-    .select({ type: entity.type, createdBy: entity.createdBy })
-    .from(entity)
-    .where(inArray(entity.id, [...ids]));
-  return rows.some((r) => kernel.registry.isOutsideType(r.type) || fromOutsideTool(r.createdBy));
+export function mentionsOutside(kernel: Kernel, value: unknown): Promise<boolean> {
+  return holdsOutside(kernel.db, (t) => kernel.registry.isOutsideType(t), value);
 }
-
-const fromOutsideTool = (by: string) => by.startsWith("integration:") || by.startsWith("mcp:");
 
 /** A record as Jarvis reads it: its module's description, plus links both ways. */
 export async function describeRecord(
@@ -299,7 +270,8 @@ export async function readRecord(
   // of what links to it), so the records it names count too.
   const named = [...text.matchAll(UUID_IN_TEXT)].map((m) => m[0]).filter((x) => x !== id);
   const fromOutside =
-    outsideType || fromOutsideTool(row.createdBy) || (await mentionsOutside(kernel, named));
+    isOutsideRecord(row, (t) => kernel.registry.isOutsideType(t)) ||
+    (await mentionsOutside(kernel, named));
   const source = outsideType ? row.type : row.createdBy;
   return { text: fromOutside ? asUntrusted(text, source) : text, fromOutside };
 }

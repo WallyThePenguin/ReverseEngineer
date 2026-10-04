@@ -15,7 +15,12 @@ export interface NewEntity {
   title: string;
   body?: string | null;
   parentId?: string | null;
+  /** Its text came from outside even though the caller is trusted (a page's text, say). */
+  outside?: boolean;
 }
+
+/** Text written by a turn that had read outside content is outside content too (D58). */
+const writesOutside = (ctx: ActionContext) => ctx.caller.origin === "untrusted";
 
 export async function getEntity(db: DbOrTx, id: string): Promise<EntityRow | undefined> {
   const [row] = await db.select().from(entity).where(eq(entity.id, id));
@@ -39,6 +44,7 @@ export async function createEntity(ctx: ActionContext, input: NewEntity): Promis
       title: input.title,
       body: input.body ?? null,
       parentId: input.parentId ?? null,
+      outside: input.outside === true || writesOutside(ctx),
       createdAt: ctx.now,
       updatedAt: ctx.now,
       createdBy: ctx.caller.principal,
@@ -85,6 +91,8 @@ export async function updateEntity(
     .set({
       ...(patch.title !== undefined ? { title: patch.title } : {}),
       ...(patch.body !== undefined ? { body: patch.body } : {}),
+      // Once outside text is in it, it stays outside content: an edit can't vouch for the rest.
+      ...(writesOutside(ctx) ? { outside: true } : {}),
       updatedAt: ctx.now,
       updatedBy: ctx.caller.principal,
       revision: current.revision + 1,

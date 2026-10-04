@@ -51,6 +51,11 @@ export async function liveEntity(
 export const writtenOutside = (by: string) =>
   by.startsWith("integration:") || by.startsWith("mcp:");
 
+/** A record whose text is outside content: an outside tool wrote it, or a turn that had read
+ * some (D58). For digests, whose items then say `outside`. */
+export const isOutside = (row: { createdBy: string; outside?: boolean | null }) =>
+  row.outside === true || writtenOutside(row.createdBy);
+
 /** A short single-line preview of a body. */
 export function preview(text: string | null | undefined, max = 140): string {
   const flat = stripMentions(text ?? "")

@@ -6,7 +6,7 @@ import { conversationLog, type Db, entity, memoryNote } from "@hearth/db";
 import { getSetting, type RoutineDef } from "@hearth/kernel";
 import { and, asc, desc, eq, gte, isNull, sql } from "drizzle-orm";
 import { renderDigest, withoutOutside } from "../assistant/brief.ts";
-import { preview } from "../shared.ts";
+import { isOutside, preview } from "../shared.ts";
 
 const DAY_MS = 24 * 3600_000;
 
@@ -57,12 +57,14 @@ export const consolidateRoutine: RoutineDef = {
     // Outside content (email subjects) is never a source for memory, so it isn't shown at all.
     const facts = renderDigest(withoutOutside(await firing.digest(since)));
     const said = await ownerWords(ctx.db, since);
-    const [journal] = await ctx.db
-      .select({ body: entity.body })
+    const [latest] = await ctx.db
+      .select({ body: entity.body, createdBy: entity.createdBy, outside: entity.outside })
       .from(entity)
       .where(and(eq(entity.type, "journal"), isNull(entity.deletedAt)))
       .orderBy(desc(entity.createdAt))
       .limit(1);
+    // A journal written after reading outside content may quote it, so it's left out (D58).
+    const journal = latest && !isOutside(latest) ? latest : undefined;
     const notes = await ctx.db
       .select({ id: entity.id, title: entity.title, scope: memoryNote.scope })
       .from(entity)
