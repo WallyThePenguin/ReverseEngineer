@@ -18,6 +18,10 @@ function headerOf(raw: Buffer, name: string): string | null {
   return m ? m[1]!.trim() : null;
 }
 
+/** A message to put in the fake mailbox, with any extra headers (List-Id, Precedence…). */
+type FakeMail = Partial<OutgoingMail> &
+  Pick<OutgoingMail, "from" | "subject" | "text"> & { headers?: Record<string, string> };
+
 type Entry =
   | { kind: "added" | "deleted"; id: string; labels: string[] }
   | { kind: "labels"; id: string; added: string[]; removed: string[]; labels: string[] };
@@ -135,21 +139,19 @@ export class FakeGmail {
     this.history.push({ ...change, historyId: ++this.historyId });
   }
 
-  private build(m: Partial<OutgoingMail> & Pick<OutgoingMail, "from" | "subject" | "text">) {
+  private build({ headers, ...m }: FakeMail) {
     const id = `m${++this.seq}`;
     const raw = buildMessage({
       to: [{ address: this.address }],
       date: new Date(Date.UTC(2026, 9, 1, 12, this.seq)),
       ...m,
     });
-    return { id, raw };
+    const extra = Object.entries(headers ?? {}).map(([k, v]) => `${k}: ${v}\r\n`);
+    return { id, raw: Buffer.concat([Buffer.from(extra.join("")), raw]) };
   }
 
   /** Delivers a message, as if it arrived in Gmail. Returns its Gmail id. */
-  deliver(
-    m: Partial<OutgoingMail> & Pick<OutgoingMail, "from" | "subject" | "text">,
-    labels = ["INBOX", "UNREAD", "CATEGORY_PERSONAL"],
-  ): string {
+  deliver(m: FakeMail, labels = ["INBOX", "UNREAD", "CATEGORY_PERSONAL"]): string {
     const { id, raw } = this.build(m);
     this.messages.set(id, { id, labelIds: labels, raw, at: this.now() });
     this.record({ kind: "added", id, labels });
@@ -157,10 +159,7 @@ export class FakeGmail {
   }
 
   /** Puts a message in the mailbox with no history, like old mail from before Hearth looked. */
-  seed(
-    m: Partial<OutgoingMail> & Pick<OutgoingMail, "from" | "subject" | "text">,
-    labels = ["CATEGORY_PERSONAL"],
-  ): string {
+  seed(m: FakeMail, labels = ["CATEGORY_PERSONAL"]): string {
     const { id, raw } = this.build(m);
     this.messages.set(id, { id, labelIds: labels, raw, at: this.now() });
     return id;

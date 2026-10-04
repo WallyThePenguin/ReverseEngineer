@@ -14,6 +14,9 @@ import { MailProviderError, type RawMail } from "./provider.ts";
 import { providerFor } from "./providers.ts";
 import { saveMail } from "./store.ts";
 
+/** A draft kept from an account you disconnected goes nowhere until you choose a From. */
+const NO_ACCOUNT = "Pick which account this draft goes from first.";
+
 export const sendAction = defineAction({
   name: "mail.send",
   description: "Send a draft by its id. Get it right first: the owner sees exactly what goes out.",
@@ -22,6 +25,7 @@ export const sendAction = defineAction({
   async snapshot(i: { id: string }, ctx: ReadContext) {
     const d = await loadDraft(ctx.db, i.id);
     if (!d) throw new Error("No draft with that id.");
+    if (!d.account) throw new Error(NO_ACCOUNT);
     return { snapshot: snapshotOf(d) };
   },
   summarize: (i: { id: string; snapshot?: Snapshot }) => {
@@ -52,10 +56,11 @@ export const sendAction = defineAction({
     if (d.to.length + d.cc.length + d.bcc.length === 0)
       throw new ActionError("invalid_input", "The draft has no recipients.");
     const [draftRow] = await ctx.tx.select().from(mailDraft).where(eq(mailDraft.entityId, d.id));
+    if (!draftRow?.accountId) throw new ActionError("invalid_input", NO_ACCOUNT);
     const [account] = await ctx.tx
       .select()
       .from(mailAccount)
-      .where(eq(mailAccount.id, draftRow!.accountId));
+      .where(eq(mailAccount.id, draftRow.accountId));
     const from = account!.address;
     const provider = providerFor(ctx, account!);
     const messageId = draftRow!.messageId;

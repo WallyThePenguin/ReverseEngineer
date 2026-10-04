@@ -10,6 +10,15 @@ ALTER TABLE github_account
 ALTER TABLE slack_workspace
   DROP COLUMN sync_state, DROP COLUMN failures, DROP COLUMN failing_since;
 
+-- Drafts kept from an account that's gone can't stay: every draft has an account again.
+DELETE FROM entity WHERE id IN (SELECT entity_id FROM mail_draft WHERE account_id IS NULL);
+ALTER TABLE mail_draft DROP CONSTRAINT mail_draft_account_id_fkey;
+ALTER TABLE mail_draft ADD CONSTRAINT mail_draft_account_id_fkey
+  FOREIGN KEY (account_id) REFERENCES mail_account (id) ON DELETE CASCADE;
+ALTER TABLE mail_draft ALTER COLUMN account_id SET NOT NULL;
+-- "Needs your reply" flags the new rule cleared stay cleared; the next message works them out.
+ALTER TABLE mail_message DROP COLUMN bulk;
+
 ALTER TABLE mail_account DROP COLUMN repair_from, DROP COLUMN repaired_at;
 ALTER TABLE mail_draft DROP COLUMN message_id;
 

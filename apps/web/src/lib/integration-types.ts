@@ -111,7 +111,8 @@ export interface MailAccount {
 
 export interface MailDraft {
   id: string;
-  account: string;
+  /** Null for a draft kept from a disconnected account, until you pick a From. */
+  account: string | null;
   threadId: string | null;
   to: MailAddress[];
   cc: MailAddress[];

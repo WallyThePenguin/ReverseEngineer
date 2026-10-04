@@ -1,12 +1,15 @@
 // Originals missing from this PC (a restore without its files, a disk clean-up) are fetched again
 // from the mail service: at once when you open one, and in the background, a few a round, in one
-// pass a day per account. Files no message needs any more are deleted after that pass (6.6).
+// pass a day per account. Files no message needs any more are deleted after that pass (6.6). The
+// same pass reads mail from before 0032 for whether it was sent to many at once (6.9).
 import { mailAccount, mailMessage } from "@hearth/db";
 import { type ActionContext, defineAction } from "@hearth/kernel";
 import { and, asc, eq, gt } from "drizzle-orm";
 import { z } from "zod";
 import { id } from "../shared.ts";
 import { BLOB_SERVICE, type BlobStore } from "./blobs.ts";
+import { recomputeThread } from "./flags.ts";
+import { isBulk, rawHeaders } from "./mime.ts";
 import type { MailProvider } from "./provider.ts";
 import { providerFor } from "./providers.ts";
 import type { AccountRow } from "./store.ts";
@@ -16,7 +19,21 @@ export const REPAIR_SCAN = 200;
 export const REPAIR_FETCH = 5;
 const DAY_MS = 24 * 3600_000;
 
-type MessageRow = Pick<typeof mailMessage.$inferSelect, "entityId" | "providerId" | "rawHash">;
+type MessageRow = Pick<
+  typeof mailMessage.$inferSelect,
+  "entityId" | "providerId" | "rawHash" | "bulk" | "threadId"
+>;
+
+/**
+ * Notes whether a message was sent to many at once, from its original, when that wasn't known
+ * yet (mail from before 0032). One that was no longer needs your reply.
+ */
+async function noteBulk(ctx: ActionContext, m: MessageRow, raw: Buffer) {
+  if (m.bulk !== null) return;
+  const bulk = isBulk(rawHeaders(raw));
+  await ctx.tx.update(mailMessage).set({ bulk }).where(eq(mailMessage.entityId, m.entityId));
+  if (bulk) await recomputeThread(ctx, m.threadId);
+}
 
 /** Fetches one message's original again. False if the service no longer has it. */
 async function restore(
@@ -35,6 +52,7 @@ async function restore(
       .update(mailMessage)
       .set({ rawHash: hash })
       .where(eq(mailMessage.entityId, m.entityId));
+  await noteBulk(ctx, m, got.raw);
   return true;
 }
 
@@ -60,6 +78,8 @@ export async function repairSome(
       entityId: mailMessage.entityId,
       providerId: mailMessage.providerId,
       rawHash: mailMessage.rawHash,
+      bulk: mailMessage.bulk,
+      threadId: mailMessage.threadId,
     })
     .from(mailMessage)
     .where(
@@ -87,6 +107,9 @@ export async function repairSome(
         stopped = true;
         break;
       }
+    } else if (m.bulk === null) {
+      const raw = await blobs.get(m.rawHash);
+      if (raw) await noteBulk(ctx, m, raw);
     }
     checked = m.entityId;
   }

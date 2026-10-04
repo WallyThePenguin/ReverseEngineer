@@ -56,7 +56,8 @@ function parseAll(list: string[] | undefined): MailAddress[] | undefined {
 
 export interface DraftView {
   id: string;
-  account: string;
+  /** The address it goes from; null for one kept from a disconnected account, until you pick. */
+  account: string | null;
   threadId: string | null;
   to: MailAddress[];
   cc: MailAddress[];
@@ -71,7 +72,7 @@ export async function loadDraft(db: DbOrTx, draftId: string): Promise<DraftView 
     .select({ d: mailDraft, e: entity, account: mailAccount.address })
     .from(mailDraft)
     .innerJoin(entity, eq(entity.id, mailDraft.entityId))
-    .innerJoin(mailAccount, eq(mailAccount.id, mailDraft.accountId))
+    .leftJoin(mailAccount, eq(mailAccount.id, mailDraft.accountId))
     .where(and(eq(mailDraft.entityId, draftId), isNull(entity.deletedAt)));
   if (!row) return null;
   return {
@@ -90,7 +91,7 @@ export async function loadDraft(db: DbOrTx, draftId: string): Promise<DraftView 
 /** What sending a draft would send, as the approval card shows it. */
 export function snapshotOf(d: DraftView) {
   return {
-    from: d.account,
+    from: d.account ?? "",
     to: d.to.map(shown),
     cc: d.cc.map(shown),
     bcc: d.bcc.map(shown),
@@ -203,7 +204,8 @@ export const draftActions = [
   }),
   defineAction({
     name: "mail.draft_update",
-    description: "Change a draft: recipients, subject or text. Leave out what stays the same.",
+    description:
+      "Change a draft: recipients, subject, text, or the account it goes from. Leave out what stays the same.",
     input: z.object({
       id,
       to: addresses.optional(),
@@ -211,6 +213,7 @@ export const draftActions = [
       bcc: addresses.optional(),
       subject: z.string().max(500).optional(),
       text: body.optional(),
+      account: z.string().email().optional().describe("Which of the owner's accounts it's from."),
     }),
     risk: "internal",
     async handler(i, ctx) {
@@ -220,13 +223,16 @@ export const draftActions = [
       const to = parseAll(i.to);
       const cc = parseAll(i.cc);
       const bcc = parseAll(i.bcc);
-      if (to || cc || bcc)
+      // The Message-ID stays: a Send that went out from this account is still found in Sent.
+      const from = i.account ? await accountFor(ctx, i.account) : null;
+      if (to || cc || bcc || from)
         await ctx.tx
           .update(mailDraft)
           .set({
             ...(to ? { toAddresses: to } : {}),
             ...(cc ? { ccAddresses: cc } : {}),
             ...(bcc ? { bccAddresses: bcc } : {}),
+            ...(from ? { accountId: from.id } : {}),
           })
           .where(eq(mailDraft.entityId, i.id));
       const d = (await loadDraft(ctx.tx, i.id))!;
@@ -279,7 +285,7 @@ export async function describeDraft(entityId: string, ctx: ReadContext): Promise
   const s = snapshotOf(d);
   return [
     `# ${d.subject || "(no subject)"}`,
-    `id: ${d.id} · email draft from ${d.account}${d.threadId ? ` · a reply in conversation ${d.threadId}` : ""}`,
+    `id: ${d.id} · email draft from ${d.account ?? "(no account: the owner picks one before it can go)"}${d.threadId ? ` · a reply in conversation ${d.threadId}` : ""}`,
     `To: ${s.to.join(", ") || "(nobody yet)"}${s.cc.length ? ` · Cc: ${s.cc.join(", ")}` : ""}${s.bcc.length ? ` · Bcc: ${s.bcc.join(", ")}` : ""}`,
     "",
     d.text,

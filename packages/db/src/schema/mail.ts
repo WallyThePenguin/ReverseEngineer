@@ -137,6 +137,8 @@ export const mailMessage = pgTable(
     attachments: jsonb("attachments").$type<MailAttachment[]>().notNull().default([]),
     snippet: text("snippet").notNull().default(""),
     invite: jsonb("invite").$type<MailInvite>(),
+    /** Sent to many at once or by a machine; null until its original was read for it (0032). */
+    bulk: boolean("bulk"),
   },
   (t) => [unique().on(t.accountId, t.providerId)],
 );
@@ -168,7 +170,8 @@ export const personEmail = pgTable("person_email", {
 
 export const mailDraft = pgTable("mail_draft", {
   entityId: uuid("entity_id").primaryKey(),
-  accountId: text("account_id").notNull(),
+  /** Null for a draft kept from an account that was disconnected, until you pick one (0032). */
+  accountId: text("account_id"),
   threadId: uuid("thread_id"),
   toAddresses: jsonb("to_addresses").$type<MailAddress[]>().notNull().default([]),
   ccAddresses: jsonb("cc_addresses").$type<MailAddress[]>().notNull().default([]),

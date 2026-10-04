@@ -32,6 +32,31 @@ ALTER TABLE mail_draft ALTER COLUMN message_id SET NOT NULL;
 -- them again, a few at a time: where it got to, and when it last went all the way through.
 ALTER TABLE mail_account ADD COLUMN repair_from uuid, ADD COLUMN repaired_at timestamptz;
 
+-- Mail sent to many at once or by a machine (List-Id, List-Unsubscribe, Precedence: bulk,
+-- Auto-Submitted) never needs your reply. Null until the message's original has been read for
+-- it: new mail as it arrives, mail already here in the daily repair pass.
+ALTER TABLE mail_message ADD COLUMN bulk boolean;
+-- "Needs your reply" also wants the sender to be someone you know (a person in Hearth: anyone you
+-- write to becomes one) or Gmail to mark the message important (flags.ts waitingOn). The
+-- conversations the old rule flagged are checked again by the new one, from their last message
+-- (the last one not in the trash, if there is one).
+UPDATE mail_thread t SET waiting = NULL
+FROM (
+  SELECT DISTINCT ON (m.thread_id) m.thread_id, m.from_address, m.labels
+  FROM mail_message m
+  ORDER BY m.thread_id, ('TRASH' = ANY (m.labels)), m.sent_at DESC
+) x
+WHERE x.thread_id = t.entity_id AND t.waiting = 'you'
+  AND NOT ('IMPORTANT' = ANY (x.labels))
+  AND NOT EXISTS (SELECT 1 FROM person_email p WHERE p.address = lower(x.from_address));
+
+-- A draft outlives its account when you say so on disconnecting: it waits, from no account yet,
+-- until you pick one to send it from.
+ALTER TABLE mail_draft ALTER COLUMN account_id DROP NOT NULL;
+ALTER TABLE mail_draft DROP CONSTRAINT mail_draft_account_id_fkey;
+ALTER TABLE mail_draft ADD CONSTRAINT mail_draft_account_id_fkey
+  FOREIGN KEY (account_id) REFERENCES mail_account (id) ON DELETE SET NULL;
+
 -- Slack and GitHub say once that they've stopped syncing, when it starts, and close the notice
 -- when they sync again. A token that stops working stops the polling ('revoked') until you give
 -- Hearth a new one.
