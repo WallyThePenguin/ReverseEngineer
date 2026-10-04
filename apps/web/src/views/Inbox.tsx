@@ -7,19 +7,22 @@ import { Badge, Button, Empty, Kbd, PaneHeader } from "../components/ui.tsx";
 import { decideApproval } from "../lib/api.ts";
 import { ago, due, snoozeOptions, who } from "../lib/format.ts";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
-import { queryClient, toast } from "../lib/live.ts";
+import { affectedByChange } from "../lib/invalidate.ts";
+import { live, toast } from "../lib/live.ts";
 import { layout, routeFor } from "../lib/panes.ts";
-import { act, useAction } from "../lib/query.ts";
+import { act, inboxInput, useAction } from "../lib/query.ts";
 import type { InboxRow } from "../lib/types.ts";
 
 type View = "live" | "snoozed" | "done";
 
 export async function decide(approvalId: string, decision: "approve" | "deny") {
-  const r = await decideApproval(approvalId, decision);
-  if (r.status === "ok") toast.show(decision === "approve" ? "Approved and done." : "Denied.");
+  const r = await decideApproval(approvalId, decision).catch((err: Error) => err);
+  if (r instanceof Error) toast.show(r.message, "error");
+  else if (r.status === "ok") toast.show(decision === "approve" ? "Approved and done." : "Denied.");
   else if (r.status === "error") toast.show(r.message, "error");
   else if (r.status === "denied") toast.show(r.reason, "error");
-  void queryClient.invalidateQueries();
+  // What the approved action changed arrives as its own live events.
+  live.refresh(live.connected() ? affectedByChange("approval.decide") : null);
 }
 
 export function Inbox(props: { pane: number }) {
@@ -27,10 +30,7 @@ export function Inbox(props: { pane: number }) {
   const [lane, setLane] = createSignal<"signal" | "noise">("signal");
   const [index, setIndex] = createSignal(0);
   const [snoozing, setSnoozing] = createSignal<string | null>(null);
-  const rows = useAction<InboxRow[]>("inbox.list", () => ({
-    view: view(),
-    lane: view() === "live" ? lane() : undefined,
-  }));
+  const rows = useAction<InboxRow[]>("inbox.list", () => inboxInput(view(), lane()));
   const list = () => rows.data ?? [];
   const current = () => list()[Math.min(index(), list().length - 1)];
   const focused = () => layout.focused() === props.pane;

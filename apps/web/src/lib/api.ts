@@ -22,30 +22,48 @@ let onSignedOut: () => void = () => {};
 export function setSignedOutHandler(fn: () => void) {
   onSignedOut = fn;
 }
+/** Sends you back to the sign-in screen (the session ended). */
+export function signedOut() {
+  onSignedOut();
+}
+
+const UNREACHABLE = "Can't reach Hearth right now. Try again in a moment.";
 
 async function post(path: string, body: unknown): Promise<Response> {
-  const res = await fetch(path, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body ?? {}),
-    credentials: "same-origin",
-  });
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body ?? {}),
+      credentials: "same-origin",
+    });
+  } catch {
+    // Offline, or the PC is out of reach.
+    throw new ApiError(0, "unreachable", UNREACHABLE);
+  }
   if (res.status === 401) onSignedOut();
   return res;
 }
 
-/** Runs an action and returns its full result, including approvals and denials. */
-export async function runAction<T>(name: string, input: unknown = {}): Promise<ActionResult<T>> {
-  const res = await post(`/api/actions/${name}`, input);
+/**
+ * An action's result from its reply. A reply that isn't one (Hearth's own short error, say for
+ * its database being out of reach, or a proxy's error page) is thrown as an ApiError.
+ */
+async function resultOf<T>(res: Response): Promise<ActionResult<T>> {
   const body = (await res.json().catch(() => null)) as ActionResult<T> | { error: string } | null;
   if (!body || !("status" in body)) {
-    throw new ApiError(
-      res.status,
-      "failed",
-      (body as { error?: string } | null)?.error ?? res.statusText,
-    );
+    const error = (body as { error?: string } | null)?.error;
+    // A proxy's error page while Hearth restarts says nothing useful.
+    if (!error && res.status >= 502) throw new ApiError(res.status, "unreachable", UNREACHABLE);
+    throw new ApiError(res.status, "failed", error || res.statusText || "That didn't work.");
   }
   return body;
+}
+
+/** Runs an action and returns its full result, including approvals and denials. */
+export async function runAction<T>(name: string, input: unknown = {}): Promise<ActionResult<T>> {
+  return resultOf<T>(await post(`/api/actions/${name}`, input));
 }
 
 /** Runs an action and returns its result, or throws. */
@@ -57,9 +75,9 @@ export async function action<T>(name: string, input: unknown = {}): Promise<T> {
   throw new ApiError(400, r.code, r.message);
 }
 
+/** Approves or denies. Throws, like runAction, when Hearth can't give an answer. */
 export async function decideApproval(id: string, decision: "approve" | "deny") {
-  const res = await post(`/api/approvals/${id}`, { decision });
-  return (await res.json()) as ActionResult<unknown>;
+  return resultOf<unknown>(await post(`/api/approvals/${id}`, { decision }));
 }
 
 export async function authPost<T>(path: string, body: unknown = {}): Promise<T> {
@@ -75,7 +93,18 @@ export interface Me {
   needsSetup: boolean;
 }
 
+/**
+ * Who you are. Throws when Hearth can't answer (it's restarting, the PC is out of reach, or a
+ * proxy sent back an error page), so the app can say so and try again.
+ */
 export async function getMe(): Promise<Me> {
-  const res = await fetch("/api/auth/me", { credentials: "same-origin" });
-  return (await res.json()) as Me;
+  const res = await fetch("/api/auth/me", {
+    credentials: "same-origin",
+    signal: AbortSignal.timeout(10_000),
+  });
+  const body = res.ok ? ((await res.json().catch(() => null)) as Me | null) : null;
+  if (!body || typeof body.signedIn !== "boolean") {
+    throw new ApiError(res.status, "unreachable", "Can't reach Hearth.");
+  }
+  return body;
 }

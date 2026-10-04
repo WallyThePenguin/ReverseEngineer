@@ -16,6 +16,7 @@
     "lint": "biome check .",
     "format": "biome format --write .",
     "check:size": "node scripts/check-file-size.ts",
+    "check:bundle": "node scripts/check-web-bundle.ts",
     "check": "pnpm lint && pnpm typecheck && pnpm check:size && pnpm test",
     "build:web": "pnpm --filter @hearth/web build"
   },

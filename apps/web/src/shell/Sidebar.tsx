@@ -5,7 +5,7 @@ import { jarvis } from "../jarvis/JarvisPane.tsx";
 import { authPost } from "../lib/api.ts";
 import { live } from "../lib/live.ts";
 import { type ListView, layout } from "../lib/panes.ts";
-import { useAction } from "../lib/query.ts";
+import { inboxInput, useAction } from "../lib/query.ts";
 import type { Approval, InboxRow } from "../lib/types.ts";
 
 const NAV: { view: ListView; label: string; keys: string }[] = [
@@ -26,11 +26,7 @@ const NAV: { view: ListView; label: string; keys: string }[] = [
 
 /** What's waiting for you: unseen inbox items and approvals. */
 export function useWaiting() {
-  const inbox = useAction<InboxRow[]>("inbox.list", () => ({
-    view: "live",
-    lane: "signal",
-    limit: 100,
-  }));
+  const inbox = useAction<InboxRow[]>("inbox.list", () => inboxInput("live", "signal"));
   const approvals = useAction<Approval[]>("approval.list", () => ({
     status: "pending",
     limit: 50,

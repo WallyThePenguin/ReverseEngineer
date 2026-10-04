@@ -35,9 +35,34 @@ async function applied(client: pg.PoolClient): Promise<string[]> {
   return res.rows.map((r) => r.name);
 }
 
+/**
+ * A connection for migrating. The pool cancels statements after a minute (client.ts), which is
+ * right for requests but not for building an index on a big table or waiting for another
+ * migration to finish, so the limit is lifted here and put back before the connection returns.
+ */
+async function migrationClient(pool: pg.Pool): Promise<pg.PoolClient> {
+  const client = await pool.connect();
+  try {
+    await client.query("SET statement_timeout = 0");
+  } catch (err) {
+    client.release(err as Error);
+    throw err;
+  }
+  return client;
+}
+
+async function releaseMigrationClient(client: pg.PoolClient): Promise<void> {
+  const failed = await client.query("RESET statement_timeout").then(
+    () => undefined,
+    (err: Error) => err,
+  );
+  // One that can't be reset is closed rather than handed back without its limit.
+  client.release(failed);
+}
+
 /** Applies every pending migration. Returns the names applied. */
 export async function migrateUp(pool: pg.Pool, dir = MIGRATIONS_DIR): Promise<string[]> {
-  const client = await pool.connect();
+  const client = await migrationClient(pool);
   try {
     await client.query("SELECT pg_advisory_lock(hashtext('hearth_migrate'))");
     const done = new Set(await applied(client));
@@ -58,7 +83,7 @@ export async function migrateUp(pool: pg.Pool, dir = MIGRATIONS_DIR): Promise<st
     return ran;
   } finally {
     await client.query("SELECT pg_advisory_unlock(hashtext('hearth_migrate'))");
-    client.release();
+    await releaseMigrationClient(client);
   }
 }
 
@@ -68,7 +93,7 @@ export async function migrateDown(
   steps = 1,
   dir = MIGRATIONS_DIR,
 ): Promise<string[]> {
-  const client = await pool.connect();
+  const client = await migrationClient(pool);
   try {
     const done = await applied(client);
     const byName = new Map(loadMigrations(dir).map((m) => [m.name, m]));
@@ -89,6 +114,6 @@ export async function migrateDown(
     }
     return reverted;
   } finally {
-    client.release();
+    await releaseMigrationClient(client);
   }
 }

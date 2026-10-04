@@ -4,9 +4,16 @@ import { type Db, principal, standingRule, type Tx } from "@hearth/db";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { requestApproval, resolveApproval } from "./approvals.ts";
-import { writeAudit } from "./audit.ts";
+import { isAudited, writeAudit } from "./audit.ts";
 import { type Clock, systemClock } from "./clock.ts";
-import { ActionError, type ActionErrorCode } from "./errors.ts";
+import {
+  ActionError,
+  type ActionErrorCode,
+  describeError,
+  isDatabaseDown,
+  logLine,
+  stackFrames,
+} from "./errors.ts";
 import { appendEvents } from "./events.ts";
 import { newId } from "./ids.ts";
 import { decide } from "./policy.ts";
@@ -44,6 +51,20 @@ export class Kernel {
   }
 
   async execute<R = unknown>(
+    name: string,
+    rawInput: unknown,
+    caller: Caller,
+  ): Promise<ExecuteResult<R>> {
+    try {
+      return await this.decideAndRun<R>(name, rawInput, caller);
+    } catch (err) {
+      // Failed before the action itself ran: checking a standing rule, asking for approval.
+      this.log(`Action ${name} couldn't start: ${logLine(err)}`);
+      return { status: "error", ...describeError(err) };
+    }
+  }
+
+  private async decideAndRun<R>(
     name: string,
     rawInput: unknown,
     caller: Caller,
@@ -97,7 +118,12 @@ export class Kernel {
     return resolveApproval(this, approvalId, decision, caller);
   }
 
-  /** Runs an allowed action in its own transaction. */
+  /**
+   * Runs an allowed action in its own transaction. Your own reads skip the audit row, so their
+   * transaction writes nothing: Postgres gives it no transaction id and its commit flushes
+   * nothing to disk. It isn't forced READ ONLY because a few reads record what they did as
+   * events (browser.open), and those must still commit with them (D56).
+   */
   async run<R>(
     def: ActionDef,
     input: unknown,
@@ -106,6 +132,7 @@ export class Kernel {
   ): Promise<ExecuteResult<R>> {
     const started = performance.now();
     const now = this.clock.now();
+    const audited = isAudited(def, caller) || hooks.approvalId !== undefined;
     try {
       const result = await this.db.transaction(async (tx) => {
         const buffered: EmitEvent[] = [];
@@ -118,37 +145,42 @@ export class Kernel {
           causationId: caller.causationId ?? null,
           at: now,
         });
-        await writeAudit(tx, {
-          def,
-          caller,
-          input,
-          outcome: "ok",
-          durationMs: performance.now() - started,
-          correlationId: caller.correlationId,
-          approvalId: hooks.approvalId ?? null,
-          at: now,
-        });
+        if (audited) {
+          await writeAudit(tx, {
+            def,
+            caller,
+            input,
+            outcome: "ok",
+            durationMs: performance.now() - started,
+            correlationId: caller.correlationId,
+            approvalId: hooks.approvalId ?? null,
+            at: now,
+          });
+        }
         if (hooks.inTx) await hooks.inTx(tx, r);
         return r as R;
       });
       return { status: "ok", result };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (!(err instanceof ActionError)) this.log(`Action ${def.name} failed`, err);
+      const failure = describeError(err);
+      // A bug in a handler keeps where it happened; the database being out of reach doesn't need
+      // a stack for every call that found it so.
+      if (!(err instanceof ActionError)) {
+        const where = isDatabaseDown(err) ? "" : stackFrames(err);
+        this.log(`Action ${def.name} failed: ${logLine(err)}${where}`);
+      }
       await writeAudit(this.db, {
         def,
         caller,
         input,
         outcome: "error",
-        error: message,
+        error: failure.message,
         durationMs: performance.now() - started,
         correlationId: caller.correlationId,
         approvalId: hooks.approvalId ?? null,
         at: now,
-      }).catch((e) => this.log("Could not write audit row", e));
-      if (err instanceof ActionError)
-        return { status: "error", code: err.code, message: err.message };
-      return { status: "error", code: "failed", message };
+      }).catch((e) => this.log(`Could not write audit row: ${logLine(e)}`));
+      return { status: "error", ...failure };
     }
   }
 
@@ -184,15 +216,17 @@ export class Kernel {
         if (d.kind !== "allow") throw new ActionError("forbidden", `${name}: ${d.reason}`);
         const started = performance.now();
         const result = (await def.handler(parsed.data, ctx)) as T;
-        await writeAudit(tx, {
-          def,
-          caller,
-          input: parsed.data,
-          outcome: "ok",
-          durationMs: performance.now() - started,
-          correlationId: caller.correlationId,
-          at: now,
-        });
+        if (isAudited(def, caller)) {
+          await writeAudit(tx, {
+            def,
+            caller,
+            input: parsed.data,
+            outcome: "ok",
+            durationMs: performance.now() - started,
+            correlationId: caller.correlationId,
+            at: now,
+          });
+        }
         return result;
       },
     };

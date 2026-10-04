@@ -3,17 +3,8 @@
 
 import { LoroDoc, VersionVector } from "loro-crdt";
 import { ApiError, action } from "./api.ts";
+import { forgetDoc as forget, loadDoc as load, saveDoc as save } from "./docStore.ts";
 import { onLiveEvent } from "./live.ts";
-
-const DB = "hearth-docs";
-const STORE = "docs";
-
-interface Saved {
-  id: string;
-  snapshot: Uint8Array;
-  /** The server's version at the last sync. */
-  server: string;
-}
 
 const b64 = (u: Uint8Array) => {
   let s = "";
@@ -21,46 +12,6 @@ const b64 = (u: Uint8Array) => {
   return btoa(s);
 };
 const unb64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
-
-function idb(): Promise<IDBDatabase | null> {
-  return new Promise((resolve) => {
-    try {
-      const req = indexedDB.open(DB, 1);
-      req.onupgradeneeded = () => req.result.createObjectStore(STORE, { keyPath: "id" });
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => resolve(null);
-    } catch {
-      resolve(null);
-    }
-  });
-}
-
-async function load(id: string): Promise<Saved | null> {
-  const db = await idb();
-  if (!db) return null;
-  return new Promise((resolve) => {
-    const req = db.transaction(STORE).objectStore(STORE).get(id);
-    req.onsuccess = () => resolve((req.result as Saved | undefined) ?? null);
-    req.onerror = () => resolve(null);
-  });
-}
-
-async function save(rec: Saved): Promise<void> {
-  const db = await idb();
-  db?.transaction(STORE, "readwrite").objectStore(STORE).put(rec);
-}
-
-async function forget(id: string): Promise<void> {
-  const db = await idb();
-  db?.transaction(STORE, "readwrite").objectStore(STORE).delete(id);
-}
-
-/** Drops this browser's copies of every doc (on sign-out). */
-export function forgetAllDocs() {
-  try {
-    indexedDB.deleteDatabase(DB);
-  } catch {}
-}
 
 export class LiveDoc {
   readonly id: string;

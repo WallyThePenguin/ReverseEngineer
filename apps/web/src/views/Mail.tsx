@@ -5,6 +5,7 @@
 
 import { createSignal, For, Show } from "solid-js";
 import { Badge, Button, Empty, PaneHeader } from "../components/ui.tsx";
+import { debounced } from "../lib/debounce.ts";
 import { ago } from "../lib/format.ts";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
 import { toast } from "../lib/live.ts";
@@ -24,7 +25,9 @@ export function Mail(props: { pane: number }) {
   const [query, setQuery] = createSignal("");
   const [index, setIndex] = createSignal(0);
   const accounts = useAction<MailAccount[]>("mail.accounts");
-  const searching = () => query().trim().length > 0;
+  // What's searched for: what's typed, once typing pauses.
+  const term = debounced(query);
+  const searching = () => term().trim().length > 0;
   const listed = useAction<MailThread[]>(
     "mail.threads",
     () => {
@@ -35,11 +38,7 @@ export function Mail(props: { pane: number }) {
     },
     () => !searching(),
   );
-  const found = useAction<MailThread[]>(
-    "mail.search",
-    () => ({ query: query().trim() }),
-    searching,
-  );
+  const found = useAction<MailThread[]>("mail.search", () => ({ query: term().trim() }), searching);
   const threads = {
     get data() {
       return searching() ? found.data : listed.data;

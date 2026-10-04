@@ -4,12 +4,33 @@
 import type { Caller } from "@hearth/kernel";
 import { ownerCaller } from "@hearth/kernel";
 import type { Context, MiddlewareHandler } from "hono";
-import { getCookie } from "hono/cookie";
+import { getCookie, setCookie } from "hono/cookie";
 import type { AppEnv } from "../env.ts";
 import { scopeAllows } from "./devices.ts";
-import { resolveToken, type SessionPrincipal } from "./tokens.ts";
+import { checkToken, SESSION_DAYS, type SessionPrincipal, type TokenRefusal } from "./tokens.ts";
 
 export const SESSION_COOKIE = "hearth_session";
+
+/** The sign-in cookie, as routes/auth.ts sets it at sign-in, for a session that just slid. */
+function renewCookie(c: Context<AppEnv>, token: string) {
+  setCookie(c, SESSION_COOKIE, token, {
+    httpOnly: true,
+    sameSite: "Strict",
+    secure: c.get("deps").config.origin.startsWith("https://"),
+    path: "/",
+    maxAge: SESSION_DAYS * 86_400,
+  });
+}
+
+const lastLogged = new Map<string, number>();
+/** Says why a token was turned away, once a minute per reason, so a stale tab can't flood it. */
+function logRefusal(how: "cookie" | "bearer token", reason: TokenRefusal, path: string) {
+  const key = `${how}:${reason}`;
+  const now = Date.now();
+  if ((lastLogged.get(key) ?? 0) > now - 60_000) return;
+  lastLogged.set(key, now);
+  console.warn(`[auth] ${how} refused (${reason}) on ${path}`);
+}
 
 export function callerFor(s: SessionPrincipal): Caller {
   // A paired device acts as you, but what it starts is held to the rules for outside content:
@@ -37,19 +58,25 @@ export function authenticate(): MiddlewareHandler<AppEnv> {
     c.set("viaCookie", false);
     const token = bearer(c);
     if (token) {
-      const s = await resolveToken(kernel.db, token);
-      if (!s) return c.json({ error: "That token isn't valid." }, 401);
+      const r = await checkToken(kernel.db, token);
+      if (!r.ok) {
+        logRefusal("bearer token", r.reason, c.req.path);
+        return c.json({ error: "That token isn't valid." }, 401);
+      }
+      const s = r.session;
       if (s.scopes && !scopeAllows(s.scopes, c.req.method, c.req.path))
         return c.json({ error: "This device's token can't do that." }, 403);
       c.set("caller", callerFor(s));
       c.set("token", token);
     } else {
       const cookie = getCookie(c, SESSION_COOKIE);
-      const s = cookie ? await resolveToken(kernel.db, cookie) : null;
-      if (s && s.sessionKind === "browser") {
-        c.set("caller", callerFor(s));
-        c.set("token", cookie ?? null);
+      const r = cookie ? await checkToken(kernel.db, cookie) : null;
+      if (r && !r.ok) logRefusal("cookie", r.reason, c.req.path);
+      if (cookie && r?.ok && r.session.sessionKind === "browser") {
+        c.set("caller", callerFor(r.session));
+        c.set("token", cookie);
         c.set("viaCookie", true);
+        if (r.extendedUntil) renewCookie(c, cookie);
       } else if (config.devAuth) {
         c.set("caller", ownerCaller("ui"));
         c.set("viaCookie", true);

@@ -870,3 +870,39 @@ raised the alert that never closed).
 documented quota, and the failures that followed made it worse. One shared budget a little under
 what Google allows keeps Hearth from asking too much, and the owner hears only about trouble
 that needs them.
+
+## D56. Owner reads skip the audit log; sessions slide (2026-10-04)
+
+**Decision:** An action that only reads (`risk: "read"`), called by you from your own screens or
+the CLI (`kind: "owner"`, `origin: "owner"`), writes no audit row when it succeeds. Everything
+else is still audited, reads included: Jarvis, outside agents (MCP), integrations, jobs, and
+paired devices (which act as you but under outside rules, D42). Failures and refusals are always
+audited, whoever called. Nested calls (`ctx.call`) follow the same rule. The read still runs in
+an ordinary transaction, not a READ ONLY one: a few reads record what they did as events
+(`browser.open` notes the tab it opened), and those must commit with them. A transaction that
+writes nothing gets no transaction id and its commit flushes nothing to disk, so in practice
+your reads are now just reads.
+
+A browser sign-in now lasts 30 days from its last use instead of 30 days from sign-in. Using it
+moves `expires_at` to 30 days from now and sends a fresh cookie. "Last seen" (and that slide) is
+written at most every 5 minutes per session, guarded in the database so requests arriving
+together write it once; a failure to write it never signs anyone out. API, device and internal
+tokens keep the life they were given. The live feed re-checks its session every 20 s and ends
+when it's revoked, signed out or expired, but watching doesn't count as using: an open tab
+alone never keeps a session alive.
+
+**Alternatives:** Keep auditing every read (a write and a disk flush on every screen you open,
+for rows nothing reads: Activity is built from Jarvis's turns, not the audit log). Sample owner
+reads. Force owner reads READ ONLY (breaks `browser.open`). Fixed 30-day sessions (you're
+signed out mid-week while using Hearth daily) or a long fixed life (a forgotten device stays
+signed in).
+
+**Trade-offs:** The audit log no longer shows what you looked at, only what you changed and what
+failed; what Jarvis and outside agents read is still there in full. A stolen session cookie now
+stays good for as long as it keeps being used, rather than for at most 30 days. It is still
+HttpOnly, SameSite=Strict and Secure on https, and signing out revokes it. "Last seen" can be up
+to 5 minutes stale.
+
+**Why:** Most requests are your own reads, and each one was also a write. Sliding sessions are
+what a daily-use app needs, and the throttled write that keeps "last seen" carries the slide, so
+it costs nothing extra.

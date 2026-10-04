@@ -36,7 +36,9 @@ pnpm --filter @hearth/web e2e:browser
 ```
 
 A second check has the server open Chromium by itself, the way it opens your Chrome (Linux; see
-the top of `apps/web/e2e/chrome-launch.ts`).
+the top of `apps/web/e2e/chrome-launch.ts`). Two more check that the app rides through Hearth
+being down: `e2e:resilience` fakes errors and timeouts against a running server, and
+`e2e:offline` starts and stops its own to check the service worker (see the top of each file).
 
 Tests need a Postgres role that can create databases; set `HEARTH_TEST_DATABASE_URL` if it isn't
 `postgres://hearth:hearth@localhost:5432/postgres`. On a PC that also runs Hearth, give tests a

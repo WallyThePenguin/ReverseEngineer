@@ -210,7 +210,8 @@ definition the workspace generates:
   "near-100% of the UI available to agents" by construction.
 - the approval rule, so `outward`, `destructive` and `secret` actions from any agent pause in
   your approval inbox
-- an audit row and an `event` for every call
+- an audit row and an `event` for every call (except an audit row for your own reads that
+  succeed, D56)
 
 ### 5.5 Security
 

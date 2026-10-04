@@ -1,7 +1,7 @@
 // Runs the worker: `hearth worker`, or `node apps/worker/src/main.ts`.
 import { PRINCIPAL } from "@hearth/core";
 import { connect, databaseUrl } from "@hearth/db";
-import { Kernel, Registry } from "@hearth/kernel";
+import { guardProcess, Kernel, Registry } from "@hearth/kernel";
 import {
   ALL_MODULES,
   BLOB_SERVICE,
@@ -43,6 +43,7 @@ export async function runWorker(): Promise<() => Promise<void>> {
 }
 
 if (import.meta.main) {
+  guardProcess("worker");
   const stop = await runWorker();
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.once(signal, () => void stop().then(() => process.exit(0)));

@@ -1,5 +1,6 @@
 // The action API: every screen and script does everything through POST /api/actions/:name,
 // which runs through the same kernel, policy and audit trail as Jarvis.
+import { isUuid } from "@hearth/core";
 import type { Caller, ExecuteResult, Kernel } from "@hearth/kernel";
 import { isVisibleTo } from "@hearth/kernel";
 import { Hono } from "hono";
@@ -83,9 +84,11 @@ export function actionRoutes() {
     if (input === INVALID) {
       return c.json({ status: "error", code: "invalid_input", message: "Body must be JSON." }, 400);
     }
+    // Stored as a UUID: anything else would fail the action at the database, so it's ignored.
+    const correlation = c.req.header("x-correlation-id");
     const caller = {
       ...c.get("caller")!,
-      correlationId: c.req.header("x-correlation-id") || undefined,
+      correlationId: correlation && isUuid(correlation) ? correlation : undefined,
     };
     const result = await kernel.execute(c.req.param("name"), input, caller);
     return c.json(result, httpStatus(result));
