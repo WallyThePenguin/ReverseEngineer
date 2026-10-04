@@ -51,12 +51,31 @@ export function JarvisDot() {
   );
 }
 
+const CONVERSATION_KEY = "hearth.jarvisConversation";
+
+function remembered(): string | null {
+  try {
+    const id = localStorage.getItem(CONVERSATION_KEY);
+    return id && /^[0-9a-f-]{36}$/i.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
 function createJarvisState() {
   // On a phone Jarvis covers the screen, so it starts closed there.
   const [open, setOpen] = createSignal(
     !narrow() && localStorage.getItem("hearth.jarvisOpen") !== "0",
   );
-  const [conversationId, setConversationId] = createSignal<string | null>(null);
+  // The conversation you were in comes back after a reload.
+  const [conversationId, setId] = createSignal<string | null>(remembered());
+  const setConversationId = (id: string | null) => {
+    setId(id);
+    try {
+      if (id) localStorage.setItem(CONVERSATION_KEY, id);
+      else localStorage.removeItem(CONVERSATION_KEY);
+    } catch {}
+  };
   return {
     open,
     conversationId,
@@ -142,6 +161,7 @@ export function JarvisPane() {
           <Button
             small
             title="Open in a pane"
+            label="Open in a pane"
             onClick={() =>
               layout.open({ view: "chat", id: jarvis.conversationId()! }, { beside: true })
             }
@@ -252,6 +272,7 @@ export function JarvisPane() {
           compact
           id={jarvis.conversationId()}
           onCreated={(id) => jarvis.setConversationId(id)}
+          onMissing={() => jarvis.setConversationId(null)}
         />
       </div>
     </aside>

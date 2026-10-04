@@ -30,6 +30,7 @@ import { LiveDoc } from "../lib/doc.ts";
 import { TYPE_LABEL, who } from "../lib/format.ts";
 import { layout, routeFor } from "../lib/panes.ts";
 import type { SearchHit } from "../lib/types.ts";
+import { editorLook } from "./editorLook.ts";
 import { remoteCaret } from "./remoteCaret.ts";
 
 const TAG = /<m-ref\s+([^>]*)>([\s\S]*?)<\/m-ref>/g;
@@ -71,6 +72,7 @@ class Checkbox extends WidgetType {
     const box = document.createElement("input");
     box.type = "checkbox";
     box.checked = this.checked;
+    box.setAttribute("aria-label", "Checklist item");
     box.className = "mx-0.5 align-middle";
     box.onmousedown = (e) => {
       e.preventDefault();
@@ -122,7 +124,8 @@ const chips = ViewPlugin.fromClass(
 
 const JARVIS: SearchHit = { id: JARVIS_ENTITY_ID, type: "agent", title: "Jarvis", updatedAt: "" };
 
-async function mentions(ctx: CompletionContext) {
+/** @ suggestions, never the note itself. */
+async function mentions(ctx: CompletionContext, self: string) {
   const word = ctx.matchBefore(/(^|\s)@[^@<>\n]{0,40}$/);
   if (!word) return null;
   const at = word.text.indexOf("@");
@@ -132,7 +135,7 @@ async function mentions(ctx: CompletionContext) {
     : await action<SearchHit[]>("entity.recent", { limit: 8 }).catch(() => []);
   const hits = [
     ...("jarvis".startsWith(query.toLowerCase()) ? [JARVIS] : []),
-    ...found.filter((h) => h.id !== JARVIS_ENTITY_ID && h.type !== "comment"),
+    ...found.filter((h) => h.id !== JARVIS_ENTITY_ID && h.id !== self && h.type !== "comment"),
   ];
   return {
     from: word.from + at,
@@ -194,9 +197,10 @@ export default function DocEditor(props: { id: string; placeholder?: string }) {
             const by = editedBy();
             return by ? who(by) : null;
           }),
-          autocompletion({ override: [mentions], icons: false }),
+          autocompletion({ override: [(ctx) => mentions(ctx, props.id)], icons: false }),
           placeholder(props.placeholder ?? ""),
           theme,
+          editorLook,
         ],
       }),
     });

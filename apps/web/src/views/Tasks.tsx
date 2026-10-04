@@ -7,8 +7,10 @@ import { Badge, Empty, Kbd, PaneHeader } from "../components/ui.tsx";
 import { due, PRIORITY_LABEL } from "../lib/format.ts";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
 import { toast } from "../lib/live.ts";
+import { narrow } from "../lib/narrow.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
+import { quickAdd } from "../lib/quickadd.ts";
 import { createSelection } from "../lib/selection.ts";
 import { moveToTrash, trashKey } from "../lib/trash.ts";
 import type { Task } from "../lib/types.ts";
@@ -116,16 +118,11 @@ export function Tasks(props: { pane: number }) {
   };
 
   const create = async () => {
-    const text = title().trim();
-    if (!text) return;
-    const made = await act<Task>("task.create", {
-      title: text,
-      ...(forJarvis() ? { assignee: "jarvis" } : {}),
-    });
-    if (made) {
-      setTitle("");
-      if (forJarvis()) toast.show(`${made.key} is Jarvis's now. It'll start shortly.`);
-    }
+    const jarvis = forJarvis();
+    const made = await quickAdd({ get: title, set: setTitle }, (text) =>
+      act<Task>("task.create", { title: text, ...(jarvis ? { assignee: "jarvis" } : {}) }),
+    );
+    if (made && jarvis) toast.show(`${made.key} is Jarvis's now. It'll start shortly.`);
   };
 
   useHotkeys([
@@ -182,7 +179,7 @@ export function Tasks(props: { pane: number }) {
         <input
           ref={input}
           class="min-w-0 flex-1 bg-transparent py-1 outline-none placeholder:text-faint"
-          placeholder="New task… (press c)"
+          placeholder={narrow() ? "New task…" : "New task… (press c)"}
           value={title()}
           onInput={(e) => setTitle(e.currentTarget.value)}
           onKeyDown={(e) => e.key === "Escape" && input.blur()}
@@ -198,7 +195,9 @@ export function Tasks(props: { pane: number }) {
           />
           For Jarvis
         </label>
-        <Kbd>Enter</Kbd>
+        <span class="hidden md:inline">
+          <Kbd>Enter</Kbd>
+        </span>
       </form>
       <div class="flex-1 overflow-auto">
         <Show when={!tasks.isLoading} fallback={<Empty>Loading…</Empty>}>

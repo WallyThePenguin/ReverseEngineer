@@ -9,6 +9,7 @@ import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
 import { toast } from "../lib/live.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
+import { quickAdd } from "../lib/quickadd.ts";
 import { createSelection } from "../lib/selection.ts";
 import { moveToTrash, trashKey } from "../lib/trash.ts";
 import type { MemoryNote, MemoryRevision } from "../lib/types.ts";
@@ -47,13 +48,10 @@ export function Memory(props: { pane: number }) {
         class="border-b border-line px-4 py-2"
         onSubmit={async (e) => {
           e.preventDefault();
-          const t = title().trim();
-          if (!t) return;
-          const created = await act<MemoryNote>("memory.remember", { title: t, body: "" });
-          if (created) {
-            setTitle("");
-            layout.show({ view: "record", id: created.id }, props.pane);
-          }
+          const created = await quickAdd({ get: title, set: setTitle }, (t) =>
+            act<MemoryNote>("memory.remember", { title: t, body: "" }),
+          );
+          if (created) layout.show({ view: "record", id: created.id }, props.pane);
         }}
       >
         <input

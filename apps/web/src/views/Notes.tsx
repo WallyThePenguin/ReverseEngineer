@@ -20,9 +20,14 @@ import { undoImport } from "./ImportSettings.tsx";
 // The editor and its CRDT are big, so they load when a note opens.
 const DocEditor = lazy(() => import("../components/DocEditor.tsx"));
 
+/** The note just made here, whose title box takes the cursor when it opens. */
+let justMade: string | null = null;
+
 export async function newNote(pane: number) {
   const made = await act<Entity>("note.create", { title: "Untitled" });
-  if (made) layout.open({ view: "note", id: made.id }, { pane });
+  if (!made) return;
+  justMade = made.id;
+  layout.open({ view: "note", id: made.id }, { pane });
 }
 
 export function Notes(props: { pane: number }) {
@@ -120,7 +125,8 @@ export function NoteView(props: { id: string; pane: number }) {
       );
   };
   const [history, setHistory] = createSignal(false);
-  const hasChecklist = () => /^\s*[-*] \[ \] \S/m.test(note.data?.body ?? "");
+  // An item already turned into a task is a link to it, and doesn't count.
+  const hasChecklist = () => /^\s*[-*] \[ \] (?!<m-ref)\S/m.test(note.data?.body ?? "");
 
   return (
     <Show when={note.data} fallback={<Placeholder missing={note.isError} what="note" />}>
@@ -163,8 +169,16 @@ export function NoteView(props: { id: string; pane: number }) {
           </PaneHeader>
           <div class="flex-1 space-y-5 overflow-auto px-5 py-4">
             <input
+              ref={(el) => {
+                // A note you just made: its name is the first thing you type.
+                if (n().id === justMade) {
+                  justMade = null;
+                  queueMicrotask(() => el.focus());
+                }
+              }}
               class="w-full bg-transparent text-2xl font-semibold outline-none"
-              value={n().title}
+              aria-label="Note title"
+              value={n().title === "Untitled" ? "" : n().title}
               placeholder="Untitled"
               onChange={(e) => {
                 const title = e.currentTarget.value.trim() || "Untitled";

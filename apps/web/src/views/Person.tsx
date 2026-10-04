@@ -79,8 +79,10 @@ function Fields(props: { id: string; fields: Record<string, string> }) {
               <span class="flex-1 whitespace-pre-wrap">{v}</span>
               <button
                 type="button"
-                class="text-faint opacity-0 group-hover:opacity-100"
+                // Always there on a phone, where nothing hovers.
+                class="-my-2 min-h-11 min-w-11 text-faint md:my-0 md:min-h-0 md:min-w-0 md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100"
                 title="Remove"
+                aria-label={`Remove ${k}`}
                 onClick={() => {
                   const { [k]: _gone, ...rest } = props.fields;
                   void save(rest);

@@ -1,12 +1,55 @@
 // The left rail: where you are, what's waiting, and whether the live connection is up.
 
-import { For, Show } from "solid-js";
+import { createRoot, createSignal, For, Show } from "solid-js";
 import { JarvisDot, jarvis } from "../jarvis/JarvisPane.tsx";
 import { authPost } from "../lib/api.ts";
+import { MOD } from "../lib/hotkeys.ts";
 import { live } from "../lib/live.ts";
 import { type ListView, layout } from "../lib/panes.ts";
 import { inboxInput, useAction } from "../lib/query.ts";
 import type { Approval, InboxRow } from "../lib/types.ts";
+
+/** Whether the sidebar is tucked away on a computer (it gives the panes room), remembered. */
+export const sidebar = createRoot(() => {
+  const read = () => {
+    try {
+      return localStorage.getItem("hearth.sidebarHidden") === "1";
+    } catch {
+      return false;
+    }
+  };
+  const [hidden, setHidden] = createSignal(read());
+  return {
+    hidden,
+    toggle(next = !hidden()) {
+      setHidden(next);
+      try {
+        localStorage.setItem("hearth.sidebarHidden", next ? "1" : "0");
+      } catch {}
+    },
+  };
+});
+
+/** What shows when the sidebar is hidden: a button to bring it back. */
+export function SidebarRail() {
+  return (
+    <div class="flex shrink-0 flex-col items-center border-r border-line bg-sunk/50 py-3">
+      <button
+        type="button"
+        class="rounded-md px-2 py-1 text-muted hover:bg-panel hover:text-ink"
+        aria-label="Show the sidebar"
+        title={`Show the sidebar (${MOD}+B)`}
+        onClick={() => sidebar.toggle(false)}
+      >
+        »
+      </button>
+      <span
+        class={`mt-3 size-1.5 rounded-full ${live.connected() ? "bg-ok" : "bg-faint"}`}
+        title={live.connected() ? "Live" : "Reconnecting…"}
+      />
+    </div>
+  );
+}
 
 const NAV: { view: ListView; label: string; keys: string }[] = [
   { view: "inbox", label: "Inbox", keys: "g i" },
@@ -61,6 +104,18 @@ export function Sidebar(props: {
           class={`size-1.5 rounded-full ${live.connected() ? "bg-ok" : "bg-faint"}`}
           title={live.connected() ? "Live" : "Reconnecting…"}
         />
+        <span class="flex-1" />
+        <Show when={!props.onPicked}>
+          <button
+            type="button"
+            class="rounded px-1.5 text-muted hover:bg-panel hover:text-ink"
+            aria-label="Hide the sidebar"
+            title={`Hide the sidebar (${MOD}+B)`}
+            onClick={() => sidebar.toggle(true)}
+          >
+            «
+          </button>
+        </Show>
       </div>
       <button
         type="button"
@@ -68,7 +123,7 @@ export function Sidebar(props: {
         onClick={props.onPalette}
       >
         <span class="flex-1">Search or ask…</span>
-        <span class="text-xs">Ctrl K</span>
+        <span class="hidden text-xs md:inline">{MOD === "⌘" ? "⌘K" : "Ctrl K"}</span>
       </button>
       <ul class="min-h-0 space-y-0.5 overflow-y-auto">
         <For each={NAV}>

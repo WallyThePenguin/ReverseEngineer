@@ -15,12 +15,12 @@ import {
 } from "solid-js";
 import { Login } from "../auth/Login.tsx";
 import { UpdateNotice } from "../components/UpdateNotice.tsx";
-import { Kbd, PaneContext } from "../components/ui.tsx";
+import { PaneContext } from "../components/ui.tsx";
 import { ChatView } from "../jarvis/Conversation.tsx";
 import { JarvisPane, jarvis } from "../jarvis/JarvisPane.tsx";
 import { getMe, setSignedOutHandler } from "../lib/api.ts";
 import { forgetAllDocs } from "../lib/docStore.ts";
-import { listHotkeys, useHotkeys } from "../lib/hotkeys.ts";
+import { useHotkeys } from "../lib/hotkeys.ts";
 import { live, queryClient, toast } from "../lib/live.ts";
 import { narrow } from "../lib/narrow.ts";
 import { type ListView, layout, type Pane, type PaneRoute } from "../lib/panes.ts";
@@ -42,7 +42,8 @@ import { TaskView } from "../views/TaskView.tsx";
 import { Trash } from "../views/Trash.tsx";
 import { Voice } from "../views/Voice.tsx";
 import { CommandPalette } from "./CommandPalette.tsx";
-import { Sidebar, useWaiting } from "./Sidebar.tsx";
+import { MenuDrawer, Shortcuts } from "./Overlays.tsx";
+import { Sidebar, SidebarRail, sidebar, useWaiting } from "./Sidebar.tsx";
 import { Crashed, PaneCrashed, Reconnecting, Unreachable, useAutoRetry } from "./Status.tsx";
 import { TabBar } from "./TabBar.tsx";
 
@@ -117,31 +118,6 @@ function PaneView(props: { route: PaneRoute; index: number }) {
   );
 }
 
-function Shortcuts(props: { onClose: () => void }) {
-  return (
-    <div
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
-      onClick={props.onClose}
-    >
-      <div class="max-h-[80vh] w-[min(520px,92vw)] overflow-auto rounded-xl border border-line bg-panel p-5 shadow-2xl">
-        <h2 class="mb-3 font-semibold">Keyboard shortcuts</h2>
-        <ul class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-          <For each={listHotkeys()}>
-            {(h) => (
-              <>
-                <li>
-                  <Kbd>{h.keys}</Kbd>
-                </li>
-                <li class="text-muted">{h.label}</li>
-              </>
-            )}
-          </For>
-        </ul>
-      </div>
-    </div>
-  );
-}
-
 function Shell(props: { onSignOut: () => void }) {
   const [palette, setPalette] = createSignal(false);
   const [help, setHelp] = createSignal(false);
@@ -179,6 +155,7 @@ function Shell(props: { onSignOut: () => void }) {
     { keys: "g s", run: go("settings"), label: "Go to Settings" },
     { keys: "g d", run: go("trash"), label: "Go to the trash" },
     { keys: "mod+\\", run: () => layout.split(), inInputs: true, label: "Split pane" },
+    { keys: "mod+b", run: () => sidebar.toggle(), label: "Show or hide the sidebar" },
     { keys: "alt+w", run: () => layout.close(), inInputs: true, label: "Close pane" },
     { keys: "[", run: () => layout.focus(layout.focused() - 1), label: "Pane to the left" },
     { keys: "]", run: () => layout.focus(layout.focused() + 1), label: "Pane to the right" },
@@ -199,8 +176,9 @@ function Shell(props: { onSignOut: () => void }) {
       run: () => {
         setPalette(false);
         setHelp(false);
+        setMenu(false);
       },
-      when: () => palette() || help(),
+      when: () => palette() || help() || menu(),
     },
   ]);
 
@@ -212,7 +190,7 @@ function Shell(props: { onSignOut: () => void }) {
     };
     return (
       <section
-        class={`relative min-w-0 flex-1 overflow-hidden border-r border-line bg-panel last:border-r-0 ${layout.panes().length > 1 && layout.focused() === index() && !narrow() ? "shadow-[inset_0_2px_0_var(--color-accent)]" : ""}`}
+        class={`relative min-w-0 flex-1 overflow-hidden border-r border-line bg-panel last:border-r-0 md:min-w-80 ${layout.panes().length > 1 && layout.focused() === index() && !narrow() ? "shadow-[inset_0_2px_0_var(--color-accent)]" : ""}`}
         onMouseDown={focusHere}
         onFocusIn={focusHere}
       >
@@ -237,34 +215,23 @@ function Shell(props: { onSignOut: () => void }) {
       <div class="flex min-h-0 flex-1">
         <Show
           when={narrow()}
-          fallback={<Sidebar onPalette={() => setPalette(true)} onSignOut={props.onSignOut} />}
+          fallback={
+            <Show when={!sidebar.hidden()} fallback={<SidebarRail />}>
+              <Sidebar onPalette={() => setPalette(true)} onSignOut={props.onSignOut} />
+            </Show>
+          }
         >
           <Show when={menu()}>
-            <div class="fixed inset-0 z-40 flex" onClick={() => setMenu(false)}>
-              {/* Opaque: the page behind mustn't show through the menu's text. */}
-              <div
-                class="h-full bg-bg pt-[env(safe-area-inset-top)] shadow-2xl"
-                role="dialog"
-                aria-modal="true"
-                aria-label="Menu"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <Sidebar
-                  onPalette={() => {
-                    setMenu(false);
-                    setPalette(true);
-                  }}
-                  onSignOut={props.onSignOut}
-                  onPicked={() => setMenu(false)}
-                />
-              </div>
-              <div class="flex-1 bg-black/30" />
-            </div>
+            <MenuDrawer
+              onClose={() => setMenu(false)}
+              onPalette={() => setPalette(true)}
+              onSignOut={props.onSignOut}
+            />
           </Show>
         </Show>
         {/* On a phone Jarvis takes the place of the pane. */}
         <main
-          class="flex min-w-0 flex-1 pt-[env(safe-area-inset-top)] md:pt-0"
+          class="flex min-w-0 flex-1 pt-[env(safe-area-inset-top)] md:overflow-x-auto md:pt-0"
           classList={{ hidden: narrow() && jarvis.open() }}
         >
           <Show when={narrow()} fallback={<For each={layout.entries()}>{pane}</For>}>

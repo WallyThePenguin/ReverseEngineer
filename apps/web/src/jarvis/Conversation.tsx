@@ -6,7 +6,9 @@ import { createEffect, createSignal, For, Match, on, onCleanup, Show, Switch } f
 import { Body } from "../components/Body.tsx";
 import { MentionEditor } from "../components/MentionEditor.tsx";
 import { Button, PaneHeader } from "../components/ui.tsx";
+import { MOD } from "../lib/hotkeys.ts";
 import { live } from "../lib/live.ts";
+import { narrow } from "../lib/narrow.ts";
 import { act, useAction } from "../lib/query.ts";
 import { hush, mic, say, talkTaken, talkWanted } from "../lib/speech.ts";
 import type { LogRecord } from "../lib/types.ts";
@@ -56,6 +58,8 @@ function ToolLine(props: { item: Extract<ConversationItem, { type: "tool" }> }) 
 export function Conversation(props: {
   id: string | null;
   onCreated?: (id: string) => void;
+  /** The conversation is gone (trashed, or from before a restore). */
+  onMissing?: () => void;
   compact?: boolean;
 }) {
   const data = useAction<ConversationData>(
@@ -63,6 +67,9 @@ export function Conversation(props: {
     () => ({ id: props.id }),
     () => !!props.id,
   );
+  createEffect(() => {
+    if ((data.error as { code?: string } | null)?.code === "not_found") props.onMissing?.();
+  });
   const view = () => foldConversation(data.data?.log ?? []);
   const streaming = () =>
     Object.entries(live.streams())
@@ -100,10 +107,18 @@ export function Conversation(props: {
     if (!busy()) setStopping(false);
   });
 
+  // New words keep the bottom in view only while you're at the bottom: scrolled up to read,
+  // you stay where you are, and a button takes you down.
+  const [pinned, setPinned] = createSignal(true);
+  const toBottom = () => {
+    setPinned(true);
+    queueMicrotask(() => scroller?.scrollTo({ top: scroller.scrollHeight }));
+  };
+  createEffect(on(() => props.id, toBottom));
   createEffect(
-    on([() => view().items.length, () => streaming().join("").length], () =>
-      queueMicrotask(() => scroller?.scrollTo({ top: scroller.scrollHeight })),
-    ),
+    on([() => view().items.length, () => streaming().join("").length], () => {
+      if (pinned()) toBottom();
+    }),
   );
 
   // Asked by voice: Jarvis's answers after this point are read aloud.
@@ -150,14 +165,36 @@ export function Conversation(props: {
     setSending(false);
     if (!r) return false;
     setDraft("");
+    toBottom();
     if (!props.id) props.onCreated?.(r.conversationId);
     return true;
   };
 
   return (
-    <div class="flex h-full flex-col">
-      <div ref={scroller} class="flex-1 space-y-3 overflow-auto px-4 py-3">
+    <div class="relative flex h-full flex-col">
+      <div
+        ref={scroller}
+        class="flex-1 space-y-3 overflow-auto px-4 py-3"
+        onScroll={() =>
+          setPinned(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80)
+        }
+      >
         <Show when={props.id} fallback={<Starter onPick={(t) => setDraft(t)} />}>
+          <Show when={!data.data && data.isError}>
+            <p class="text-sm text-bad">
+              Couldn't load this conversation.{" "}
+              <button
+                type="button"
+                class="font-medium underline"
+                onClick={() => void data.refetch()}
+              >
+                Try again
+              </button>
+            </p>
+          </Show>
+          <Show when={!data.data && data.isLoading}>
+            <p class="text-sm text-muted">Loading…</p>
+          </Show>
           <For each={view().items}>
             {(item) => (
               <Switch>
@@ -223,6 +260,17 @@ export function Conversation(props: {
           </Show>
         </Show>
       </div>
+      <Show when={!pinned() && props.id}>
+        <div class="pointer-events-none relative">
+          <button
+            type="button"
+            class="pointer-events-auto absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full border border-line bg-panel px-3 py-1 text-xs font-medium shadow"
+            onClick={toBottom}
+          >
+            ↓ Latest
+          </button>
+        </div>
+      </Show>
       <div class="border-t border-line p-3">
         <MentionEditor
           value={draft()}
@@ -230,7 +278,11 @@ export function Conversation(props: {
           onSubmit={() => void send()}
           rows={props.compact ? 2 : 3}
           autofocus={!props.compact}
-          placeholder="Ask Jarvis anything, or @ a task or note (Ctrl+Enter to send)"
+          placeholder={
+            narrow()
+              ? "Ask Jarvis anything, or @ a task or note"
+              : `Ask Jarvis anything, or @ a task or note (${MOD}+Enter to send)`
+          }
         />
         <div class="mt-2 flex justify-end gap-2">
           <Button

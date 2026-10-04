@@ -120,6 +120,7 @@ function PaneClose() {
         type="button"
         class="-mr-2 rounded px-1.5 text-lg leading-none text-faint hover:bg-sunk hover:text-ink"
         title="Close pane (Alt+W)"
+        aria-label="Close pane"
         onClick={(e) => {
           e.stopPropagation();
           pane.close?.();
@@ -155,6 +156,8 @@ export function Button(props: {
   kind?: "primary" | "plain" | "danger" | "jarvis";
   disabled?: boolean;
   title?: string;
+  /** What a screen reader says, when the button shows only a symbol. */
+  label?: string;
   small?: boolean;
 }) {
   const tone = () =>
@@ -171,6 +174,7 @@ export function Button(props: {
       class={`min-h-11 rounded-md font-medium disabled:opacity-50 md:min-h-0 ${props.small ? "px-3 text-sm md:px-2 md:py-0.5 md:text-xs" : "px-3 py-1 text-sm"} ${tone()}`}
       disabled={props.disabled}
       title={props.title}
+      aria-label={props.label}
       onClick={(e) => props.onClick?.(e)}
     >
       {props.children}

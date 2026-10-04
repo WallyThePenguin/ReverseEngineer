@@ -5,6 +5,7 @@ import { Empty, PaneHeader } from "../components/ui.tsx";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
+import { quickAdd } from "../lib/quickadd.ts";
 import { createSelection } from "../lib/selection.ts";
 import { trashKey } from "../lib/trash.ts";
 import type { Company, Person } from "../lib/types.ts";
@@ -65,9 +66,9 @@ export function People(props: { pane: number }) {
       <Show when={tab() === "people"}>
         <form
           class="border-b border-line px-4 py-2"
-          onSubmit={async (e) => {
+          onSubmit={(e) => {
             e.preventDefault();
-            if (name().trim() && (await act("person.create", { name: name().trim() }))) setName("");
+            void quickAdd({ get: name, set: setName }, (n) => act("person.create", { name: n }));
           }}
         >
           <input
