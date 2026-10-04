@@ -54,6 +54,21 @@ describe("an interrupt held for the night", () => {
     expect(await h.events("notification.delivered")).toHaveLength(0);
   });
 
+  it("goes out once when two processes send it at the same moment", async () => {
+    h = await createJarvisHarness(NIGHT);
+    const { id } = await notify({ title: "The garage door is open" });
+    h.clock.set(MORNING);
+    // Connections ready first, so the two really overlap.
+    await Promise.all([1, 2].map(() => h.kernel.execute("inbox.list", {}, ownerCaller())));
+    const sent = await Promise.all(
+      [1, 2].map(() =>
+        h.kernel.execute<{ delivered: boolean }>("inbox.deliver", { id }, systemCaller()),
+      ),
+    );
+    expect(sent.filter((r) => r.status === "ok" && r.result.delivered)).toHaveLength(1);
+    expect(await h.events("notification.delivered")).toHaveLength(1);
+  });
+
   it("can't be sent by Jarvis itself", async () => {
     h = await createJarvisHarness(NIGHT);
     const { id } = await notify({ title: "The garage door is open" });

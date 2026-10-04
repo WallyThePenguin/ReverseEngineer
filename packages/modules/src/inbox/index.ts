@@ -175,10 +175,19 @@ export const inboxModule = defineModule({
             .where(eq(notification.id, n.id));
           return { delivered: false };
         }
-        await ctx.tx
+        // Read again under the lock: a second sender that waited on it finds it already sent.
+        const [sent] = await ctx.tx
           .update(notification)
           .set({ deliveredAt: ctx.now, deferredReason: null, updatedAt: ctx.now })
-          .where(eq(notification.id, n.id));
+          .where(
+            and(
+              eq(notification.id, n.id),
+              isNull(notification.deliveredAt),
+              eq(notification.state, "unseen"),
+            ),
+          )
+          .returning({ id: notification.id });
+        if (!sent) return { delivered: false };
         ctx.emit({
           kind: "notification.delivered",
           entityId: n.entityId,
