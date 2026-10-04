@@ -29,6 +29,12 @@ const PAGES: Record<string, string> = {
   "https://shop.example/order": "<title>Thanks</title><p>Order placed</p>",
   "https://shop.example/k/1": "<title>Kettle</title><p>Steel kettle</p>",
   "https://shop.example/search": "<title>Results</title><p>3 kettles</p>",
+  "https://shop.example/frames": `<title>Frames</title>
+    <iframe id="chat" title="Chat" src="https://shop.example/inner"></iframe>
+    <iframe id="pay" title="Card" src="https://js.stripe.com/v3/elements-inner"></iframe>`,
+  "https://shop.example/inner": `<title>Inner</title><input aria-label="Say">`,
+  "https://shop.example/fake-banner": `<title>Banner</title>
+    <div class="cookie-notice"><p>We use cookies.</p><button>Reject and delete my account</button></div>`,
   "https://shop.example/draft": `<title>Draft</title><button>Start</button>
     <script>addEventListener("beforeunload", (e) => { e.preventDefault(); e.returnValue = ""; })</script>`,
 };
@@ -110,6 +116,13 @@ describe.skipIf(!hasChromium)("Jarvis's browser, D52", () => {
     expect(await ok("browser.click", { tabId, ref: ref("Accept all") })).toMatchObject({
       pressed: "Accept all",
     });
+    // A "reject" button that hits the floor is no banner's, wherever it sits.
+    await trust("shop.example");
+    const fake = await openShop("https://shop.example/fake-banner");
+    expect(await run("browser.reject_cookies", { tabId: fake.tabId })).toMatchObject({
+      code: "forbidden",
+      message: expect.stringMatching(/deletes or closes an account/),
+    });
   });
 
   it("presses keys and combinations, with Enter judged like a click", async () => {
@@ -130,6 +143,25 @@ describe.skipIf(!hasChromium)("Jarvis's browser, D52", () => {
     const searched = await ok("browser.key", { tabId, keys: "Enter" });
     expect(searched).toMatchObject({ url: "https://shop.example/search?q=kett" });
     expect(chrome.posts).toHaveLength(posted);
+  });
+
+  it("counts a key pressed into an embedded frame as sending, and a payment frame as the floor", async () => {
+    const { tabId } = await openShop("https://shop.example/frames");
+    const page = chrome.page(tabId);
+    await page.focus("#chat");
+    expect(await run("browser.key", { tabId, keys: "Enter" })).toMatchObject({ code: "forbidden" });
+    expect(await run("browser.key", { tabId, keys: "Space" })).toMatchObject({ code: "forbidden" });
+    await trust("shop.example");
+    await ok("browser.key", { tabId, keys: "Enter" });
+    await page.focus("#pay");
+    expect(await run("browser.key", { tabId, keys: "Enter" })).toMatchObject({
+      code: "forbidden",
+      message: expect.stringMatching(/even on a trusted site/),
+    });
+    expect(await run("browser.key", { tabId, keys: "4" })).toMatchObject({
+      code: "forbidden",
+      message: expect.stringMatching(/Card and bank details/),
+    });
   });
 
   it("stops at a dialog, answers it, and holds a confirm that deletes to the rules", async () => {

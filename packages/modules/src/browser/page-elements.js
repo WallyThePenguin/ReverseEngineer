@@ -150,8 +150,15 @@ function pageElements(rules) {
     return own instanceof HTMLFormElement ? own : el.closest("form");
   }
 
-  /** A field that holds card or bank details. @param {Element} el */
+  /** An embedded frame or object, whose inside Hearth can't see. @param {Element} el */
+  const isFrame = (el) => /^(IFRAME|FRAME|OBJECT|EMBED)$/.test(el.tagName.toUpperCase());
+
+  /** A field for card or bank details, or a payment provider's frame holding them. @param {Element} el */
   function isCard(el) {
+    if (isFrame(el))
+      return PAYMENT_FRAMES.test(
+        `${el.getAttribute("src") ?? ""} ${el.getAttribute("data") ?? ""}`,
+      );
     if (!(el instanceof HTMLInputElement)) return false;
     if (/^cc-/i.test(el.getAttribute("autocomplete") ?? "")) return true;
     const names = ["name", "id", "aria-label", "placeholder"].map((a) => el.getAttribute(a) ?? "");
@@ -160,27 +167,40 @@ function pageElements(rules) {
 
   /** @param {ParentNode} scope */
   function hasPayment(scope) {
-    for (const f of scope.querySelectorAll("input")) if (isCard(f)) return true;
-    for (const f of scope.querySelectorAll("iframe"))
-      if (PAYMENT_FRAMES.test(f.getAttribute("src") ?? "")) return true;
+    for (const f of scope.querySelectorAll("input, iframe")) if (isCard(f)) return true;
     return false;
   }
 
   /** @param {ParentNode} scope */
   const hasPassword = (scope) => scope.querySelector('input[type="password"]') !== null;
 
-  /** Inside a cookie or consent banner. @param {Element} el */
+  /** Somewhere to type, which a cookie banner never has. @param {ParentNode} scope */
+  const hasTyping = (scope) =>
+    scope.querySelector(
+      'textarea, [contenteditable=""], [contenteditable="true"], input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"])',
+    ) !== null;
+
+  /**
+   * Inside a cookie or consent banner: buttons and switches, named for cookies or consent, and
+   * nowhere to type. A sign-up or contact form that mentions consent is still a form, and the
+   * page's own <body> or <html> saying a banner is showing doesn't make the whole page one.
+   * @param {Element} el
+   */
   function inConsent(el) {
+    const form = formOf(el);
+    if (form && hasTyping(form)) return false;
     for (let a = /** @type {Element | null} */ (el); a; a = a.parentElement) {
+      if (a === document.body || a === document.documentElement) break;
       const names = `${a.id} ${a.getAttribute("class") ?? ""} ${a.getAttribute("aria-label") ?? ""}`;
-      if (CONSENT.test(names)) return true;
-      if (a.tagName === "FORM" && CONSENT.test(a.getAttribute("action") ?? "")) return true;
+      if (CONSENT.test(names)) return !hasTyping(a);
+      if (a.tagName === "FORM" && CONSENT.test(a.getAttribute("action") ?? ""))
+        return !hasTyping(a);
       const role = a.getAttribute("role");
       if (
         (role === "dialog" || role === "alertdialog" || a.tagName === "DIALOG") &&
         a instanceof HTMLElement
       )
-        return /\bcookies?\b|consent/i.test(a.innerText.slice(0, 3000));
+        return /\bcookies?\b|consent/i.test(a.innerText.slice(0, 3000)) && !hasTyping(a);
     }
     return false;
   }
@@ -209,10 +229,12 @@ function pageElements(rules) {
     ).toLowerCase();
     if (method === "dialog") return FREE;
     if (method !== "get") return { sends: true, floor: null, why: "send a form (it posts)" };
-    const action = /** @type {any} */ (submitter)?.formAction || form.action || location.href;
+    // From the attributes: a field named "action" would stand in for form.action.
+    const action =
+      submitter?.getAttribute("formaction") || form.getAttribute("action") || location.href;
     let origin = "";
     try {
-      origin = new URL(action, location.href).origin;
+      origin = new URL(action, document.baseURI).origin;
     } catch {}
     if (origin && origin !== location.origin)
       return { sends: true, floor: null, why: "send a form to another site" };
@@ -225,23 +247,43 @@ function pageElements(rules) {
       submitter ??
       form.querySelector('button:not([type]), button[type="submit"], input[type="submit"]');
     if (!button) return { sends: true, floor: null, why: "send a form the page handles itself" };
-    return byName(labelOf(button));
+    return byName(labelOf(button), kindOf(button));
   }
 
-  /** @param {string} label @returns {Verdict} */
-  function byName(label) {
+  /**
+   * By the words in its name: one of the few verbs, or the floor's own words ("Close my account",
+   * "Make a payment"), which send whatever else is true. A tab or an option only shows another
+   * part of the page, so a "Passwords" tab is just a tab.
+   * @param {string} label
+   * @param {string | null} kind
+   * @returns {Verdict}
+   */
+  function byName(label, kind) {
     const verb = VERBS.exec(label);
-    return verb
-      ? { sends: true, floor: null, why: `do what its name says ("${verb[0].toLowerCase()}")` }
-      : FREE;
+    if (verb)
+      return {
+        sends: true,
+        floor: null,
+        why: `do what its name says ("${verb[0].toLowerCase()}")`,
+      };
+    const floor = kind === "tab" || kind === "option" ? null : namedFloor(label);
+    return floor ? { sends: true, floor, why: "do what its name says" } : FREE;
+  }
+
+  /** The floor a name hits. @param {string} label @returns {Verdict["floor"]} */
+  function namedFloor(label) {
+    if (MONEY.test(label)) return "money";
+    if (PAYMENT.test(label)) return "payment";
+    if (ACCOUNT.test(label)) return "account";
+    if (SECURITY.test(label)) return "security";
+    return null;
   }
 
   /** @param {string} label @param {Element} el @param {HTMLFormElement | null} form @returns {Verdict["floor"]} */
   function floorOf(label, el, form) {
-    if (MONEY.test(label)) return "money";
-    if (PAYMENT.test(label)) return "payment";
-    if (ACCOUNT.test(label)) return "account";
-    if (SECURITY.test(label) || onSecurityPage()) return "security";
+    const named = namedFloor(label);
+    if (named) return named;
+    if (onSecurityPage()) return "security";
     if (isCard(el) || (form && hasPayment(form))) return "payment";
     if (el.getAttribute("type") === "password" || (form && hasPassword(form))) return "password";
     return null;
@@ -254,6 +296,14 @@ function pageElements(rules) {
    * @returns {Verdict}
    */
   function classify(el, how) {
+    // Focus inside an embedded frame (a payment form, a comment box from another site): what a
+    // key does there can't be seen from here, so it counts as sending.
+    if (isFrame(el))
+      return {
+        sends: true,
+        floor: isCard(el) ? "payment" : null,
+        why: "press something inside an embedded frame Hearth can't see into",
+      };
     const kind = kindOf(el);
     const form = formOf(el);
     const label = labelOf(el);
@@ -270,7 +320,7 @@ function pageElements(rules) {
       // change something at once ("Make profile public").
       if (el.getAttribute("role") === "switch" || el.closest('[role="switch"]'))
         v = { sends: true, floor: null, why: "change a setting at once (it's a switch)" };
-      else if (!form) v = byName(label);
+      else if (!form) v = byName(label, kind);
     } else if (!typing && kind !== "text area" && kind !== "file field" && kind !== null) {
       const type = (el.getAttribute("type") ?? "").toLowerCase();
       const tag = el.tagName.toUpperCase();
@@ -278,7 +328,7 @@ function pageElements(rules) {
         (tag === "BUTTON" && (type === "" || type === "submit")) ||
         (tag === "INPUT" && (type === "submit" || type === "image"));
       if (native && form) v = formSends(form, el);
-      if (!v.sends) v = byName(label);
+      if (!v.sends) v = byName(label, kind);
       if (!v.sends && onSecurityPage() && kind !== "tab" && kind !== "option")
         v = { sends: true, floor: "security", why: "change security settings" };
     }

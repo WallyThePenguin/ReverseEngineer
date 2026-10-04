@@ -82,7 +82,18 @@ const PAGE = `<!doctype html><title>Shop</title>
   <label><input type="checkbox" data-case="loose-publish"> Publish my profile</label>
   <input type="search" data-case="loose-search" data-how="enter">
   <input name="note" data-case="loose-field" data-how="enter">
-  <a role="tab" href="https://shop.example/t2" data-case="tab-anchor">Details</a>`;
+  <a role="tab" href="https://shop.example/t2" data-case="tab-anchor">Details</a>
+  <button data-case="close-account">Close my account</button>
+  <button data-case="order-now">Order now</button>
+  <button data-case="make-payment">Make a payment</button>
+  <button data-case="submit-order">Submit order</button>
+  <button data-case="confirm-order">Confirm order</button>
+  <button data-case="two-factor">Turn off two-factor authentication</button>
+  <div role="tab" data-case="passwords-tab">Passwords</div>
+  <div role="dialog"><p>I consent to being contacted about this.</p>
+    <form method="post" action="/lead"><input name="email"><button data-case="consent-lead">Get the guide</button></form></div>
+  <div class="gdpr-consent-signup"><form method="post" action="/news"><input name="email" aria-label="Email"><button data-case="consent-signup">Sign up</button></form></div>
+  <form action="https://elsewhere.example/c"><input name="action"><input name="note2" data-case="clobbered-action" data-how="enter"></form>`;
 
 const EXPECTED: Record<string, [boolean, string | null]> = {
   "search-enter": [false, null],
@@ -113,12 +124,29 @@ const EXPECTED: Record<string, [boolean, string | null]> = {
   "loose-search": [false, null],
   "loose-field": [true, null],
   "tab-anchor": [false, null],
+  // The floor's own words send, even with no form and none of the verbs.
+  "close-account": [true, "account"],
+  "order-now": [true, "payment"],
+  "make-payment": [true, "money"],
+  "submit-order": [true, "payment"],
+  "confirm-order": [true, "payment"],
+  "two-factor": [true, "security"],
+  // A tab only shows another part of the page.
+  "passwords-tab": [false, null],
+  // A form you type into isn't a cookie banner, whatever its box says about consent.
+  "consent-lead": [true, null],
+  "consent-signup": [true, null],
+  // A field named "action" can't hide where a form sends.
+  "clobbered-action": [true, null],
 };
 
-async function verdicts(path: string): Promise<Record<string, [boolean, string | null]>> {
+async function verdicts(
+  path: string,
+  html = PAGE,
+): Promise<Record<string, [boolean, string | null]>> {
   const page = await browser.newPage();
   await page.route("https://shop.example/**", (route) =>
-    route.fulfill({ contentType: "text/html; charset=utf-8", body: PAGE }),
+    route.fulfill({ contentType: "text/html; charset=utf-8", body: html }),
   );
   await page.goto(`https://shop.example${path}`);
   const each = `(opts, h) => Object.fromEntries([...document.querySelectorAll("[data-case]")].map((el) => {
@@ -133,6 +161,12 @@ async function verdicts(path: string): Promise<Record<string, [boolean, string |
 describe.skipIf(!hasChromium)("what sends, judged on the page (D52)", () => {
   it("looks at structure first, then a few words, and knows the floor", async () => {
     expect(await verdicts("/")).toEqual(EXPECTED);
+  });
+
+  it("doesn't take a whole page for a cookie banner because its <body> mentions one", async () => {
+    const page = `<!doctype html><title>Notes</title><body class="has-cookie-banner">
+      <button data-case="delete">Delete</button>`;
+    expect(await verdicts("/", page)).toEqual({ delete: [true, null] });
   });
 
   it("asks about every change on a security settings page", async () => {

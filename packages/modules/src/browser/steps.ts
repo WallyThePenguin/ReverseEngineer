@@ -214,6 +214,7 @@ export const stepActions = [
         banner: boolean;
         buttons?: string[];
         label?: string;
+        floor?: Verdict["floor"];
         x?: number;
         y?: number;
         covered?: boolean;
@@ -227,6 +228,16 @@ export const stepActions = [
         throw new ActionError(
           "not_found",
           `The cookie banner has no reject button. Its buttons say: ${(found.buttons ?? []).join("; ")}. Read the page and pick one with browser_click.`,
+        );
+      if (found.floor)
+        throw new ActionError(
+          "forbidden",
+          askWhy(
+            `Pressing "${found.label}"`,
+            { sends: true, floor: found.floor, why: "" },
+            false,
+            "That's no cookie banner; leave it to the owner.",
+          ),
         );
       if (found.covered || found.x === undefined || found.y === undefined)
         throw new ActionError("failed", "Something covers the banner's reject button.");

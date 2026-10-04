@@ -10,10 +10,13 @@ import { type ActionContext, getSetting } from "@hearth/kernel";
 export const VERBS =
   /\b(send|submit|pay|buy|purchase|place (?:my |your |the )?order|post|publish|delete|transfer|withdraw|donate)\b/i;
 
-/** The floor: words that always ask, even on a trusted site. */
+/**
+ * The floor: words that always ask, even on a trusted site. A control named with one of them
+ * sends, whatever else is true of it ("Close my account" with no form around it).
+ */
 export const FLOOR = {
   payment:
-    /\b(pay|buy|purchase|place (?:my |your |the )?order|order now|complete (?:my |your |the )?(?:order|purchase)|donate)\b/i,
+    /\b(pay|buy|purchase|(?:place|confirm|submit|complete|finish) (?:my |your |the |this )?(?:order|purchase)|order now|donate)\b/i,
   money: /\b(send money|transfer|withdraw|wire|pay (?:now|out)|make (?:a )?payment)\b/i,
   account:
     /\b(?:delete|close|deactivate|terminate|cancel|remove) (?:my |your |this |the )?account\b/i,
