@@ -190,8 +190,15 @@ What to expect:
   Chrome telling you, and it goes away a few minutes after Jarvis stops. Choosing **Cancel** on
   it cuts Jarvis off from that tab.
 - In **Settings → Chrome → Never open**, add your bank. Password managers, your Google account
-  settings and PayPal are on the list already. **Open freely** lists sites Jarvis may open even
-  right after reading an email or a web page.
+  settings and PayPal are on the list already. **Trusted sites** lists sites where Jarvis can
+  act without asking: open them, click, type and send, even right after reading an email or a
+  web page. Payments, passwords and security settings, sending money and deleting an account
+  still always ask you first (D52).
+- **Settings → Chrome → Test Jarvis's Chrome** opens a test page in Jarvis's window, reads it,
+  clicks, types and takes a screenshot, and shows how long each step took. **Link activity**
+  below it shows recent connects, drops and failed requests.
+- The extension has a fixed ID (`jcpelnnklghgcdhcmdbmpflehbehpkhh`). After an update that
+  changes it, reload the extension in `chrome://extensions` and pair it again.
 - Page watches tell you when a page changes: ask Jarvis ("watch this kettle's price and tell me
   if it drops under $30"), or use **Watch** in the Browser pane. They're listed under
   **Settings → Chrome**.
