@@ -60,6 +60,8 @@ function createLive() {
   let banner: number | undefined;
   let pending: Rule | null | undefined;
   let flushAt: number | undefined;
+  /** Counts tries to connect, so only the newest one opens a feed. */
+  let tries = 0;
 
   /** Reads again the cached reads a rule covers (null: all of them). */
   const flush = () => {
@@ -116,14 +118,18 @@ function createLive() {
 
   /** Checks the session first: a feed refused because you're signed out means sign in again. */
   const reconnect = async () => {
+    const mine = ++tries;
     const me = await getMe().catch(() => null);
-    if (!running) return;
+    // A newer try (back online and back on screen together), or signing out, took over.
+    if (!running || mine !== tries) return;
     if (me && !me.signedIn) return signedOut();
     if (!me) return schedule();
     open();
   };
 
   const open = () => {
+    // One feed at a time: one left open would hold one of the browser's few connections.
+    source?.close();
     const url = lastSeq > 0 ? `/api/events?after=${lastSeq}` : "/api/events";
     const s = new EventSource(url, { withCredentials: true });
     source = s;
@@ -219,10 +225,12 @@ function createLive() {
     start() {
       if (running) return;
       running = true;
+      tries++;
       open();
     },
     stop() {
       running = false;
+      tries++;
       source?.close();
       source = null;
       for (const t of [retry, watchdog, banner]) window.clearTimeout(t);
