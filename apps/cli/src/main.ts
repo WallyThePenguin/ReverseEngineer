@@ -17,6 +17,7 @@ import {
 import { runBackup } from "./backup.ts";
 import { formatChecks } from "./doctor.ts";
 import { runDoctor } from "./doctor-run.ts";
+import { restart } from "./restart.ts";
 import { guardSchema } from "./schema-guard.ts";
 
 const HELP = `hearth: your personal workspace, with Jarvis.
@@ -27,6 +28,8 @@ const HELP = `hearth: your personal workspace, with Jarvis.
   hearth worker             Run schedules and health checks
   hearth jarvis             Run Jarvis
   hearth dev [--no-jarvis]  Run all three in one process
+  hearth restart [server|worker|jarvis|all]
+                            Restart Hearth's Windows services (all by default) and wait for them
   hearth backup             Back up now (dump, upload with restic, prune, test a restore)
   hearth doctor [--json]    Check that everything is set up and running; exits 1 on any fail
   hearth eval [--record] [name...]
@@ -186,6 +189,9 @@ async function main(argv: string[]): Promise<number> {
       console.log(values.json ? JSON.stringify(result) : formatChecks(result.checks));
       return result.ok ? 0 : 1;
     }
+
+    case "restart":
+      return restart(rest);
 
     case "status":
     case "pause":
