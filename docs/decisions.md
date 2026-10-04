@@ -926,8 +926,10 @@ browser, Settings → Desktop app → Connect Hearth on this PC makes a single-u
 kept in memory, compared in constant time) and opens `hearth://connect?nonce=…`. The app asks
 you first, then trades the nonce at its own configured address, never one from the link, for
 its device token (D42's scopes, paired anew) and a one-time code. Its window trades the code at
-`/api/auth/desktop/window` for an ordinary browser session and opens the inbox. Only a browser
-session can start a hand-off, so a device token can never become a session.
+`/api/auth/desktop/window` for an ordinary browser session and opens the inbox. The window has
+one such session: connecting again replaces it, and Disconnect in Settings signs it out with the
+token (and ends the token's notification feed). Only a browser session can start a hand-off, so
+a device token can never become a session.
 `HEARTH_LOCAL_ORIGIN` (default `http://localhost:<port>`, loopback only) is Hearth's address on
 the PC: writes from pages there are accepted, and the session cookie is Secure per request,
 except on that plain-http address.

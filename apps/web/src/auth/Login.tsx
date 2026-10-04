@@ -20,7 +20,12 @@ export function Login(props: { needsSetup: boolean; onSignedIn: () => void }) {
     } catch (err) {
       const e = err as Error;
       setError(
-        e.name === "NotAllowedError" ? "The passkey prompt was closed. Try again." : e.message,
+        e.name === "NotAllowedError"
+          ? "The passkey prompt was closed. Try again."
+          : // Opened at another address, like the Windows app's window at localhost (D53).
+            e.name === "SecurityError"
+            ? "Your passkey only works at Hearth's own address, not this one."
+            : e.message,
       );
     } finally {
       setBusy(false);
