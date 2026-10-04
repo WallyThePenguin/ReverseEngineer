@@ -978,9 +978,16 @@ owner or Jarvis, the trusted and blocked sites, the site's pace, and an approved
 
 *Timings.* p50 and p95 for one step, without the model, against Playwright's Chromium:
 
-- In the module test, through the kernel: p50 150–240 ms, p95 440–900 ms. `browser.open` takes
-  250–1,130 ms, because it still waits for the page through the older load check.
-- In the driver tests: steps p50 56 ms and p95 395 ms; whole pages p50 133 ms and p95 323 ms.
+- **Through the real extension.** In the end-to-end check, from Hearth's web page through the
+  server and the extension, over 23 actions in two runs:
+  - all actions: p50 38–97 ms, p95 650–850 ms;
+  - without `browser.open`: p95 280–470 ms;
+  - slowest: about 1 second, which is `browser.open`.
+- **Through the kernel.** In the module test: p50 150–240 ms, p95 440–900 ms.
+- **`browser.open`.** It takes 250–1,130 ms, because it still waits for the page through the
+  older load check.
+- **The driver alone.** In the driver tests: steps p50 56 ms and p95 395 ms; whole pages p50 133
+  ms and p95 323 ms.
 - No single wait runs longer than 10 seconds. A command to Chrome is limited to 10 seconds, a page
   load to 8 and a picture to 8; a `wait` step can be at most 10. The only longer pause is a
   site's pace, when you've turned pacing on, which Jarvis waits out before a step.

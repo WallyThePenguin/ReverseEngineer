@@ -15,6 +15,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, type Page } from "playwright";
+import { DRIVER_PAGES, driverChecks } from "./browser-driver.ts";
 import { PARITY_PAGES, parityChecks } from "./browser-parity.ts";
 
 const base = process.env.HEARTH_E2E_URL ?? "http://localhost:4400";
@@ -28,7 +29,11 @@ const site = createServer((req, res) => {
   if (req.method === "POST") posts++;
   res.setHeader("content-type", "text/html; charset=utf-8");
   if (req.url === "/second") return res.end("<title>Second</title><h1>Second page</h1>");
-  const parity = PARITY_PAGES[req.url ?? ""];
+  if (req.url === "/missing") {
+    res.statusCode = 404;
+    return res.end();
+  }
+  const parity = PARITY_PAGES[req.url ?? ""] ?? DRIVER_PAGES[req.url ?? ""];
   if (parity) return res.end(parity);
   res.end(`<!doctype html><title>Test shop</title>
     <style>body{font:16px sans-serif;margin:40px} button,input{font-size:20px;padding:8px}</style>
@@ -182,6 +187,9 @@ try {
   check(script.error?.includes("isolated world"), "scripts can't run in the page's own world");
 
   await parityChecks({ hearth, siteUrl, extensionId, worker, posts: () => posts, check });
+  const pageAt = (url: string) =>
+    until(`the page at ${url}`, async () => chrome.pages().find((p) => p.url() === url));
+  await driverChecks({ hearth, siteUrl, worker, pageAt, check });
 
   // The live view: watch the tab inside Hearth and use it with the mouse and keyboard.
   await hearth.goto(`${base}/browser`);
