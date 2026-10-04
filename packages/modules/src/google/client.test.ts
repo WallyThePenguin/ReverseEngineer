@@ -108,6 +108,22 @@ describe("token refresh, shared through the database", () => {
     expect(await status()).toBe("ok");
   });
 
+  it("waits out a busy token service instead of asking you to reconnect", async () => {
+    await t.tdb.db
+      .update(googleAccount)
+      .set({ accessExpiresAt: new Date(Date.now() - 1000) })
+      .where(eq(googleAccount.email, ME));
+    const client = g.client(t.tdb.db);
+    g.failRefresh(1, 429);
+    await expect(client.call(t.tdb.db, ME, "GET", PROFILE)).rejects.toMatchObject({
+      kind: "transient",
+    });
+    expect(await status()).toBe("ok");
+    await expect(client.call(t.tdb.db, ME, "GET", PROFILE)).resolves.toMatchObject({
+      emailAddress: ME,
+    });
+  });
+
   it("asks you to reconnect when Google won't refresh access", async () => {
     const client = g.client(t.tdb.db);
     g.revoked = true;

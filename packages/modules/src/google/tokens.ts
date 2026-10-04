@@ -46,7 +46,10 @@ export class GoogleTokens {
       const token = await under;
       if (token !== refused) return token;
     }
-    const flight = this.refresh(db, email, refused).finally(() => this.refreshing.delete(email));
+    const flight: Promise<string> = this.refresh(db, email, refused).finally(() => {
+      // Only this flight's own entry: a newer one may have taken its place meanwhile.
+      if (this.refreshing.get(email) === flight) this.refreshing.delete(email);
+    });
     this.refreshing.set(email, flight);
     return flight;
   }
@@ -84,10 +87,12 @@ export class GoogleTokens {
       error_description?: string;
     };
     if (!res.ok || !body.access_token) {
-      if (res.status >= 500)
+      // Google busy, or asking Hearth to slow down: try again later, nothing to reconnect.
+      if (res.status >= 500 || res.status === 429 || res.status === 408)
         throw new GoogleApiError(
           res.status,
           `Google couldn't refresh access for ${email} just now.`,
+          { kind: "transient" },
         );
       const revoked = body.error === "invalid_grant";
       const message = revoked

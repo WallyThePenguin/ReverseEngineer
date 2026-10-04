@@ -28,6 +28,7 @@ export class FakeGoogle {
   private readonly issued: string[] = [];
   private readonly invalid = new Set<string>();
   private readonly calendarFailures: number[] = [];
+  private readonly refreshFailures: number[] = [];
   private seq = 0;
 
   /** Every access token handed out so far stops working, as if Google expired them early. */
@@ -38,6 +39,11 @@ export class FakeGoogle {
   /** The next `n` Calendar calls fail with `status`, as Google sends it. */
   failCalendar(n: number, status: 403 | 429 | 500 | 503) {
     for (let i = 0; i < n; i++) this.calendarFailures.push(status);
+  }
+
+  /** The next `n` token refreshes fail with `status`. */
+  failRefresh(n: number, status: 429 | 500 | 503) {
+    for (let i = 0; i < n; i++) this.refreshFailures.push(status);
   }
 
   constructor(email = "owner@example.com") {
@@ -101,6 +107,8 @@ export class FakeGoogle {
     if (u.hostname === "oauth2.googleapis.com") {
       if (body?.grant_type === "refresh_token" && this.revoked)
         return json(400, { error: "invalid_grant", error_description: "Token has been revoked." });
+      const failing = body?.grant_type === "refresh_token" && this.refreshFailures.shift();
+      if (failing) return json(failing, { error: "rate_limit_exceeded" });
       const token = `at${++this.seq}`;
       this.issued.push(token);
       return json(200, {
