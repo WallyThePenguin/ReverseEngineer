@@ -6,12 +6,15 @@ import { assertWebUrl, HearthError } from "./rules.js";
 
 const GROUP_TITLE = "Jarvis";
 
-/** @typedef {{ windowId: number | null, own: number[], handed: number[] }} TabState */
+/**
+ * `from` is the tab each adopted pop-up came from.
+ * @typedef {{ windowId: number | null, own: number[], handed: number[], from: Record<string, number> }} TabState
+ */
 
 /** @returns {Promise<TabState>} */
 export async function tabState() {
   return /** @type {TabState} */ (
-    await chrome.storage.session.get({ windowId: null, own: [], handed: [] })
+    await chrome.storage.session.get({ windowId: null, own: [], handed: [], from: {} })
   );
 }
 
@@ -48,8 +51,9 @@ export function navCommitted(tabId) {
  * @param {chrome.tabs.Tab} tab
  * @param {boolean} handed
  * @param {Dialog | null} [dialog]
+ * @param {number | null} [openedFrom] the tab it was adopted from, for a pop-up
  */
-function info(tab, handed, dialog = null) {
+function info(tab, handed, dialog = null, openedFrom = null) {
   const id = tab.id ?? -1;
   return {
     tabId: id,
@@ -59,7 +63,8 @@ function info(tab, handed, dialog = null) {
     active: tab.active,
     handed,
     loading: tab.status === "loading",
-    openerTabId: tab.openerTabId ?? null,
+    // Not Chrome's own openerTabId: a tab Jarvis opens itself gets one too (the tab in front).
+    openerTabId: openedFrom,
     dialog,
     error: navErrors.get(id) ?? null,
   };
@@ -67,7 +72,7 @@ function info(tab, handed, dialog = null) {
 
 /** @param {(tabId: number) => Dialog | null} [dialogOf] what's open in each tab, if anything */
 export async function listTabs(dialogOf = () => null) {
-  const { own, handed } = await tabState();
+  const { own, handed, from } = await tabState();
   const out = [];
   for (const [ids, isHanded] of /** @type {const} */ ([
     [own, false],
@@ -75,7 +80,7 @@ export async function listTabs(dialogOf = () => null) {
   ])) {
     for (const id of ids) {
       const tab = await chrome.tabs.get(id).catch(() => null);
-      if (tab) out.push(info(tab, isHanded, dialogOf(id)));
+      if (tab) out.push(info(tab, isHanded, dialogOf(id), from[id] ?? null));
     }
   }
   return out;
@@ -209,8 +214,8 @@ export function hand(tabId) {
 }
 
 /**
- * A pop-up or new tab opened from one of Jarvis's tabs is Jarvis's too: one opened from its own
- * tab is its own, and one opened from a tab you handed it counts as handed. Tabs you open
+ * A pop-up or new tab a page opened from one of Jarvis's tabs is Jarvis's too: one opened from
+ * its own tab is its own, and one opened from a tab you handed it counts as handed. Tabs you open
  * yourself stay yours. Says whether the tab was adopted just now.
  * @param {number} openerTabId
  * @param {number} tabId
@@ -218,15 +223,16 @@ export function hand(tabId) {
 export async function adopt(openerTabId, tabId) {
   /** @type {"own" | "handed" | null} */
   let adopted = null;
-  await edit(({ own, handed }) => {
+  await edit(({ own, handed, from }) => {
     if (own.includes(tabId) || handed.includes(tabId)) return null;
+    const opened = { ...from, [tabId]: openerTabId };
     if (own.includes(openerTabId)) {
       adopted = "own";
-      return { own: [...own, tabId] };
+      return { own: [...own, tabId], from: opened };
     }
     if (handed.includes(openerTabId)) {
       adopted = "handed";
-      return { handed: [...handed, tabId] };
+      return { handed: [...handed, tabId], from: opened };
     }
     return null;
   });
@@ -246,10 +252,14 @@ async function joinGroup(tabId) {
 /** @param {number} tabId */
 export function forget(tabId) {
   navErrors.delete(tabId);
-  return edit(({ own, handed }) => ({
-    own: own.filter((id) => id !== tabId),
-    handed: handed.filter((id) => id !== tabId),
-  }));
+  return edit(({ own, handed, from }) => {
+    const { [tabId]: _gone, ...rest } = from;
+    return {
+      own: own.filter((id) => id !== tabId),
+      handed: handed.filter((id) => id !== tabId),
+      from: rest,
+    };
+  });
 }
 
 /** @param {number} windowId */
