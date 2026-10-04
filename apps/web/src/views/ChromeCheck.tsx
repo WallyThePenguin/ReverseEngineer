@@ -94,7 +94,16 @@ export function LinkLog(props: { refresh: () => number }) {
       <summary class="cursor-pointer font-medium" onClick={() => void refetch()}>
         Link activity
       </summary>
-      <Show when={log()} fallback={<p class="text-muted">Loading…</p>}>
+      <Show
+        when={log()}
+        fallback={
+          <p class="text-muted">
+            {log.loading
+              ? "Loading…"
+              : "Couldn't load the link's activity. Open this again to retry."}
+          </p>
+        }
+      >
         {(l) => (
           <div class="mt-2 space-y-2">
             <p class="text-muted">

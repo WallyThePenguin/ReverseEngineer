@@ -102,17 +102,25 @@ export async function openChrome(): Promise<void> {
 
 /** "Test Jarvis's Chrome": a few timed steps on a test page, as Jarvis. */
 export async function testChrome(): Promise<SelfTestResult> {
-  const res = await fetch("/api/browser/self-test", { method: "POST", credentials: "same-origin" });
+  const res = await fetch("/api/browser/self-test", {
+    method: "POST",
+    credentials: "same-origin",
+  }).catch(() => null);
+  if (!res)
+    throw new Error("Couldn't reach Hearth to run the test. Check it's running, then try again.");
   const body = (await res.json().catch(() => ({}))) as Partial<SelfTestResult> & { error?: string };
   if (!res.ok || !body.steps) throw new Error(body.error ?? "Couldn't run the test.");
   return body as SelfTestResult;
 }
 
-/** What happened on the link to Chrome lately, newest first, and how fast Chrome answers. */
-export async function browserLog(): Promise<{ entries: LinkEntry[]; stats: LinkStats }> {
-  const res = await fetch("/api/browser/log", { credentials: "same-origin" });
-  if (!res.ok) throw new Error("Couldn't load the link's log.");
-  return (await res.json()) as { entries: LinkEntry[]; stats: LinkStats };
+/**
+ * What happened on the link to Chrome lately, newest first, and how fast Chrome answers; null
+ * when Hearth couldn't be asked.
+ */
+export async function browserLog(): Promise<{ entries: LinkEntry[]; stats: LinkStats } | null> {
+  const res = await fetch("/api/browser/log", { credentials: "same-origin" }).catch(() => null);
+  if (!res?.ok) return null;
+  return (await res.json().catch(() => null)) as { entries: LinkEntry[]; stats: LinkStats } | null;
 }
 
 export async function unpairBrowser(): Promise<void> {
