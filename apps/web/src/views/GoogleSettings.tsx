@@ -83,10 +83,7 @@ export function GoogleSettings() {
                 <li class="flex items-center gap-3">
                   <Badge tone={syncLine(m).tone}>{syncLine(m).badge}</Badge>
                   <span class="flex-1">{m.address}</span>
-                  <span
-                    class={`text-xs ${syncLine(m).tone === "bad" ? "text-bad" : "text-faint"}`}
-                    title={m.lastError ?? undefined}
-                  >
+                  <span class={`text-xs ${syncLine(m).tone === "bad" ? "text-bad" : "text-faint"}`}>
                     {syncLine(m).text}
                     {m.setAside > 0
                       ? ` · ${m.setAside} message${m.setAside === 1 ? "" : "s"} couldn't be brought in`

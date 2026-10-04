@@ -21,13 +21,16 @@ export function syncLine(a: MailAccount): SyncLine {
       tone: "bad",
       text: a.reconnect
         ? `Google stopped accepting Hearth's access to ${a.address}. Connect it again in Settings.`
-        : `Mail for ${a.address} hasn't synced${a.syncedAt ? ` since ${ago(a.syncedAt)}` : ""}. Hearth keeps trying.`,
+        : a.syncedAt
+          ? `Mail for ${a.address} last synced ${ago(a.syncedAt)}. Hearth keeps trying.`
+          : `Mail for ${a.address} hasn't synced yet. Hearth keeps trying.`,
     };
   if (a.state === "paused" && a.pausedUntil)
     return {
       badge: "mail paused",
       tone: "muted",
-      text: `Gmail asked Hearth to slow down; resuming at ${time(new Date(a.pausedUntil))}.`,
+      // The time ends in "a.m." or "p.m.", which ends the sentence too.
+      text: `Gmail asked Hearth to slow down; resuming at ${time(new Date(a.pausedUntil))}`,
     };
   if (a.state === "catching_up" || !a.firstSyncDone)
     return {
@@ -58,7 +61,6 @@ export function MailSyncBanner(props: { accounts: MailAccount[] }) {
       {(a) => (
         <p
           class={`border-b border-line bg-sunk px-4 py-2 text-sm ${syncLine(a()).tone === "bad" ? "text-bad" : "text-muted"}`}
-          title={a().lastError ?? undefined}
         >
           {syncLine(a()).text}
         </p>
