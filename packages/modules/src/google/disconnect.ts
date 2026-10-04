@@ -79,11 +79,8 @@ export const disconnectAction = defineAction({
   callers: ["owner"],
   async handler(i, ctx) {
     const email = i.email.toLowerCase();
-    await handOver(ctx, email);
-    const cals = await ctx.tx
-      .select({ id: calendar.id })
-      .from(calendar)
-      .where(eq(calendar.account, email));
+    const cals = await ctx.tx.select().from(calendar).where(eq(calendar.account, email));
+    await handOver(ctx, cals);
     await dropCalendars(
       ctx,
       cals.map((c) => c.id),

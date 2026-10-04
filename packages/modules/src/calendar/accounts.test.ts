@@ -152,6 +152,22 @@ describe("two Google accounts", () => {
     expect(await events()).toEqual([{ title: "Retro", account: WORK }]);
   });
 
+  it("hands a shared calendar to the other account when the one syncing it leaves it", async () => {
+    g.shareCalendar({ id: "team", summary: "Team" }, { [ME]: "owner", [WORK]: "owner" });
+    g.put("team", {
+      summary: "Retro",
+      start: at("2026-10-02T18:00:00Z"),
+      end: at("2026-10-02T19:00:00Z"),
+    });
+    await sync();
+    expect(await rowOf(ME, "team")).toMatchObject({ selected: true });
+    g.accounts.get(ME)!.calendars.delete("team");
+    await sync();
+    await sync();
+    expect(await rowOf(WORK, "team")).toMatchObject({ selected: true });
+    expect(await events()).toEqual([{ title: "Retro", account: WORK }]);
+  });
+
   it("leaves a calendar you turned off out of your busy time", async () => {
     g.shareCalendar({ id: "ana", summary: "Ana" }, { [ME]: "reader" });
     g.put("ana", {

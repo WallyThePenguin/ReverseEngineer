@@ -30,21 +30,17 @@ export async function dropCalendars(ctx: ActionContext, ids: string[]) {
 }
 
 /**
- * Before an account and its calendars go: each calendar it synced that another account shares
- * syncs through that one from now on (the first connected), and stays where new events go if it
- * was, so a shared calendar doesn't quietly stop.
+ * Before calendars go (their account is disconnected, or no longer sees them): each one that was
+ * synced and that another account shares syncs through that one from now on (the first
+ * connected), and stays where new events go if it was, so a shared calendar doesn't quietly stop.
  */
-export async function handOver(ctx: ActionContext, account: string) {
-  const synced = await ctx.tx
-    .select()
-    .from(calendar)
-    .where(and(eq(calendar.account, account), eq(calendar.selected, true)));
-  for (const c of synced) {
+export async function handOver(ctx: ActionContext, going: CalendarRow[]) {
+  for (const c of going.filter((g) => g.selected)) {
     const [next] = await ctx.tx
       .select({ id: calendar.id, canWrite: calendar.canWrite })
       .from(calendar)
       .innerJoin(googleAccount, eq(googleAccount.email, calendar.account))
-      .where(and(eq(calendar.googleId, c.googleId), ne(calendar.account, account)))
+      .where(and(eq(calendar.googleId, c.googleId), ne(calendar.account, c.account)))
       .orderBy(asc(googleAccount.connectedAt), asc(calendar.account))
       .limit(1);
     if (!next) continue;
@@ -93,8 +89,12 @@ export async function syncCalendarList(ctx: ActionContext, api: CalendarApi, acc
       });
     }).catch(() => {});
   }
-  const gone = known.filter((k) => !list.some((c) => c.id === k.googleId)).map((k) => k.id);
-  await dropCalendars(ctx, gone);
+  const gone = known.filter((k) => !list.some((c) => c.id === k.googleId));
+  await handOver(ctx, gone);
+  await dropCalendars(
+    ctx,
+    gone.map((k) => k.id),
+  );
 }
 
 /**
