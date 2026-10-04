@@ -80,13 +80,24 @@ export function Conversation(props: {
     const since = view().waitingSince;
     return since !== null && view().activeTurns.length === 0 && now() - Date.parse(since) > SLOW_MS;
   };
+  // A running turn ends when the Jarvis process hears Stop, which takes a moment, or until it's
+  // back if it's stuck: the button says so meanwhile rather than looking like nothing happened.
   const [stopping, setStopping] = createSignal(false);
   const stop = async () => {
     if (!props.id || stopping()) return;
     setStopping(true);
-    await act("jarvis.cancel_turn", { conversationId: props.id });
-    setStopping(false);
+    const res = await act<{ stopping: number }>("jarvis.cancel_turn", { conversationId: props.id });
+    if (!res?.stopping) setStopping(false);
   };
+  createEffect(
+    on(
+      () => props.id,
+      () => setStopping(false),
+    ),
+  );
+  createEffect(() => {
+    if (!busy()) setStopping(false);
+  });
 
   createEffect(
     on([() => view().items.length, () => streaming().join("").length], () =>
@@ -199,7 +210,7 @@ export function Conversation(props: {
               </Show>
               <span class="flex-1" />
               <Button small disabled={stopping()} title="Stop Jarvis" onClick={() => void stop()}>
-                Stop
+                {stopping() ? "Stopping…" : "Stop"}
               </Button>
             </div>
           </Show>
