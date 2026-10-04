@@ -254,8 +254,38 @@ try {
     await p.getByText("Seeds", { exact: true }).last().waitFor();
   });
 
-  await step("pair the desktop app, whose code runs only voice actions", async (p) => {
-    await p.getByRole("button", { name: "Pair the desktop app" }).click();
+  await step(
+    "connect Hearth on this PC: its window signs in, and Disconnect signs it out",
+    async (p) => {
+      // What "Connect Hearth on this PC" asks for, then what the app does with the link (D53).
+      const { link } = await p.evaluate(async () => {
+        const res = await fetch("/api/auth/desktop/handoff", { method: "POST" });
+        return (await res.json()) as { link: string };
+      });
+      const nonce = new URL(link).searchParams.get("nonce");
+      const redeemed = await fetch(`${base}/api/auth/desktop/redeem`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ nonce }),
+      });
+      const { code: once } = (await redeemed.json()) as { code: string };
+      const pc = await browser.newContext();
+      const win = await pc.newPage();
+      await win.goto(`${base}/api/auth/desktop/window?code=${once}`);
+      await win.getByRole("heading", { name: "Inbox" }).waitFor();
+      await p.reload();
+      await p.getByText("Connected", { exact: true }).waitFor();
+      await p.getByRole("button", { name: "Disconnect" }).click();
+      await p.getByText("Not connected", { exact: true }).waitFor();
+      await win.reload();
+      await win.getByRole("button", { name: "Sign in with your passkey" }).waitFor();
+      await pc.close();
+    },
+  );
+
+  await step("pair the desktop app with a code, which runs only voice actions", async (p) => {
+    await p.getByText("Pair with a code instead").click();
+    await p.getByRole("button", { name: "Make a pairing code" }).click();
     const code = (await p.locator("code.truncate").last().textContent()) ?? "";
     // Sent from outside the page, as the desktop app would.
     const asDevice = async (name: string) =>
@@ -268,8 +298,10 @@ try {
       ).status;
     if ((await asDevice("voice.clean")) !== 200) throw new Error("the desktop code can't dictate");
     if ((await asDevice("task.list")) !== 403) throw new Error("the desktop code can do too much");
-    await p.getByRole("button", { name: "Unpair" }).last().click();
-    await p.getByRole("button", { name: "Pair the desktop app" }).waitFor();
+    await p.getByRole("button", { name: "Disconnect" }).click();
+    await p.getByText("Not connected", { exact: true }).waitFor();
+    if ((await asDevice("voice.clean")) !== 401)
+      throw new Error("Disconnect left the code working");
   });
 
   await step("a sign-in for Jarvis and a routine, in Settings", async (p) => {
