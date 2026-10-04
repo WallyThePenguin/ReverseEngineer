@@ -122,6 +122,31 @@ describe("failure wording", () => {
     });
   });
 
+  it("doesn't blame the database when another site can't be reached", () => {
+    // Node's fetch, offline or with the site down: the network code is the site's, not ours.
+    const offline = new TypeError("fetch failed", {
+      cause: Object.assign(new Error("getaddrinfo ENOTFOUND api.github.com"), {
+        code: "ENOTFOUND",
+      }),
+    });
+    expect(isDatabaseDown(offline)).toBe(false);
+    expect(describeError(offline)).toEqual({ code: "failed", message: "fetch failed" });
+    const refused = new TypeError("fetch failed", {
+      cause: Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }),
+    });
+    expect(isDatabaseDown(refused)).toBe(false);
+  });
+
+  it("leaves out a value Postgres couldn't read", () => {
+    const bad = new Error("Failed query: select $1\nparams: hunter2", {
+      cause: Object.assign(new Error('invalid input syntax for type uuid: "hunter2"'), {
+        code: "22P02",
+        severity: "ERROR",
+      }),
+    });
+    expect(describeError(bad).message).toBe("invalid input syntax for type uuid (22P02)");
+  });
+
   it("drops a failed query's values from messages and logs", () => {
     const err = new Error('Failed query: insert into "vault" values ($1)\nparams: s3cret');
     expect(describeError(err).message).toBe('Failed query: insert into "vault" values ($1)');
