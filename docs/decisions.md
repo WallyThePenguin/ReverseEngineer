@@ -1159,7 +1159,7 @@ go, and a part of Hearth that stops working tells you on your phone.
 - **What ages out.** Reads that went through (Jarvis's, outside agents', integrations') go after
   90 days; health check-ins and integration syncs that worked go after 14 (`AUDIT_KEEP`). The
   worker prunes every 6 hours, 5,000 rows at a time, so the table is never locked for long.
-  Failures, refusals, denials and anything tied to an approval are kept, as is every write. A
+  Failures, refusals and anything tied to an approval are kept, as is every other write. A
   check-in that changed nothing doesn't get a row at all (`auditWhen`).
 - **Failures are interrupts.** "Google sync is failing", "Last night's backup failed" and the
   like are written in the same transaction as the report that says so, not by a reflex, so they
