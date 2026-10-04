@@ -1,7 +1,7 @@
 // The phone's bottom bar: the places you go most, Jarvis, and the rest of the menu.
 
 import { For, Show } from "solid-js";
-import { jarvis } from "../jarvis/JarvisPane.tsx";
+import { JarvisDot, jarvis } from "../jarvis/JarvisPane.tsx";
 import { type ListView, layout } from "../lib/panes.ts";
 import { askToTalk, mic } from "../lib/speech.ts";
 
@@ -43,7 +43,10 @@ export function TabBar(props: { waiting: number; onMenu: () => void }) {
         class={`${tab(jarvis.open())} ${jarvis.open() ? "!text-jarvis" : ""}`}
         onClick={() => jarvis.toggle(!jarvis.open())}
       >
-        Jarvis
+        <span>
+          Jarvis
+          <JarvisDot />
+        </span>
       </button>
       <button
         type="button"

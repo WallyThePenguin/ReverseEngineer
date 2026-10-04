@@ -1,7 +1,7 @@
 // The left rail: where you are, what's waiting, and whether the live connection is up.
 
 import { For, Show } from "solid-js";
-import { jarvis } from "../jarvis/JarvisPane.tsx";
+import { JarvisDot, jarvis } from "../jarvis/JarvisPane.tsx";
 import { authPost } from "../lib/api.ts";
 import { live } from "../lib/live.ts";
 import { type ListView, layout } from "../lib/panes.ts";
@@ -107,6 +107,7 @@ export function Sidebar(props: {
         title="Ctrl+J"
       >
         {jarvis.open() ? "Hide Jarvis" : "Show Jarvis"}
+        <JarvisDot />
       </button>
       <button
         type="button"

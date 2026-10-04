@@ -1,7 +1,7 @@
 // Applies what reflexes decide, cheapest first. Only "turn" spends a model turn, and proactive
 // turns pass the pause switch and the daily budget first; when they can't run, their fallback
 // (if any) runs instead.
-import { heartbeatItem, jarvisTurn } from "@hearth/db";
+import { heartbeatItem, jarvisTurn, schedule } from "@hearth/db";
 import {
   type Caller,
   type HearthEvent,
@@ -13,6 +13,7 @@ import {
   systemCaller,
   upsertSchedule,
 } from "@hearth/kernel";
+import { eq } from "drizzle-orm";
 import { proactiveGate } from "./budget.ts";
 
 export interface OutcomeSource {
@@ -25,6 +26,10 @@ export interface OutcomeSource {
 export interface ApplyResult {
   turnsQueued: number;
   skipped: string[];
+}
+
+async function setLastOutcome(kernel: Kernel, scheduleId: string, outcome: string) {
+  await kernel.db.update(schedule).set({ lastOutcome: outcome }).where(eq(schedule.id, scheduleId));
 }
 
 function callerFor(src: OutcomeSource): Caller {
@@ -50,13 +55,28 @@ export async function applyOutcomes(
         const mode = src.mode === "reactive" ? "reactive" : "proactive";
         const gate =
           mode === "proactive" ? await proactiveGate(kernel.db, now) : ({ open: true } as const);
+        // A routine's firing: the turn reports back how it went (D54), to the schedule the
+        // routine names (Run now fires a one-off schedule of its own) or the one that fired.
+        const named = o.context?.scheduleId;
+        const scheduleId =
+          typeof named === "string"
+            ? named
+            : src.event.kind === "clock.fired" && typeof src.event.payload.scheduleId === "string"
+              ? src.event.payload.scheduleId
+              : null;
         const base = {
           trigger: o.trigger,
           mode,
           lane: o.lane,
           origin: o.untrusted ? "untrusted" : src.event.origin,
           prompt: o.prompt,
-          context: { ...o.context, source: src.name },
+          // When it was asked, so a request isn't answered long after (D54): see TURN_TTL_MS.
+          context: {
+            ...o.context,
+            source: src.name,
+            askedAt: src.event.at.toISOString(),
+            ...(scheduleId ? { scheduleId } : {}),
+          },
           conversationId: o.conversationId ?? null,
           subjectId: o.subjectId ?? null,
           sourceEventSeq: src.event.seq,
@@ -74,6 +94,7 @@ export async function applyOutcomes(
               finishedAt: now,
             })
             .onConflictDoNothing();
+          if (scheduleId) await setLastOutcome(kernel, scheduleId, `skipped_${gate.reason}`);
           result.skipped.push(`${src.name}: ${gate.reason}`);
           if (o.fallback?.length) {
             const inner = await applyOutcomes(kernel, o.fallback, src, log);
@@ -83,10 +104,32 @@ export async function applyOutcomes(
         }
         const inserted = await kernel.db
           .insert(jarvisTurn)
-          .values({ ...base, id: newId(), status: "queued", notBefore: o.notBefore ?? now })
+          .values({
+            ...base,
+            id: newId(),
+            status: "queued",
+            notBefore: o.notBefore ?? now,
+            // Published if the model never manages it (D54).
+            fallback: o.fallback?.length ? o.fallback : null,
+          })
           .onConflictDoNothing()
           .returning({ id: jarvisTurn.id });
         result.turnsQueued += inserted.length;
+        if (inserted.length && scheduleId) await setLastOutcome(kernel, scheduleId, "queued");
+        if (inserted.length === 0 && base.dedupeKey) {
+          // Already done (or doing) this one: say so in the activity rather than vanish.
+          await kernel.db.insert(jarvisTurn).values({
+            ...base,
+            id: newId(),
+            dedupeKey: null,
+            context: { ...base.context, duplicateOf: base.dedupeKey },
+            status: "skipped",
+            skipReason: "duplicate",
+            finishedAt: now,
+          });
+          if (scheduleId) await setLastOutcome(kernel, scheduleId, "skipped_duplicate");
+          result.skipped.push(`${src.name}: duplicate of ${base.dedupeKey}`);
+        }
         break;
       }
       case "tell": {

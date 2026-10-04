@@ -29,7 +29,7 @@ export const KERNEL_EVENTS: EventDef[] = [
   {
     kind: "notification.created",
     description:
-      "Something landed in the inbox. Payload: notificationId, kind, title, urgency, delivered.",
+      "Something landed in the inbox. Payload: notificationId, kind, title, urgency, delivered, and retryAt for an interrupt held for quiet hours.",
   },
   {
     kind: "notification.updated",

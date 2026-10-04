@@ -6,7 +6,7 @@ import { ALL_MODULES } from "@hearth/modules";
 import type { Brain } from "./brain.ts";
 import { ScriptedBrain } from "./brains/scripted.ts";
 import { ReflexEngine } from "./engine.ts";
-import { TurnRunner } from "./runner.ts";
+import { type RunnerOptions, TurnRunner } from "./runner.ts";
 import { registerRoutines } from "./service.ts";
 
 export interface JarvisHarness extends TestKernel {
@@ -20,7 +20,7 @@ export interface JarvisHarness extends TestKernel {
 
 export async function createJarvisHarness(
   start?: string,
-  opts: { brain?: Brain } = {},
+  opts: { brain?: Brain; runner?: Pick<RunnerOptions, "limits" | "turnLog" | "stopCheckMs"> } = {},
 ): Promise<JarvisHarness> {
   const t = await createTestKernel(ALL_MODULES, start);
   const logs: string[] = [];
@@ -28,7 +28,12 @@ export async function createJarvisHarness(
     logs.push(`${m}${e ? ` ${e instanceof Error ? e.message : JSON.stringify(e)}` : ""}`);
   const brain = new ScriptedBrain();
   const engine = new ReflexEngine({ kernel: t.kernel, log });
-  const runner = new TurnRunner({ kernel: t.kernel, brain: opts.brain ?? brain, log });
+  const runner = new TurnRunner({
+    kernel: t.kernel,
+    brain: opts.brain ?? brain,
+    log,
+    ...opts.runner,
+  });
   await registerRoutines(t.kernel);
   return {
     ...t,

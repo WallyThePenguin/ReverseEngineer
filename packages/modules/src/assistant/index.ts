@@ -15,6 +15,7 @@ import { and, desc, eq, gt, gte, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 import { describeRow, id, liveEntity } from "../shared.ts";
 import { briefRoutine, journalRoutine } from "./routines.ts";
+import { turnActions } from "./turns.ts";
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
@@ -52,6 +53,7 @@ export const assistantModule = defineModule({
   },
   routines: [briefRoutine, journalRoutine],
   actions: [
+    ...turnActions,
     defineAction({
       name: "jarvis.observe",
       description:

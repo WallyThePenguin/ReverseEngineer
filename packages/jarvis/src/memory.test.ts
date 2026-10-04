@@ -111,6 +111,8 @@ describe("Jarvis's memory", () => {
   it("updates its notes overnight, and lists each change in the morning brief", async () => {
     await ok("chat.send", { text: "I started renewing my passport today" });
     h.brain.next([{ say: "Good luck." }]);
+    // Answered now: a chat left for hours is let go instead (D54).
+    await h.settle();
     await ok("memory.remember", { title: "Projects", body: "Hearth.", scope: "always" });
     h.brain.next(async (req) => {
       expect(req.prompt).toContain("Nightly memory update for 2026-10-01");

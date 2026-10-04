@@ -840,6 +840,79 @@ simpler and matches canvas boards).
 
 **Why:** One engine in both places means what you see is what Jarvis reads.
 
+## D54. Jarvis fails loudly and retries only safe failures (2026-10-04)
+
+**Decision:** Every Jarvis turn ends in a recorded outcome: done, failed, stopped, skipped, or
+queued again. A failed turn also records what kind of failure it was (`error_kind`) and how many
+attempts it took (migration 0024). The failure kinds are:
+
+- **Safe to retry:** rate limit, overloaded, network, crashed. Hearth tries again after 1, 5 and
+  15 minutes, or when a usage limit says it lifts. It only retries while no tool has run yet, so
+  nothing is done twice.
+- **Not retried:** a rejected tool, any other rejected request, a sign-in problem, or a timeout.
+  Sending them again would fail the same way, or cost the same again.
+- **Lost session:** starts once more from a recap Hearth writes from the conversation.
+
+When Jarvis restarts in the middle of a turn, the turn runs again only if it hadn't used a tool.
+
+Each failure says, in plain words in the conversation, what happened and what happens next, and
+the latest one offers Retry. A routine that has a plain version (the brief) publishes that if
+Claude can't manage it within 30 minutes. Failures go to the inbox once per run of failures, and
+again at three in a row; a run that ends and starts again alerts afresh. Jarvis's health in
+Settings comes from its latest finished turns, not from whether its process is up.
+
+Jarvis is bounded and stoppable:
+
+- **Time limits:** a turn gets 10 minutes in the fast lane, 30 in the deep lane, and 2 for a
+  voice command.
+- **Stop:** cancels what's waiting, and tells a running turn to stop. The Jarvis process is told
+  through LISTEN, and the turn row also records the request in case that signal was missed.
+  Pressing Stop while Jarvis is down lets go of messages it hasn't seen yet.
+- **Expiry:** a chat is let go after an hour unanswered, and a voice command after two minutes.
+  Both are counted from when you asked, not from when Jarvis got to it. Retry asks again, so it
+  starts the clock afresh.
+
+The Jarvis process writes `jarvis.alive` every 30 seconds. If that goes three minutes stale, the
+worker's watchdog runs the "Hearth Jarvis" task, no more often than every 15 minutes, and tells
+you. Only the installed worker on Windows restarts Jarvis. If it still won't stay up, that
+becomes an interrupt. The web app reads the same setting: a banner in the Jarvis pane, a red dot
+on its button, and a note when a message waits 20 seconds without a turn starting.
+
+Smaller fixes in the same change:
+
+- Routines date their work by when they were due, not when they ran.
+- The agent's working folder is pinned to `HEARTH_DATA_DIR\jarvis`, so sessions resume after
+  restarts. Sessions started from the old working folder fall back to the recap once.
+- Each attempt is a line in `HEARTH_DATA_DIR\logs\jarvis-turns.jsonl`.
+- Tool schemas sent to Claude carry no uuid patterns; Hearth still checks every input when the
+  tool runs. A rejected schema names the tool. A live probe (`HEARTH_LIVE_PROBE=1`) checks that
+  Claude accepts every tool.
+- The fast lane runs on Sonnet (`HEARTH_JARVIS_FAST_MODEL`), and the deep lane on Opus
+  (`HEARTH_JARVIS_MODEL`). Each setting now covers only its own lane.
+
+The interrupt budget closes three gaps:
+
+- An interrupt held for quiet hours goes out when they end, unless you've already seen it, and
+  it reaches the phone as D45 pushes delivered interrupts. Jarvis sends it; while Jarvis is
+  down, the worker's watchdog does, so "Jarvis won't stay running" doesn't wait on Jarvis.
+- Counting and delivering take one lock, so two processes can't both take the day's last slot.
+- A deadline given by a turn that read outside content, or by an outside agent, is shown, but
+  it can't wake you.
+
+**Alternatives:**
+
+- Retrying every failure a few times. A bad tool or an expired sign-in fails the same way every
+  time, and burns usage while you wait.
+- Retrying turns that had already used tools. They could send or create something twice.
+- Leaving restarts to the Windows task alone. A process that exits cleanly, or is never started
+  again after an update, stays down silently.
+- Restarting a process that is running but hung. The watchdog can't tell a hung Jarvis from a
+  busy one by its process, and a turn's time limit already ends a stuck turn.
+
+**Why:** The owner relies on Jarvis daily. A silent failure is worse than a loud one: you can
+act on a loud one, while a silent one leaves you waiting on something that will never come.
+Retrying only what is safe keeps recovery from doing harm.
+
 ## D55. Google calls share one paced budget; a slowdown isn't a failure (2026-10-04)
 
 **Decision:** Every Gmail and Calendar call is written to a ledger in the database

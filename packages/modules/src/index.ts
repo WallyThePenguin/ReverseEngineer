@@ -48,6 +48,7 @@ export const ALL_MODULES: HearthModule[] = [
 ];
 
 export { renderBrief, renderDigest } from "./assistant/brief.ts";
+export { CANCEL_CHANNEL } from "./assistant/turns.ts";
 export {
   BROWSER_SERVICE,
   type BrowserClient,
