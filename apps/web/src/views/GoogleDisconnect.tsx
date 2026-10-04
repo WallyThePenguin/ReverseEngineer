@@ -17,10 +17,10 @@ export function DisconnectGoogle(props: { email: string }) {
   const disconnect = async () => {
     setBusy(true);
     try {
-      const keepDrafts = unsent() > 0 && keep();
+      // Kept unless you said otherwise, even if the drafts weren't counted yet.
       const done = await act<{ keptDrafts: number }>("google.disconnect", {
         email: props.email,
-        keepDrafts,
+        keepDrafts: keep(),
       });
       if (!done) return;
       setAsking(false);
@@ -57,7 +57,12 @@ export function DisconnectGoogle(props: { email: string }) {
             Keep {unsent() === 1 ? "my unsent draft" : `my ${unsent()} unsent drafts`}
           </label>
         </Show>
-        <Button small kind="danger" disabled={busy()} onClick={() => void disconnect()}>
+        <Button
+          small
+          kind="danger"
+          disabled={busy() || drafts.isLoading}
+          onClick={() => void disconnect()}
+        >
           Disconnect
         </Button>
         <Button small onClick={() => setAsking(false)}>
