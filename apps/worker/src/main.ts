@@ -26,7 +26,8 @@ export async function runWorker(): Promise<() => Promise<void>> {
     registry: new Registry(ALL_MODULES),
     services: {
       [BROWSER_SERVICE]: internalBrowserClient(database.db, PRINCIPAL.system),
-      [GOOGLE_SERVICE]: googleFromEnv(),
+      // With the database, its pacing and tokens are shared with the server and Jarvis (D55).
+      [GOOGLE_SERVICE]: googleFromEnv(database.db),
       [VAULT_SERVICE]: vaultFromEnv(),
       [SLACK_SERVICE]: httpSlack(),
       [GITHUB_SERVICE]: httpGithub(),

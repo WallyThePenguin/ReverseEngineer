@@ -80,7 +80,7 @@ export function createApp(opts: AppOptions) {
       isPaired: async () => (await getSetting(opts.kernel.db, "browser.pairing")) !== null,
     });
   opts.kernel.services[BROWSER_SERVICE] ??= bridge;
-  opts.kernel.services[GOOGLE_SERVICE] ??= googleFromEnv();
+  opts.kernel.services[GOOGLE_SERVICE] ??= googleFromEnv(opts.kernel.db);
   opts.kernel.services[VAULT_SERVICE] ??= vaultFromEnv();
   opts.kernel.services[SLACK_SERVICE] ??= httpSlack();
   opts.kernel.services[GITHUB_SERVICE] ??= httpGithub();

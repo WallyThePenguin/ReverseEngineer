@@ -30,7 +30,8 @@ export async function runJarvis(): Promise<() => Promise<void>> {
     // Chrome is reached through the server, which holds the extension's connection.
     services: {
       [BROWSER_SERVICE]: internalBrowserClient(database.db, PRINCIPAL.jarvis),
-      [GOOGLE_SERVICE]: googleFromEnv(),
+      // With the database, its pacing and tokens are shared with the server and Jarvis (D55).
+      [GOOGLE_SERVICE]: googleFromEnv(database.db),
       [VAULT_SERVICE]: vaultFromEnv(),
       [SLACK_SERVICE]: httpSlack(),
       [GITHUB_SERVICE]: httpGithub(),
