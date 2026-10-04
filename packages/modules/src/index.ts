@@ -17,6 +17,7 @@ import { notesModule } from "./notes/index.ts";
 import { notionModule } from "./notion/index.ts";
 import { peopleModule } from "./people/index.ts";
 import { routinesModule } from "./routines/index.ts";
+import { sheetsModule } from "./sheets/index.ts";
 import { slackModule } from "./slack/index.ts";
 import { systemModule } from "./system/index.ts";
 import { tasksModule } from "./tasks/index.ts";
@@ -43,6 +44,7 @@ export const ALL_MODULES: HearthModule[] = [
   slackModule,
   githubModule,
   notionModule,
+  sheetsModule,
 ];
 
 export { renderBrief, renderDigest } from "./assistant/brief.ts";
@@ -107,6 +109,7 @@ export {
   notionModule,
   peopleModule,
   routinesModule,
+  sheetsModule,
   slackModule,
   systemModule,
   tasksModule,
