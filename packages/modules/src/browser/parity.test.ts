@@ -248,4 +248,26 @@ describe.skipIf(!hasChromium)("Jarvis's browser, D52", () => {
       true,
     );
   });
+
+  it("reloads a page a form sent without sending the form again", async () => {
+    await trust("shop.example");
+    const saved = { finalUrl: "https://shop.example/save", title: "Saved" };
+    const first = await openShop();
+    await ok("browser.click", { tabId: first.tabId, ref: first.ref("Save") });
+    const posted = chrome.posts.length;
+    expect(await ok("browser.navigate", { tabId: first.tabId, url: "reload" })).toMatchObject(
+      saved,
+    );
+    expect(chrome.posts).toHaveLength(posted);
+    // Once it's been reloaded the usual way (sending it again), it's still a form's page.
+    const second = await openShop();
+    await ok("browser.click", { tabId: second.tabId, ref: second.ref("Save") });
+    await chrome.page(second.tabId).reload();
+    const again = chrome.posts.length;
+    expect(again).toBe(posted + 2);
+    expect(await ok("browser.navigate", { tabId: second.tabId, url: "reload" })).toMatchObject(
+      saved,
+    );
+    expect(chrome.posts).toHaveLength(again);
+  });
 });

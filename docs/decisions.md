@@ -929,7 +929,7 @@ pixels.
 |---|---|---|---|
 | `browser.tabs` | `{}`; adds `active`, `openedFrom` (the tab that opened it), `dialog`, `error` | read | B0 |
 | `browser.open` | `{url \| tabId + link, tabId?, newTab?}` | read | today |
-| `browser.navigate` | `{tabId, url}`: an address, `back`, `forward` or `reload`; returns `finalUrl`, `title`, `errorText` | read | B0 |
+| `browser.navigate` | `{tabId, url}`: an address, `back`, `forward` or `reload` (a page a form sent is loaded afresh, never sent again); returns `finalUrl`, `title`, `errorText` | read | B0 |
 | `browser.scroll` | `{tabId, direction, amount?, coordinate?}` | read | B0 |
 | `browser.wait` | `{seconds?, tabId?, for?: {text \| ref \| load}}` | read | B0; `for` in B1 |
 | `browser.key` | `{tabId, keys: "ctrl+a Backspace", repeat?}` | internal | B0 |
