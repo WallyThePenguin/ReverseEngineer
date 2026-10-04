@@ -13,8 +13,9 @@ export async function boardSteps({ step, keys, base, tag }: Smoke) {
     await p.goto(`${base}/canvases`);
     await p.getByRole("heading", { name: "Canvas" }).waitFor();
     await p.getByRole("button", { name: "New board" }).click();
-    // Name it once the board has loaded (loading sets the name it came with).
-    await p.locator("[data-toolbar]").waitFor();
+    // Name it and draw once the board has loaded: the toolbar shows before that, and loading sets
+    // the name the board came with and frames the view, which would move what's drawn already.
+    await p.getByText("Double-click anywhere to write").waitFor();
     const name = p.getByLabel("Board name");
     await name.fill(`Trip plan ${tag}`);
     await name.press("Enter");
