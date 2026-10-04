@@ -40,17 +40,17 @@ describe("hearth doctor, the running install", () => {
     expect(marks(up.checks)).toEqual([
       ["hearth-server", "ok"],
       ["hearth-worker", "fail"],
-      ["Jarvis", "fail"],
-      ["backup", "ok"],
+      ["Jarvis task", "fail"],
+      ["Backup task", "ok"],
     ]);
     expect(up.checks[1]?.detail).toContain("pnpm hearth restart worker");
 
     const off = { ...states, "Hearth Chrome": "Disabled", "Hearth Jarvis": "Running" };
     const disabled = await checkServices("win32", answers(0, JSON.stringify(off)));
     expect(marks(disabled.checks).slice(2)).toEqual([
-      ["Jarvis", "ok"],
-      ["backup", "ok"],
-      ["Chrome", "fail"],
+      ["Jarvis task", "ok"],
+      ["Backup task", "ok"],
+      ["Chrome task", "fail"],
     ]);
 
     const none = await checkServices("win32", answers(0, "{}"));

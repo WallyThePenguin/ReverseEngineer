@@ -105,6 +105,13 @@ $fromText = Compare-Doctor $text ([pscustomobject]@{ Checks = @((& $fail "worker
 Assert-Equal ($fromText.New | ForEach-Object { $_.name }) "Database" "compared with the text doctor: new"
 Assert-Equal ($fromText.Old | ForEach-Object { $_.name }) "worker" "compared with the text doctor: old"
 
+# Two checks under one name (as the backup task and the backup component once were): a failure
+# from before stays old. Names match exactly: the Server check isn't the server component.
+$twice = [pscustomobject]@{ Checks = @((& $okc "backup"), (& $fail "backup" "Upload failed"), (& $fail "server"), (& $okc "Server")); Text = $null }
+$same = Compare-Doctor $twice ([pscustomobject]@{ Checks = @((& $okc "backup"), (& $fail "backup" "Upload failed"), (& $fail "Server")); Text = $null })
+Assert-Equal ($same.Old | ForEach-Object { $_.name }) "backup" "a name used twice: the failure from before stays old"
+Assert-Equal ($same.New | ForEach-Object { $_.name }) "Server" "names match exactly, not ignoring case"
+
 if ($failures) { Write-Host "$failures failed"; exit 1 }
 Write-Host "All passed."
 exit 0

@@ -157,11 +157,13 @@ function Get-DoctorReport {
 }
 
 # How a check came out in an earlier doctor report: ok, warn, fail, or $null if it wasn't there.
+# Names match exactly ("Server" the HTTP check isn't "server" the component); should two checks
+# share a name, the worse mark counts, so a failure from before is never taken for a new one.
 function Get-DoctorMark($Report, [string]$Name) {
   if (-not $Report) { return $null }
   if ($Report.Checks) {
-    $c = @($Report.Checks | Where-Object { $_.name -eq $Name }) | Select-Object -First 1
-    if ($c) { return $c.mark }
+    $marks = @($Report.Checks | Where-Object { $_.name -ceq $Name } | ForEach-Object { $_.mark })
+    foreach ($m in @("fail", "warn", "ok")) { if ($marks -contains $m) { return $m } }
     return $null
   }
   # The text doctor prints "<mark> <name, padded> <detail>": a check mark (U+2713) for ok, ! for
