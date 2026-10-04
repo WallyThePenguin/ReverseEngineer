@@ -2,7 +2,7 @@
 // Node ends the process on a promise nobody caught, so one forgotten .catch() in a background
 // task (a WebSocket check, a fire-and-forget refresh) took the whole server down with it.
 
-import { logLine } from "./errors.ts";
+import { logLine, stackFrames } from "./errors.ts";
 
 export interface ProcessGuards {
   rejection(reason: unknown): void;
@@ -18,15 +18,8 @@ export function processGuards(
 ): ProcessGuards {
   const log = opts.log ?? ((line: string) => console.error(line));
   const exit = opts.exit ?? ((code: number) => setTimeout(() => process.exit(code), FLUSH_MS));
-  // Where it came from, without the stack's own copy of the message (which may hold a query's
-  // values; logLine gives the safe version).
-  const stack = (e: unknown) => {
-    const frames =
-      e instanceof Error ? (e.stack ?? "").split("\n").filter((l) => /^\s+at /.test(l)) : [];
-    return frames.length ? `\n${frames.join("\n")}` : "";
-  };
   const what = (e: unknown) =>
-    `${e instanceof Error && e.name !== "Error" ? `${e.name}: ` : ""}${logLine(e)}${stack(e)}`;
+    `${e instanceof Error && e.name !== "Error" ? `${e.name}: ` : ""}${logLine(e)}${stackFrames(e)}`;
   return {
     // Logged, and the process carries on: whatever failed was one task, not the process.
     rejection(reason) {

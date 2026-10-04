@@ -103,6 +103,16 @@ export function describeError(err: unknown): { code: ActionErrorCode; message: s
   return { code: "failed", message: message.split(/\n?params: /)[0]! };
 }
 
+/**
+ * Where a failure came from, for a log: its stack's frames, without the stack's own first line,
+ * which repeats the message (and with it any query's values). Empty when there's no stack.
+ */
+export function stackFrames(err: unknown): string {
+  const frames =
+    err instanceof Error ? (err.stack ?? "").split("\n").filter((l) => /^\s+at /.test(l)) : [];
+  return frames.length ? `\n${frames.join("\n")}` : "";
+}
+
 /** One line for a log: the safe description, plus which query failed when there was one. */
 export function logLine(err: unknown): string {
   const { message } = describeError(err);

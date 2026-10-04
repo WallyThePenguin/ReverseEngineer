@@ -6,7 +6,14 @@ import { z } from "zod";
 import { requestApproval, resolveApproval } from "./approvals.ts";
 import { isAudited, writeAudit } from "./audit.ts";
 import { type Clock, systemClock } from "./clock.ts";
-import { ActionError, type ActionErrorCode, describeError, logLine } from "./errors.ts";
+import {
+  ActionError,
+  type ActionErrorCode,
+  describeError,
+  isDatabaseDown,
+  logLine,
+  stackFrames,
+} from "./errors.ts";
 import { appendEvents } from "./events.ts";
 import { newId } from "./ids.ts";
 import { decide } from "./policy.ts";
@@ -156,7 +163,12 @@ export class Kernel {
       return { status: "ok", result };
     } catch (err) {
       const failure = describeError(err);
-      if (!(err instanceof ActionError)) this.log(`Action ${def.name} failed: ${logLine(err)}`);
+      // A bug in a handler keeps where it happened; the database being out of reach doesn't need
+      // a stack for every call that found it so.
+      if (!(err instanceof ActionError)) {
+        const where = isDatabaseDown(err) ? "" : stackFrames(err);
+        this.log(`Action ${def.name} failed: ${logLine(err)}${where}`);
+      }
       await writeAudit(this.db, {
         def,
         caller,

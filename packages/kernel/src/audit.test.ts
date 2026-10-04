@@ -6,6 +6,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { integrationCaller, jarvisCaller, ownerCaller } from "./callers.ts";
 import { DATABASE_DOWN, describeError, isDatabaseDown, logLine } from "./errors.ts";
+import { Kernel } from "./kernel.ts";
+import { Registry } from "./registry.ts";
 import { createTestKernel, type TestKernel } from "./testing.ts";
 import { defineAction, defineModule } from "./types.ts";
 
@@ -96,6 +98,20 @@ describe("the audit log", () => {
       error: 'relation "nope" does not exist (42P01)',
     });
     expect(JSON.stringify(row)).not.toContain("params");
+  });
+
+  it("logs where a failure happened, without the values it carried", async () => {
+    const lines: string[] = [];
+    const kernel = new Kernel({
+      db: t.tdb.db,
+      registry: new Registry([probe]),
+      log: (m) => lines.push(m),
+    });
+    await kernel.execute("peek.broken", { secret: "hunter2" }, ownerCaller());
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/^Action peek.broken failed: relation "nope" does not exist/);
+    expect(lines[0]).toMatch(/\n\s+at .*audit\.test\.ts/);
+    expect(lines[0]).not.toContain("hunter2");
   });
 });
 
