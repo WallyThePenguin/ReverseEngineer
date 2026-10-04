@@ -262,6 +262,17 @@ describe("routines", () => {
     expect(journal?.context.date).toBe("2026-10-01");
   });
 
+  it("reads a late memory update's day from when it was due, leaving no gap", async () => {
+    await start("2026-10-01T07:00:00Z"); // 3 a.m., after the 1:45 a.m. update
+    await chat("I adopted a cat named Miso");
+    await h.settle();
+    h.clock.set("2026-10-02T10:00:10Z"); // 6 a.m.: the 1:45 a.m. update is four hours late
+    await h.settle();
+    const memory = brain.requests.find((r) => r.prompt.startsWith("Nightly memory update"));
+    expect(memory?.prompt).toContain("Nightly memory update for 2026-10-01");
+    expect(memory?.prompt).toContain("Miso");
+  });
+
   it("puts a failed heartbeat's items back for the next one", async () => {
     await start();
     await h.tdb.db.insert(heartbeatItem).values([{ id: newId(), text: "A PR was opened" }]);

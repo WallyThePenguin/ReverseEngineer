@@ -52,7 +52,8 @@ export const consolidateRoutine: RoutineDef = {
     const rules = await getSetting(ctx.db, "owner.dayRules");
     // The day before it was due, even when it runs late (D54).
     const date = localDate(new Date(firing.scheduledFor.getTime() - DAY_MS), rules.timeZone);
-    const since = new Date(ctx.now.getTime() - DAY_MS);
+    // From the last update's due time, so a late run leaves no gap after the one before.
+    const since = new Date(firing.scheduledFor.getTime() - DAY_MS);
     // Outside content (email subjects) is never a source for memory, so it isn't shown at all.
     const facts = renderDigest(withoutOutside(await firing.digest(since)));
     const said = await ownerWords(ctx.db, since);
