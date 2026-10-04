@@ -156,7 +156,7 @@ describe("calendar invitations in mail", () => {
       organizer: { email: BOSS },
       attendees: [
         { email: BOSS, organizer: true },
-        { email: self, self: true, responseStatus: "needsAction" },
+        { email: self, self: true, responseStatus: "needsAction" as const },
       ],
     });
     g.put(ME, meeting(ME));
