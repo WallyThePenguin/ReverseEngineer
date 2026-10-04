@@ -25,6 +25,7 @@ import { GOOGLE_SERVICE, type GoogleClient } from "../google/client.ts";
 import { describeRow, id, isoDateTime, liveEntity } from "../shared.ts";
 import { calendarWriteActions } from "./actions.ts";
 import { blockAction, blockReflex, blockRoutine } from "./blocks.ts";
+import { calendarSetupActions, dropCalendars, inSelectedCalendar } from "./calendars.ts";
 import { freeSlots } from "./free.ts";
 import { prepPublish, prepRoutine } from "./prep.ts";
 import { guests, loadEvent, toEventView, whenText } from "./store.ts";
@@ -42,10 +43,12 @@ const conflicts: ReflexDef = {
     if (!event.entityId || event.payload.change === "cancelled") return [];
     const ev = await loadEvent(ctx.db, event.entityId);
     if (!ev || ev.allDay || !ev.busy || ev.selfResponse === "declined") return [];
+    // Only what's on calendars you sync: a colleague's calendar you've turned off isn't yours.
     const rows = await ctx.db
       .select({ e: entity, r: calendarEvent })
       .from(calendarEvent)
       .innerJoin(entity, eq(entity.id, calendarEvent.entityId))
+      .innerJoin(calendar, inSelectedCalendar)
       .where(
         and(
           ne(calendarEvent.entityId, ev.id),
@@ -251,37 +254,7 @@ export const calendarModule = defineModule({
         return slots.slice(0, 40);
       },
     }),
-    defineAction({
-      name: "calendar.calendars",
-      description: "Connected Google accounts and their calendars, and which ones Hearth syncs.",
-      input: z.object({}),
-      risk: "read",
-      async handler(_i, ctx) {
-        const google = ctx.service<GoogleClient>(GOOGLE_SERVICE);
-        const accounts = await ctx.tx
-          .select({
-            email: googleAccount.email,
-            scopes: googleAccount.scopes,
-            status: googleAccount.status,
-            lastError: googleAccount.lastError,
-            connectedAt: googleAccount.connectedAt,
-          })
-          .from(googleAccount);
-        const calendars = await ctx.tx.select().from(calendar).orderBy(asc(calendar.title));
-        return { configured: google.configured, accounts, calendars };
-      },
-    }),
-    defineAction({
-      name: "calendar.choose",
-      description: "Turn syncing on or off for one calendar.",
-      input: z.object({ id: z.string().min(1), selected: z.boolean() }),
-      risk: "internal",
-      callers: ["owner"],
-      async handler(i, ctx) {
-        await ctx.tx.update(calendar).set({ selected: i.selected }).where(eq(calendar.id, i.id));
-        return { ok: true };
-      },
-    }),
+    ...calendarSetupActions,
     defineAction({
       name: "calendar.sync",
       description: "Pull the latest from Google Calendar now.",
@@ -302,18 +275,10 @@ export const calendarModule = defineModule({
           .select({ id: calendar.id })
           .from(calendar)
           .where(eq(calendar.account, email));
-        if (cals.length) {
-          const events = ctx.tx
-            .select({ id: calendarEvent.entityId })
-            .from(calendarEvent)
-            .where(
-              inArray(
-                calendarEvent.calendarId,
-                cals.map((c) => c.id),
-              ),
-            );
-          await ctx.tx.delete(entity).where(inArray(entity.id, events));
-        }
+        await dropCalendars(
+          ctx,
+          cals.map((c) => c.id),
+        );
         // Its mail too: messages, conversations, drafts and the account (raw copies stay on disk).
         const mailId = `gmail:${email}`;
         for (const table of [mailMessage, mailThread, mailDraft] as const)

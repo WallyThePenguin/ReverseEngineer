@@ -13,6 +13,7 @@ import { CalendarApi, type GEvent, type SendUpdates } from "../google/calendar-a
 import { cleanDeep } from "../google/clean.ts";
 import { GOOGLE_SERVICE, type GoogleClient } from "../google/client.ts";
 import { id } from "../shared.ts";
+import { writableCalendar } from "./calendars.ts";
 import {
   type EventView,
   emitChange,
@@ -22,7 +23,6 @@ import {
   saveEvent,
   whenText,
 } from "./store.ts";
-import { writableCalendar } from "./sync.ts";
 
 const when = z.union([
   z.string().datetime({ offset: true }),
@@ -85,7 +85,7 @@ export async function insertEvent(
     ...(input.taskId ? { extendedProperties: { private: { hearthTask: input.taskId } } } : {}),
   };
   const send: SendUpdates = input.attendees?.length ? "all" : "none";
-  const g = await api(ctx).insert(cal.account, cal.id, body, send);
+  const g = await api(ctx).insert(cal.account, cal.googleId, body, send);
   return save(ctx, cal.id, g, input.taskId ?? null);
 }
 
@@ -122,13 +122,19 @@ export async function patchEvent(
     ...(patch.description !== undefined ? { description: patch.description } : {}),
     ...(patch.location !== undefined ? { location: patch.location } : {}),
   };
-  const g = await api(ctx).patch(cal.account, cal.id, ev.googleId, body, shared ? "all" : "none");
+  const g = await api(ctx).patch(
+    cal.account,
+    cal.googleId,
+    ev.googleId,
+    body,
+    shared ? "all" : "none",
+  );
   return save(ctx, cal.id, g);
 }
 
 export async function removeEvent(ctx: ActionContext, eventId: string, shared = false) {
   const { ev, cal } = await editable(ctx, eventId, shared);
-  await api(ctx).remove(cal.account, cal.id, ev.googleId, shared ? "all" : "none");
+  await api(ctx).remove(cal.account, cal.googleId, ev.googleId, shared ? "all" : "none");
   await save(ctx, cal.id, {
     id: ev.googleId,
     status: "cancelled",
@@ -261,7 +267,7 @@ export const calendarWriteActions = [
             ? { responseStatus: a.response }
             : {}),
       })) as GEvent["attendees"];
-      const g = await api(ctx).patch(cal.account, cal.id, ev.googleId, { attendees }, "all");
+      const g = await api(ctx).patch(cal.account, cal.googleId, ev.googleId, { attendees }, "all");
       return save(ctx, cal.id, g);
     },
   }),

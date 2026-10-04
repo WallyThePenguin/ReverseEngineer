@@ -4,11 +4,12 @@
 // for the next round instead of failing, and one event that won't save is skipped (D55).
 import { startOfLocalDay } from "@hearth/core";
 import { calendar, calendarEvent, entity, googleAccount } from "@hearth/db";
-import { type ActionContext, ActionError, getSetting, savepoint } from "@hearth/kernel";
-import { and, arrayContains, eq, gte, inArray, lte, ne, notInArray } from "drizzle-orm";
+import { type ActionContext, getSetting, savepoint } from "@hearth/kernel";
+import { and, arrayContains, asc, eq, gt, lt, ne, notInArray } from "drizzle-orm";
 import { CalendarApi } from "../google/calendar-api.ts";
 import { cleanDeep } from "../google/clean.ts";
 import { GOOGLE_SERVICE, GoogleApiError, type GoogleClient, SCOPES } from "../google/client.ts";
+import { syncCalendarList } from "./calendars.ts";
 import { emitChange, mapEvent, saveEvent } from "./store.ts";
 
 const DAY_MS = 24 * 3600_000;
@@ -37,36 +38,6 @@ export function syncWindow(now: Date, tz: string): { from: Date; to: Date } {
   };
 }
 
-async function syncCalendarList(ctx: ActionContext, api: CalendarApi, account: string) {
-  const list = cleanDeep(await api.calendars(account)).filter((c) => !c.deleted);
-  const known = await ctx.tx.select().from(calendar).where(eq(calendar.account, account));
-  for (const c of list) {
-    const values = {
-      account,
-      title: c.summaryOverride ?? c.summary,
-      color: c.backgroundColor ?? null,
-      timeZone: c.timeZone ?? null,
-      isPrimary: Boolean(c.primary),
-      canWrite: c.accessRole === "owner" || c.accessRole === "writer",
-    };
-    // One calendar that won't save (a shared one another connected account already has) is
-    // left out on its own; before, it undid the whole sync, every account's (6.2).
-    await savepoint(ctx, async (sp) => {
-      if (known.some((k) => k.id === c.id)) {
-        await sp.tx.update(calendar).set(values).where(eq(calendar.id, c.id));
-      } else {
-        // New calendars you own are synced; ones shared with you (holidays, a colleague's)
-        // start off, and you can turn them on in Settings.
-        await sp.tx
-          .insert(calendar)
-          .values({ id: c.id, ...values, selected: c.accessRole === "owner" });
-      }
-    }).catch(() => {});
-  }
-  const gone = known.filter((k) => !list.some((c) => c.id === k.id)).map((k) => k.id);
-  if (gone.length) await ctx.tx.delete(calendar).where(inArray(calendar.id, gone));
-}
-
 /** Pulls every connected account's selected calendars. One calendar failing doesn't stop the rest. */
 export async function syncCalendars(ctx: ActionContext): Promise<SyncResult> {
   const google = ctx.service<GoogleClient>(GOOGLE_SERVICE);
@@ -81,7 +52,9 @@ export async function syncCalendars(ctx: ActionContext): Promise<SyncResult> {
         ne(googleAccount.status, "revoked"),
         arrayContains(googleAccount.scopes, [...SCOPES.calendar]),
       ),
-    );
+    )
+    // In the order they were connected: the first to see a shared calendar syncs it.
+    .orderBy(asc(googleAccount.connectedAt), asc(googleAccount.email));
   const result: SyncResult = {
     calendars: 0,
     events: 0,
@@ -105,7 +78,7 @@ export async function syncCalendars(ctx: ActionContext): Promise<SyncResult> {
     for (const cal of cals) {
       let items: Awaited<ReturnType<CalendarApi["events"]>>;
       try {
-        items = await api.events(acct.email, cal.id, from, to);
+        items = await api.events(acct.email, cal.googleId, from, to);
       } catch (err) {
         // A slowdown holds every calendar of the account: the rest wait for the next round.
         if (slowDown(err)) {
@@ -146,8 +119,10 @@ export async function syncCalendars(ctx: ActionContext): Promise<SyncResult> {
           and(
             eq(calendarEvent.calendarId, cal.id),
             ne(calendarEvent.status, "cancelled"),
-            gte(calendarEvent.endsAt, from),
-            lte(calendarEvent.startsAt, to),
+            // Strictly inside, as Google lists them: an all-day event that ends as the window
+            // starts isn't listed, and isn't gone either.
+            gt(calendarEvent.endsAt, from),
+            lt(calendarEvent.startsAt, to),
             ...(seen.length ? [notInArray(calendarEvent.googleId, seen)] : []),
           ),
         );
@@ -171,20 +146,4 @@ export async function syncCalendars(ctx: ActionContext): Promise<SyncResult> {
     ctx.emit({ kind: "calendar.sync_failed", payload: { errors: result.failed } });
   }
   return result;
-}
-
-/** The account and calendar Hearth writes new events to: your primary calendar. */
-export async function writableCalendar(ctx: ActionContext, calendarId?: string) {
-  const rows = await ctx.tx.select().from(calendar).where(eq(calendar.canWrite, true));
-  const cal = calendarId
-    ? rows.find((r) => r.id === calendarId)
-    : (rows.find((r) => r.isPrimary) ?? rows[0]);
-  if (!cal)
-    throw new ActionError(
-      calendarId ? "not_found" : "unavailable",
-      calendarId
-        ? "That calendar isn't connected, or Hearth can't write to it."
-        : "No Google Calendar is connected. Connect one in Settings.",
-    );
-  return cal;
 }
