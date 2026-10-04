@@ -2,8 +2,10 @@
 
 import { QueryClientProvider } from "@tanstack/solid-query";
 import {
+  createEffect,
   createResource,
   createSignal,
+  ErrorBoundary,
   For,
   Match,
   onCleanup,
@@ -39,6 +41,7 @@ import { TaskView } from "../views/TaskView.tsx";
 import { Voice } from "../views/Voice.tsx";
 import { CommandPalette } from "./CommandPalette.tsx";
 import { Sidebar, useWaiting } from "./Sidebar.tsx";
+import { Crashed, PaneCrashed, Reconnecting, Unreachable, useAutoRetry } from "./Status.tsx";
 import { TabBar } from "./TabBar.tsx";
 
 function PaneView(props: { route: PaneRoute; index: number }) {
@@ -197,7 +200,10 @@ function Shell(props: { onSignOut: () => void }) {
           },
         }}
       >
-        <PaneView route={route} index={i} />
+        {/* One broken view takes down its pane, not the app. */}
+        <ErrorBoundary fallback={(error, reset) => <PaneCrashed error={error} reset={reset} />}>
+          <PaneView route={route} index={i} />
+        </ErrorBoundary>
       </PaneContext.Provider>
     </section>
   );
@@ -256,6 +262,7 @@ function Shell(props: { onSignOut: () => void }) {
       <Show when={help()}>
         <Shortcuts onClose={() => setHelp(false)} />
       </Show>
+      <Reconnecting />
       <div class="pointer-events-none fixed bottom-16 left-1/2 md:bottom-4 z-50 flex -translate-x-1/2 flex-col items-center gap-2">
         <For each={toast.toasts()}>
           {(t) => (
@@ -278,30 +285,44 @@ export function App() {
     queryClient.clear();
     void refetch();
   });
+  // Once Hearth couldn't be reached, that's what shows (retries included) until it answers.
+  const [unreachable, setUnreachable] = createSignal(false);
+  createEffect(() => {
+    if (me.state === "errored") setUnreachable(true);
+    else if (me.state === "ready") setUnreachable(false);
+  });
+  const retryNow = useAutoRetry(
+    () => (me.state === "errored" ? "failed" : me.state === "ready" ? "ok" : "trying"),
+    () => void refetch(),
+  );
+  // Read only when there's an answer: an errored resource throws when read.
+  const answer = () => (me.state === "ready" || me.state === "refreshing" ? me() : undefined);
   return (
     <QueryClientProvider client={queryClient}>
-      <Show
-        when={me()}
-        fallback={
-          <p class="p-6 text-muted">{me.error ? "Can't reach Hearth's server." : "Loading…"}</p>
-        }
-      >
-        {(m) => (
-          <Show
-            when={m().signedIn}
-            fallback={<Login needsSetup={m().needsSetup} onSignedIn={() => void refetch()} />}
-          >
-            <Shell
-              onSignOut={() => {
-                live.stop();
-                queryClient.clear();
-                forgetAllDocs();
-                void refetch();
-              }}
-            />
-          </Show>
-        )}
-      </Show>
+      <ErrorBoundary fallback={(error, reset) => <Crashed error={error} reset={reset} />}>
+        <Switch fallback={<p class="p-6 text-muted">Loading…</p>}>
+          <Match when={unreachable()}>
+            <Unreachable trying={me.loading} retry={retryNow} />
+          </Match>
+          <Match when={answer()}>
+            {(m) => (
+              <Show
+                when={m().signedIn}
+                fallback={<Login needsSetup={m().needsSetup} onSignedIn={() => void refetch()} />}
+              >
+                <Shell
+                  onSignOut={() => {
+                    live.stop();
+                    queryClient.clear();
+                    forgetAllDocs();
+                    void refetch();
+                  }}
+                />
+              </Show>
+            )}
+          </Match>
+        </Switch>
+      </ErrorBoundary>
     </QueryClientProvider>
   );
 }
