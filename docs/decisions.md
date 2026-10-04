@@ -881,9 +881,11 @@ with `dialog_open` instead of hanging. `browser.dialog` answers one. Accepting a
 would send follows the classifier. When Jarvis navigates its own tab, the extension accepts
 "leave site?" by itself; in a tab you handed it, Jarvis has to answer, since the unsaved work may
 be yours. Tabs that Jarvis's tabs open (pop-ups, "opens in a new tab") are adopted through
-`openerTabId` and `webNavigation.onCreatedNavigationTarget`: one opened from Jarvis's tab is
-Jarvis's, and one opened from a tab you handed it is handed. A step's result says which tabs it
-opened.
+`webNavigation.onCreatedNavigationTarget`, which names the tab that opened them: one opened from
+Jarvis's tab is Jarvis's, and one opened from a tab you handed it is handed. A tab's own
+`openerTabId` isn't enough, because Chrome gives one to a tab you open with Ctrl+T too (the tab
+you were on), and that tab stays yours. A step's result says which tabs it opened, and
+`browser.tabs` says which tab each pop-up came from.
 
 *The extension.* It has a fixed key, so its ID is always `jcpelnnklghgcdhcmdbmpflehbehpkhh`,
 wherever the folder is. Health and the Chrome settings say when another ID connects. The link

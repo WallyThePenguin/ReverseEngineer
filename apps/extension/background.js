@@ -204,20 +204,18 @@ chrome.tabs.onUpdated.addListener(async (tabId, change) => {
   if ((change.url || change.title || change.status) && (await mayUse(tabId))) pushTabs();
 });
 chrome.tabs.onActivated.addListener(() => pushTabs());
-chrome.tabs.onCreated.addListener((tab) => {
-  noticeTab(tab);
-  if (tab.id !== undefined && tab.openerTabId !== undefined) void adoptTab(tab.openerTabId, tab.id);
-});
+chrome.tabs.onCreated.addListener((tab) => noticeTab(tab));
 chrome.windows.onRemoved.addListener((windowId) => void windowClosed(windowId));
 
-/** @param {number} openerTabId @param {number} tabId */
-async function adoptTab(openerTabId, tabId) {
-  if (await adopt(openerTabId, tabId).catch(() => false)) pushTabs();
-}
-
-// Pop-ups and links that open a new tab or window (D52). Some arrive without an opener on the tab.
+// Pop-ups and links that open a new tab or window from a page (D52). Only these: a tab's
+// openerTabId alone isn't enough, since Chrome gives one to a tab you open yourself with Ctrl+T
+// (the tab you were on), and that tab is yours.
 chrome.webNavigation.onCreatedNavigationTarget.addListener((d) => {
-  void adoptTab(d.sourceTabId, d.tabId);
+  adopt(d.sourceTabId, d.tabId)
+    .then((adopted) => {
+      if (adopted) pushTabs();
+    })
+    .catch(() => {});
 });
 chrome.webNavigation.onErrorOccurred.addListener(async (d) => {
   if (d.frameId !== 0 || !(await mayUse(d.tabId))) return;
