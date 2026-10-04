@@ -1,6 +1,7 @@
-// Hearth: the address of your Hearth and the pairing code from its Settings (Desktop app).
-// Paired, dictation is cleaned with your Hearth dictionary, snippets and styles and kept in
-// your history there, and two more hotkeys reach Jarvis.
+// Hearth: the address of your Hearth and the pairing code from its Settings (Desktop app), which
+// "Connect Hearth on this PC" there fills in by itself (D53). Paired, dictation is cleaned with
+// your Hearth dictionary, snippets and styles and kept in your history there, and two more
+// hotkeys reach Jarvis. Hearth's own window, quick capture and Ask Jarvis have hotkeys too.
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { commands } from "@/bindings";
@@ -102,6 +103,10 @@ export const HearthSettings: React.FC = () => {
         grouped={true}
         disabled={!paired}
       />
+      {/* Hearth's own windows sign in by themselves, so these work unpaired too. */}
+      <ShortcutInput shortcutId="hearth_open" grouped={true} />
+      <ShortcutInput shortcutId="hearth_capture" grouped={true} />
+      <ShortcutInput shortcutId="hearth_ask" grouped={true} />
     </SettingsGroup>
   );
 };

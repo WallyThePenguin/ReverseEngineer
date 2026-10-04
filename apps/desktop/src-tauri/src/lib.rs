@@ -96,7 +96,8 @@ fn build_console_filter() -> env_filter::Filter {
     builder.build()
 }
 
-fn show_main_window(app: &AppHandle) {
+/// Shows Handy's settings window, which in Hearth is "Hearth voice settings".
+pub(crate) fn show_main_window(app: &AppHandle) {
     if let Some(main_window) = app.get_webview_window("main") {
         if let Err(e) = main_window.unminimize() {
             log::error!("Failed to unminimize webview window: {}", e);
@@ -157,6 +158,14 @@ fn apply_startup_activation_policy(app: &mut tauri::App, headless_mode: bool) {
         log::info!("Starting hidden with tray available: launching as Accessory (no Dock icon)");
         app.set_activation_policy(tauri::ActivationPolicy::Accessory);
     }
+}
+
+/// Whether a speech model is downloaded, i.e. voice has been set up.
+fn has_downloaded_model(app: &AppHandle) -> bool {
+    app.state::<Arc<ModelManager>>()
+        .get_available_models()
+        .iter()
+        .any(|model| model.is_downloaded)
 }
 
 #[allow(unused_variables)]
@@ -223,6 +232,20 @@ fn initialize_core_logic(app_handle: &AppHandle) {
 
     // Recordings from the phone come here to be transcribed (Hearth's D46).
     hearth::relay::start(app_handle);
+    // Hearth's notifications, and the tray's status line (D53).
+    hearth::notify::start(app_handle);
+    hearth::status::start(app_handle);
+
+    // Saved recordings are the only files the settings window plays (convertFileSrc), so the
+    // asset protocol reaches only them (tauri.conf.json); a portable install keeps them here.
+    if let Some(data_dir) = portable::data_dir() {
+        if let Err(e) = app_handle
+            .asset_protocol_scope()
+            .allow_directory(data_dir.join("recordings"), true)
+        {
+            log::warn!("Couldn't allow the portable recordings folder: {e}");
+        }
+    }
 
     // Note: Shortcuts are NOT initialized here.
     // The frontend is responsible for calling the `initialize_shortcuts` command
@@ -256,11 +279,11 @@ fn initialize_core_logic(app_handle: &AppHandle) {
             )
             .unwrap(),
         )
-        .tooltip(tray::tray_tooltip())
+        .tooltip(tray::tray_tooltip(app_handle))
         .icon_as_template(true);
 
-    // Windows notification-area convention: left click opens the app, right click
-    // shows the menu. Elsewhere (macOS menu bar, Linux) the menu stays on left click.
+    // Windows notification-area convention: left click opens the app (Hearth's window), right
+    // click shows the menu. Elsewhere (macOS menu bar, Linux) the menu stays on left click.
     #[cfg(target_os = "windows")]
     {
         tray_builder = tray_builder
@@ -279,7 +302,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
                     }
                 );
                 if opens_window {
-                    show_main_window(tray.app_handle());
+                    hearth::window::open(tray.app_handle(), "/");
                 }
             });
     }
@@ -294,10 +317,19 @@ fn initialize_core_logic(app_handle: &AppHandle) {
                 show_main_window(app);
             }
             "open_hearth" => {
-                hearth::open_window(app);
+                hearth::window::open(app, "/");
+            }
+            "hearth_capture" => {
+                hearth::window::capture(app);
             }
             "hearth_meeting" => {
                 hearth::meeting::toggle(app);
+            }
+            "hearth_restart" => {
+                hearth::services::restart(app);
+            }
+            "hearth_update" => {
+                hearth::services::update(app);
             }
             "secure_input_warning" => {
                 // Full explanation lives in the settings-window banner
@@ -864,7 +896,9 @@ pub fn run(cli_args: CliArgs) {
     // instance instead.
     if !headless_mode {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            if args.iter().any(|a| a == "--toggle-transcription") {
+            if hearth::deeplink::is_link_arg(&args) {
+                // A hearth:// link: the deep-link plugin passes it on (hearth/deeplink.rs).
+            } else if args.iter().any(|a| a == "--toggle-transcription") {
                 signal_handle::send_transcription_input(app, "transcribe", "CLI");
             } else if args.iter().any(|a| a == "--toggle-post-process") {
                 signal_handle::send_transcription_input(app, "transcribe_with_post_process", "CLI");
@@ -879,10 +913,13 @@ pub fn run(cli_args: CliArgs) {
                 // tray icon (#1948).
                 #[cfg(target_os = "macos")]
                 tray::recreate_tray_icon(app);
-                show_main_window(app);
+                hearth::window::open(app, "/");
             }
         }));
     }
+
+    // hearth:// links (D53): registered by the installer, handled in hearth/deeplink.rs.
+    builder = builder.plugin(tauri_plugin_deep_link::init());
 
     #[allow(unused_mut)]
     let mut app = builder
@@ -895,10 +932,22 @@ pub fn run(cli_args: CliArgs) {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        // Starting with Windows, Hearth waits in the tray (D53).
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
-            Some(vec![]),
+            Some(vec!["--start-hidden"]),
         ))
+        // Hearth's window opens where you left it. Only that window: the others place themselves.
+        .plugin(
+            tauri_plugin_window_state::Builder::new()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::SIZE
+                        | tauri_plugin_window_state::StateFlags::POSITION
+                        | tauri_plugin_window_state::StateFlags::MAXIMIZED,
+                )
+                .with_filter(|label| label == hearth::window::MAIN)
+                .build(),
+        )
         .manage(cli_args.clone())
         .setup(move |app| {
             #[cfg(target_os = "windows")]
@@ -957,7 +1006,7 @@ pub fn run(cli_args: CliArgs) {
             // for portable mode (redirects WebView2 cache to portable Data dir)
             let mut win_builder =
                 tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("/".into()))
-                    .title("Handy")
+                    .title("Hearth voice settings")
                     .inner_size(680.0, 570.0)
                     .min_inner_size(680.0, 570.0)
                     .resizable(true)
@@ -1064,7 +1113,15 @@ pub fn run(cli_args: CliArgs) {
             // anyway. Without a tray icon, the dock is the only way back in.
             // Keep in sync with `apply_startup_activation_policy` (macOS).
             let tray_available = settings.show_tray_icon && !cli_args.no_tray;
-            if should_force_show || !should_hide || !tray_available {
+
+            // Hearth (D53): opening the app opens Hearth's window, or the page a hearth:// link
+            // asked for. The voice settings window comes up as well while voice isn't set up
+            // (no speech model yet), or when Windows blocks the microphone.
+            let opened_by_link = hearth::deeplink::init(&app_handle);
+            if !opened_by_link && (!should_hide || !tray_available) {
+                hearth::window::open(&app_handle, "/");
+            }
+            if should_force_show || (!should_hide && !has_downloaded_model(&app_handle)) {
                 show_main_window(&app_handle);
             }
 
@@ -1092,6 +1149,8 @@ pub fn run(cli_args: CliArgs) {
                     // No tray: keep the dock icon visible so the user can reopen
                 }
             }
+            // Hearth's small windows (quick capture, ask Jarvis) tuck away on clicking elsewhere.
+            tauri::WindowEvent::Focused(false) => hearth::window::blurred(window),
             tauri::WindowEvent::ThemeChanged(theme) => {
                 log::info!("Theme changed to: {:?}", theme);
                 // Re-apply the current tray state with the new theme's icon set

@@ -650,6 +650,9 @@ nothing can approve it, so text from an email could make it paste out your data)
 worth as little as possible if it leaks, and a pasted answer is an outward channel with no
 approval step.
 
+*Later:* D53 pairs the app by hand-off from a signed-in browser instead of a pasted code, and
+adds two read-only scopes (`system.status`, the notification feed).
+
 ## D43. The desktop app is Handy, vendored, with Hearth's code kept to one folder (2026-10-03)
 
 **Decision:** `apps/desktop` is a copy of Handy at `ffbc950` (MIT), outside the pnpm workspace
@@ -1150,3 +1153,44 @@ Restoring over the live database (one bad dump and both are gone). A Windows run
 
 **Why:** The 2026-10-03 update broke every Jarvis turn while health said "ok", the doctor printed
 checkmarks and the updater said "update OK". Each of those now checks the thing that broke.
+
+## D53. Hearth on the PC is one Tauri app; the window signs in by hand-off (2026-10-04)
+
+**Decision:** The desktop app (D43) is renamed "Hearth" (`hearth.exe`, identifier
+`app.hearth.desktop`, installed per user, version `1.0.<CI run>`), and it's how Hearth runs on
+the PC: it starts with Windows into the tray, and its window shows Hearth's web app from the
+address in its settings (`http://localhost:4400` on the PC). That window is a web page like any
+other and gets none of the app's commands. Links elsewhere open in your browser, and when the
+server doesn't answer it shows a built-in "Hearth isn't running" page with Retry. `hearth://`
+links open a page (`hearth://open/<path>`, relative paths only), open voice settings, or
+connect the PC. Any website can open them, so every part of one is untrusted.
+
+Passkeys belong to Hearth's https address, so the window signs in by hand-off. In a signed-in
+browser, Settings → Desktop app → Connect Hearth on this PC makes a single-use nonce (one minute,
+kept in memory, compared in constant time) and opens `hearth://connect?nonce=…`. The app asks
+you first, then trades the nonce at its own configured address, never one from the link, for
+its device token (D42's scopes, paired anew) and a one-time code. Its window trades the code at
+`/api/auth/desktop/window` for an ordinary browser session and opens the inbox. The window has
+one such session: connecting again replaces it, and Disconnect in Settings signs it out with the
+token (and ends the token's notification feed). Only a browser session can start a hand-off, so
+a device token can never become a session.
+`HEARTH_LOCAL_ORIGIN` (default `http://localhost:<port>`, loopback only) is Hearth's address on
+the PC: writes from pages there are accepted, and the session cookie is Secure per request,
+except on that plain-http address.
+
+The app also shows Windows notifications from `GET /api/desktop/notify` (what the phone is
+pushed, D45, plus Hearth's health changing; quiet while the window is in front; clicking one
+opens its page), a tray status line from `/api/health` and `system.status` with Restart Hearth
+services and Update Hearth…, and hotkeys for Hearth (Ctrl+Alt+H), quick capture (Ctrl+Alt+N)
+and Ask Jarvis (Ctrl+Alt+K). The device token gains only `system.status` and the notification
+feed, both read only; it still can't approve anything.
+
+**Alternatives:** A second shell (Electron or plain WebView2) beside the voice app (two tray
+icons, two installers, two things to keep running). Giving the window the app's commands (any
+script on a page it loads could then drive the PC). Signing the window in with the device
+token (a leaked desktop token would become a full session). Web Push inside the window (it can't
+notify while the window is closed; the app can).
+
+**Why:** You wanted Hearth to be a program on the PC, like Discord or Slack, and the voice app
+already is one: it starts with Windows, lives in the tray and has the hotkeys. Keeping the window
+a plain web page and the hand-off one-way keeps the desktop token worth as little as D42 meant.

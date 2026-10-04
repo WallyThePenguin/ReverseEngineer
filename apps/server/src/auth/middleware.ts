@@ -5,18 +5,32 @@ import type { Caller } from "@hearth/kernel";
 import { ownerCaller } from "@hearth/kernel";
 import type { Context, MiddlewareHandler } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
+import { localOriginOf } from "../config.ts";
 import type { AppEnv } from "../env.ts";
 import { scopeAllows } from "./devices.ts";
 import { checkToken, SESSION_DAYS, type SessionPrincipal, type TokenRefusal } from "./tokens.ts";
 
 export const SESSION_COOKIE = "hearth_session";
 
+/**
+ * Cookies are Secure when Hearth is on https, except on its plain-http address on this PC, which
+ * the desktop app's window opens (D53): there a Secure cookie would never come back.
+ */
+export function secureCookies(c: Context<AppEnv>): boolean {
+  const { config } = c.get("deps");
+  if (!config.origin.startsWith("https://")) return false;
+  const local = new URL(localOriginOf(config));
+  if (local.protocol === "https:") return true;
+  const host = c.req.header("host") ?? new URL(c.req.url).host;
+  return host.toLowerCase() !== local.host;
+}
+
 /** The sign-in cookie, as routes/auth.ts sets it at sign-in, for a session that just slid. */
 function renewCookie(c: Context<AppEnv>, token: string) {
   setCookie(c, SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "Strict",
-    secure: c.get("deps").config.origin.startsWith("https://"),
+    secure: secureCookies(c),
     path: "/",
     maxAge: SESSION_DAYS * 86_400,
   });
@@ -87,18 +101,31 @@ export function authenticate(): MiddlewareHandler<AppEnv> {
 }
 
 /**
- * Cookie-authenticated writes must come from Hearth's own page. SameSite=Strict already blocks
- * most cross-site requests; this closes the rest.
+ * Writes that use no session at all and carry their own proof: the desktop app trading the
+ * one-time nonce from a connect link (D53). The app isn't a web page, so it sends no Origin.
+ */
+const SELF_PROVING_WRITES = new Set(["/api/auth/desktop/redeem"]);
+
+/**
+ * Cookie-authenticated writes must come from Hearth's own page: at its address, or at its address
+ * on this PC (the desktop app's window, D53). SameSite=Strict already blocks most cross-site
+ * requests; this closes the rest.
  */
 export function sameOriginWrites(): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const method = c.req.method;
-    if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
+    if (
+      method !== "GET" &&
+      method !== "HEAD" &&
+      method !== "OPTIONS" &&
+      !SELF_PROVING_WRITES.has(c.req.path)
+    ) {
       const origin = c.req.header("origin");
       const site = c.req.header("sec-fetch-site");
-      const expected = c.get("deps").config.origin;
+      const { config } = c.get("deps");
+      const ours = origin === config.origin || origin === localOriginOf(config);
       const cookieAuthed = c.get("viaCookie") || !bearer(c);
-      if (cookieAuthed && origin !== expected && site !== "same-origin") {
+      if (cookieAuthed && !ours && site !== "same-origin") {
         return c.json({ error: "Cross-site request refused." }, 403);
       }
     }

@@ -1,6 +1,12 @@
 // /api/devices: pair the desktop app, see when it was last seen, and unpair it. Owner only.
 import { Hono } from "hono";
-import { DEVICE_SCOPES, listDevices, pairDevice, revokeDevice } from "../auth/devices.ts";
+import {
+  DEVICE_SCOPES,
+  listDevices,
+  pairDevice,
+  revokeDesktopWindow,
+  revokeDevice,
+} from "../auth/devices.ts";
 import { requireCaller } from "../auth/middleware.ts";
 import type { AppEnv } from "../env.ts";
 
@@ -19,7 +25,11 @@ export function deviceRoutes() {
   });
 
   app.delete("/:name", async (c) => {
-    const n = await revokeDevice(c.get("deps").kernel.db, c.req.param("name"));
+    const { db } = c.get("deps").kernel;
+    const name = c.req.param("name");
+    let n = await revokeDevice(db, name);
+    // Disconnecting the desktop app signs Hearth's window on the PC out too (D53).
+    if (name === "desktop") n += await revokeDesktopWindow(db);
     return c.json({ revoked: n });
   });
   return app;

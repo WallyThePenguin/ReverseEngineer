@@ -20,6 +20,9 @@ export const DEVICE_SCOPES: Record<string, string[]> = {
     // Speech for the phone: it takes recordings to transcribe and answers them (D46).
     "GET /api/voice/jobs/next",
     "POST /api/voice/jobs/:id",
+    // Hearth on the PC (D53): the tray's status line and Windows notifications. Read only.
+    "system.status",
+    "GET /api/desktop/notify",
   ],
 };
 
@@ -38,10 +41,24 @@ export async function pairDevice(db: DbOrTx, name: string, now = new Date()): Pr
 }
 
 export async function revokeDevice(db: DbOrTx, name: string, now = new Date()): Promise<number> {
+  return revokeLabelled(db, label(name), now);
+}
+
+/**
+ * The browser session Hearth's own window on the PC signs in with (D53). It's a full session, so
+ * it's kept to one: connecting again replaces it, and disconnecting the app signs it out.
+ */
+export const DESKTOP_WINDOW = "window:desktop";
+
+export async function revokeDesktopWindow(db: DbOrTx, now = new Date()): Promise<number> {
+  return revokeLabelled(db, DESKTOP_WINDOW, now);
+}
+
+async function revokeLabelled(db: DbOrTx, name: string, now: Date): Promise<number> {
   const rows = await db
     .update(session)
     .set({ revokedAt: now })
-    .where(and(eq(session.label, label(name)), isNull(session.revokedAt)))
+    .where(and(eq(session.label, name), isNull(session.revokedAt)))
     .returning({ hash: session.tokenHash });
   return rows.length;
 }
