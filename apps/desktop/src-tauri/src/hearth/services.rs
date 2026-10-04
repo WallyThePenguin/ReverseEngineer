@@ -69,8 +69,9 @@ pub fn restart_script(folder: &Path, has_restart_command: bool) -> String {
             "Restart-Service hearth-server, hearth-worker".into(),
             "$pidFile = Join-Path $env:ProgramData 'Hearth\\services\\hearth-jarvis.pid'".into(),
             "Stop-ScheduledTask -TaskName 'Hearth Jarvis' -ErrorAction SilentlyContinue".into(),
-            // Stopping the task can leave Jarvis's node running; the pid it wrote finds it.
-            "if (Test-Path $pidFile) { $p = Get-Process -Id ([int](Get-Content $pidFile -Raw).Trim()) -ErrorAction SilentlyContinue; if ($p -and $p.ProcessName -eq 'node') { Stop-Process -Id $p.Id -Force } }".into(),
+            // Stopping the task can leave Jarvis's node running; the pid it wrote finds it. The
+            // file outlives a Jarvis that crashed, so only a process older than it is Jarvis.
+            "if (Test-Path $pidFile) { $p = Get-Process -Id ([int](Get-Content $pidFile -Raw).Trim()) -ErrorAction SilentlyContinue; if ($p -and $p.ProcessName -eq 'node' -and $p.StartTime -and $p.StartTime -le (Get-Item $pidFile).LastWriteTime.AddSeconds(5)) { Stop-Process -Id $p.Id -Force } }".into(),
             "Start-ScheduledTask -TaskName 'Hearth Jarvis'".into(),
         ]
     };
@@ -197,6 +198,8 @@ mod tests {
         let fallback = restart_script(Path::new(r"D:\Hearth"), false);
         assert!(fallback.contains("Restart-Service hearth-server, hearth-worker"));
         assert!(fallback.contains("Start-ScheduledTask -TaskName 'Hearth Jarvis'"));
+        // A stale pid file's pid, now some other node.exe, is left alone.
+        assert!(fallback.contains("$p.StartTime -le (Get-Item $pidFile).LastWriteTime"));
         // No double quotes: the script goes to PowerShell as one quoted argument.
         assert!(!s.contains('"') && !fallback.contains('"'));
     }

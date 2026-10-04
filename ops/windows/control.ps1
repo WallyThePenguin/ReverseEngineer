@@ -24,13 +24,25 @@ function Resolve-HearthParts([string]$Which) {
   return @($Which)
 }
 
+# Whether $Proc is the Jarvis that wrote its pid file at $Written. The file outlives a Jarvis that
+# was killed or crashed, and Windows reuses pids; a process that got the pid later started after
+# the file was written, so it isn't Jarvis. One whose start time can't be read isn't trusted.
+function Test-JarvisPid($Proc, [datetime]$Written) {
+  if (-not $Proc -or $Proc.ProcessName -ne "node") { return $false }
+  try { $started = $Proc.StartTime } catch { return $false }
+  return $null -ne $started -and $started -le $Written.AddSeconds(5)
+}
+
 function Stop-Jarvis {
   # Jarvis runs under cmd in the task; stopping the task ends cmd but not always the node under
   # it, and an unelevated account can't read session-0 command lines. So: the pid Jarvis wrote at
   # startup, plus every child of the task's running process.
   $pids = @()
   $pidFile = "$env:ProgramData\Hearth\services\hearth-jarvis.pid"
-  if (Test-Path $pidFile) { $pids += [int](Get-Content $pidFile -Raw).Trim() }
+  if (Test-Path $pidFile) {
+    $proc = Get-Process -Id ([int](Get-Content $pidFile -Raw).Trim()) -ErrorAction SilentlyContinue
+    if (Test-JarvisPid $proc (Get-Item $pidFile).LastWriteTime) { $pids += $proc.Id }
+  }
   $scheduler = New-Object -ComObject Schedule.Service
   $scheduler.Connect()
   $task = $scheduler.GetFolder("\").GetTask("Hearth Jarvis")

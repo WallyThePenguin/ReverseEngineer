@@ -160,6 +160,50 @@ Assert-Equal (Wait-TaskStopped "Hearth Jarvis" 5) $true "no task: nothing to wai
 $script:states = @("Running")
 Assert-Equal (Wait-TaskStopped "Hearth Jarvis" 0) $false "gives up when it won't stop"
 
+# Stop-Jarvis trusts its pid file only for the process that wrote it: the file outlives a Jarvis
+# that was killed or crashed, and Windows hands its pid to later processes.
+$written = [datetime]::new(2026, 10, 4, 12, 0, 0)
+$node = { param($started) [pscustomobject]@{ ProcessName = "node"; Id = 999999; StartTime = $started } }
+Assert-Equal (Test-JarvisPid (& $node $written.AddSeconds(-20)) $written) $true "the Jarvis that wrote the pid file"
+Assert-Equal (Test-JarvisPid (& $node $written.AddHours(2)) $written) $false "a later node.exe that got the same pid"
+Assert-Equal (Test-JarvisPid (& $node $null) $written) $false "a node.exe whose start time can't be read"
+$denied = [pscustomobject]@{ ProcessName = "node"; Id = 999999 }
+$denied | Add-Member -MemberType ScriptProperty -Name StartTime -Value { throw "Access is denied" }
+Assert-Equal (Test-JarvisPid $denied $written) $false "a node.exe that won't say when it started"
+Assert-Equal (Test-JarvisPid ([pscustomobject]@{ ProcessName = "chrome"; StartTime = $written.AddSeconds(-20) }) $written) $false "not node"
+Assert-Equal (Test-JarvisPid $null $written) $false "no process with that pid"
+
+# Stop-Jarvis itself, with the pid file, the processes and the task faked. 999999 can't be a real
+# pid (Windows' are multiples of 4), and Stop-Process is faked anyway.
+$script:found = $null
+$script:killed = @()
+function Test-Path { param($Path) $true }
+function Get-Content { param($Path, [switch]$Raw) "999999`r`n" }
+function Get-Item { param($Path) [pscustomobject]@{ LastWriteTime = $written } }
+function Get-Process { param($Id) $script:found }
+function Stop-Process { param($Id, [switch]$Force) $script:killed += $Id }
+function Stop-ScheduledTask {}
+function New-Object {
+  $task = [pscustomobject]@{}
+  $task | Add-Member -MemberType ScriptMethod -Name GetInstances -Value { @() }
+  $folder = [pscustomobject]@{ Task = $task }
+  $folder | Add-Member -MemberType ScriptMethod -Name GetTask -Value { $this.Task }
+  $scheduler = [pscustomobject]@{ Folder = $folder }
+  $scheduler | Add-Member -MemberType ScriptMethod -Name Connect -Value {}
+  $scheduler | Add-Member -MemberType ScriptMethod -Name GetFolder -Value { $this.Folder }
+  return $scheduler
+}
+$script:states = @("")
+$script:found = & $node $written.AddHours(2)
+Stop-Jarvis
+Assert-Equal "$script:killed" "" "Stop-Jarvis leaves a later node.exe with Jarvis's old pid alone"
+$script:found = & $node $written.AddSeconds(-20)
+Stop-Jarvis
+Assert-Equal "$script:killed" "999999" "Stop-Jarvis stops the Jarvis that wrote the pid file"
+foreach ($f in "Test-Path", "Get-Content", "Get-Item", "Get-Process", "Stop-Process", "Stop-ScheduledTask", "New-Object") {
+  Remove-Item "function:$f"
+}
+
 if ($failures) { Write-Host "$failures failed"; exit 1 }
 Write-Host "All passed."
 exit 0
