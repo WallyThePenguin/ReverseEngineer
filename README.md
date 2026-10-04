@@ -39,7 +39,18 @@ A second check has the server open Chromium by itself, the way it opens your Chr
 the top of `apps/web/e2e/chrome-launch.ts`).
 
 Tests need a Postgres role that can create databases; set `HEARTH_TEST_DATABASE_URL` if it isn't
-`postgres://hearth:hearth@localhost:5432/postgres`.
+`postgres://hearth:hearth@localhost:5432/postgres`. On a PC that also runs Hearth, give tests a
+cluster of their own instead of the one holding your data:
+
+```powershell
+$bin = "C:\Program Files\PostgreSQL\17\bin"; $dir = "$env:LOCALAPPDATA\HearthTestDb"
+& "$bin\initdb.exe" -D $dir -U hearth --auth=trust
+Add-Content "$dir\postgresql.conf" "listen_addresses = 'localhost'`nport = 5499`nfsync = off"
+& "$bin\pg_ctl.exe" -D $dir -l "$dir\server.log" start *> $null
+$env:HEARTH_TEST_DATABASE_URL = "postgres://hearth@localhost:5499/postgres"
+```
+
+Each checkout gets its own template database, so test runs in two worktrees don't collide.
 
 ## Layout
 
