@@ -24,6 +24,7 @@ import {
   checkOrigin,
   formatChecks,
 } from "./doctor.ts";
+import { guardSchema } from "./schema-guard.ts";
 
 const HELP = `hearth: your personal workspace, with Jarvis.
 
@@ -105,6 +106,14 @@ async function main(argv: string[]): Promise<number> {
       if (command !== "jarvis") guardProcess(command);
       const stops: (() => Promise<void>)[] = [];
       if (command === "dev") await withDatabase(({ pool }) => migrateUp(pool));
+      else {
+        const service = command === "serve" ? "server" : command;
+        const refused = await withDatabase((d) => guardSchema(service, d.pool, kernelFor(d)));
+        if (refused) {
+          console.error(refused);
+          return 1;
+        }
+      }
       if (command === "serve" || command === "dev")
         stops.push(await (await import("@hearth/server")).runServer());
       if (command === "worker" || command === "dev")
