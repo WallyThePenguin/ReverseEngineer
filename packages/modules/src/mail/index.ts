@@ -38,6 +38,15 @@ const syncFailed: ReflexDef = {
   async run(event, ctx) {
     const p = event.payload;
     const errors = (p.errors as string[] | undefined) ?? [];
+    // Jarvis may get here late (busy, or restarting). If the account has synced since, the alert
+    // would arrive after the sync that closes it, and stay open for good: say nothing.
+    if (typeof p.accountId === "string" && typeof p.since === "string") {
+      const [a] = await ctx.db
+        .select({ since: mailAccount.failingSince })
+        .from(mailAccount)
+        .where(eq(mailAccount.id, p.accountId));
+      if (a?.since?.toISOString() !== p.since) return [];
+    }
     const what = p.reconnect
       ? `Google stopped accepting Hearth's access to ${String(p.account)}. Connect it again in Settings; your changes wait until then.`
       : `Hearth hasn't been able to sync ${String(p.account ?? "your mail")} for a while. It keeps trying every minute.`;

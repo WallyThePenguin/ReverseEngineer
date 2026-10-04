@@ -224,6 +224,18 @@ describe("alerts", () => {
     expect(await stateOf(again)).toBe("unseen");
   });
 
+  it("says nothing if mail synced again before Jarvis got to the alert", async () => {
+    await sync();
+    await outage();
+    await outage();
+    await outage();
+    const [e] = await t.events("mail.sync_failed");
+    // Jarvis was busy or down; meanwhile mail synced again.
+    expect(await sync()).toMatchObject({ failed: [] });
+    const reflex = mailModule.reflexes!.find((r) => r.name === "mail.sync_failed")!;
+    expect(await reflex.run(e!, { db: t.tdb.db, now: t.clock.now() })).toEqual([]);
+  });
+
   it("alerts at once when Google signs Hearth out, and keeps your changes queued", async () => {
     g.gmail.deliver({ from: ANA, subject: "Plans", text: "?" });
     await sync();
