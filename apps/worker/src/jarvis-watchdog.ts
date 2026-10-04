@@ -5,7 +5,9 @@
 import { execFile } from "node:child_process";
 import { join } from "node:path";
 import { formatTime } from "@hearth/core";
+import { notification } from "@hearth/db";
 import { getSetting, type Kernel, systemCaller } from "@hearth/kernel";
+import { and, eq, gte, isNull } from "drizzle-orm";
 
 export const JARVIS_TASK = "Hearth Jarvis";
 
@@ -36,6 +38,38 @@ export const runJarvisTask = (): Promise<void> =>
     });
   });
 
+/**
+ * Interrupts held for quiet hours are sent in the morning by Jarvis. While Jarvis is down the
+ * worker sends them instead, or "Jarvis won't stay running" would wait for Jarvis itself (D54).
+ * inbox.deliver still applies quiet hours and the day's budget; only the last day's are sent.
+ */
+export async function deliverHeld(kernel: Kernel): Promise<number> {
+  const since = new Date(kernel.clock.now().getTime() - 24 * 3600_000);
+  const held = await kernel.db
+    .select({ id: notification.id })
+    .from(notification)
+    .where(
+      and(
+        eq(notification.urgency, "interrupt"),
+        isNull(notification.deliveredAt),
+        eq(notification.state, "unseen"),
+        eq(notification.deferredReason, "quiet_hours"),
+        gte(notification.createdAt, since),
+      ),
+    )
+    .limit(20);
+  let sent = 0;
+  for (const { id } of held) {
+    const res = await kernel.execute<{ delivered: boolean }>(
+      "inbox.deliver",
+      { id },
+      systemCaller(),
+    );
+    if (res.status === "ok" && res.result.delivered) sent++;
+  }
+  return sent;
+}
+
 /** A check to run every minute or so. */
 export function jarvisWatchdog(kernel: Kernel, opts: WatchdogOptions = {}) {
   const staleMs = opts.staleMs ?? 3 * 60_000;
@@ -53,6 +87,7 @@ export function jarvisWatchdog(kernel: Kernel, opts: WatchdogOptions = {}) {
     const now = kernel.clock.now();
     const seen = new Date(alive.at);
     if (now.getTime() - seen.getTime() <= staleMs) return "ok";
+    await deliverHeld(kernel).catch((err) => log("sending held interrupts failed", err));
     if (!enabled) return "off";
     if (last && now.getTime() - last.at < gapMs) return "waiting";
     // The same outage as the last restart: that one didn't bring Jarvis back.

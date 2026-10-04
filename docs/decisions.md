@@ -893,7 +893,8 @@ Smaller fixes in the same change:
 The interrupt budget closes three gaps:
 
 - An interrupt held for quiet hours goes out when they end, unless you've already seen it, and
-  it reaches the phone as D45 pushes delivered interrupts.
+  it reaches the phone as D45 pushes delivered interrupts. Jarvis sends it; while Jarvis is
+  down, the worker's watchdog does, so "Jarvis won't stay running" doesn't wait on Jarvis.
 - Counting and delivering take one lock, so two processes can't both take the day's last slot.
 - A deadline given by a turn that read outside content, or by an outside agent, is shown, but
   it can't wake you.

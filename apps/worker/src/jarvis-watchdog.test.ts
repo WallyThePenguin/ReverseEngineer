@@ -1,7 +1,8 @@
-import { notification } from "@hearth/db";
+import { event, notification } from "@hearth/db";
 import { setSetting, systemCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { ALL_MODULES } from "@hearth/modules";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { checkHealth, reportHealth } from "./health.ts";
 import { jarvisWatchdog } from "./jarvis-watchdog.ts";
@@ -70,6 +71,32 @@ describe("the Jarvis watchdog", () => {
     t.clock.advance(4 * 60_000);
     expect(await check()).toBe("failed");
     expect(await alerts()).toMatchObject([{ title: "Jarvis won't stay running" }]);
+  });
+
+  it("sends what was held overnight when Jarvis is still down in the morning", async () => {
+    t.clock.set("2026-10-02T03:00:00Z"); // 11 p.m.
+    await checkIn();
+    const held = await t.kernel.execute<{ id: string; delivered: boolean }>(
+      "inbox.notify",
+      { kind: "system.alert", title: "Jarvis won't stay running", urgency: "interrupt" },
+      systemCaller(),
+    );
+    expect(held).toMatchObject({ status: "ok", result: { delivered: false } });
+    const check = jarvisWatchdog(t.kernel, { enabled: false });
+    // Still night: it waits.
+    t.clock.advance(10 * 60_000);
+    expect(await check()).toBe("off");
+    expect((await alerts())[0]?.deliveredAt).toBeNull();
+    // Morning, and nothing has checked in: the worker sends it, once.
+    t.clock.set("2026-10-02T12:01:00Z");
+    await check();
+    await check();
+    expect((await alerts())[0]?.deliveredAt).not.toBeNull();
+    const sent = await t.kernel.db
+      .select()
+      .from(event)
+      .where(eq(event.kind, "notification.delivered"));
+    expect(sent).toHaveLength(1);
   });
 
   it("only watches outside the installed Windows worker", async () => {
