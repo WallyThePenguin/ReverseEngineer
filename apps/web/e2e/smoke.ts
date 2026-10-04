@@ -271,7 +271,7 @@ try {
     await p.getByText(`Can you send the OtoPair${tag} update to the team today?`).waitFor();
   });
 
-  await step("the calendar, mail, and Google in Settings", async (p) => {
+  await step("the calendar, mail, Google and Slack in Settings", async (p) => {
     await p.locator("nav").click({ position: { x: 100, y: 600 } });
     await keys("g", "c");
     await p.getByRole("heading", { name: "Calendar" }).waitFor();
@@ -280,6 +280,10 @@ try {
     await p.getByText("Connect Gmail in Settings").waitFor();
     await keys("g", "s");
     await p.getByRole("heading", { name: "Google" }).waitFor();
+    await p.getByRole("heading", { name: "Slack" }).waitFor();
+    const create = p.getByRole("link", { name: "Create Hearth's Slack app" });
+    if (!(await create.getAttribute("href"))?.includes("search%3Aread"))
+      throw new Error("the Slack app link doesn't ask for its scopes");
   });
 
   await step("pair the desktop app, whose code runs only voice actions", async (p) => {

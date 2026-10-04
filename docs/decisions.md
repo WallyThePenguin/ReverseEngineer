@@ -749,3 +749,32 @@ already calls that a later option).
 
 **Why:** The parts of Macro's canvas Hearth needs are small, and its dependencies are not. Keeping
 its data model leaves the door open without carrying its framework.
+
+## D48. Slack is read in with your own token, polled, and never posted to (2026-10-03)
+
+**Decision:** Slack (PLAN.md section 8.3) connects with the User OAuth Token of a small Slack app
+you make from a manifest Settings fills in (read scopes only). The token is sealed with the vault
+key (D26), taken only from you in Settings (`slack.connect` is a `secret` action, so the audit log
+keeps none of it), and sent only to slack.com. The worker reads Slack every two minutes: the
+channel list every half hour, your @mentions through Slack search (thread replies included), and
+the 15 channels read least recently, so a big workspace is read in turn within Slack's limits.
+A channel's first look brings in three days, quietly.
+
+Each message is a `slack_message` record written by `integration:slack`, an outside type, so
+Jarvis reading one makes the rest of its turn untrusted (D25). A message that @mentions you, or a
+direct message to you, lands in the inbox once the first sync is done; your own messages never do.
+Messages from someone whose Slack email matches a person in Hearth are linked to them, but Slack
+never creates people (like received mail, section 8.7). Hearth's own link tags can't be forged
+from Slack text. You can stop reading any channel; mentions there still come in.
+
+Jarvis can list and search what was read in (`slack.messages`) and gets your mentions in the
+brief. It has no way to post: posting as itself needs a bot user, which can come later behind an
+approval.
+
+**Alternatives:** Slack's Events API or Socket Mode (Events needs a public address Hearth doesn't
+have; Socket Mode needs a second, app-level token, more setup for little gain at a two-minute
+pace). A bot token (it only sees channels it's invited to, and the point is your own Slack).
+Reading every channel every round (a workspace with 100 channels would hit Slack's limits).
+
+**Why:** Polling with one read-only token is the least setup and the smallest thing to leak, and
+it fits a PC with no public address.
