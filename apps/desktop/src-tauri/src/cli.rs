@@ -2,8 +2,13 @@ use clap::Parser;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug, Clone, Default)]
-#[command(name = "handy", about = "Handy - Speech to Text")]
+#[command(name = "hearth", about = "Hearth for Windows")]
 pub struct CliArgs {
+    /// A hearth:// link Windows opened the app with. The deep-link plugin acts on it
+    /// (hearth/deeplink.rs); it's named here only so it isn't refused as an unknown argument.
+    #[arg(hide = true)]
+    pub link: Option<String>,
+
     /// Start with the main window hidden
     #[arg(long)]
     pub start_hidden: bool,

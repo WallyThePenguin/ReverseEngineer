@@ -206,6 +206,76 @@ impl Hearth {
         serde_json::from_value(out["log"].clone())
             .map_err(|e| format!("odd answer from Hearth: {e}"))
     }
+
+    /// Hearth's notifications for this PC, as a live stream of server-sent events (D53).
+    pub async fn notify_feed(&self, after: Option<&str>) -> Result<reqwest::Response, String> {
+        let mut req = self
+            .http
+            .get(format!("{}/api/desktop/notify", self.base))
+            .bearer_auth(&self.token)
+            .header("accept", "text/event-stream");
+        if let Some(id) = after {
+            req = req.header("last-event-id", id);
+        }
+        let res = req
+            .send()
+            .await
+            .map_err(|e| format!("Couldn't reach Hearth: {e}"))?;
+        match res.status().as_u16() {
+            200 => Ok(res),
+            s => Err(format!("Hearth answered {s} when asked for notifications.")),
+        }
+    }
+}
+
+fn http() -> &'static reqwest::Client {
+    static HTTP: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    HTTP.get_or_init(reqwest::Client::new)
+}
+
+/// Whether Hearth's server answers at this address.
+pub async fn healthy(base: &str) -> bool {
+    http()
+        .get(format!("{}/api/health", base.trim_end_matches('/')))
+        .timeout(Duration::from_secs(3))
+        .send()
+        .await
+        .is_ok_and(|r| r.status().is_success())
+}
+
+/// What a connect link gets this PC: its device token, and a one-time code that signs Hearth's
+/// window in (D53).
+#[derive(Debug, Deserialize)]
+pub struct Connected {
+    pub token: String,
+    pub code: String,
+}
+
+/// Trades the nonce from a connect link for this PC's token and a sign-in code, at the address
+/// in this app's settings.
+pub async fn redeem(base: &str, nonce: &str) -> Result<Connected, String> {
+    let res = http()
+        .post(format!(
+            "{}/api/auth/desktop/redeem",
+            base.trim_end_matches('/')
+        ))
+        .json(&json!({ "nonce": nonce }))
+        .timeout(Duration::from_secs(10))
+        .send()
+        .await
+        .map_err(|_| "Couldn't reach Hearth to connect this PC. Is it running?".to_string())?;
+    match res.status().as_u16() {
+        200 => res
+            .json()
+            .await
+            .map_err(|_| "Hearth's answer didn't make sense. Try connecting again.".into()),
+        400 | 404 | 410 => Err(
+            "That connect link has run out or was used already. In Hearth's Settings, choose \
+             Connect Hearth on this PC again."
+                .into(),
+        ),
+        _ => Err("Hearth couldn't connect this PC. Try again in a minute.".into()),
+    }
 }
 
 /// At most `max` characters, cut on a character boundary.

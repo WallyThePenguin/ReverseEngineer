@@ -19,6 +19,13 @@ use tauri_plugin_autostart::ManagerExt;
 /// startup. This mirrors the pre-existing behavior of ignoring
 /// enable()/disable() results.
 pub fn apply_autostart(app: &AppHandle, enabled: bool) {
+    // Hearth: a development build leaves the startup list alone. It shares the installed app's
+    // entry, so it would point it at itself, or remove it (D53).
+    if cfg!(debug_assertions) {
+        log::info!("Development build: autostart left as it is (enabled={enabled})");
+        return;
+    }
+
     #[cfg(target_os = "macos")]
     if macos::login_item_api_available() {
         macos::remove_plugin_launch_agent(app);
