@@ -45,6 +45,7 @@ function pageProbe(opts, h) {
       label: h.labelOf(a),
       editable,
       password: kind === "password field",
+      // A payment provider's frame holds card fields, which Jarvis never types into.
       card: h.isCard(a),
       enter: h.classify(a, "enter"),
       click: h.classify(a, "click"),
@@ -83,6 +84,8 @@ function pageProbe(opts, h) {
       found: true,
       banner: true,
       label: h.labelOf(button),
+      // A "reject" that would pay, or send a password, is no cookie banner's.
+      floor: h.classify(button, "click").floor,
       x,
       y,
       covered: top === null || !button.contains(top),

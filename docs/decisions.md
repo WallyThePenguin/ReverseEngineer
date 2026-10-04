@@ -867,13 +867,17 @@ looks at the page's structure before its words. These send: a form that posts, E
 of such a form, anything in a form with payment or password fields, and a GET form that sends to
 another site. A GET or search form doesn't, and neither does a search box outside any form, so
 Enter there is free. Only after that come a few words in the control's name: send, submit, pay,
-buy, purchase, place order, post, publish, delete, transfer, withdraw and donate. Accept, agree,
-save, apply, like, follow, continue and the rest no longer count. Enter in a text area or an
-editable box counts as sending, because chat boxes send on Enter; Shift+Enter is a new line.
-Cookie banners are their own case: their buttons never count as sending, and
-`browser.reject_cookies` presses "reject all" or "necessary only" when the banner has one. Card
-details, like passwords, are never Jarvis's to type. Pasting is refused, so nothing on your
-clipboard leaves that way.
+buy, purchase, place order, post, publish, delete, transfer, withdraw and donate, and the floor's
+own words ("Close my account", "Make a payment", "Confirm order"), which send whatever else is
+true; a tab or an option named "Passwords" is still just a tab. Accept, agree, save, apply, like,
+follow, continue and the rest no longer count. Enter in a text area or an editable box counts as
+sending, because chat boxes send on Enter; Shift+Enter is a new line. A key pressed while the
+focus is inside an embedded frame counts as sending, since Hearth can't see what's in there, and
+a payment provider's frame is the floor. Cookie banners are their own case: their buttons never
+count as sending, and `browser.reject_cookies` presses "reject all" or "necessary only" when the
+banner has one. A banner has nowhere to type, so a sign-up or contact form that mentions consent
+is judged as a form. Card details, like passwords, are never Jarvis's to type. Pasting is
+refused, so nothing on your clipboard leaves that way.
 
 *Dialogs and new tabs.* The extension turns on the page domain when it attaches and keeps track
 of alert, confirm, prompt and "leave site?" dialogs. A call made while one is open fails at once
