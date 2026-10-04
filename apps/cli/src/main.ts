@@ -13,7 +13,7 @@ import {
   listDevices,
   pairDevice,
   revokeApiTokens,
-  revokeDevice,
+  unpairDevice,
 } from "@hearth/server";
 import { dataFolders, runBackup } from "./backup.ts";
 import { formatChecks } from "./doctor.ts";
@@ -274,7 +274,7 @@ async function main(argv: string[]): Promise<number> {
           return 0;
         }
         if (sub === "unpair" && name) {
-          console.log(`Signed out ${await revokeDevice(db, name)} pairing(s) for ${name}.`);
+          console.log(`Signed out ${await unpairDevice(db, name)} sign-in(s) for ${name}.`);
           return 0;
         }
         console.error("Usage: hearth device pair|list|unpair <name>");
