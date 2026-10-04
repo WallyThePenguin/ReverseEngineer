@@ -89,6 +89,9 @@ jobs:
             pnpm -s hearth serve > server-resilience.log 2>&1 &
           for i in $(seq 1 30); do curl -sf localhost:4403/api/health > /dev/null && break; sleep 1; done
           HEARTH_E2E_URL=http://localhost:4403 pnpm --filter @hearth/web e2e:resilience
+      - name: The app opens while Hearth is stopped or not answering, end-to-end
+        # Starts and stops its own server on this port.
+        run: HEARTH_E2E_PORT=4404 pnpm --filter @hearth/web e2e:offline
       - name: Server log
         if: failure()
         run: cat server.log server-dev.log server-launch.log server-resilience.log || true
