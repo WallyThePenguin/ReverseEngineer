@@ -3,7 +3,7 @@
 // (Jarvis, the checklist) is taken into the doc as an edit the next time it's opened, so it merges
 // with typing instead of overwriting it.
 
-import { randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import { type DbOrTx, docPeer, docState, docUpdate, entity } from "@hearth/db";
 import { type ActionContext, type EntityRow, updateEntity } from "@hearth/kernel";
 import { and, asc, eq, gt, lte, max } from "drizzle-orm";
@@ -40,6 +40,23 @@ const FOLD_AFTER = 50;
 
 export const textOf = (doc: LoroDoc) => doc.getText(TEXT).toString();
 
+/** How long the precise diff may take before a rewrite goes line by line instead (D59). */
+const DIFF_MS = 200;
+
+/**
+ * Makes the text read `body` as the smallest edit Loro can find in 200 ms, and line by line when
+ * it can't: a precise diff of a long note rewritten wholesale takes seconds to minutes, and it
+ * runs with the note locked.
+ */
+export function rewrite(text: LoroText, body: string): void {
+  try {
+    text.update(body, { timeoutMs: DIFF_MS });
+  } catch {
+    // Timed out, with the text left as it was.
+    text.updateByLine(body);
+  }
+}
+
 function fresh(): LoroDoc {
   const doc = new LoroDoc();
   doc.setRecordTimestamp(true);
@@ -47,14 +64,19 @@ function fresh(): LoroDoc {
 }
 
 /**
+ * Server-side edits are made as their writer's own peer, the same one every time (from a hash of
+ * who they are), so history names them and the doc's version grows by a peer per writer, not per
+ * edit (D59). A doc is only edited under its record's lock, so one writer's edits never overlap.
+ */
+function asPeer(doc: LoroDoc, principal: string) {
+  const hash = createHash("sha256").update(`hearth-doc-peer:${principal}`).digest();
+  doc.setPeerId(hash.readBigUInt64BE() & 0x7fff_ffff_ffff_ffffn);
+}
+
+/**
  * Saves an update, and names who wrote it: each Loro peer whose edits it adds is recorded as
  * theirs, so history can say who changed what. The first claim on a peer stands.
  */
-/** Each server-side edit gets its own peer, so it can be named as its writer's alone. */
-function newPeer(doc: LoroDoc) {
-  doc.setPeerId(randomBytes(8).readBigUInt64BE() & 0x7fff_ffff_ffff_ffffn);
-}
-
 async function append(
   ctx: ActionContext,
   id: string,
@@ -81,9 +103,13 @@ async function recordPeers(
   if (peers.length) await ctx.tx.insert(docPeer).values(peers).onConflictDoNothing();
 }
 
-/** The doc as stored, without taking anything in (for reading its history). */
+/**
+ * The doc as stored, without taking anything in (for reading its history). The snapshot's row is
+ * held until the transaction ends, so a fold can't swap the snapshot and delete the updates it
+ * took in between the two reads here (D59).
+ */
 export async function loadDoc(db: DbOrTx, id: string) {
-  const [state] = await db.select().from(docState).where(eq(docState.entityId, id));
+  const [state] = await db.select().from(docState).where(eq(docState.entityId, id)).for("share");
   if (!state) return null;
   const doc = fresh();
   doc.import(state.snapshot);
@@ -126,8 +152,8 @@ export async function openDoc(
     const body = row.body ?? "";
     if (body !== textOf(doc)) {
       const before = doc.oplogVersion();
-      newPeer(doc);
-      doc.getText(TEXT).update(body);
+      asPeer(doc, row.updatedBy);
+      rewrite(doc.getText(TEXT), body);
       doc.commit();
       await append(ctx, row.id, doc, before, row.updatedBy);
       pending++;
@@ -152,7 +178,7 @@ export async function takeIntoDoc(
   const { doc, pending } = await openDoc(ctx, row);
   const added =
     body !== undefined && body !== textOf(doc)
-      ? await editAsCaller(ctx, id, doc, (t) => t.update(body))
+      ? await editAsCaller(ctx, id, doc, (t) => rewrite(t, body))
       : false;
   return { done: (revision) => finish(ctx, id, revision, doc, pending + (added ? 1 : 0)) };
 }
@@ -165,7 +191,7 @@ export async function editAsCaller(
   change: (text: LoroText) => void,
 ): Promise<boolean> {
   const before = doc.oplogVersion();
-  newPeer(doc);
+  asPeer(doc, ctx.caller.principal);
   change(doc.getText(TEXT));
   doc.commit();
   if (doc.oplogVersion().compare(before) === 0) return false;
