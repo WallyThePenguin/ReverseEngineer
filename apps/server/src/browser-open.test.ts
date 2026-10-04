@@ -97,7 +97,9 @@ describe("opening Chrome when it's closed", () => {
 
   it("gives a running Chrome time to reconnect after Hearth restarts", async () => {
     const launcher = fakeLauncher();
-    await start(launcher, { startGraceMs: 2000 });
+    // The grace counts from Hearth starting, and making the test database can take seconds; a
+    // connection ends the wait anyway.
+    await start(launcher, { startGraceMs: 30_000 });
     setTimeout(() => void chrome(), 100);
     expect((await rpc("tabs.open", { url: "https://a.example/" })).status).toBe(200);
     expect(launcher.opened).toBe(0);
