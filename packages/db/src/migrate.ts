@@ -13,6 +13,16 @@ interface Migration {
   down: string;
 }
 
+/**
+ * Steps of a migration that need code, not SQL, by migration name: sealing secrets with the vault
+ * key, which the database never sees. `up` runs after the SQL and `down` before it, in the same
+ * transaction, so a step that fails leaves the migration undone.
+ */
+export type MigrationCode = Record<
+  string,
+  { up?(client: pg.PoolClient): Promise<void>; down?(client: pg.PoolClient): Promise<void> }
+>;
+
 export function loadMigrations(dir = MIGRATIONS_DIR): Migration[] {
   const ups = readdirSync(dir)
     .filter((f) => f.endsWith(".up.sql"))
@@ -61,7 +71,11 @@ async function releaseMigrationClient(client: pg.PoolClient): Promise<void> {
 }
 
 /** Applies every pending migration. Returns the names applied. */
-export async function migrateUp(pool: pg.Pool, dir = MIGRATIONS_DIR): Promise<string[]> {
+export async function migrateUp(
+  pool: pg.Pool,
+  dir = MIGRATIONS_DIR,
+  code: MigrationCode = {},
+): Promise<string[]> {
   const client = await migrationClient(pool);
   try {
     await client.query("SELECT pg_advisory_lock(hashtext('hearth_migrate'))");
@@ -72,6 +86,7 @@ export async function migrateUp(pool: pg.Pool, dir = MIGRATIONS_DIR): Promise<st
       await client.query("BEGIN");
       try {
         await client.query(m.up);
+        await code[m.name]?.up?.(client);
         await client.query("INSERT INTO _migration (name) VALUES ($1)", [m.name]);
         await client.query("COMMIT");
       } catch (err) {
@@ -139,6 +154,7 @@ export async function migrateDown(
   pool: pg.Pool,
   steps = 1,
   dir = MIGRATIONS_DIR,
+  code: MigrationCode = {},
 ): Promise<string[]> {
   const client = await migrationClient(pool);
   try {
@@ -150,6 +166,7 @@ export async function migrateDown(
       if (!m) throw new Error(`No files for applied migration ${name}`);
       await client.query("BEGIN");
       try {
+        await code[name]?.down?.(client);
         await client.query(m.down);
         await client.query("DELETE FROM _migration WHERE name = $1", [name]);
         await client.query("COMMIT");

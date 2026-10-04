@@ -5,6 +5,7 @@
 import { type Db, type DbOrTx, googleAccount } from "@hearth/db";
 import { ActionError } from "@hearth/kernel";
 import { eq } from "drizzle-orm";
+import { openGoogleToken, type Sealer, sealGoogleToken } from "../secrets.ts";
 import { GoogleApiError } from "./errors.ts";
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -17,6 +18,8 @@ export interface TokenDeps {
   request(url: string, init: RequestInit, what: string): Promise<Response>;
   now(): number;
   credentials(): { clientId: string; clientSecret: string };
+  /** Seals tokens at rest (D58); without it (some tests) they're saved as they are. */
+  vault: Sealer | null;
 }
 
 export class GoogleTokens {
@@ -61,9 +64,27 @@ export class GoogleTokens {
     const now = this.deps.now();
     // Another process may have refreshed it already.
     const saved = acct.accessExpiresAt?.getTime() ?? 0;
-    if (acct.accessToken && acct.accessToken !== refused && saved - now > EXPIRY_MARGIN_MS) {
-      this.remember(email, acct.accessToken, saved);
-      return acct.accessToken;
+    // One that can't be opened is simply refreshed.
+    let access: string | null = null;
+    try {
+      if (acct.accessToken)
+        access = openGoogleToken(this.deps.vault, email, "access", acct.accessToken);
+    } catch {}
+    if (access && access !== refused && saved - now > EXPIRY_MARGIN_MS) {
+      this.remember(email, access, saved);
+      return access;
+    }
+    let refreshToken: string;
+    try {
+      refreshToken = openGoogleToken(this.deps.vault, email, "refresh", acct.refreshToken);
+    } catch (err) {
+      // Sealed with a vault key this Hearth doesn't have: Settings says to connect it again.
+      const lastError = err instanceof Error ? err.message : String(err);
+      await store
+        .update(googleAccount)
+        .set({ status: "failing", lastError })
+        .where(eq(googleAccount.email, email));
+      throw err;
     }
     const { clientId, clientSecret } = this.deps.credentials();
     const res = await this.deps.request(
@@ -74,7 +95,7 @@ export class GoogleTokens {
         body: new URLSearchParams({
           client_id: clientId,
           client_secret: clientSecret,
-          refresh_token: acct.refreshToken,
+          refresh_token: refreshToken,
           grant_type: "refresh_token",
         }),
       },
@@ -108,7 +129,7 @@ export class GoogleTokens {
     await store
       .update(googleAccount)
       .set({
-        accessToken: body.access_token,
+        accessToken: sealGoogleToken(this.deps.vault, email, "access", body.access_token),
         accessExpiresAt: new Date(expiresAt),
         status: "ok",
         lastError: null,

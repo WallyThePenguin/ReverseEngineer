@@ -337,7 +337,7 @@ export const calendarModule = defineModule({
         try {
           google = ctx.service<GoogleClient>(GOOGLE_SERVICE);
         } catch {}
-        for (const g of gone) await google?.revoke(g.token);
+        for (const g of gone) await google?.revoke(g.token, g.email);
         return { removed: gone.length };
       },
     }),

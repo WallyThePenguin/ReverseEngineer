@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { connect, databaseUrl, migrateDown, migrateUp } from "@hearth/db";
 import { guardProcess, Kernel, ownerCaller, Registry, systemCaller } from "@hearth/kernel";
-import { ALL_MODULES } from "@hearth/modules";
+import { ALL_MODULES, secretMigrations, vaultFromEnv } from "@hearth/modules";
 import {
   createApiToken,
   createSetupCode,
@@ -61,6 +61,9 @@ const kernelFor = (database: ReturnType<typeof connect>) =>
 /** Under the services' 20 s stop timeout (ops/windows/*.xml), so a stop never ends in a kill. */
 const STOP_LIMIT_MS = 15_000;
 
+/** Migration steps that need the vault key (sealing Google's tokens, D58). */
+const migrationCode = () => secretMigrations(vaultFromEnv());
+
 async function untilSignal(stops: (() => Promise<void>)[]): Promise<void> {
   await new Promise<void>((resolve) => {
     process.once("SIGINT", resolve);
@@ -89,7 +92,10 @@ async function main(argv: string[]): Promise<number> {
 
     case "migrate":
       return withDatabase(async ({ pool }) => {
-        const names = rest[0] === "down" ? await migrateDown(pool) : await migrateUp(pool);
+        const names =
+          rest[0] === "down"
+            ? await migrateDown(pool, 1, undefined, migrationCode())
+            : await migrateUp(pool, undefined, migrationCode());
         console.log(
           names.length
             ? `${rest[0] === "down" ? "Reverted" : "Applied"}: ${names.join(", ")}`
@@ -100,7 +106,7 @@ async function main(argv: string[]): Promise<number> {
 
     case "setup":
       return withDatabase(async ({ pool, db }) => {
-        await migrateUp(pool);
+        await migrateUp(pool, undefined, migrationCode());
         const code = await createSetupCode(db);
         const origin = process.env.HEARTH_ORIGIN ?? "http://localhost:4400";
         console.log(
@@ -118,7 +124,8 @@ async function main(argv: string[]): Promise<number> {
       // process installs its own.)
       if (command !== "jarvis") guardProcess(command);
       const stops: (() => Promise<void>)[] = [];
-      if (command === "dev") await withDatabase(({ pool }) => migrateUp(pool));
+      if (command === "dev")
+        await withDatabase(({ pool }) => migrateUp(pool, undefined, migrationCode()));
       else {
         const service = command === "serve" ? "server" : command;
         const refused = await withDatabase((d) => guardSchema(service, d.pool, kernelFor(d)));
@@ -178,6 +185,7 @@ async function main(argv: string[]): Promise<number> {
         backupDir: process.env.HEARTH_BACKUP_DIR ?? join(dataDir, "backups"),
         dataDir,
         ...(values.into ? { into: values.into } : {}),
+        migrationCode: migrationCode(),
       });
       const switched = values.switch
         ? await switchEnv(join(process.cwd(), ".env"), result.url)
