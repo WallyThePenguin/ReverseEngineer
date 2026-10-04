@@ -12,10 +12,14 @@
 param(
   [ValidateSet("server", "worker", "jarvis", "all")]
   [string]$Service = "all",
-  [string]$Root = (Resolve-Path "$PSScriptRoot\..\..").Path,
+  # Hearth's folder; by default the one this script is in.
+  [string]$Root,
   [int]$TimeoutSec = 120
 )
 $ErrorActionPreference = "Stop"
+# Not as the parameter's default: Windows PowerShell leaves $PSScriptRoot empty there for a script
+# run with -File, as `hearth restart` runs this.
+if (-not $Root) { $Root = (Resolve-Path "$PSScriptRoot\..\..").Path }
 . "$PSScriptRoot\control.ps1"
 $parts = Resolve-HearthParts $Service
 $name = if ($Service -eq "all") { "Hearth" } else { "Hearth's $Service" }

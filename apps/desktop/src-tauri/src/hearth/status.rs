@@ -1,6 +1,7 @@
 // The first line of the tray menu, "Server ✓  Worker ✓  Jarvis ✓" (D53). Every 30 s the app asks
-// Hearth's server if it's up (GET /api/health) and, once this PC is connected, how the worker
-// and Jarvis are (system.status, which the device token may read). The tray icon shows a warning
+// Hearth's server if it's up (GET /api/health). Once this PC is connected, it also asks how the
+// worker and Jarvis are (system.status, which the device token may read), but only every few
+// minutes: Hearth records each of those calls as the PC's activity. The tray icon shows a warning
 // when something is wrong, and a notification says so if the server stops answering.
 
 use super::client::healthy;
@@ -8,10 +9,12 @@ use super::{link, toast, window};
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::AppHandle;
 
 const EVERY: Duration = Duration::from_secs(30);
+/// How often system.status is asked; sooner when the server comes back, or after a restart.
+const ASK_EVERY: Duration = Duration::from_secs(5 * 60);
 /// Worker and Jarvis report in every minute; older than this and they've stopped.
 const STALE_MINUTES: i64 = 5;
 /// Checks in a row the server must miss before a notification says it's down.
@@ -132,9 +135,28 @@ static STATE: Mutex<State> = Mutex::new(State {
     told_down: false,
 });
 
+/// system.status's last answer, and when it came.
+static REPORT: Mutex<Option<(Status, Instant)>> = Mutex::new(None);
+
 /// The latest status, once the first check is done.
 pub fn current() -> Option<Status> {
     STATE.lock().ok().and_then(|s| s.status.clone())
+}
+
+/// system.status's last answer, if it's recent enough to show again.
+fn recent_report() -> Option<Status> {
+    REPORT
+        .lock()
+        .ok()
+        .and_then(|r| r.clone())
+        .filter(|(_, at)| at.elapsed() < ASK_EVERY)
+        .map(|(status, _)| status)
+}
+
+fn keep_report(report: Option<Status>) {
+    if let Ok(mut r) = REPORT.lock() {
+        *r = report.map(|status| (status, Instant::now()));
+    }
 }
 
 /// Starts checking. Call once at startup.
@@ -142,23 +164,23 @@ pub fn start(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         loop {
-            check(&app).await;
+            check(&app, false).await;
             tokio::time::sleep(EVERY).await;
         }
     });
 }
 
-/// Checks again in a little while (after a restart, say).
+/// Checks again in a little while (after a restart, say), asking system.status afresh.
 pub fn check_soon(app: &AppHandle, after: Duration) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(after).await;
-        check(&app).await;
+        check(&app, true).await;
     });
 }
 
-async fn check(app: &AppHandle) {
-    let status = read(app).await;
+async fn check(app: &AppHandle, fresh: bool) {
+    let status = read(app, fresh).await;
     let (changed, tell_down, tell_back) = {
         let Ok(mut s) = STATE.lock() else { return };
         let changed = s.status.as_ref() != Some(&status);
@@ -195,19 +217,28 @@ async fn check(app: &AppHandle) {
     }
 }
 
-async fn read(app: &AppHandle) -> Status {
+async fn read(app: &AppHandle, fresh: bool) -> Status {
     let Some(home) = window::home(app) else {
+        keep_report(None);
         return Status {
             address_set: false,
             ..Status::unknown(Mark::Unknown)
         };
     };
     if !healthy(&home.origin().ascii_serialization()).await {
+        // Forgotten, so it's asked again as soon as the server answers.
+        keep_report(None);
         return Status::unknown(Mark::Down);
     }
     let Some(h) = link(app) else {
+        keep_report(None);
         return Status::unknown(Mark::Ok);
     };
+    if !fresh {
+        if let Some(status) = recent_report() {
+            return status;
+        }
+    }
     match h
         .call(
             "system.status",
@@ -216,7 +247,11 @@ async fn read(app: &AppHandle) -> Status {
         )
         .await
     {
-        Ok(report) => from_report(&report, Utc::now()),
+        Ok(report) => {
+            let status = from_report(&report, Utc::now());
+            keep_report(Some(status.clone()));
+            status
+        }
         Err(e) => {
             log::debug!("Hearth's status: {e}");
             Status::unknown(Mark::Ok)
@@ -286,5 +321,18 @@ mod tests {
             "Server ✓  Connect this PC to see more"
         );
         assert!(!Status::unknown(Mark::Ok).trouble());
+    }
+
+    #[test]
+    fn asks_system_status_again_after_a_while() {
+        let status = Status::unknown(Mark::Ok);
+        keep_report(Some(status.clone()));
+        assert_eq!(recent_report(), Some(status.clone()));
+        if let Some(long_ago) = Instant::now().checked_sub(ASK_EVERY) {
+            *REPORT.lock().unwrap() = Some((status, long_ago));
+            assert_eq!(recent_report(), None);
+        }
+        keep_report(None);
+        assert_eq!(recent_report(), None);
     }
 }

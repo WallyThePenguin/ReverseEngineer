@@ -32,6 +32,8 @@ describe("turnStats", () => {
       turn("failed", "2026-10-02T11:00:00Z", { errorKind: "overloaded", error: "529" }),
       turn("failed", "2026-10-02T12:00:00Z", { errorKind: "timeout", error: "too long" }),
       turn("skipped", "2026-10-02T13:00:00Z", { skipReason: "expired" }),
+      // Cut short by a restart: not Jarvis failing, so not counted.
+      turn("failed", "2026-10-02T13:30:00Z", { errorKind: "interrupted", error: "restart" }),
     ]);
     const stats = await turnStats(h.tdb.db, h.clock.now());
     expect(stats.byStatus).toEqual({ done: 2, failed: 2, skipped: 1 });

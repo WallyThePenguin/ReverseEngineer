@@ -14,9 +14,21 @@ export interface JarvisLiveness {
   unwell: boolean;
 }
 
-export function jarvisLiveness(s: SystemStatus | undefined, now = Date.now()): JarvisLiveness {
+/** system.status as the page last read it. */
+export interface StatusRead {
+  data: SystemStatus | undefined;
+  /** When that answer came (ms since 1970). */
+  dataUpdatedAt: number;
+}
+
+/**
+ * Judged as of when the status was read, not now: while Hearth can't be reached the last answer
+ * stays, and it mustn't age into "Jarvis isn't running" (the page says Reconnecting… instead).
+ * The status is read every minute, so a real stop shows within a minute of the threshold.
+ */
+export function jarvisLiveness({ data: s, dataUpdatedAt: asOf }: StatusRead): JarvisLiveness {
   const seen = s?.jarvisAlive ? Date.parse(s.jarvisAlive.at) : null;
-  const downSince = seen !== null && now - seen > QUIET_MS ? new Date(seen) : null;
+  const downSince = seen !== null && asOf - seen > QUIET_MS ? new Date(seen) : null;
   const health = s?.components.jarvis;
   return {
     downSince,

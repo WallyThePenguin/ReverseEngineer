@@ -8,12 +8,18 @@ import { defineConfig, type Plugin } from "vite";
 import solid from "vite-plugin-solid";
 import { buildId, versionStamp } from "../../scripts/version-stamp.ts";
 
-/** Stamps the build: dist/version.json, and the build's id inside the app (UpdateNotice). */
+/**
+ * Stamps the build: dist/version.json, and the build's id in index.html for UpdateNotice. Not in
+ * the scripts: the main script's name is how the service worker tells builds apart (public/sw.js),
+ * so a deploy that doesn't change the app keeps its files cached.
+ */
 function hearthVersion(): Plugin {
   const stamp = versionStamp(fileURLToPath(new URL("../..", import.meta.url)));
   return {
     name: "hearth-version",
-    config: () => ({ define: { __HEARTH_BUILD__: JSON.stringify(buildId(stamp)) } }),
+    transformIndexHtml: () => [
+      { tag: "meta", attrs: { name: "hearth-build", content: buildId(stamp) }, injectTo: "head" },
+    ],
     generateBundle() {
       this.emitFile({
         type: "asset",

@@ -275,6 +275,24 @@ A rollback reverts the update's migrations, puts the previous code back, starts 
 came back. The log is `data\logs\update-<date>.log`. When an update changes how the services are
 installed, it says to run `.\ops\windows\install.ps1` again as administrator.
 
+When an update changes `update.ps1` itself (or `control.ps1`), the new copy takes over right after
+the merge, so the new checks judge the new code.
+
+**First update after this change.** The `update.ps1` already in your Hearth folder runs that update,
+and if it doesn't mention `-Relaunched` yet, it can't hand over: it would judge the new code by its
+old checks. Run the new one directly that once, from the Hearth folder:
+
+```powershell
+git fetch origin claude/admiring-wright-ghc2o3
+$tmp = New-Item -ItemType Directory -Force "$env:TEMP\hearth-update"
+foreach ($f in "update.ps1", "control.ps1") {
+  git show "origin/claude/admiring-wright-ghc2o3:ops/windows/$f" | Set-Content "$tmp\$f"
+}
+& "$tmp\update.ps1" -Root (Get-Location).Path
+```
+
+`-Root` says where Hearth is, since that copy isn't in its folder.
+
 ### Restoring from a backup
 
 `hearth restore` brings a backup back into a **new** database next to the one Hearth runs on,
