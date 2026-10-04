@@ -9,9 +9,14 @@ export interface ServerBuild {
 
 export type Notice = "updated" | "mismatch" | null;
 
-export function noticeFor(mine: string, server: ServerBuild | null): Notice {
+/** The build this page came from: vite.config.ts stamps it into index.html. */
+export function pageBuild(doc: Pick<Document, "querySelector"> = document): string | null {
+  return doc.querySelector<HTMLMetaElement>('meta[name="hearth-build"]')?.content || null;
+}
+
+export function noticeFor(mine: string | null, server: ServerBuild | null): Notice {
   if (!server) return null;
   if (server.migrations && !server.migrations.ok) return "mismatch";
-  if (server.build && server.build !== mine) return "updated";
+  if (mine && server.build && server.build !== mine) return "updated";
   return null;
 }

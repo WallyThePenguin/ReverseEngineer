@@ -2,10 +2,7 @@
 // version), or the server's database doesn't fit its code. Checks every few minutes, and when you
 // come back to the page.
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
-import { type Notice, noticeFor, type ServerBuild } from "../lib/version.ts";
-
-/** This page's build, stamped in by vite.config.ts. */
-declare const __HEARTH_BUILD__: string;
+import { type Notice, noticeFor, pageBuild, type ServerBuild } from "../lib/version.ts";
 
 const EVERY_MS = 5 * 60_000;
 
@@ -14,7 +11,7 @@ export function UpdateNotice() {
   const check = async () => {
     try {
       const res = await fetch("/api/health/deep", { cache: "no-store" });
-      if (res.ok) setNotice(noticeFor(__HEARTH_BUILD__, (await res.json()) as ServerBuild));
+      if (res.ok) setNotice(noticeFor(pageBuild(), (await res.json()) as ServerBuild));
     } catch {
       // Offline or restarting: nothing to say yet.
     }
