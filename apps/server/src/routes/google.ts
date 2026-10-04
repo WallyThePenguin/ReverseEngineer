@@ -49,9 +49,13 @@ export function googleRoutes() {
       return back(err instanceof Error ? err.message : "That didn't work.");
     }
     // Pull calendars right away so they're there when you land back in Settings. Mail takes
-    // longer, so its first page starts in the background; the worker brings in the rest.
+    // longer, so its first batch starts in the background; the worker brings in the rest. Both
+    // spend from the same paced Gmail budget as the worker, and a sync the worker already has
+    // running for this account is skipped (D55).
     await kernel.execute("calendar.sync", {}, integrationCaller("google"));
-    void kernel.execute("mail.sync", {}, integrationCaller("google")).catch(() => {});
+    void kernel
+      .execute("mail.sync", { account: email }, integrationCaller("google"))
+      .catch(() => {});
     return back(`Connected ${email}.`);
   });
 
