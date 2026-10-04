@@ -1,5 +1,5 @@
 import { event } from "@hearth/db";
-import { jarvisCaller } from "@hearth/kernel";
+import { jarvisCaller, systemCaller } from "@hearth/kernel";
 import { max } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { pairDevice } from "./auth/devices.ts";
@@ -74,6 +74,26 @@ describe("phone notifications", () => {
       sent: 0,
     });
     expect(((await (await t.browser("/api/push")).json()) as { devices: [] }).devices).toEqual([]);
+  });
+
+  it("buzzes for an interrupt held overnight when it goes out in the morning", async () => {
+    t.server.start();
+    await settle();
+    await subscribe(PHONE);
+    t.clock.set("2026-10-02T03:00:00Z"); // 11 p.m.
+    const res = await t.kernel.execute<{ id: string; delivered: boolean }>(
+      "inbox.notify",
+      { title: "The garage door is open", urgency: "interrupt" },
+      systemCaller(),
+    );
+    expect(res).toMatchObject({ status: "ok", result: { delivered: false } });
+    await settle();
+    expect(sent).toEqual([]);
+    t.clock.set("2026-10-02T12:00:30Z"); // 8 a.m.
+    const id = res.status === "ok" ? res.result.id : "";
+    await t.kernel.execute("inbox.deliver", { id }, systemCaller());
+    await settle();
+    expect(sent.map((s) => s.message.title)).toEqual(["The garage door is open"]);
   });
 
   it("is off limits to the desktop app's code", async () => {

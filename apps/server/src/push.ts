@@ -120,7 +120,12 @@ export function startPush(kernel: Kernel, hub: EventHub, send: PushSend = webPus
       .select({ seq: event.seq, payload: event.payload })
       .from(event)
       .where(
-        and(eq(event.kind, "notification.created"), gt(event.seq, cursor), lte(event.seq, upTo)),
+        and(
+          // Delivered: an interrupt held for quiet hours that goes out in the morning (D54).
+          inArray(event.kind, ["notification.created", "notification.delivered"]),
+          gt(event.seq, cursor),
+          lte(event.seq, upTo),
+        ),
       );
     cursor = upTo;
     const ids = created

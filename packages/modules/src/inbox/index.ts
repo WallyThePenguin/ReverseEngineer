@@ -1,6 +1,12 @@
 // The inbox: everything that needs you, in one keyboard-driven list (PLAN.md section 4).
 import { approval, entity, notification } from "@hearth/db";
-import { createNotification, type DigestItem, defineAction, defineModule } from "@hearth/kernel";
+import {
+  createNotification,
+  type DigestItem,
+  defineAction,
+  defineModule,
+  interruptDecision,
+} from "@hearth/kernel";
 import { and, count, desc, eq, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { id, isoDateTime } from "../shared.ts";
@@ -15,7 +21,13 @@ export const inboxModule = defineModule({
   name: "inbox",
   description: "One list of everything that needs you, split into Signal and Noise.",
   entityTypes: [],
-  events: [],
+  events: [
+    {
+      kind: "notification.delivered",
+      description:
+        "An interrupt held for quiet hours went out. Payload: notificationId, kind, title, urgency, delivered.",
+    },
+  ],
   kernelEvents: ["notification.created", "notification.updated"],
   knowledge: {},
   actions: [
@@ -144,6 +156,43 @@ export const inboxModule = defineModule({
           : { duplicate: true };
       },
     }),
+    defineAction({
+      name: "inbox.deliver",
+      description: "Send out an interrupt held for quiet hours, unless you've seen it since.",
+      input: z.object({ id }),
+      risk: "internal",
+      callers: ["system"],
+      async handler(i, ctx) {
+        const [n] = await ctx.tx.select().from(notification).where(eq(notification.id, i.id));
+        if (n?.urgency !== "interrupt" || n.deliveredAt || n.state !== "unseen")
+          return { delivered: false };
+        // Its deadline already had its say overnight; now it only needs a slot in the budget.
+        const decision = await interruptDecision(ctx, null);
+        if (!decision.deliver) {
+          await ctx.tx
+            .update(notification)
+            .set({ deferredReason: decision.reason, updatedAt: ctx.now })
+            .where(eq(notification.id, n.id));
+          return { delivered: false };
+        }
+        await ctx.tx
+          .update(notification)
+          .set({ deliveredAt: ctx.now, deferredReason: null, updatedAt: ctx.now })
+          .where(eq(notification.id, n.id));
+        ctx.emit({
+          kind: "notification.delivered",
+          entityId: n.entityId,
+          payload: {
+            notificationId: n.id,
+            kind: n.kind,
+            title: n.title,
+            urgency: n.urgency,
+            delivered: true,
+          },
+        });
+        return { delivered: true };
+      },
+    }),
   ],
   reflexes: [
     {
@@ -162,6 +211,24 @@ export const inboxModule = defineModule({
       },
       async onCheck(payload) {
         return [{ kind: "act", action: "inbox.wake", input: { id: payload.notificationId } }];
+      },
+    },
+    {
+      name: "inbox.deliver_held",
+      description: "Sends an interrupt held overnight when quiet hours end (D54).",
+      mode: "always",
+      on: ["notification.created"],
+      includeJarvisEvents: true,
+      run(event) {
+        const at = event.payload.retryAt;
+        if (typeof at !== "string") return [];
+        const id = String(event.payload.notificationId);
+        return [
+          { kind: "check_later", key: id, at: new Date(at), payload: { notificationId: id } },
+        ];
+      },
+      async onCheck(payload) {
+        return [{ kind: "act", action: "inbox.deliver", input: { id: payload.notificationId } }];
       },
     },
   ],
