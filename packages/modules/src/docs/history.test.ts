@@ -1,7 +1,7 @@
-import { docCheckpoint, entity } from "@hearth/db";
+import { docCheckpoint, docState, entity } from "@hearth/db";
 import { type Caller, jarvisCaller, ownerCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { LoroDoc, VersionVector } from "loro-crdt";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ALL_MODULES } from "../index.ts";
@@ -128,6 +128,31 @@ describe("doc history", () => {
     await ok("note.update", { id: note.id, title: "Renamed" });
     const h = await ok<History>("doc.history", { id: note.id });
     expect(new Set(h.versions.flatMap((v) => v.by))).toEqual(new Set(["owner", "jarvis"]));
+  });
+
+  it("puts a version back without deadlocking a sync that's folding the note", async () => {
+    const note = await ok<{ id: string }>("note.create", { title: "Log", body: "first" });
+    const a = new Screen(note.id);
+    await a.sync();
+    const [first] = (await ok<History>("doc.history", { id: note.id })).versions;
+    a.type(a.text.length, " second");
+    await a.sync();
+    let restoring: Promise<{ status: string }> | undefined;
+    await t.tdb.db.transaction(async (sync) => {
+      // A screen's sync holds the note...
+      await sync.select().from(entity).where(eq(entity.id, note.id)).for("update");
+      restoring = t.kernel.execute(
+        "doc.restore",
+        { id: note.id, frontiers: first!.frontiers },
+        ownerCaller(),
+      );
+      await new Promise((r) => setTimeout(r, 300));
+      // ...and folds its updates into the snapshot, which a restore waiting behind it mustn't hold.
+      await sync.execute(sql`SET LOCAL lock_timeout = '2s'`);
+      await sync.update(docState).set({ upto: 0 }).where(eq(docState.entityId, note.id));
+    });
+    expect(await restoring).toMatchObject({ status: "ok" });
+    expect(await body(note.id)).toBe("first");
   });
 
   it("refuses versions the doc doesn't have, and other people", async () => {
