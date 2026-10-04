@@ -108,22 +108,43 @@ export async function cdp(tabId, method, params = {}) {
     if (method === "Page.handleJavaScriptDialog") dialogs.closed(tabId);
     return result;
   } catch (err) {
-    // Answered already, by you in Chrome: there's nothing left to answer.
-    if (method === "Page.handleJavaScriptDialog") dialogs.closed(tabId);
+    if (method === "Page.handleJavaScriptDialog") {
+      // Answered already, by you in Chrome: there's nothing left to answer.
+      dialogs.closed(tabId);
+      if (String(err instanceof Error ? err.message : err).includes("No dialog is showing"))
+        throw new HearthError("no_dialog", "There's no dialog open in this tab any more.");
+    }
     throw err;
   } finally {
     if (nav) countNavigation(tabId, -1);
   }
 }
 
+/** Each tab's page events, handled one after another. */
+/** @type {Map<number, Promise<void>>} */
+const pageEvents = new Map();
+
 /**
  * Keeps track of a tab's dialogs from its page events, and answers "leave site?" by itself while
- * Hearth navigates one of Jarvis's own tabs.
+ * Hearth navigates one of Jarvis's own tabs. A tab's events are handled in order, so a dialog
+ * closed at once (by you, or by another debugger) never outlasts its own closing.
  * @param {number} tabId
  * @param {string} method
  * @param {any} params
+ * @returns {Promise<void>}
  */
-export async function onPageEvent(tabId, method, params) {
+export function onPageEvent(tabId, method, params) {
+  const ahead = pageEvents.get(tabId) ?? Promise.resolve();
+  const next = ahead.then(() => pageEvent(tabId, method, params)).catch(() => {});
+  pageEvents.set(tabId, next);
+  void next.then(() => {
+    if (pageEvents.get(tabId) === next) pageEvents.delete(tabId);
+  });
+  return next;
+}
+
+/** @param {number} tabId @param {string} method @param {any} params */
+async function pageEvent(tabId, method, params) {
   if (method === "Page.javascriptDialogOpening") {
     const dialog = {
       type: String(params?.type ?? "alert"),
@@ -131,8 +152,9 @@ export async function onPageEvent(tabId, method, params) {
       url: String(params?.url ?? ""),
       defaultPrompt: String(params?.defaultPrompt ?? ""),
     };
+    const moving = navigating.has(tabId);
     const own = await isOwn(tabId);
-    if (answersItself(dialog, { navigating: navigating.has(tabId), own })) {
+    if (answersItself(dialog, { navigating: moving, own })) {
       await chrome.debugger
         .sendCommand({ tabId }, "Page.handleJavaScriptDialog", { accept: true })
         .catch(() => {});

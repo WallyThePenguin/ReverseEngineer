@@ -83,7 +83,15 @@ const methods = {
     await showTab(tabId);
     return { shown: true };
   },
-  cdp: ({ tabId, method, params }) => cdp(tabId, method, params),
+  cdp: async ({ tabId, method, params }) => {
+    if (method !== "Page.handleJavaScriptDialog") return cdp(tabId, method, params);
+    // Answering a dialog (or finding it gone) changes what the tab list says about it.
+    try {
+      return await cdp(tabId, method, params);
+    } finally {
+      pushTabs();
+    }
+  },
 };
 
 /** Hearth speaks a newer protocol: reload from the extension's folder, which an update refreshed. */

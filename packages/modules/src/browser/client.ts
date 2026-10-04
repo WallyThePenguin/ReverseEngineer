@@ -59,7 +59,8 @@ export interface BrowserStatus {
 
 /**
  * A failure Chrome reported with a reason Hearth acts on: "dialog_open" (a dialog is waiting),
- * "not_allowed" (a command Hearth may not send) or "not_yours" (a tab Jarvis may not use).
+ * "no_dialog" (the dialog to answer was already closed), "not_allowed" (a command Hearth may not
+ * send) or "not_yours" (a tab Jarvis may not use).
  */
 export class BrowserError extends ActionError {
   readonly reason: string;
@@ -79,9 +80,11 @@ export function chromeError(message: string, reason?: string | null): ActionErro
   const code: ActionErrorCode =
     reason === "dialog_open"
       ? "conflict"
-      : reason === "not_allowed" || reason === "not_yours"
-        ? "forbidden"
-        : "failed";
+      : reason === "no_dialog"
+        ? "not_found"
+        : reason === "not_allowed" || reason === "not_yours"
+          ? "forbidden"
+          : "failed";
   return new BrowserError(code, message, reason);
 }
 
