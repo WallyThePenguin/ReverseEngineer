@@ -16,7 +16,8 @@ import { id, isoDateTime } from "../shared.ts";
 import { describeDraft, draftActions } from "./drafts.ts";
 import { changeFlags, pendingChanges, recomputeThread } from "./flags.ts";
 import { normalizePattern, senderPatterns } from "./people.ts";
-import { syncMail } from "./sync.ts";
+import { syncMail, syncProgress } from "./sync.ts";
+import { alertKey } from "./sync-state.ts";
 import { listThreads, loadThread, searchThreads, threadText, who } from "./views.ts";
 import { followUpRoutine, waitingActions, waitingDigest } from "./waiting.ts";
 
@@ -30,21 +31,39 @@ const lane = z.enum(["signal", "noise"]);
 
 const syncFailed: ReflexDef = {
   name: "mail.sync_failed",
-  description: "When mail stops syncing, you get one notice a day about it.",
+  description:
+    "When mail stops syncing (access to reconnect, or failing for half an hour), you get one notice, closed again once it syncs.",
   mode: "always",
   on: ["mail.sync_failed"],
   async run(event, ctx) {
-    const rules = await getSetting(ctx.db, "owner.dayRules");
-    const errors = (event.payload.errors as string[] | undefined) ?? [];
+    const p = event.payload;
+    const errors = (p.errors as string[] | undefined) ?? [];
+    // Jarvis may get here late (busy, or restarting). If the account has synced since, the alert
+    // would arrive after the sync that closes it, and stay open for good: say nothing.
+    if (typeof p.accountId === "string" && typeof p.since === "string") {
+      const [a] = await ctx.db
+        .select({ since: mailAccount.failingSince })
+        .from(mailAccount)
+        .where(eq(mailAccount.id, p.accountId));
+      if (a?.since?.toISOString() !== p.since) return [];
+    }
+    const what = p.reconnect
+      ? `Google stopped accepting Hearth's access to ${String(p.account)}. Connect it again in Settings; your changes wait until then.`
+      : `Hearth hasn't been able to sync ${String(p.account ?? "your mail")} for a while. It keeps trying every minute.`;
+    // One notice per run of failures, so a second outage on the same day still tells you.
+    const dedupeKey =
+      typeof p.accountId === "string" && typeof p.since === "string"
+        ? alertKey(p.accountId, p.since)
+        : `mail.sync_failed:${localDate(event.at, (await getSetting(ctx.db, "owner.dayRules")).timeZone)}`;
     return [
       {
         kind: "tell",
         notification: {
           kind: "system.alert",
           title: "Mail isn't syncing",
-          body: errors.join("\n").slice(0, 1000),
+          body: [what, ...errors].join("\n").slice(0, 1000),
           urgency: "normal",
-          dedupeKey: `mail.sync_failed:${localDate(event.at, rules.timeZone)}`,
+          dedupeKey,
         },
       },
     ];
@@ -113,10 +132,14 @@ export const mailModule = defineModule({
       description:
         "The provider refused a change, so it was rolled back. Payload: add, remove, error.",
     },
-    { kind: "mail.sync_failed", description: "Syncing mail failed. Payload: errors." },
+    {
+      kind: "mail.sync_failed",
+      description:
+        "Mail stopped syncing for an account. Payload: account, accountId, since, reconnect, errors.",
+    },
     { kind: "mail.sent", description: "An email was sent. Payload: to, subject." },
   ],
-  kernelEvents: ["entity.created", "entity.updated", "link.added"],
+  kernelEvents: ["entity.created", "entity.updated", "link.added", "notification.updated"],
   knowledge: {
     email_draft: describeDraft,
     async email_thread(entityId, ctx) {
@@ -294,7 +317,8 @@ export const mailModule = defineModule({
     }),
     defineAction({
       name: "mail.accounts",
-      description: "Your mail accounts, when each last synced, and anything wrong.",
+      description:
+        "Your mail accounts: how syncing is going (ok, catching_up, paused, failing), when each last synced, and anything wrong.",
       input: z.object({}),
       risk: "read",
       async handler(_i, ctx) {
@@ -303,9 +327,11 @@ export const mailModule = defineModule({
           rows.map(async (a) => ({
             address: a.address,
             provider: a.provider,
+            state: a.syncState,
             syncedAt: a.syncedAt,
+            pausedUntil: a.pausedUntil,
             lastError: a.lastError,
-            firstSyncDone: a.cursor !== null && !("pageToken" in (a.cursor ?? {})),
+            ...(await syncProgress(ctx, a)),
             pendingChanges: await pendingChanges(ctx.tx, a.id),
           })),
         );
@@ -313,12 +339,13 @@ export const mailModule = defineModule({
     }),
     defineAction({
       name: "mail.sync",
-      description: "Send queued changes to the mail provider and bring in new mail now.",
-      input: z.object({}),
+      description:
+        "Send queued changes to the mail provider and bring in new mail now, for every account or one.",
+      input: z.object({ account: z.string().email().optional() }),
       risk: "internal",
       // Only as the integration, so the news it emits (mail.received) is always untrusted.
       callers: ["integration"],
-      handler: (_i, ctx) => syncMail(ctx),
+      handler: (i, ctx) => syncMail(ctx, i.account),
     }),
     ...draftActions,
     ...waitingActions,

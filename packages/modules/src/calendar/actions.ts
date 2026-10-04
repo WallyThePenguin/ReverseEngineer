@@ -10,6 +10,7 @@ import {
 } from "@hearth/kernel";
 import { z } from "zod";
 import { CalendarApi, type GEvent, type SendUpdates } from "../google/calendar-api.ts";
+import { cleanDeep } from "../google/clean.ts";
 import { GOOGLE_SERVICE, type GoogleClient } from "../google/client.ts";
 import { id } from "../shared.ts";
 import {
@@ -51,7 +52,7 @@ function checkOrder(start?: string, end?: string) {
 
 async function save(ctx: ActionContext, calendarId: string, g: GEvent, taskId?: string | null) {
   const rules = await getSetting(ctx.tx, "owner.dayRules");
-  const m = mapEvent(calendarId, g, rules.timeZone);
+  const m = mapEvent(calendarId, cleanDeep(g), rules.timeZone);
   if (!m) throw new ActionError("failed", "Google returned an event Hearth can't read.");
   const { id: eid, change } = await saveEvent(ctx, m, taskId === undefined ? {} : { taskId });
   emitChange(ctx, eid, change, m);

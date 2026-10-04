@@ -4,6 +4,7 @@
 import { entity, type mailAccount, mailMessage, mailThread } from "@hearth/db";
 import { type ActionContext, createEntity } from "@hearth/kernel";
 import { and, eq, inArray } from "drizzle-orm";
+import { cleanDeep } from "../google/clean.ts";
 import { BLOB_SERVICE, type BlobStore } from "./blobs.ts";
 import { recomputeThread } from "./flags.ts";
 import { isCalendar, parseInvite } from "./invites.ts";
@@ -14,7 +15,8 @@ import type { RawMail } from "./provider.ts";
 export type AccountRow = typeof mailAccount.$inferSelect;
 
 /** Drafts are Hearth's own business (M2's drafts), and spam and chats stay out entirely. */
-const LEFT_OUT = ["DRAFT", "SPAM", "CHAT"];
+export const LEFT_OUT = ["DRAFT", "SPAM", "CHAT"];
+export const leftOut = (labels: string[]) => labels.some((l) => LEFT_OUT.includes(l));
 /** The most of a message's text kept on its record, for search and for Jarvis. */
 const MAX_TEXT = 50_000;
 
@@ -69,7 +71,7 @@ export async function saveMail(
   account: AccountRow,
   mail: RawMail,
 ): Promise<Saved | null> {
-  if (mail.labels.some((l) => LEFT_OUT.includes(l))) {
+  if (leftOut(mail.labels)) {
     await removeMail(ctx, account.id, [mail.providerId]);
     return null;
   }
@@ -87,7 +89,8 @@ export async function saveMail(
     };
 
   const rawHash = await ctx.service<BlobStore>(BLOB_SERVICE).put(mail.raw);
-  const p = await parseMail(mail.raw);
+  // Every parsed field cleaned: one NUL in a subject used to fail the whole sync (6.2).
+  const p = cleanDeep(await parseMail(mail.raw));
   const messageId = p.messageId ?? `${mail.providerId}@${account.provider}.hearth`;
   const refs = [...new Set([...p.references, ...(p.inReplyTo ? [p.inReplyTo] : [])])].filter(
     (r) => r !== messageId,
@@ -134,7 +137,7 @@ export async function saveMail(
     hasHtml: p.html !== null,
     attachments: p.attachments.map(({ content: _c, ...a }) => a),
     snippet: snippetOf(p.text),
-    invite: inviteIn(p),
+    invite: cleanDeep(inviteIn(p)),
   });
   await linkPeople(
     ctx,

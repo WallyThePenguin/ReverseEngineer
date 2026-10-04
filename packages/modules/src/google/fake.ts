@@ -1,8 +1,10 @@
 // A fake Google for tests: sign-in, token refresh and the Calendar calls Hearth makes, kept in
 // memory. Hand `fake.fetch` to a GoogleClient.
+import type { Db } from "@hearth/db";
+import type { Allowance, GoogleService } from "./budget.ts";
 import type { GCalendar, GEvent } from "./calendar-api.ts";
 import { GoogleClient, SCOPES } from "./client.ts";
-import { FakeGmail } from "./fake-gmail.ts";
+import { errorReply, FakeGmail } from "./fake-gmail.ts";
 
 interface FakeCalendar extends GCalendar {
   events: Map<string, GEvent>;
@@ -17,11 +19,37 @@ export class FakeGoogle {
   /** What a sign-in grants. */
   grants: string[] = ["openid", "email", ...SCOPES.calendar];
   readonly gmail: FakeGmail;
+  /** How long each call takes, for tests where calls overlap. */
+  latencyMs = 0;
+  /** The time clients and the fake Gmail see; set it to the test kernel's clock. */
+  clock: { now(): Date } = { now: () => new Date() };
+  /** What clients made by client() logged. */
+  readonly logs: string[] = [];
+  private readonly issued: string[] = [];
+  private readonly invalid = new Set<string>();
+  private readonly calendarFailures: number[] = [];
+  private readonly refreshFailures: number[] = [];
   private seq = 0;
+
+  /** Every access token handed out so far stops working, as if Google expired them early. */
+  invalidateTokens() {
+    for (const t of this.issued) this.invalid.add(t);
+  }
+
+  /** The next `n` Calendar calls fail with `status`, as Google sends it. */
+  failCalendar(n: number, status: 403 | 429 | 500 | 503) {
+    for (let i = 0; i < n; i++) this.calendarFailures.push(status);
+  }
+
+  /** The next `n` token refreshes fail with `status`. */
+  failRefresh(n: number, status: 429 | 500 | 503) {
+    for (let i = 0; i < n; i++) this.refreshFailures.push(status);
+  }
 
   constructor(email = "owner@example.com") {
     this.email = email;
     this.gmail = new FakeGmail(email);
+    this.gmail.now = () => this.clock.now().getTime();
     this.addCalendar({ id: email, summary: email, primary: true, accessRole: "owner" });
   }
 
@@ -42,16 +70,25 @@ export class FakeGoogle {
     this.calendars.get(calendarId)!.events.delete(id);
   }
 
-  client(): GoogleClient {
+  /** A client talking to this fake. With `db`, its budget and tokens are shared through it. */
+  client(
+    db?: Db,
+    opts: { allowances?: Partial<Record<GoogleService, Allowance>>; timeoutMs?: number } = {},
+  ): GoogleClient {
     return new GoogleClient({
       clientId: "test-client",
       clientSecret: "test-secret",
       redirectUri: "http://localhost:4400/api/google/callback",
       fetch: (url, init) => this.fetch(url, init),
+      db: db ?? null,
+      now: () => this.clock.now(),
+      log: (msg) => void this.logs.push(msg),
+      ...opts,
     });
   }
 
   async fetch(url: string, init: RequestInit = {}): Promise<Response> {
+    if (this.latencyMs) await new Promise((r) => setTimeout(r, this.latencyMs));
     const u = new URL(url);
     const method = init.method ?? "GET";
     const body =
@@ -70,8 +107,12 @@ export class FakeGoogle {
     if (u.hostname === "oauth2.googleapis.com") {
       if (body?.grant_type === "refresh_token" && this.revoked)
         return json(400, { error: "invalid_grant", error_description: "Token has been revoked." });
+      const failing = body?.grant_type === "refresh_token" && this.refreshFailures.shift();
+      if (failing) return json(failing, { error: "rate_limit_exceeded" });
+      const token = `at${++this.seq}`;
+      this.issued.push(token);
       return json(200, {
-        access_token: `at${++this.seq}`,
+        access_token: token,
         expires_in: 3600,
         ...(body?.grant_type === "authorization_code"
           ? {
@@ -82,8 +123,26 @@ export class FakeGoogle {
       });
     }
     if (u.hostname === "openidconnect.googleapis.com") return json(200, { email: this.email });
-    if (u.hostname === "gmail.googleapis.com") return this.gmail.handle(u, method, body);
+    // Signed out, or a token Google no longer takes: every API call is turned away.
+    const bearer = new Headers(init.headers).get("authorization")?.replace(/^Bearer /, "");
+    if (this.revoked || (bearer && this.invalid.has(bearer)))
+      return json(401, {
+        error: { code: 401, message: "Request had invalid authentication credentials." },
+      });
+    if (u.hostname === "gmail.googleapis.com") {
+      const id = u.pathname.match(/\/messages\/([^/]+)$/)?.[1];
+      if (id && this.gmail.hangIds.has(decodeURIComponent(id))) {
+        this.gmail.hung++;
+        // No answer: wait until the client gives up on it.
+        await new Promise((_, reject) =>
+          init.signal?.addEventListener("abort", () => reject(init.signal?.reason)),
+        );
+      }
+      return this.gmail.handle(u, method, body);
+    }
 
+    const failing = this.calendarFailures.shift();
+    if (failing) return errorReply(failing);
     const path = u.pathname.replace("/calendar/v3", "");
     if (path === "/users/me/calendarList") {
       return json(200, {

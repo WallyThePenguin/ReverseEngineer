@@ -4,6 +4,7 @@
 import { githubAccount, googleAccount, slackWorkspace } from "@hearth/db";
 import { integrationCaller, type Kernel, startScheduler } from "@hearth/kernel";
 import { checkHealth, type HealthOptions, reportHealth } from "./health.ts";
+import { type MailRoundOptions, mailRound } from "./mail-loop.ts";
 import { checkDueWatches } from "./watches.ts";
 
 export interface WorkerOptions extends HealthOptions {
@@ -13,6 +14,7 @@ export interface WorkerOptions extends HealthOptions {
   watchIntervalMs?: number;
   calendarIntervalMs?: number;
   mailIntervalMs?: number;
+  mailRound?: Omit<MailRoundOptions, "log">;
   slackIntervalMs?: number;
   githubIntervalMs?: number;
   log?: (msg: string, err?: unknown) => void;
@@ -77,29 +79,13 @@ export function startWorker(opts: WorkerOptions) {
   const calendarTimer = setInterval(calendars, opts.calendarIntervalMs ?? 5 * 60_000);
   void calendars();
 
-  // Mail, every minute; a first sync comes in pages, fetched back to back.
+  // Mail, every minute: each account in turn, paced, for under a minute a round (mail-loop.ts).
   let mailing = false;
   const mail = async () => {
     if (mailing) return;
     mailing = true;
     try {
-      for (let page = 0; page < 20; page++) {
-        const [any] = await kernel.db
-          .select({ email: googleAccount.email })
-          .from(googleAccount)
-          .limit(1);
-        if (!any) return;
-        const res = await kernel.execute<{ more: boolean }>(
-          "mail.sync",
-          {},
-          integrationCaller("google"),
-        );
-        if (res.status !== "ok") {
-          log(`mail sync: ${JSON.stringify(res)}`);
-          return;
-        }
-        if (!res.result.more) return;
-      }
+      await mailRound(kernel, { ...opts.mailRound, log: (m) => log(m) });
     } catch (err) {
       log("mail sync failed", err);
     } finally {

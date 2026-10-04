@@ -1,6 +1,10 @@
-// The few Google Calendar API calls Hearth makes, typed.
+// The few Google Calendar API calls Hearth makes, typed. Reading counts against Calendar's own
+// paced budget; adding, changing or removing an event is something you're waiting on, so it may
+// use the headroom reads leave, and a slowdown then says so plainly (D55).
 import type { DbOrTx } from "@hearth/db";
+import { ActionError } from "@hearth/kernel";
 import type { GoogleClient } from "./client.ts";
+import { GoogleApiError } from "./errors.ts";
 
 const BASE = "https://www.googleapis.com/calendar/v3";
 
@@ -53,6 +57,23 @@ export type SendUpdates = "all" | "none";
 
 const enc = encodeURIComponent;
 
+/** A slowdown on something you asked for, said plainly; anything else as it was. */
+function plain(err: unknown): never {
+  if (err instanceof GoogleApiError && err.slowDown) {
+    const secs = Math.max(1, Math.ceil((err.retryAfterMs ?? 60_000) / 1000));
+    // "paced": Hearth held it back itself, to keep Google from turning it away.
+    const why =
+      err.kind === "paced"
+        ? "Hearth is spacing out its Google Calendar calls"
+        : "Google Calendar asked Hearth to slow down";
+    throw new ActionError(
+      "unavailable",
+      `${why}, so nothing changed. Try again in about ${secs} seconds.`,
+    );
+  }
+  throw err;
+}
+
 export class CalendarApi {
   private readonly google: GoogleClient;
   private readonly db: DbOrTx;
@@ -103,9 +124,15 @@ export class CalendarApi {
     return out;
   }
 
+  /** A change you asked for: it may use the budget's headroom. */
+  private write<T>(account: string, method: string, url: string, body?: unknown): Promise<T> {
+    return this.google
+      .call<T>(this.db, account, method, url, body, { priority: true })
+      .catch(plain);
+  }
+
   insert(account: string, calendarId: string, event: Partial<GEvent>, send: SendUpdates) {
-    return this.google.call<GEvent>(
-      this.db,
+    return this.write<GEvent>(
       account,
       "POST",
       `${BASE}/calendars/${enc(calendarId)}/events?sendUpdates=${send}&conferenceDataVersion=0`,
@@ -120,8 +147,7 @@ export class CalendarApi {
     event: Partial<GEvent>,
     send: SendUpdates,
   ) {
-    return this.google.call<GEvent>(
-      this.db,
+    return this.write<GEvent>(
       account,
       "PATCH",
       `${BASE}/calendars/${enc(calendarId)}/events/${enc(eventId)}?sendUpdates=${send}`,
@@ -130,8 +156,7 @@ export class CalendarApi {
   }
 
   async remove(account: string, calendarId: string, eventId: string, send: SendUpdates) {
-    await this.google.call<null>(
-      this.db,
+    await this.write<null>(
       account,
       "DELETE",
       `${BASE}/calendars/${enc(calendarId)}/events/${enc(eventId)}?sendUpdates=${send}`,

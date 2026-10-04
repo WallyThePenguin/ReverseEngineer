@@ -186,6 +186,26 @@ describe("drafts and sending", () => {
     expect(g.gmail.sent).toEqual([]);
   });
 
+  it("says plainly when a send is held back, and keeps the draft", async () => {
+    const draft = await ok<DraftView>("mail.draft", { to: ["bo@x.example"], text: "Hi" });
+    const send = () => t.kernel.execute("mail.send", { id: draft.id }, ownerCaller());
+    // Gmail says slow down.
+    g.gmail.failNext(1, 429);
+    const slowed = await send();
+    expect(slowed).toMatchObject({ status: "error", code: "unavailable" });
+    expect(JSON.stringify(slowed)).toContain(
+      "Gmail asked Hearth to slow down, so nothing was sent",
+    );
+    // Hearth's own pacing holds it back: no room left this minute, even with the headroom.
+    t.kernel.services[GOOGLE_SERVICE] = g.client(undefined, {
+      allowances: { gmail: { units: 0, headroom: 50 } },
+    });
+    const paced = await send();
+    expect(JSON.stringify(paced)).toContain("spacing out its Gmail calls, so nothing was sent");
+    expect(g.gmail.sent).toEqual([]);
+    expect((await ok<DraftView[]>("mail.drafts")).map((d) => d.id)).toEqual([draft.id]);
+  });
+
   it("keeps names from adding recipients or hiding addresses", async () => {
     const draft = await ok<DraftView>("mail.draft", {
       to: ['"leak@evil.example, Ana" <ana@x.example>', "Bo\u202eLee <bo@x.example>"],
