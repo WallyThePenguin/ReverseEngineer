@@ -71,14 +71,14 @@ export async function parityChecks(context: ParityContext) {
   const textOf = async (tabId: number) =>
     (await act<{ text: string }>("browser.read", { tabId })).text;
 
-  // The fixed key gives the extension its one ID, and it speaks protocol 2.
+  // The fixed key gives the extension its one ID, and it speaks protocol 3 (B1).
   check(extensionId === EXTENSION_ID, "the extension's key gives it the fixed ID");
   const status = (await hearth.evaluate(() =>
     fetch("/api/browser/status").then((r) => r.json()),
   )) as Record<string, unknown>;
   check(
-    status.protocol === 2 && status.extensionId === EXTENSION_ID && status.problem === null,
-    "Hearth sees protocol 2 and the expected ID, with no problem",
+    status.protocol === 3 && status.extensionId === EXTENSION_ID && status.problem === null,
+    "Hearth sees protocol 3 and the expected ID, with no problem",
   );
 
   // Dialogs: a step that opens one says so, everything else waits, and browser.dialog answers.

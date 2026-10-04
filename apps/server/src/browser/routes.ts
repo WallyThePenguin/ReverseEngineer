@@ -20,7 +20,11 @@ import type { AppEnv } from "../env.ts";
 import type { BrowserBridge } from "./bridge.ts";
 
 const Rpc = z.object({
-  method: z.enum(["tabs.list", "tabs.open", "tabs.close", "tabs.release", "tabs.show", "cdp"]),
+  method: z.union([
+    z.enum(["tabs.list", "tabs.open", "tabs.close", "tabs.release", "tabs.show", "cdp"]),
+    // The server-side driver (B1): one request per step.
+    z.string().regex(/^driver\.[a-z_]{1,20}$/),
+  ]),
   params: z.record(z.string(), z.unknown()).default({}),
 });
 

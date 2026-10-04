@@ -109,6 +109,34 @@ export async function checkToken(
   return result;
 }
 
+/** How long a check of one of Hearth's own internal tokens is remembered. */
+export const INTERNAL_CHECK_MS = 30_000;
+const internalChecks = new Map<string, { at: number; session: SessionPrincipal }>();
+
+/**
+ * checkToken, remembering for a short while the answer for Jarvis's and the worker's own API
+ * tokens, which call the server many times a turn (B1: a browser step is one request, and its
+ * sign-in check shouldn't be a database read each time). Revoking a token forgets it at once.
+ */
+export async function checkTokenFast(
+  db: DbOrTx,
+  token: string,
+  now = new Date(),
+): Promise<TokenCheck> {
+  const hash = token && token.length <= 200 ? hashToken(token) : "";
+  const hit = hash ? internalChecks.get(hash) : undefined;
+  if (hit && now.getTime() - hit.at < INTERNAL_CHECK_MS)
+    return { ok: true, session: hit.session, extendedUntil: null };
+  const r = await checkToken(db, token, now);
+  const s = r.ok ? r.session : null;
+  if (s && s.sessionKind === "api" && !s.scopes && (s.kind === "agent" || s.kind === "system")) {
+    internalChecks.set(hash, { at: now.getTime(), session: s });
+    if (internalChecks.size > 100)
+      internalChecks.delete(internalChecks.keys().next().value as string);
+  } else if (hash) internalChecks.delete(hash);
+  return r;
+}
+
 export async function resolveToken(
   db: DbOrTx,
   token: string,
@@ -119,6 +147,7 @@ export async function resolveToken(
 }
 
 export async function revokeToken(db: DbOrTx, token: string, now = new Date()): Promise<void> {
+  internalChecks.delete(hashToken(token));
   await db
     .update(session)
     .set({ revokedAt: now })

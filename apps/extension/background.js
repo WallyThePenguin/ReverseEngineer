@@ -1,8 +1,8 @@
 // The Hearth extension (D24): lets Jarvis use this Chrome. It keeps one WebSocket open to your
 // Hearth server, takes commands only from there, and reports Jarvis's tabs and page events back.
 
-import { cdp, detach, dialogs, onPageEvent, watchDetach } from "./debugger.js";
-import { PROTOCOL } from "./rules.js";
+import { cdp, detach, dialogs, framesOf, onPageEvent, TRACKED, watchDetach } from "./debugger.js";
+import { PROTOCOL, QUIET_EVENTS } from "./rules.js";
 import {
   adopt,
   closeTab,
@@ -83,11 +83,17 @@ const methods = {
     await showTab(tabId);
     return { shown: true };
   },
-  cdp: async ({ tabId, method, params }) => {
-    if (method !== "Page.handleJavaScriptDialog") return cdp(tabId, method, params);
+  "tabs.frames": async ({ tabId }) => {
+    if (!(await mayUse(tabId))) return [];
+    return framesOf(tabId);
+  },
+  // `sessionId` addresses a frame from another site inside the tab (B1).
+  cdp: async ({ tabId, method, params, sessionId }) => {
+    const session = typeof sessionId === "string" ? sessionId : undefined;
+    if (method !== "Page.handleJavaScriptDialog") return cdp(tabId, method, params, session);
     // Answering a dialog (or finding it gone) changes what the tab list says about it.
     try {
-      return await cdp(tabId, method, params);
+      return await cdp(tabId, method, params, session);
     } finally {
       pushTabs();
     }
@@ -186,14 +192,18 @@ function reconnect() {
 chrome.debugger.onEvent.addListener((source, method, params) => {
   const tabId = source.tabId;
   if (tabId === undefined) return;
-  send({ type: "event", tabId, method, params });
-  if (method === "Page.javascriptDialogOpening" || method === "Page.javascriptDialogClosed")
-    onPageEvent(tabId, method, params)
-      .then(pushTabs)
+  // A frame's own session says which: the server's driver keeps each frame apart.
+  const sessionId = source.sessionId;
+  if (!QUIET_EVENTS.has(method)) send({ type: "event", tabId, sessionId, method, params });
+  if (TRACKED.has(method))
+    onPageEvent(tabId, sessionId, method, params)
+      .then(() => {
+        if (method.startsWith("Page.")) pushTabs();
+      })
       .catch(() => {});
 });
-watchDetach((tabId) => {
-  send({ type: "detached", tabId });
+watchDetach((tabId, reason) => {
+  send({ type: "detached", tabId, reason });
 });
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   if (!(await mayUse(tabId))) return;

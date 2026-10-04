@@ -7,7 +7,13 @@ import type { Context, MiddlewareHandler } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import type { AppEnv } from "../env.ts";
 import { scopeAllows } from "./devices.ts";
-import { checkToken, SESSION_DAYS, type SessionPrincipal, type TokenRefusal } from "./tokens.ts";
+import {
+  checkToken,
+  checkTokenFast,
+  SESSION_DAYS,
+  type SessionPrincipal,
+  type TokenRefusal,
+} from "./tokens.ts";
 
 export const SESSION_COOKIE = "hearth_session";
 
@@ -58,7 +64,7 @@ export function authenticate(): MiddlewareHandler<AppEnv> {
     c.set("viaCookie", false);
     const token = bearer(c);
     if (token) {
-      const r = await checkToken(kernel.db, token);
+      const r = await checkTokenFast(kernel.db, token);
       if (!r.ok) {
         logRefusal("bearer token", r.reason, c.req.path);
         return c.json({ error: "That token isn't valid." }, 401);

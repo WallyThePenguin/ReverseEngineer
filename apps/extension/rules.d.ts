@@ -2,6 +2,9 @@
 
 export const PROTOCOL: number;
 export const ALLOWED: Set<string>;
+export const SESSION_SETUP: [string, Record<string, unknown>][];
+export const CHILD_SETUP: [string, Record<string, unknown>][];
+export const QUIET_EVENTS: Set<string>;
 export const DIALOG_SAFE: Set<string>;
 export const NAVIGATIONS: Set<string>;
 
