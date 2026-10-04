@@ -22,7 +22,8 @@ import {
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { BrainTool } from "./brain.ts";
-import { checkActing, checkOpen, readOutsideContent, vouchFor } from "./trust.ts";
+import { readFrom } from "./taint.ts";
+import { checkActing, checkOpen, vouchFor } from "./trust.ts";
 
 const MAX_OUTPUT = 20_000;
 
@@ -46,6 +47,8 @@ export interface TurnState {
   /** Sites opened before the turn read outside content (D30). */
   vouchedHosts?: Set<string>;
   sites: SiteRules;
+  /** What first made it untrusted (a tool or record type), kept on the conversation (D58). */
+  taintedBy?: string;
 }
 
 export type LogFn = (
@@ -184,7 +187,7 @@ export function buildTools(kernel: Kernel, state: TurnState, log: LogFn): BrainT
         if (outside && res.status !== "denied") {
           // Outside content, errors included (they can quote the page): everything after this in
           // the turn is untrusted (D25).
-          readOutsideContent(state, output, result);
+          readFrom(state, def.name, output, result);
           output = asUntrusted(output, def.name);
         }
         await log("tool_result", {
@@ -208,7 +211,7 @@ export function buildTools(kernel: Kernel, state: TurnState, log: LogFn): BrainT
       await log("tool_call", { callId, name: "record.read", input });
       const record = await readRecord(kernel, id);
       const text = record?.text ?? null;
-      if (record?.fromOutside) readOutsideContent(state, record.text);
+      if (record?.fromOutside) readFrom(state, record.source, record.text);
       state.calls.push({ action: "record.read", risk: "read", status: text ? "ok" : "error" });
       await log("tool_result", {
         callId,
@@ -246,7 +249,7 @@ export async function readRecord(
   kernel: Kernel,
   id: string,
   caller: Caller = jarvisCaller("agent"),
-): Promise<{ text: string; fromOutside: boolean } | null> {
+): Promise<{ text: string; fromOutside: boolean; source: string } | null> {
   const [row] = await kernel.db.select().from(entity).where(eq(entity.id, id));
   if (!row) return null;
   const ctx = { db: kernel.db, now: kernel.clock.now() };
@@ -273,5 +276,5 @@ export async function readRecord(
     isOutsideRecord(row, (t) => kernel.registry.isOutsideType(t)) ||
     (await mentionsOutside(kernel, named));
   const source = outsideType ? row.type : row.createdBy;
-  return { text: fromOutside ? asUntrusted(text, source) : text, fromOutside };
+  return { text: fromOutside ? asUntrusted(text, source) : text, fromOutside, source };
 }

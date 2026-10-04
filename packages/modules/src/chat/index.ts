@@ -117,7 +117,13 @@ export const chatModule = defineModule({
           .where(eq(conversationLog.conversationId, i.id))
           .orderBy(asc(conversationLog.idx));
         return {
-          conversation: { ...e, subjectId: c?.subjectId ?? null },
+          conversation: {
+            ...e,
+            subjectId: c?.subjectId ?? null,
+            // Once it has read outside content, Jarvis asks more here: the app says why (D58).
+            taintedAt: c?.taintedAt ?? null,
+            taintSource: c?.taintSource ?? null,
+          },
           log: log.filter((l) => i.afterIdx === undefined || l.idx > i.afterIdx),
         };
       },

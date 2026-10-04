@@ -5,7 +5,7 @@ import { type ConversationItem, foldConversation, fromEditForm } from "@hearth/c
 import { createEffect, createSignal, For, Match, on, onCleanup, Show, Switch } from "solid-js";
 import { Body } from "../components/Body.tsx";
 import { MentionEditor } from "../components/MentionEditor.tsx";
-import { Button, PaneHeader } from "../components/ui.tsx";
+import { Badge, Button, PaneHeader } from "../components/ui.tsx";
 import { decide, deciding, isDecided } from "../lib/approvals.ts";
 import { live } from "../lib/live.ts";
 import { act, useAction } from "../lib/query.ts";
@@ -16,8 +16,26 @@ import type { LogRecord } from "../lib/types.ts";
 const SLOW_MS = 20_000;
 
 interface ConversationData {
-  conversation: { id: string; title: string };
+  conversation: {
+    id: string;
+    title: string;
+    taintedAt?: string | null;
+    taintSource?: string | null;
+  };
   log: LogRecord[];
+}
+
+/** Why Jarvis asks more in this conversation: it read outside content here (D58). */
+function OutsideNote(props: { source: string | null | undefined }) {
+  return (
+    <p
+      class="flex items-center gap-2 text-xs text-muted"
+      title="Text from outside Hearth could try to steer Jarvis, so for the rest of this conversation it checks with you before acting outside it. A new conversation starts fresh."
+    >
+      <Badge tone="warn">Read {props.source || "outside content"}</Badge>
+      <span>Jarvis checks with you before acting here. A new conversation starts fresh.</span>
+    </p>
+  );
 }
 
 function ToolLine(props: { item: Extract<ConversationItem, { type: "tool" }> }) {
@@ -173,6 +191,9 @@ export function Conversation(props: {
     <div class="flex h-full flex-col">
       <div ref={scroller} class="flex-1 space-y-3 overflow-auto px-4 py-3">
         <Show when={props.id} fallback={<Starter onPick={(t) => setDraft(t)} />}>
+          <Show when={data.data?.conversation.taintedAt}>
+            <OutsideNote source={data.data?.conversation.taintSource} />
+          </Show>
           <For each={view().items}>
             {(item) => (
               <Switch>
