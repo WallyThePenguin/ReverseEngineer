@@ -61,7 +61,13 @@ describe("doc history", () => {
     // Later edits, by you on a screen and by Jarvis.
     a.type(a.text.length, " second");
     await a.sync();
-    await ok("note.update", { id: note.id, body: "rewritten by Jarvis" }, jarvisCaller("agent"));
+    const revision = (await t.tdb.db.select().from(entity).where(eq(entity.id, note.id)))[0]!
+      .revision;
+    await ok(
+      "note.update",
+      { id: note.id, body: "rewritten by Jarvis", revision },
+      jarvisCaller("agent"),
+    );
     const h = await ok<History>("doc.history", { id: note.id });
     expect(h.versions.length).toBeGreaterThanOrEqual(1);
     expect(new Set(h.versions.flatMap((v) => v.by))).toEqual(new Set(["owner", "jarvis"]));
@@ -114,7 +120,11 @@ describe("doc history", () => {
 
   it("names the writer of a note's text even before it's opened", async () => {
     const note = await ok<{ id: string }>("note.create", { title: "Plan", body: "mine" });
-    await ok("note.update", { id: note.id, body: "mine and theirs" }, jarvisCaller("agent"));
+    await ok(
+      "note.update",
+      { id: note.id, body: "mine and theirs", revision: 1 },
+      jarvisCaller("agent"),
+    );
     await ok("note.update", { id: note.id, title: "Renamed" });
     const h = await ok<History>("doc.history", { id: note.id });
     expect(new Set(h.versions.flatMap((v) => v.by))).toEqual(new Set(["owner", "jarvis"]));

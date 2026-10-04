@@ -47,6 +47,8 @@ class Screen {
     this.server = r.version;
   }
 }
+const revisionOf = async (id: string) =>
+  (await t.tdb.db.select().from(entity).where(eq(entity.id, id)))[0]!.revision;
 const body = async (id: string) =>
   (await t.tdb.db.select().from(entity).where(eq(entity.id, id)))[0]!.body;
 
@@ -74,7 +76,12 @@ describe("live docs", () => {
     await a.sync();
     a.type(a.text.length, "three\n");
     // Jarvis read the note before the typing synced.
-    await ok("note.update", { id: note.id, body: "ONE\ntwo\n" }, jarvisCaller("agent"));
+    const read = await revisionOf(note.id);
+    await ok(
+      "note.update",
+      { id: note.id, body: "ONE\ntwo\n", revision: read },
+      jarvisCaller("agent"),
+    );
     await a.sync();
     expect(a.text).toBe("ONE\ntwo\nthree\n");
     expect(await body(note.id)).toBe("ONE\ntwo\nthree\n");
@@ -91,7 +98,11 @@ describe("live docs", () => {
     const note = await ok<{ id: string }>("note.create", { title: "Plan", body: "mine" });
     const a = new Screen(note.id);
     await a.sync();
-    await ok("note.update", { id: note.id, body: "theirs" }, jarvisCaller("agent"));
+    await ok(
+      "note.update",
+      { id: note.id, body: "theirs", revision: await revisionOf(note.id) },
+      jarvisCaller("agent"),
+    );
     await ok("note.update", { id: note.id, title: "Renamed" });
     const rows = await t.tdb.db
       .select({ by: docUpdate.createdBy })
@@ -144,8 +155,9 @@ describe("live docs", () => {
     const a = new Screen(note.id);
     await a.sync();
     const rewritten = prose(50_000, 7);
+    const revision = await revisionOf(note.id);
     const t0 = performance.now();
-    await ok("note.update", { id: note.id, body: rewritten }, jarvisCaller("agent"));
+    await ok("note.update", { id: note.id, body: rewritten, revision }, jarvisCaller("agent"));
     expect(performance.now() - t0).toBeLessThan(500);
     await a.sync();
     expect(a.text).toBe(rewritten);

@@ -31,17 +31,33 @@ export function openUnlinkedItems(body: string): ChecklistItem[] {
   );
 }
 
+/**
+ * The edit that replaces an item's text with a mention of the task it became: where it starts,
+ * how much it replaces, and what goes there. Only that item's own text changes (D59), so typing
+ * anywhere else in the note is untouched. Null when the line isn't an item.
+ */
+export function itemLink(
+  body: string,
+  line: number,
+  task: { id: string; label: string },
+): { at: number; length: number; insert: string } | null {
+  const lines = body.split("\n");
+  const raw = lines[line];
+  const m = raw === undefined ? null : ITEM.exec(raw);
+  if (!m) return null;
+  let at = m[1]!.length + m[2]!.length + m[3]!.length;
+  for (let n = 0; n < line; n++) at += lines[n]!.length + 1;
+  const insert = renderMention({ type: "task", id: task.id, label: task.label });
+  return { at, length: m[4]!.length, insert };
+}
+
 /** Replaces an item's text with a mention of the task it became. */
 export function linkItemToTask(
   body: string,
   line: number,
   task: { id: string; label: string },
 ): string {
-  const lines = body.split("\n");
-  const raw = lines[line];
-  const m = raw === undefined ? null : ITEM.exec(raw);
-  if (!m) return body;
-  lines[line] =
-    `${m[1]}${m[2]}${m[3]}${renderMention({ type: "task", id: task.id, label: task.label })}`;
-  return lines.join("\n");
+  const edit = itemLink(body, line, task);
+  if (!edit) return body;
+  return body.slice(0, edit.at) + edit.insert + body.slice(edit.at + edit.length);
 }

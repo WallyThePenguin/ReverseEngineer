@@ -1,23 +1,26 @@
 // Notes: markdown with @links. Jarvis answers @mentions in them (chat module) and offers to turn
 // unchecked checklist items into tasks.
-import { renderMention } from "@hearth/core";
+import { type PrincipalKind, renderMention } from "@hearth/core";
 import { entity } from "@hearth/db";
 import {
+  ActionError,
   createEntity,
   defineAction,
   defineModule,
   type EntityRow,
-  requireEntity,
   stableHash,
+  updateEntity,
 } from "@hearth/kernel";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { docActions } from "../docs/index.ts";
-import { writeDoc } from "../docs/store.ts";
+import { editAsCaller, finish, openDoc, textOf, writeDoc } from "../docs/store.ts";
 import { body, describeRow, id, liveEntity, preview, title } from "../shared.ts";
-import { linkItemToTask, openUnlinkedItems } from "./checklist.ts";
+import { itemLink, openUnlinkedItems } from "./checklist.ts";
 
 const CHECKLIST_SETTLE_MS = 10 * 60 * 1000;
+/** Callers that must say which revision they read before rewriting a whole note. */
+const AGENTS: PrincipalKind[] = ["agent", "mcp_client"];
 
 export const notesModule = defineModule({
   name: "notes",
@@ -59,13 +62,20 @@ export const notesModule = defineModule({
         revision: z.number().int().optional(),
       }),
       risk: "internal",
-      handler: (i, ctx) =>
-        writeDoc(
+      handler(i, ctx) {
+        // A rewrite from an old read would undo whatever changed since (D59).
+        if (i.body !== undefined && i.revision === undefined && AGENTS.includes(ctx.caller.kind))
+          throw new ActionError(
+            "invalid_input",
+            "Pass revision, the note's revision when you read it, so a rewrite can't undo changes you haven't seen. To change part of a note, use doc_edit.",
+          );
+        return writeDoc(
           ctx,
           i.id,
           { title: i.title, body: i.body },
           { expectedRevision: i.revision, type: "note" },
-        ),
+        );
+      },
     }),
     defineAction({
       name: "note.list",
@@ -94,20 +104,33 @@ export const notesModule = defineModule({
       input: z.object({ id, lines: z.array(z.number().int().min(0)).optional() }),
       risk: "internal",
       async handler(i, ctx) {
-        const note = await requireEntity(ctx.tx, i.id, "note");
-        let text = note.body ?? "";
-        const items = openUnlinkedItems(text).filter((it) => !i.lines || i.lines.includes(it.line));
-        const created: { id: string; title: string }[] = [];
+        // Locked, and read from the doc itself: typing synced a moment ago is in it (D59).
+        const [note] = await ctx.tx.select().from(entity).where(eq(entity.id, i.id)).for("update");
+        if (!note || note.deletedAt || note.type !== "note")
+          throw new ActionError("not_found", "No such note");
+        const { doc, pending } = await openDoc(ctx, note);
+        const items = openUnlinkedItems(textOf(doc)).filter(
+          (it) => !i.lines || i.lines.includes(it.line),
+        );
+        const created: { id: string; title: string; line: number }[] = [];
         for (const item of items) {
           const task = await ctx.call<EntityRow>("task.create", {
             title: item.text.trim().slice(0, 500),
             body: `From ${renderMention({ type: "note", id: note.id, label: note.title })}`,
           });
-          text = linkItemToTask(text, item.line, { id: task.id, label: task.title });
-          created.push({ id: task.id, title: task.title });
+          created.push({ id: task.id, title: task.title, line: item.line });
         }
-        if (created.length) await writeDoc(ctx, note.id, { body: text }, { type: "note" });
-        return { created };
+        if (!created.length) return { created };
+        // Each item's own text becomes its task's link; nothing else in the note is rewritten.
+        await editAsCaller(ctx, note.id, doc, (t) => {
+          for (const c of created) {
+            const edit = itemLink(t.toString(), c.line, { id: c.id, label: c.title });
+            if (edit) t.splice(edit.at, edit.length, edit.insert);
+          }
+        });
+        const out = await updateEntity(ctx, note.id, { body: textOf(doc) });
+        await finish(ctx, note.id, out.revision, doc, pending + 1);
+        return { created: created.map(({ id, title }) => ({ id, title })) };
       },
     }),
   ],
@@ -120,6 +143,9 @@ export const notesModule = defineModule({
       on: ["entity.created", "entity.updated"],
       run(event, ctx) {
         if (event.payload.type !== "note") return [];
+        // An import's pages aren't to-do lists you're writing: one suggestion per page would
+        // bury the inbox.
+        if (event.actor === "integration:notion") return [];
         const changed = event.payload.changed as string[] | undefined;
         if (event.kind === "entity.updated" && !changed?.includes("body")) return [];
         return [
