@@ -1,7 +1,12 @@
 // Hearth's service worker: opens the app when the PC can't be reached, and shows notifications.
 // The API is never cached; everything you see comes live from your PC.
 
-const SHELL = "hearth-shell-v1";
+// The page itself, and the built files of the build it comes from. When a new build's page
+// arrives, the old build's files are dropped, so the cache holds one build, not every one since.
+const SHELL = "hearth-shell-v2";
+const ASSETS = "hearth-assets";
+/** How long a page may take from the PC before the last one seen opens instead. */
+const NAVIGATE_TIMEOUT_MS = 3000;
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(SHELL).then((c) => c.addAll(["/", "/manifest.webmanifest"])));
@@ -9,13 +14,72 @@ self.addEventListener("install", (e) => {
 });
 
 self.addEventListener("activate", (e) => {
+  const keep = [SHELL, ASSETS];
   e.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== SHELL).map((k) => caches.delete(k))))
+      .then((keys) =>
+        Promise.all(keys.filter((k) => !keep.includes(k)).map((k) => caches.delete(k))),
+      )
       .then(() => self.clients.claim()),
   );
 });
+
+/** Which build a page is from: its main script's hashed name. */
+const buildOf = (html) => html.match(/\/assets\/index-[\w-]+\.js/)?.[0] ?? null;
+
+/**
+ * Saves the newest page. If it's from a new build, the old build's files go, unless the old
+ * page is the one open right now (it opened from the cache) and may still ask for them; those
+ * go with the next new build.
+ */
+async function rememberPage(res, oldPageOpen) {
+  const shell = await caches.open(SHELL);
+  const old = await shell.match("/");
+  const [before, now] = await Promise.all([
+    old ? old.text().then(buildOf) : null,
+    res.clone().text().then(buildOf),
+  ]);
+  await shell.put("/", res);
+  if (before && now && before !== now && !oldPageOpen) await caches.delete(ASSETS);
+}
+
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * The newest page from the PC. If it's out of reach, answers with an error (Hearth restarting
+ * behind a proxy) or takes more than a few seconds, the last page seen opens instead, and the
+ * app inside it waits for Hearth to come back.
+ */
+function navigate(e) {
+  const network = fetch(e.request);
+  let answered = false;
+  let openedSaved = false;
+  const saved = async () => {
+    const hit = await caches.match("/");
+    if (hit) openedSaved = true;
+    return hit;
+  };
+  // Saved even when it arrives after the saved page has opened. (Copied before the page reads it.)
+  e.waitUntil(
+    network
+      .then((res) => (res.ok ? rememberPage(res.clone(), openedSaved) : undefined))
+      .catch(() => {}),
+  );
+  const fromNetwork = network.then(
+    async (res) => (res.status >= 500 && (await saved())) || res,
+    async () => (await saved()) || Response.error(),
+  );
+  // Too slow: the saved page if there is one, else keep waiting.
+  const slow = wait(NAVIGATE_TIMEOUT_MS).then(
+    async () => (!answered && (await saved())) || fromNetwork,
+  );
+  const answer = Promise.race([fromNetwork, slow]);
+  answer.then(() => {
+    answered = true;
+  });
+  return answer;
+}
 
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
@@ -30,7 +94,7 @@ self.addEventListener("fetch", (e) => {
           fetch(e.request).then((res) => {
             if (res.ok) {
               const copy = res.clone();
-              caches.open(SHELL).then((c) => c.put(e.request, copy));
+              e.waitUntil(caches.open(ASSETS).then((c) => c.put(e.request, copy)));
             }
             return res;
           }),
@@ -38,20 +102,7 @@ self.addEventListener("fetch", (e) => {
     );
     return;
   }
-  // Pages: the newest from the PC, or the last one seen when it's out of reach.
-  if (e.request.mode === "navigate") {
-    e.respondWith(
-      fetch(e.request)
-        .then((res) => {
-          if (res.ok) {
-            const copy = res.clone();
-            caches.open(SHELL).then((c) => c.put("/", copy));
-          }
-          return res;
-        })
-        .catch(() => caches.match("/")),
-    );
-  }
+  if (e.request.mode === "navigate") e.respondWith(navigate(e));
 });
 
 self.addEventListener("push", (e) => {

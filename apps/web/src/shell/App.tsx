@@ -16,7 +16,7 @@ import { Kbd, PaneContext } from "../components/ui.tsx";
 import { ChatView } from "../jarvis/Conversation.tsx";
 import { JarvisPane, jarvis } from "../jarvis/JarvisPane.tsx";
 import { getMe, setSignedOutHandler } from "../lib/api.ts";
-import { forgetAllDocs } from "../lib/doc.ts";
+import { forgetAllDocs } from "../lib/docStore.ts";
 import { listHotkeys, useHotkeys } from "../lib/hotkeys.ts";
 import { live, queryClient, toast } from "../lib/live.ts";
 import { narrow } from "../lib/narrow.ts";

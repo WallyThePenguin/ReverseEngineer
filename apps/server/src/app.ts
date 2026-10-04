@@ -59,6 +59,8 @@ const CSP = [
   "form-action 'self'",
 ].join("; ");
 
+const IMMUTABLE = "public, max-age=31536000, immutable";
+
 export interface AppOptions {
   kernel: Kernel;
   /** The pool used to LISTEN for events. Optional in tests, which call hub.publish instead. */
@@ -127,12 +129,19 @@ export function createApp(opts: AppOptions) {
   const dist = opts.config.webDist;
   if (dist && existsSync(join(dist, "index.html"))) {
     const index = readFileSync(join(dist, "index.html"), "utf8");
-    // The service worker must update as soon as a new build is out.
-    app.use("/sw.js", async (c, next) => {
+    // Built files have their content's hash in their name, so a copy is good forever. The page,
+    // the service worker and the rest are checked each time, so a new build shows at once.
+    app.use("/*", async (c, next) => {
       await next();
-      c.header("Cache-Control", "no-cache");
+      const hashed =
+        c.req.path.startsWith("/assets/") && (c.res.status === 200 || c.res.status === 206);
+      c.header("Cache-Control", hashed ? IMMUTABLE : "no-cache");
     });
-    app.use("/*", serveStatic({ root: dist }));
+    // The build writes .br and .gz copies; the smallest the browser accepts is sent.
+    app.use("/*", serveStatic({ root: dist, precompressed: true }));
+    // A built file that isn't there (a page from an older build asking for its own) is missing,
+    // not the app shell, which would load as broken JavaScript.
+    app.get("/assets/*", (c) => c.text("Not found.", 404));
     // Client-side routes (/tasks/12, /notes/...) all load the app shell.
     app.get("*", (c) => c.html(index));
   } else {
