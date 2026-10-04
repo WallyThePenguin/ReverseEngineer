@@ -10,6 +10,7 @@ export * from "./kernel.ts";
 export * from "./kernel-events.ts";
 export * from "./notify.ts";
 export * from "./policy.ts";
+export * from "./process.ts";
 export * from "./registry.ts";
 export * from "./savepoint.ts";
 export * from "./scheduler.ts";

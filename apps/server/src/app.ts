@@ -3,7 +3,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { Server } from "node:http";
 import { join } from "node:path";
-import { getSetting, type Kernel } from "@hearth/kernel";
+import { DATABASE_DOWN, getSetting, isDatabaseDown, type Kernel, logLine } from "@hearth/kernel";
 import {
   BLOB_SERVICE,
   BROWSER_SERVICE,
@@ -21,6 +21,7 @@ import {
 } from "@hearth/modules";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
 import type pg from "pg";
 import { authenticate, sameOriginWrites } from "./auth/middleware.ts";
 import { BrowserBridge } from "./browser/bridge.ts";
@@ -107,6 +108,17 @@ export function createApp(opts: AppOptions) {
     c.header("X-Content-Type-Options", "nosniff");
     c.header("Referrer-Policy", "no-referrer");
     c.header("Cross-Origin-Opener-Policy", "same-origin");
+  });
+  // A request that throws gets a short JSON answer the app can show, never a stack trace or a
+  // query's values. The database being out of reach is a 503 with a hint to try again soon.
+  app.onError((err, c) => {
+    if (err instanceof HTTPException) return err.getResponse();
+    console.error(`[server] ${c.req.method} ${c.req.path} failed: ${logLine(err)}`);
+    if (isDatabaseDown(err)) {
+      c.header("Retry-After", "5");
+      return c.json({ error: DATABASE_DOWN }, 503);
+    }
+    return c.json({ error: "Something went wrong in Hearth. Try again in a moment." }, 500);
   });
   app.get("/api/health", (c) => c.json({ ok: true }));
   app.use("/api/*", authenticate());

@@ -2,7 +2,7 @@
 
 import type { Server } from "node:http";
 import { connect, databaseUrl } from "@hearth/db";
-import { Kernel, Registry } from "@hearth/kernel";
+import { guardProcess, Kernel, Registry } from "@hearth/kernel";
 import { ALL_MODULES } from "@hearth/modules";
 import { serve } from "@hono/node-server";
 import { createApp } from "./app.ts";
@@ -43,6 +43,7 @@ export async function runServer(): Promise<() => Promise<void>> {
 }
 
 if (import.meta.main) {
+  guardProcess("server");
   const stop = await runServer();
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.once(signal, () => void stop().then(() => process.exit(0)));

@@ -3,7 +3,7 @@
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { connect, databaseUrl, migrateDown, migrateUp } from "@hearth/db";
-import { Kernel, ownerCaller, Registry, systemCaller } from "@hearth/kernel";
+import { guardProcess, Kernel, ownerCaller, Registry, systemCaller } from "@hearth/kernel";
 import { ALL_MODULES } from "@hearth/modules";
 import {
   createApiToken,
@@ -100,6 +100,9 @@ async function main(argv: string[]): Promise<number> {
     case "jarvis":
     case "dev": {
       const { values } = parseArgs({ args: rest, options: { "no-jarvis": { type: "boolean" } } });
+      // A stray failure in a background task is logged, not the end of Hearth. (Jarvis's own
+      // process installs its own.)
+      if (command !== "jarvis") guardProcess(command);
       const stops: (() => Promise<void>)[] = [];
       if (command === "dev") await withDatabase(({ pool }) => migrateUp(pool));
       if (command === "serve" || command === "dev")
