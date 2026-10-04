@@ -113,13 +113,21 @@ export function JarvisPane() {
     limit: 20,
     ...(query().trim() ? { query: query().trim() } : {}),
   }));
-  // The one showing, even when a search hides it from the list.
-  const shown = useAction<ConversationRow[]>("conversation.list", () => ({ limit: 20 }));
+  // The one showing, even when a search hides it or it's older than the recent ones. The same read
+  // as the conversation below, so it costs no second request.
+  const shown = useAction<{ conversation: { id: string; title: string } }>(
+    "conversation.get",
+    () => ({ id: jarvis.conversationId() }),
+    () => !!jarvis.conversationId(),
+  );
   const { status, liveness } = useLiveness();
   const [picking, setPicking] = createSignal(false);
   /** The conversation being renamed, if any. */
   const [renaming, setRenaming] = createSignal<string | null>(null);
-  const current = () => (shown.data ?? []).find((c) => c.id === jarvis.conversationId());
+  const current = () => {
+    const c = shown.data?.conversation;
+    return c && c.id === jarvis.conversationId() ? c : undefined;
+  };
   const rename = (id: string) => (title: string | null) => {
     setRenaming(null);
     if (title) void renameConversation(id, title);
