@@ -46,17 +46,24 @@ async function post(path: string, body: unknown): Promise<Response> {
   return res;
 }
 
-/** Runs an action and returns its full result, including approvals and denials. */
-export async function runAction<T>(name: string, input: unknown = {}): Promise<ActionResult<T>> {
-  const res = await post(`/api/actions/${name}`, input);
+/**
+ * An action's result from its reply. A reply that isn't one (Hearth's own short error, say for
+ * its database being out of reach, or a proxy's error page) is thrown as an ApiError.
+ */
+async function resultOf<T>(res: Response): Promise<ActionResult<T>> {
   const body = (await res.json().catch(() => null)) as ActionResult<T> | { error: string } | null;
   if (!body || !("status" in body)) {
     const error = (body as { error?: string } | null)?.error;
     // A proxy's error page while Hearth restarts says nothing useful.
     if (!error && res.status >= 502) throw new ApiError(res.status, "unreachable", UNREACHABLE);
-    throw new ApiError(res.status, "failed", error ?? res.statusText);
+    throw new ApiError(res.status, "failed", error || res.statusText || "That didn't work.");
   }
   return body;
+}
+
+/** Runs an action and returns its full result, including approvals and denials. */
+export async function runAction<T>(name: string, input: unknown = {}): Promise<ActionResult<T>> {
+  return resultOf<T>(await post(`/api/actions/${name}`, input));
 }
 
 /** Runs an action and returns its result, or throws. */
@@ -68,9 +75,9 @@ export async function action<T>(name: string, input: unknown = {}): Promise<T> {
   throw new ApiError(400, r.code, r.message);
 }
 
+/** Approves or denies. Throws, like runAction, when Hearth can't give an answer. */
 export async function decideApproval(id: string, decision: "approve" | "deny") {
-  const res = await post(`/api/approvals/${id}`, { decision });
-  return (await res.json()) as ActionResult<unknown>;
+  return resultOf<unknown>(await post(`/api/approvals/${id}`, { decision }));
 }
 
 export async function authPost<T>(path: string, body: unknown = {}): Promise<T> {

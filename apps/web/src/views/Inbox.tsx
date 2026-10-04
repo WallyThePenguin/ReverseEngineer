@@ -16,8 +16,8 @@ import type { InboxRow } from "../lib/types.ts";
 type View = "live" | "snoozed" | "done";
 
 export async function decide(approvalId: string, decision: "approve" | "deny") {
-  const r = await decideApproval(approvalId, decision).catch(() => null);
-  if (!r) toast.show("Can't reach Hearth right now. Try again in a moment.", "error");
+  const r = await decideApproval(approvalId, decision).catch((err: Error) => err);
+  if (r instanceof Error) toast.show(r.message, "error");
   else if (r.status === "ok") toast.show(decision === "approve" ? "Approved and done." : "Denied.");
   else if (r.status === "error") toast.show(r.message, "error");
   else if (r.status === "denied") toast.show(r.reason, "error");
