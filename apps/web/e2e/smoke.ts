@@ -273,7 +273,7 @@ try {
   });
 
   await step("a sign-in for Jarvis and a routine, in Settings", async (p) => {
-    await p.getByLabel("Site").fill("example.com");
+    await p.getByLabel("Site", { exact: true }).fill("example.com");
     await p.getByLabel("Username").fill("me@example.com");
     await p.getByLabel("Password", { exact: true }).fill("smoke-test-password");
     await p.getByRole("button", { name: "Save sign-in" }).click();
