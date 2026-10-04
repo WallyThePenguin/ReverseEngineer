@@ -839,3 +839,34 @@ cell document like notes (spreadsheets are rarely edited by two people at once; 
 simpler and matches canvas boards).
 
 **Why:** One engine in both places means what you see is what Jarvis reads.
+
+## D55. Google calls share one paced budget; a slowdown isn't a failure (2026-10-04)
+
+**Decision:** Every Gmail and Calendar call is written to a ledger in the database
+(`google_spend`) before it goes out, and Hearth's server, worker and Jarvis all pace against it:
+about 400 Gmail units a rolling minute per account for everyday work (a fetch is 5, a history
+read 2, a batchModify 50), with 100 more kept for sending, and Calendar on its own allowance. A
+call the minute can't take fails at once as "paced"; nothing waits inside a transaction. When
+Google still says slow down (a quota 429 or 403), the account's service is paused for every
+process for at least a minute (`google_quota`) and the limit Google names is logged. Every
+request gives up after 30 seconds.
+
+Mail sync brings mail in a batch at a time and saves each message as it comes, keeping what's
+left on the cursor, so a stop anywhere loses nothing and nothing is fetched twice. Only new mail
+and mail moved back to the inbox is fetched; flags come from Gmail's history. Each account syncs
+in its own action under a lock, and the worker gives mail at most 50 seconds a minute.
+
+A mail account is ok, catching up, paused or failing. A pause is not a failure: no event, no
+notice, and the page says it calmly ("Gmail asked Hearth to slow down; resuming at 3:42 p.m.").
+The alert comes only when access needs reconnecting, or after three failures in a row with
+nothing synced for half an hour, and the first good sync closes it.
+
+**Alternatives:** Retrying with backoff inside each call (it held transactions open while it
+slept, and three processes backing off alone still overran the limit together). A limit per
+process (the three don't know about each other). Counting a slowdown as a failure (that's what
+raised the alert that never closed).
+
+**Why:** Gmail turned Hearth away at about 510-600 units a minute (2026-10-04), far under its
+documented quota, and the failures that followed made it worse. One shared budget a little under
+what Google allows keeps Hearth from asking too much, and the owner hears only about trouble
+that needs them.
