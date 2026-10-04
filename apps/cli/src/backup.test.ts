@@ -101,8 +101,8 @@ describe("hearth backup", () => {
     expect(snapshotId('{"message_type":"summary","snapshot_id":"abc"}')).toBe("abc");
     expect(snapshotId("not json")).toBeNull();
     expect(restoredPath("/tmp/r", "/data/hearth.dump", "linux")).toBe("/tmp/r/data/hearth.dump");
-    expect(restoredPath("/tmp/r", "C:/Hearth/hearth.dump", "win32")).toBe(
-      "/tmp/r/C/Hearth/hearth.dump",
+    expect(restoredPath("C:\\r", "C:/Hearth/hearth.dump", "win32")).toBe(
+      "C:\\r\\C\\Hearth\\hearth.dump",
     );
   });
 });

@@ -5,7 +5,7 @@
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, posix, win32 } from "node:path";
 import { connect } from "@hearth/db";
 
 export interface BackupConfig {
@@ -118,7 +118,10 @@ async function checkRestore(cfg: BackupConfig, run: Runner, dumpFile: string): P
 
 /** Where restic puts a restored file: under the target, at its original path ("C:" becomes "C"). */
 export function restoredPath(target: string, file: string, platform = process.platform): string {
-  return join(target, platform === "win32" ? file.replace(/^([A-Za-z]):/, "$1") : file);
+  // That platform's separators, whatever this runs on.
+  return platform === "win32"
+    ? win32.join(target, file.replace(/^([A-Za-z]):/, "$1"))
+    : posix.join(target, file);
 }
 
 /** Keeps the newest `keep` local dumps. */
