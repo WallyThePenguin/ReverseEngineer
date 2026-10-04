@@ -105,6 +105,9 @@ export class CdpConnection {
         "--force-device-scale-factor=1",
         "--window-size=1280,800",
         "--host-resolver-rules=MAP *.test 127.0.0.1",
+        // Ubuntu 24.04 (CI's Linux runner) blocks Chromium's sandbox for unprivileged users. The
+        // tests only load their own local pages, as the e2e Chrome on CI does with the same flag.
+        ...(process.platform === "linux" ? ["--no-sandbox"] : []),
         "about:blank",
       ],
       { stdio: ["ignore", "ignore", "pipe"] },
