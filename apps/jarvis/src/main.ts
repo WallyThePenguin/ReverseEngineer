@@ -9,8 +9,10 @@ import {
   BLOB_SERVICE,
   BROWSER_SERVICE,
   blobsFromEnv,
+  GITHUB_SERVICE,
   GOOGLE_SERVICE,
   googleFromEnv,
+  httpGithub,
   httpSlack,
   internalBrowserClient,
   SLACK_SERVICE,
@@ -29,6 +31,7 @@ export async function runJarvis(): Promise<() => Promise<void>> {
       [GOOGLE_SERVICE]: googleFromEnv(),
       [VAULT_SERVICE]: vaultFromEnv(),
       [SLACK_SERVICE]: httpSlack(),
+      [GITHUB_SERVICE]: httpGithub(),
       [BLOB_SERVICE]: blobsFromEnv(),
     },
   });

@@ -778,3 +778,27 @@ Reading every channel every round (a workspace with 100 channels would hit Slack
 
 **Why:** Polling with one read-only token is the least setup and the smallest thing to leak, and
 it fits a PC with no public address.
+
+## D49. The GitHub loop reads pull requests with your token and only moves tasks forward (2026-10-03)
+
+**Decision:** GitHub (PLAN.md section 8.4) connects with a fine-grained, read-only personal access
+token and a list of repos, both from Settings. The token is sealed with the vault key (D26),
+`github.connect` is a `secret` action, and Hearth never writes to GitHub. The worker reads each
+repo's 50 most recently updated pull requests every two minutes (the first look goes back two
+weeks). A pull request that names a task (T-123 in its title, branch or description) is saved as
+a `github_pr` record, an outside type. Only your own pull requests (the token owner's) are linked
+to tasks and move them; anyone can open one on a public repo, and a maintainer can merge it. When
+one of yours changes state:
+- opened: the task moves to In Review;
+- merged: the task moves to Completed;
+- a Completed or Canceled task is never moved, and nothing happens while a pull request's state
+  stays the same, so a task you move back by hand stays where you put it.
+
+Each move is a quiet inbox note on the task.
+
+**Alternatives:** Webhooks (Hearth has no public address). The GitHub app or OAuth (more setup
+for one person's repos). Moving tasks on anyone's pull request (anyone can open one on a public
+repo and name a task).
+
+**Why:** It's the loop the plan asks for with the least access: read-only, a few repos, and only
+forward moves that a person with access to the repo caused.

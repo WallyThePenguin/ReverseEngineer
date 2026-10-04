@@ -271,7 +271,7 @@ try {
     await p.getByText(`Can you send the OtoPair${tag} update to the team today?`).waitFor();
   });
 
-  await step("the calendar, mail, Google and Slack in Settings", async (p) => {
+  await step("the calendar, mail, Google, Slack and GitHub in Settings", async (p) => {
     await p.locator("nav").click({ position: { x: 100, y: 600 } });
     await keys("g", "c");
     await p.getByRole("heading", { name: "Calendar" }).waitFor();
@@ -284,6 +284,8 @@ try {
     const create = p.getByRole("link", { name: "Create Hearth's Slack app" });
     if (!(await create.getAttribute("href"))?.includes("search%3Aread"))
       throw new Error("the Slack app link doesn't ask for its scopes");
+    await p.getByRole("heading", { name: "GitHub" }).waitFor();
+    await p.getByRole("link", { name: "Make a read-only token" }).waitFor();
   });
 
   await step("pair the desktop app, whose code runs only voice actions", async (p) => {
