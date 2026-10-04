@@ -15,6 +15,7 @@ import {
   stackFrames,
 } from "./errors.ts";
 import { appendEvents } from "./events.ts";
+import { guardAgentCall, isGuarded, withoutGiven } from "./guard.ts";
 import { newId } from "./ids.ts";
 import { decide } from "./policy.ts";
 import type { Registry } from "./registry.ts";
@@ -72,30 +73,37 @@ export class Kernel {
     const def = this.registry.action(name);
     if (!def)
       return { status: "error", code: "unknown_action", message: `No action named ${name}` };
-    const parsed = def.input.safeParse(rawInput ?? {});
+    // Calls made as Jarvis are checked against the page they open or act on, and capture what
+    // they'll do, before they run or wait for your yes (D25, D30, D58).
+    const guarded = caller.kind === "agent" && isGuarded(def);
+    const raw = guarded ? withoutGiven(def, rawInput ?? {}) : (rawInput ?? {});
+    const parsed = def.input.safeParse(raw);
     if (!parsed.success) {
       return { status: "error", code: "invalid_input", message: z.prettifyError(parsed.error) };
     }
+    let input: unknown = parsed.data;
     const correlationId = caller.correlationId ?? newId();
-    const decision = decide(def, caller, await this.hasStandingRule(def.name, caller));
-    if (decision.kind === "deny") {
-      await writeAudit(this.db, {
-        def,
-        caller,
-        input: parsed.data,
-        outcome: "denied",
-        error: decision.reason,
-        durationMs: 0,
-        correlationId,
-        at: this.clock.now(),
-      });
-      return { status: "denied", reason: decision.reason };
+    if (guarded) {
+      const g = await guardAgentCall(this, def, raw, input, caller);
+      if (g.kind === "invalid")
+        return {
+          status: "error",
+          ...(g.error instanceof z.ZodError
+            ? { code: "invalid_input" as const, message: z.prettifyError(g.error) }
+            : describeError(g.error)),
+        };
+      if (g.kind === "blocked") return this.refuse(def, caller, input, g.reason, correlationId);
+      input = g.input;
+      if (g.askFirst) caller = { ...caller, askFirst: caller.askFirst ?? g.askFirst };
     }
+    const decision = decide(def, caller, await this.hasStandingRule(def.name, caller));
+    if (decision.kind === "deny")
+      return this.refuse(def, caller, input, decision.reason, correlationId);
     if (decision.kind === "ask") {
       const approval = await requestApproval(
         this,
         def,
-        parsed.data,
+        input,
         { ...caller, correlationId },
         decision.reason,
       );
@@ -106,7 +114,27 @@ export class Kernel {
         reason: decision.reason,
       };
     }
-    return this.run<R>(def, parsed.data, { ...caller, correlationId });
+    return this.run<R>(def, input, { ...caller, correlationId });
+  }
+
+  private async refuse(
+    def: ActionDef,
+    caller: Caller,
+    input: unknown,
+    reason: string,
+    correlationId: string,
+  ): Promise<{ status: "denied"; reason: string }> {
+    await writeAudit(this.db, {
+      def,
+      caller,
+      input,
+      outcome: "denied",
+      error: reason,
+      durationMs: 0,
+      correlationId,
+      at: this.clock.now(),
+    });
+    return { status: "denied", reason };
   }
 
   /** Approve or deny a pending approval. Only you can. */
@@ -213,6 +241,9 @@ export class Kernel {
       call: async <T>(name: string, rawInput: unknown): Promise<T> => {
         const def = this.registry.action(name);
         if (!def) throw new ActionError("unknown_action", `No action named ${name}`);
+        // A page to open or act on, or a send to show you, is checked as a call of its own (D58).
+        if (caller.kind === "agent" && isGuarded(def))
+          throw new ActionError("forbidden", `${name} runs only as a step of its own.`);
         const parsed = def.input.safeParse(rawInput ?? {});
         if (!parsed.success) throw new ActionError("invalid_input", z.prettifyError(parsed.error));
         const d = decide(def, caller, await this.hasStandingRule(def.name, caller, tx));

@@ -1,15 +1,9 @@
 // Jarvis's tools are Hearth's actions: the same registry the UI uses, so there are no side
 // doors. Every call runs through the kernel as Jarvis, with the turn's trust level.
-import {
-  asUntrusted,
-  formatDateTime,
-  normalizeUrl,
-  type Origin,
-  type Risk,
-  type SiteRules,
-} from "@hearth/core";
+import { asUntrusted, formatDateTime, type Origin, type Risk, type SiteRules } from "@hearth/core";
 import { entity } from "@hearth/db";
 import {
+  type ActionDef,
   type Caller,
   holdsOutside,
   isOutsideRecord,
@@ -18,12 +12,13 @@ import {
   type Kernel,
   type ModelImage,
   newId,
+  withoutGiven,
 } from "@hearth/kernel";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { BrainTool } from "./brain.ts";
 import { readFrom } from "./taint.ts";
-import { checkActing, checkOpen, vouchFor } from "./trust.ts";
+import { vouchFor } from "./trust.ts";
 
 const MAX_OUTPUT = 20_000;
 
@@ -82,13 +77,19 @@ export function toolName(action: string): string {
 }
 
 export function buildTools(kernel: Kernel, state: TurnState, log: LogFn): BrainTool[] {
-  const caller = () =>
-    jarvisCaller(state.origin, {
+  const caller = (): Caller => ({
+    ...jarvisCaller(state.origin, {
       turnId: state.turnId,
       conversationId: state.conversationId,
       correlationId: state.turnId,
       ...(state.causationId ? { causationId: state.causationId } : {}),
-    });
+    }),
+    trust: {
+      seenUrls: state.seenUrls,
+      ...(state.vouchedHosts ? { vouchedHosts: state.vouchedHosts } : {}),
+      sites: state.sites,
+    },
+  });
 
   const tools: BrainTool[] = [];
   for (const def of kernel.registry.allActions()) {
@@ -102,63 +103,21 @@ export function buildTools(kernel: Kernel, state: TurnState, log: LogFn): BrainT
       input: def.input,
       async run(input) {
         const callId = newId();
-        // Hearth fills the snapshot in below; what the model put there is never what's shown.
-        const { snapshot: _given, ...asked } = input as Record<string, unknown>;
-        await log("tool_call", { callId, name: def.name, input: def.snapshot ? asked : input });
-        if (def.snapshot) input = asked;
-        let askFirst: string | undefined;
-        const url = def.opensUrl?.(input as never);
-        if (url) {
-          const verdict = checkOpen(state, url, state.sites);
-          if (verdict.kind === "blocked") {
-            const output = `Not allowed: ${verdict.reason}`;
-            state.calls.push({ action: def.name, risk: def.risk, status: "denied" });
-            await log("tool_result", { callId, output, isError: true });
-            return output;
-          }
-          if (verdict.kind === "ask") askFirst = verdict.reason;
-        }
-        if (def.pin) {
-          const pinned = await def
-            .pin(input as never, { service: (n) => kernel.services[n] as never })
-            .catch(() => null);
-          if (pinned && normalizeUrl(pinned.url)) {
-            // Outward calls ask anyway; the rest are held to D30 after outside content.
-            if (!needsYes) {
-              const verdict = checkActing(state, pinned.url, state.sites);
-              if (verdict.kind === "ask") askFirst ??= verdict.reason;
-            }
-            // Pinned to the page it was checked on, should it run later after a yes.
-            const given = input as { site?: string };
-            input = { ...given, site: given.site ?? new URL(pinned.url).hostname, ...pinned.extra };
-          } else if (state.origin === "untrusted")
-            askFirst ??= "Hearth couldn't tell which site this would act on.";
-        }
-        if (def.snapshot) {
-          try {
-            input = {
-              ...(input as object),
-              ...(await def.snapshot(input as never, { db: kernel.db, now: kernel.clock.now() })),
-            };
-          } catch (err) {
-            const output = `Error: ${err instanceof Error ? err.message : String(err)}`;
-            state.calls.push({ action: def.name, risk: def.risk, status: "error" });
-            await log("tool_result", { callId, output, isError: true });
-            return output;
-          }
-        }
+        // Hearth fills the snapshot in; what the model put there is never what's shown.
+        input = withoutGiven(def, input);
+        await log("tool_call", { callId, name: def.name, input });
+        // The kernel checks what this opens or acts on against what the turn has read (D25,
+        // D30), pins it to its page and captures what it will send (D58).
         const trustedBefore = state.origin !== "untrusted";
-        const res = await kernel.execute(
-          def.name,
-          input,
-          askFirst ? { ...caller(), askFirst } : caller(),
-        );
+        const url = trustedBefore ? opensUrl(def, input) : null;
+        const res = await kernel.execute(def.name, input, caller());
         state.calls.push({
           action: def.name,
           risk: def.risk,
           status: res.status === "ok" ? "ok" : res.status,
         });
-        if (res.status === "ok" && url && trustedBefore) vouchFor(state, url);
+        // A site opened while the turn was still trusted can be acted on after it reads (D30).
+        if (res.status === "ok" && url) vouchFor(state, url);
         if (
           res.status === "ok" &&
           def.name === "comment.create" &&
@@ -222,6 +181,15 @@ export function buildTools(kernel: Kernel, state: TurnState, log: LogFn): BrainT
     },
   });
   return tools;
+}
+
+/** The address a call would open, read before it runs (a link reference is gone after). */
+function opensUrl(def: ActionDef, input: unknown): string | null {
+  try {
+    return def.opensUrl?.(input as never) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 const UUID_IN_TEXT = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;

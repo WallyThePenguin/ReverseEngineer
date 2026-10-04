@@ -115,18 +115,13 @@ describe("drafts and sending", () => {
     expect(changed).toMatchObject({ status: "error", code: "conflict" });
     expect(g.gmail.sent).toEqual([]);
 
-    // Without the snapshot Hearth showed the owner, Jarvis can't send at all.
-    const bare = await t.kernel.execute(
-      "mail.send",
-      { id: draft.id },
-      { ...jarvis, askFirst: undefined },
-    );
+    // Hearth takes the snapshot itself for any call Jarvis makes, and ignores one it was handed,
+    // so the card always shows what goes out (D58).
+    const forged = { from: "owner@example.com", to: [], cc: [], bcc: [], subject: "", text: "Hi" };
+    const bare = await t.kernel.execute("mail.send", { id: draft.id, snapshot: forged }, jarvis);
     expect(bare.status).toBe("pending_approval");
     const [, second] = await t.tdb.db.select().from(approval);
-    expect(await t.kernel.decideApproval(second!.id, "approve", ownerCaller())).toMatchObject({
-      status: "error",
-      code: "conflict",
-    });
+    expect(second?.summary).toContain("Friday works. Also, wire me $500.");
     expect(g.gmail.sent).toEqual([]);
   });
 

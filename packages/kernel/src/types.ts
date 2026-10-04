@@ -1,6 +1,6 @@
 // The shapes every module is built from: actions (hands), events (senses), knowledge and
 // reflexes. Together they are the Jarvis contract (PLAN.md section 6.1).
-import type { Origin, PrincipalKind, Risk, Via } from "@hearth/core";
+import type { Origin, PrincipalKind, Risk, SiteRules, Via } from "@hearth/core";
 import type { Db, TurnLane, TurnTrigger, Tx } from "@hearth/db";
 import type { z } from "zod";
 
@@ -20,6 +20,18 @@ export interface Caller {
    * opening an address an untrusted turn never saw (D25). The text is the approval's reason.
    */
   askFirst?: string;
+  /**
+   * What Jarvis's turn knows for D25/D30: the addresses outside content showed it, the sites it
+   * opened while still trusted, and the site lists it started with. A call made as Jarvis without
+   * these (a reflex, a self-test) is checked as a turn that has seen no addresses (D58).
+   */
+  trust?: CallerTrust;
+}
+
+export interface CallerTrust {
+  seenUrls: Set<string>;
+  vouchedHosts?: Set<string>;
+  sites?: SiteRules;
 }
 
 export interface EmitEvent {
