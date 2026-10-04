@@ -21,7 +21,7 @@ import {
   type ViewUpdate,
   WidgetType,
 } from "@codemirror/view";
-import { JARVIS_ENTITY_ID, renderMention, unescapeText } from "@hearth/core";
+import { JARVIS_ENTITY_ID, newMentionId, renderMention, unescapeText } from "@hearth/core";
 import { LoroExtensions } from "loro-codemirror";
 import { UndoManager } from "loro-crdt";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
@@ -141,7 +141,13 @@ async function mentions(ctx: CompletionContext) {
       (h): Completion => ({
         label: h.title || "Untitled",
         detail: TYPE_LABEL[h.type] ?? h.type,
-        apply: renderMention({ type: h.type, id: h.id, label: h.title || "Untitled" }),
+        // Its own id: the anchor Jarvis answers it by, however the note changes around it (D59).
+        apply: renderMention({
+          type: h.type,
+          id: h.id,
+          label: h.title || "Untitled",
+          mid: newMentionId(),
+        }),
       }),
     ),
   };

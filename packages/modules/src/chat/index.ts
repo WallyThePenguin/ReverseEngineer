@@ -14,6 +14,7 @@ import { and, asc, desc, eq, gt, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { body, describeRow, id, liveEntity, preview } from "../shared.ts";
 import { appendLog, routeLane } from "./log.ts";
+import { answerMention } from "./mention.ts";
 
 const lane = z.enum(["fast", "deep"]);
 
@@ -254,33 +255,7 @@ export const chatModule = defineModule({
         ];
       },
     },
-    {
-      name: "chat.answer_mention",
-      description:
-        "When you @mention Jarvis in a note, task, comment or doc, it answers right there.",
-      mode: "reactive",
-      on: ["jarvis.mentioned"],
-      run(event) {
-        const p = event.payload as {
-          type: string;
-          parentId: string | null;
-          anchor: string;
-          context: string;
-        };
-        const subjectId = p.type === "comment" && p.parentId ? p.parentId : event.entityId;
-        return [
-          {
-            kind: "turn",
-            trigger: "mention",
-            lane: routeLane(p.context),
-            subjectId,
-            dedupeKey: `mention:${event.entityId}:${p.anchor}`,
-            context: { sourceId: event.entityId, sourceType: p.type },
-            prompt: `You were @mentioned in a ${p.type}. Read the record, then answer or do what was asked:\n\n${p.context}`,
-          },
-        ];
-      },
-    },
+    answerMention,
   ],
 });
 

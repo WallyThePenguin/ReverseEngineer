@@ -1,6 +1,6 @@
 // Entity and link helpers every module's actions use. Mention links are re-derived from the
 // body on every save, in the same transaction, so links can't drift (PLAN.md section 5.3).
-import { JARVIS_ENTITY_ID, mentionContext, parseMentions } from "@hearth/core";
+import { JARVIS_ENTITY_ID, mentionAnchor, mentionContext, parseMentions } from "@hearth/core";
 import { type DbOrTx, entity, link } from "@hearth/db";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { ActionError, notFound } from "./errors.ts";
@@ -152,7 +152,7 @@ export async function syncMentions(ctx: ActionContext, source: EntityRow): Promi
     : [];
   const typeOf = new Map(targets.map((t) => [t.id, t.type]));
   const desired = new Map(
-    mentions.filter((m) => typeOf.has(m.id)).map((m) => [`${m.id}|#${m.occurrence}`, m]),
+    mentions.filter((m) => typeOf.has(m.id)).map((m) => [`${m.id}|${mentionAnchor(m)}`, m]),
   );
 
   const existing = await ctx.tx
@@ -173,7 +173,7 @@ export async function syncMentions(ctx: ActionContext, source: EntityRow): Promi
 
   for (const [key, m] of desired) {
     if (existingKeys.has(key)) continue;
-    const anchor = `#${m.occurrence}`;
+    const anchor = mentionAnchor(m);
     await ctx.tx
       .insert(link)
       .values({
