@@ -23,7 +23,7 @@ import { forgetAllDocs } from "../lib/docStore.ts";
 import { listHotkeys, useHotkeys } from "../lib/hotkeys.ts";
 import { live, queryClient, toast } from "../lib/live.ts";
 import { narrow } from "../lib/narrow.ts";
-import { type ListView, layout, type PaneRoute } from "../lib/panes.ts";
+import { type ListView, layout, type Pane, type PaneRoute } from "../lib/panes.ts";
 import { Activity } from "../views/Activity.tsx";
 import { Browser } from "../views/Browser.tsx";
 import { Calendar } from "../views/Calendar.tsx";
@@ -188,26 +188,33 @@ function Shell(props: { onSignOut: () => void }) {
     },
   ]);
 
-  const pane = (route: PaneRoute, i: number) => (
-    <section
-      class={`relative min-w-0 flex-1 overflow-hidden border-r border-line bg-panel last:border-r-0 ${layout.panes().length > 1 && layout.focused() === i && !narrow() ? "shadow-[inset_0_2px_0_var(--color-accent)]" : ""}`}
-      onMouseDown={() => layout.focus(i)}
-      onFocusIn={() => layout.focus(i)}
-    >
-      <PaneContext.Provider
-        value={{
-          get close() {
-            return layout.panes().length > 1 ? () => layout.close(i) : null;
-          },
-        }}
+  // A pane's position is read when it's used, never kept: panes to its left can close.
+  const pane = (entry: Pane) => {
+    const index = () => layout.indexOf(entry.key);
+    const focusHere = () => {
+      if (index() >= 0) layout.focus(index());
+    };
+    return (
+      <section
+        class={`relative min-w-0 flex-1 overflow-hidden border-r border-line bg-panel last:border-r-0 ${layout.panes().length > 1 && layout.focused() === index() && !narrow() ? "shadow-[inset_0_2px_0_var(--color-accent)]" : ""}`}
+        onMouseDown={focusHere}
+        onFocusIn={focusHere}
       >
-        {/* One broken view takes down its pane, not the app. */}
-        <ErrorBoundary fallback={(error, reset) => <PaneCrashed error={error} reset={reset} />}>
-          <PaneView route={route} index={i} />
-        </ErrorBoundary>
-      </PaneContext.Provider>
-    </section>
-  );
+        <PaneContext.Provider
+          value={{
+            get close() {
+              return layout.panes().length > 1 ? () => layout.close(index()) : null;
+            },
+          }}
+        >
+          {/* One broken view takes down its pane, not the app. */}
+          <ErrorBoundary fallback={(error, reset) => <PaneCrashed error={error} reset={reset} />}>
+            <PaneView route={entry.route} index={index()} />
+          </ErrorBoundary>
+        </PaneContext.Provider>
+      </section>
+    );
+  };
 
   return (
     <div class="flex h-full flex-col">
@@ -240,13 +247,10 @@ function Shell(props: { onSignOut: () => void }) {
           class="flex min-w-0 flex-1 pt-[env(safe-area-inset-top)] md:pt-0"
           classList={{ hidden: narrow() && jarvis.open() }}
         >
-          <Show
-            when={narrow()}
-            fallback={<For each={layout.panes()}>{(route, i) => pane(route, i())}</For>}
-          >
+          <Show when={narrow()} fallback={<For each={layout.entries()}>{pane}</For>}>
             {/* One pane at a time on a phone: the one you're in. */}
-            <Show when={layout.panes()[layout.focused()]} keyed>
-              {(route) => pane(route, layout.focused())}
+            <Show when={layout.entries()[layout.focused()]} keyed>
+              {pane}
             </Show>
           </Show>
         </main>
