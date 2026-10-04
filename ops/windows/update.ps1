@@ -176,7 +176,9 @@ try {
     try {
       Invoke-Handover $exe $relaunch $state $handoverFile ([ref]$exit)
     } finally {
-      Start-Transcript -Append -Path $log | Out-Null
+      # Never throws: once the new copy has taken over, the rollback is its alone. Rolling back
+      # here as well would put the old code back on a database the new copy left migrated.
+      try { Start-Transcript -Append -Path $log | Out-Null } catch {}
     }
   } else {
     Invoke-Native "Installing packages" { pnpm install --frozen-lockfile }
