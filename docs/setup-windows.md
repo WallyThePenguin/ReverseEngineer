@@ -98,7 +98,8 @@ task, and the task that opens Chrome (section 10):
 | Hearth Jarvis (task) | You | Jarvis, using your Claude login |
 
 Jarvis is a scheduled task rather than a service so it can run as you without storing your
-password. It starts when you sign in to Windows and restarts if it stops.
+password. It starts two minutes after Windows starts (you needn't be signed in, so it's back
+after an overnight Windows update) and when you sign in, and restarts if it stops.
 
 ## 7. Turn on off-site backups (Google Drive)
 
@@ -123,9 +124,13 @@ Check that `.env` has `HEARTH_BACKUP_REPOSITORY=rclone:gdrive:hearth-backups` an
 pnpm hearth backup
 ```
 
-It dumps the database, uploads it, prunes old snapshots (keeping 7 daily, 5 weekly and 12
-monthly), downloads the new snapshot again, restores it into a scratch database, and checks it.
-The result shows under **Settings → Health**. If a night's backup fails, it lands in your inbox.
+It dumps the database and uploads it in one snapshot with mail's stored files and your voice
+samples (never `vault.key`, the key to saved sign-ins: keep a copy of `data\vault.key` in your
+password manager if you want those back after a rebuild). It prunes old snapshots (keeping 7
+daily, 4 weekly and 12 monthly), downloads the dump and a few stored files again, restores the
+dump into a scratch database and checks it all. The result shows under **Settings → Health**.
+If a night's backup fails, it lands in your inbox. Restic must be 0.17 or newer; `pnpm hearth
+doctor` says if it isn't.
 
 ## 8. Check everything
 
@@ -133,7 +138,12 @@ The result shows under **Settings → Health**. If a night's backup fails, it la
 pnpm hearth doctor
 ```
 
-Every line should be ✓. A ! is a warning and says what to do.
+Every line should be ✓. A ! is a warning and says what to do; any ✗ makes it exit with an
+error. Besides the setup, it checks the running install: the two services and Jarvis's task,
+that the server answers and runs the code on disk, that the worker and Jarvis have reported in
+recently (a component that's quiet for twice its interval fails, whatever it last said), how
+many of Jarvis's turns failed in the last day, Tailscale Serve, and free space on every drive
+Hearth uses, C: included.
 
 ## 9. Connect Claude Code (optional)
 
@@ -180,8 +190,15 @@ What to expect:
   Chrome telling you, and it goes away a few minutes after Jarvis stops. Choosing **Cancel** on
   it cuts Jarvis off from that tab.
 - In **Settings → Chrome → Never open**, add your bank. Password managers, your Google account
-  settings and PayPal are on the list already. **Open freely** lists sites Jarvis may open even
-  right after reading an email or a web page.
+  settings and PayPal are on the list already. **Trusted sites** lists sites where Jarvis can
+  act without asking: open them, click, type and send, even right after reading an email or a
+  web page. Payments, passwords and security settings, sending money and deleting an account
+  still always ask you first (D52).
+- **Settings → Chrome → Test Jarvis's Chrome** opens a test page in Jarvis's window, reads it,
+  clicks, types and takes a screenshot, and shows how long each step took. **Link activity**
+  below it shows recent connects, drops and failed requests.
+- The extension has a fixed ID (`jcpelnnklghgcdhcmdbmpflehbehpkhh`). After an update that
+  changes it, reload the extension in `chrome://extensions` and pair it again.
 - Page watches tell you when a page changes: ask Jarvis ("watch this kettle's price and tell me
   if it drops under $30"), or use **Watch** in the Browser pane. They're listed under
   **Settings → Chrome**.
@@ -226,27 +243,62 @@ What to expect:
   it says why (often an old pairing code: pair again in Settings). `pnpm hearth doctor` checks
   the **Hearth Chrome** task.
 - Service logs are in `C:\ProgramData\Hearth\services\` (one set per service).
-- Restart a service: `Restart-Service hearth-server` (or `hearth-worker`). Jarvis's log is
-  `hearth-jarvis.log` in the same folder; to restart it, run
-  `Stop-ScheduledTask "Hearth Jarvis"; Start-ScheduledTask "Hearth Jarvis"`. Neither needs an
-  administrator once `install.ps1` has run.
+- Restart Hearth: `pnpm hearth restart` (all of it), or `pnpm hearth restart server` (or
+  `worker`, or `jarvis`). It waits until what it restarted reports in, and says if it doesn't.
+  It needs no administrator once `install.ps1` has run. Jarvis's log is `hearth-jarvis.log` in
+  the same folder as the services'.
 - If a service log says `EPERM`, its account can't read `node_modules`: run
-  `Remove-Item -Recurse -Force node_modules`, then `pnpm install`, then restart the services.
-- To update Hearth: `.\ops\windows\update.ps1`, from a normal (not elevated) PowerShell. It takes
-  a safety dump, updates, migrates, restarts the services and Jarvis, checks that Hearth answers,
-  and puts the previous version back if anything fails. Its log is in `data\logs`. When an update
-  changes how the services are installed, it says to run `.\ops\windows\install.ps1` again as
-  administrator.
+  `Remove-Item -Recurse -Force node_modules`, then `pnpm install`, then `pnpm hearth restart`.
+- If a service log says it "won't start" because the database is missing updates, run
+  `pnpm hearth migrate`; if it says the database is newer than the code, update Hearth or
+  restore the backup taken before the last update (below).
+
+### Updating Hearth
+
+From a normal (not elevated) PowerShell in the Hearth folder:
+
+```powershell
+.\ops\windows\update.ps1
+```
+
+It asks `hearth doctor` how things are, takes a safety dump (`data\backups\pre-update-*.dump`),
+stops Hearth, moves to the latest commit, installs, builds, migrates and starts everything again.
+Then the new version has three minutes to prove itself, or it's rolled back (D57):
+
+- the server reports the new commit, with every migration it expects applied;
+- the worker and Jarvis report in after the restart, not failing (if one was failing before the
+  update, reporting in is enough: the update may be what fixes it);
+- Jarvis's tools pass the model's check, when that probe (`scripts\probe-jarvis-tools.ts`) exists;
+- `hearth doctor` finds nothing failing that wasn't failing before the update.
+
+A rollback reverts the update's migrations, puts the previous code back, starts it and checks it
+came back. The log is `data\logs\update-<date>.log`. When an update changes how the services are
+installed, it says to run `.\ops\windows\install.ps1` again as administrator.
 
 ### Restoring from a backup
 
+`hearth restore` brings a backup back into a **new** database next to the one Hearth runs on,
+so trying one costs nothing:
+
 ```powershell
-restic -r rclone:gdrive:hearth-backups snapshots
-restic -r rclone:gdrive:hearth-backups restore latest --target C:\HearthRestore
-.\ops\windows\uninstall.ps1
-pg_restore --clean --if-exists --no-owner --dbname "<HEARTH_DATABASE_URL>" C:\HearthRestore\...\hearth-<date>.dump
-.\ops\windows\install.ps1
+pnpm hearth restore                       # the newest backup (off-site if set up, else data\backups)
+pnpm hearth restore 4f2a9c1e              # a snapshot from: restic -r rclone:gdrive:hearth-backups snapshots
+pnpm hearth restore data\backups\pre-update-20261004-020000.dump   # a dump file
 ```
+
+It restores the dump in one transaction (all or nothing), applies any updates the backup is
+missing, refuses a backup from a newer Hearth, puts back mail's stored files and voice samples
+that are missing here (keeping the ones you have), and checks the result. Then it prints how to
+switch to it:
+
+1. In `.env`, change the database at the end of `HEARTH_DATABASE_URL` to the new one it names,
+   like `.../hearth_restored_20261004_165012`.
+2. `pnpm hearth restart`
+3. `pnpm hearth doctor`
+
+Add `--switch` to have it do 1 and 2; it keeps your old `.env` as `.env.before-restore-<time>`.
+To go back, put the old database name back and restart: the old database is never touched.
+Saved sign-ins come back only if `data\vault.key` is the one they were saved with.
 
 ### Removing Hearth's services
 

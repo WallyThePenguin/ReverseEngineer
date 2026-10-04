@@ -1,6 +1,14 @@
 // A pretend Chrome for tests: tabs and pages from a table, with every request recorded.
 import { ActionError } from "@hearth/kernel";
-import { type BrowserClient, type BrowserStatus, OFFLINE_MESSAGE, type TabInfo } from "./client.ts";
+import { dialogOpen } from "../../../../apps/extension/rules.js";
+import {
+  type BrowserClient,
+  type BrowserStatus,
+  chromeError,
+  type DialogInfo,
+  OFFLINE_MESSAGE,
+  type TabInfo,
+} from "./client.ts";
 import { pacing } from "./pace.ts";
 import { loadTiming, type PageSnapshot } from "./page.ts";
 
@@ -8,6 +16,8 @@ export interface FakePage {
   title: string;
   text: string;
   links?: string[];
+  /** Chrome couldn't load it: the reason Page.navigate gives, like net::ERR_NAME_NOT_RESOLVED. */
+  error?: string;
 }
 
 /** Pages load at once in tests, and Jarvis doesn't pause between steps. */
@@ -24,6 +34,8 @@ export class FakeBrowser implements BrowserClient {
   readonly calls: { method: string; params: Record<string, unknown> }[] = [];
   readonly pages: Record<string, FakePage>;
   private nextId = 1;
+  /** Each tab's history: the addresses it went to, and where it is in them. */
+  private readonly history = new Map<number, { urls: string[]; at: number }>();
 
   constructor(pages: Record<string, FakePage> = {}) {
     this.pages = pages;
@@ -44,6 +56,11 @@ export class FakeBrowser implements BrowserClient {
     return this.answer(method, params) as T;
   }
 
+  /** A page in the tab opens a dialog, which holds everything else there until it's answered. */
+  openDialog(tabId: number, dialog: DialogInfo): void {
+    this.tab(tabId).dialog = dialog;
+  }
+
   /** The CDP methods called, in order. */
   cdpMethods(): string[] {
     return this.calls.filter((c) => c.method === "cdp").map((c) => String(c.params.method));
@@ -58,8 +75,10 @@ export class FakeBrowser implements BrowserClient {
       active: true,
       handed,
       loading: false,
+      dialog: null,
     };
     this.tabs.push(tab);
+    this.history.set(tab.tabId, { urls: [url], at: 0 });
     return tab;
   }
 
@@ -89,13 +108,48 @@ export class FakeBrowser implements BrowserClient {
     }
   }
 
+  private go(tab: TabInfo, url: string): void {
+    tab.url = url;
+    tab.title = this.pages[url]?.title ?? "";
+  }
+
   private cdp(tab: TabInfo, method: string, params: Record<string, unknown> = {}): unknown {
     if (this.cdpError) throw new Error(this.cdpError);
+    if (tab.dialog && method !== "Page.handleJavaScriptDialog")
+      throw chromeError(dialogOpen(tab.dialog).message, "dialog_open");
+    const history = this.history.get(tab.tabId) ?? { urls: [tab.url], at: 0 };
     switch (method) {
-      case "Page.navigate":
-        tab.url = String(params.url);
-        tab.title = this.pages[tab.url]?.title ?? "";
-        return { frameId: "main" };
+      case "Page.navigate": {
+        this.go(tab, String(params.url));
+        history.urls = [...history.urls.slice(0, history.at + 1), tab.url];
+        history.at = history.urls.length - 1;
+        const error = this.pages[tab.url]?.error;
+        return { frameId: "main", ...(error ? { errorText: error } : {}) };
+      }
+      case "Page.getNavigationHistory":
+        return {
+          currentIndex: history.at,
+          entries: history.urls.map((url, id) => ({
+            id,
+            url,
+            title: this.pages[url]?.title ?? "",
+          })),
+        };
+      case "Page.navigateToHistoryEntry":
+        history.at = Number(params.entryId);
+        this.go(tab, history.urls[history.at] ?? tab.url);
+        return {};
+      case "Page.handleJavaScriptDialog":
+        if (!tab.dialog)
+          throw chromeError("There's no dialog open in this tab any more.", "no_dialog");
+        tab.dialog = null;
+        return {};
+      case "Page.getLayoutMetrics":
+        return {
+          cssVisualViewport: { clientWidth: 1280, clientHeight: 800, pageX: 0, pageY: 0 },
+          visualViewport: { clientWidth: 1600, clientHeight: 1000 },
+          cssContentSize: { width: 1280, height: 3000 },
+        };
       case "Page.getFrameTree":
         return { frameTree: { frame: { id: "main" } } };
       case "Page.createIsolatedWorld":

@@ -1,6 +1,7 @@
 import type { AddressInfo } from "node:net";
 import { PRINCIPAL } from "@hearth/core";
 import { createSession } from "@hearth/db";
+import { BRIDGE_PROTOCOL, EXTENSION_ID } from "@hearth/modules";
 import { type ServerType, serve } from "@hono/node-server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createApiToken } from "./auth/tokens.ts";
@@ -48,9 +49,16 @@ describe("the browser bridge", () => {
     await expect(page.opened).rejects.toThrow("HTTP 403");
 
     const ext = await fakeExtension(await pair(), {});
-    expect(await ext.next("welcome")).toEqual({ type: "welcome" });
+    expect(await ext.next("welcome")).toEqual({ type: "welcome", protocol: BRIDGE_PROTOCOL });
     const status = await (await t.browser("/api/browser/status")).json();
-    expect(status).toMatchObject({ connected: true, paired: true, version: "0.1.0" });
+    expect(status).toMatchObject({
+      connected: true,
+      paired: true,
+      version: "0.3.0",
+      protocol: BRIDGE_PROTOCOL,
+      extensionId: EXTENSION_ID,
+      problem: null,
+    });
   });
 
   it("lets Jarvis reach Chrome through the server, but not outside agents", async () => {

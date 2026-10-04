@@ -20,11 +20,12 @@ export const briefRoutine: RoutineDef = {
       .where(and(eq(entity.type, "brief"), isNull(entity.deletedAt)))
       .orderBy(desc(entity.createdAt))
       .limit(1);
-    const since = last?.at ?? new Date(ctx.now.getTime() - DAY_MS);
+    const since = last?.at ?? new Date(firing.scheduledFor.getTime() - DAY_MS);
     const sections = await firing.digest(since);
     const draft = renderBrief(sections, ctx.now);
     const rules = await getSetting(ctx.db, "owner.dayRules");
-    const date = localDate(ctx.now, rules.timeZone);
+    // The day it was due, even when it runs late (D54).
+    const date = localDate(firing.scheduledFor, rules.timeZone);
     return [
       {
         kind: "turn",
@@ -54,8 +55,10 @@ export const journalRoutine: RoutineDef = {
   staleAfterSeconds: 6 * 3600,
   async run(firing, ctx) {
     const rules = await getSetting(ctx.db, "owner.dayRules");
-    const date = localDate(ctx.now, rules.timeZone);
-    const since = new Date(ctx.now.getTime() - 14 * 3600_000);
+    // The day it was due, even when it runs late (D54).
+    const date = localDate(firing.scheduledFor, rules.timeZone);
+    // Its day starts 14 hours before it was due, so running late doesn't lose the morning.
+    const since = new Date(firing.scheduledFor.getTime() - 14 * 3600_000);
     // The journal feeds the nightly memory update, so it's written from Hearth's own facts only.
     const facts = renderDigest(withoutOutside(await firing.digest(since)));
     return [

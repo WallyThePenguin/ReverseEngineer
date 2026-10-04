@@ -9,6 +9,9 @@ import {
 } from "@hearth/kernel";
 import { asc, eq, isNotNull, like } from "drizzle-orm";
 import { z } from "zod";
+import { judgeHealth } from "./staleness.ts";
+
+export { type JudgedHealth, judgeHealth, REPORT_EVERY_MS, roughly } from "./staleness.ts";
 
 const STATUS = z.enum(["ok", "degraded", "failing"]);
 export type HealthStatus = z.infer<typeof STATUS>;
@@ -60,8 +63,14 @@ export const systemModule = defineModule({
           .limit(20);
         return {
           jarvisPaused: await getSetting(ctx.tx, "jarvis.paused"),
+          /** When the Jarvis process last checked in (every 30 s) and since when it's up (D54). */
+          jarvisAlive: await getSetting(ctx.tx, "jarvis.alive"),
+          // A component that stopped reporting shows as failing, not as its last word.
           components: Object.fromEntries(
-            health.map((h) => [h.key.slice("health.".length), h.value as HealthRecord]),
+            health.map((h) => {
+              const name = h.key.slice("health.".length);
+              return [name, judgeHealth(name, h.value as HealthRecord, ctx.now)];
+            }),
           ),
           schedules,
         };
@@ -187,7 +196,9 @@ export const systemModule = defineModule({
           status: string;
           detail: string;
         };
-        if (status !== "failing") return [];
+        // Jarvis's own alerts say what failed and are kept apart per outage (D54); the worker
+        // raises its own when Jarvis stops checking in.
+        if (status !== "failing" || component === "jarvis") return [];
         return [
           {
             kind: "tell",

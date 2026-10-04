@@ -8,8 +8,8 @@
 
   - hearth-server and hearth-worker run as LocalService (no password, few rights).
   - Jarvis runs as your account, so it can use your Claude login: the "Hearth Jarvis" task starts
-    it when you sign in to Windows. Like the backup task, it needs no stored password (that's why
-    it isn't a service: a service as you would need your password).
+    it when Windows starts and when you sign in. Like the backup task, it needs no stored password
+    (that's why it isn't a service: a service as you would need your password).
   - The backup runs nightly at 2:30 a.m. as you, whether or not you're signed in.
   - The "Hearth Chrome" task opens your Chrome, as you, on your desktop: when you sign in, and
     when Jarvis needs it and it's closed (the server asks Windows to run it). Run this script from
@@ -127,7 +127,11 @@ Remove-Item (Join-Path $ServiceDir "hearth-jarvis.*") -ErrorAction SilentlyConti
 $jarvisLog = Join-Path $ServiceDir "hearth-jarvis.log"
 $action = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\cmd.exe" -WorkingDirectory $Root `
   -Argument "/d /c set HEARTH_AS_SERVICE=1&& `"$node`" --env-file-if-exists=`"$Root\.env`" `"$Root\apps\cli\src\main.ts`" jarvis >> `"$jarvisLog`" 2>&1"
-# When you sign in, not at boot: Jarvis waits until you're at the PC.
+# At boot, so Jarvis is back after Windows restarts on its own (an update overnight) without
+# waiting for you to sign in: S4U runs it without you. Two minutes in, once Postgres is up. And
+# when you sign in, in case it stopped; IgnoreNew keeps it to one Jarvis.
+$atBoot = New-ScheduledTaskTrigger -AtStartup
+$atBoot.Delay = "PT2M"
 $atSignIn = New-ScheduledTaskTrigger -AtLogOn -User $me
 $atSignIn.Delay = "PT30S"
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
@@ -141,7 +145,7 @@ if (Get-ScheduledTask -TaskName "Hearth Jarvis" -ErrorAction SilentlyContinue) {
 Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" |
   Where-Object { $_.CommandLine -match 'main\.ts"?\s+jarvis' } |
   ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-Register-ScheduledTask -TaskName "Hearth Jarvis" -TaskPath "\" -Action $action -Trigger $atSignIn `
+Register-ScheduledTask -TaskName "Hearth Jarvis" -TaskPath "\" -Action $action -Trigger $atBoot, $atSignIn `
   -Settings $settings -Principal $user -Force `
   -Description "Runs Jarvis, Hearth's agent, as you so it can use your Claude login." | Out-Null
 # Your unelevated account may start and stop this task (for updates), and so may LocalService (the

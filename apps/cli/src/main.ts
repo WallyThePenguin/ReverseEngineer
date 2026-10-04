@@ -1,5 +1,6 @@
 // The `hearth` command. Run `hearth help` for the list.
 
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { connect, databaseUrl, migrateDown, migrateUp } from "@hearth/db";
@@ -14,16 +15,12 @@ import {
   revokeApiTokens,
   revokeDevice,
 } from "@hearth/server";
-import { runBackup } from "./backup.ts";
-import {
-  checkBackupTools,
-  checkChrome,
-  checkClaudeLogin,
-  checkDatabase,
-  checkNode,
-  checkOrigin,
-  formatChecks,
-} from "./doctor.ts";
+import { dataFolders, runBackup } from "./backup.ts";
+import { formatChecks } from "./doctor.ts";
+import { runDoctor } from "./doctor-run.ts";
+import { restart } from "./restart.ts";
+import { restoreReport, runRestore, switchEnv } from "./restore.ts";
+import { guardSchema } from "./schema-guard.ts";
 
 const HELP = `hearth: your personal workspace, with Jarvis.
 
@@ -33,8 +30,13 @@ const HELP = `hearth: your personal workspace, with Jarvis.
   hearth worker             Run schedules and health checks
   hearth jarvis             Run Jarvis
   hearth dev [--no-jarvis]  Run all three in one process
+  hearth restart [server|worker|jarvis|all]
+                            Restart Hearth's Windows services (all by default) and wait for them
   hearth backup             Back up now (dump, upload with restic, prune, test a restore)
-  hearth doctor             Check that everything is set up
+  hearth restore [snapshot | file.dump] [--into name] [--switch]
+                            Restore a backup (the newest by default) into a new database and
+                            say how to switch to it; --switch also updates .env and restarts
+  hearth doctor [--json]    Check that everything is set up and running; exits 1 on any fail
   hearth eval [--record] [name...]
                             Run Jarvis's eval scenarios with the real model (needs
                             HEARTH_TEST_DATABASE_URL); --record saves passing runs as fixtures
@@ -56,11 +58,23 @@ function withDatabase<T>(fn: (db: ReturnType<typeof connect>) => Promise<T>): Pr
 const kernelFor = (database: ReturnType<typeof connect>) =>
   new Kernel({ db: database.db, registry: new Registry(ALL_MODULES) });
 
+/** Under the services' 20 s stop timeout (ops/windows/*.xml), so a stop never ends in a kill. */
+const STOP_LIMIT_MS = 15_000;
+
 async function untilSignal(stops: (() => Promise<void>)[]): Promise<void> {
   await new Promise<void>((resolve) => {
     process.once("SIGINT", resolve);
     process.once("SIGTERM", resolve);
   });
+  // A stop that hangs, or something left open after it (a timer, a socket, a database client),
+  // would keep the process up until the service manager kills it. Say what's holding on, and go.
+  setTimeout(() => {
+    const open = process.getActiveResourcesInfo().filter((r) => r !== "TTYWrap");
+    console.error(
+      `Still running ${STOP_LIMIT_MS / 1000} s after being asked to stop (open: ${open.join(", ") || "nothing"}). Exiting anyway.`,
+    );
+    process.exit(1);
+  }, STOP_LIMIT_MS).unref();
   for (const stop of stops.reverse()) await stop().catch((e) => console.error(e));
 }
 
@@ -105,6 +119,14 @@ async function main(argv: string[]): Promise<number> {
       if (command !== "jarvis") guardProcess(command);
       const stops: (() => Promise<void>)[] = [];
       if (command === "dev") await withDatabase(({ pool }) => migrateUp(pool));
+      else {
+        const service = command === "serve" ? "server" : command;
+        const refused = await withDatabase((d) => guardSchema(service, d.pool, kernelFor(d)));
+        if (refused) {
+          console.error(refused);
+          return 1;
+        }
+      }
       if (command === "serve" || command === "dev")
         stops.push(await (await import("@hearth/server")).runServer());
       if (command === "worker" || command === "dev")
@@ -119,11 +141,13 @@ async function main(argv: string[]): Promise<number> {
     case "backup":
       return withDatabase(async (database) => {
         const dataDir = process.env.HEARTH_DATA_DIR ?? process.cwd();
+        const { blobs, voice } = dataFolders(dataDir);
         const result = await runBackup({
           databaseUrl: databaseUrl(),
           dir: process.env.HEARTH_BACKUP_DIR ?? join(dataDir, "backups"),
           repository: process.env.HEARTH_BACKUP_REPOSITORY || null,
           restoreDatabase: "hearth_restore_check",
+          folders: [blobs, voice],
         });
         const kernel = kernelFor(database);
         const { offsite, ...report } = result;
@@ -138,6 +162,30 @@ async function main(argv: string[]): Promise<number> {
         console.log(result.detail);
         return result.ok ? 0 : 1;
       });
+
+    case "restore": {
+      const { values, positionals } = parseArgs({
+        args: rest,
+        options: { into: { type: "string" }, switch: { type: "boolean", default: false } },
+        allowPositionals: true,
+      });
+      const dataDir = process.env.HEARTH_DATA_DIR ?? process.cwd();
+      const current = databaseUrl();
+      const result = await runRestore({
+        databaseUrl: current,
+        source: positionals[0] ?? null,
+        repository: process.env.HEARTH_BACKUP_REPOSITORY || null,
+        backupDir: process.env.HEARTH_BACKUP_DIR ?? join(dataDir, "backups"),
+        dataDir,
+        ...(values.into ? { into: values.into } : {}),
+      });
+      const switched = values.switch
+        ? await switchEnv(join(process.cwd(), ".env"), result.url)
+        : null;
+      const vaultKey = !!process.env.HEARTH_VAULT_KEY || existsSync(join(dataDir, "vault.key"));
+      console.log(restoreReport(result, current, switched, vaultKey));
+      return switched ? restart(["all"]) : 0;
+    }
 
     case "eval": {
       const { values, positionals } = parseArgs({
@@ -167,17 +215,14 @@ async function main(argv: string[]): Promise<number> {
     }
 
     case "doctor": {
-      const checks = [
-        checkNode(),
-        checkOrigin(),
-        checkClaudeLogin(),
-        await checkChrome(),
-        ...(await checkBackupTools()),
-      ];
-      checks.push(...(await withDatabase(checkDatabase)));
-      console.log(formatChecks(checks));
-      return checks.some((c) => c.mark === "fail") ? 1 : 0;
+      const { values } = parseArgs({ args: rest, options: { json: { type: "boolean" } } });
+      const result = await runDoctor();
+      console.log(values.json ? JSON.stringify(result) : formatChecks(result.checks));
+      return result.ok ? 0 : 1;
     }
+
+    case "restart":
+      return restart(rest);
 
     case "status":
     case "pause":

@@ -21,6 +21,15 @@ beforeEach(async () => {
     },
     "https://shop.example/k/1": { title: "Steel kettle", text: "Steel kettle, $40" },
     "https://long.example/": { title: "Long", text: "x".repeat(30_000) },
+    "https://links.example/": {
+      title: "Links",
+      text: Array.from({ length: 200 }, (_, n) => `Item ${n + 1} [L${n + 1}]`).join("\n"),
+      links: Array.from(
+        { length: 200 },
+        (_, n) => `https://links.example/${"p".repeat(80)}/${n + 1}`,
+      ),
+    },
+    "https://gone.example/": { title: "", text: "", error: "net::ERR_NAME_NOT_RESOLVED" },
   });
   t.kernel.services[BROWSER_SERVICE] = chrome;
 });
@@ -42,7 +51,7 @@ describe("Jarvis's browser", () => {
     expect(page).toMatchObject({
       url: SHOP,
       title: "Shop",
-      links: ["L1 https://shop.example/k/1", "L2 https://reviews.example/kettle"],
+      links: { L1: "https://shop.example/k/1", L2: "https://reviews.example/kettle" },
       next: null,
     });
     // The page's text is read in an isolated world, never the page's own scripts' world.
@@ -91,9 +100,12 @@ describe("Jarvis's browser", () => {
   it("looks at a tab as a picture", async () => {
     const { tabId } = await ok<{ tabId: number }>("browser.open", { url: SHOP });
     const shot = await ok("browser.screenshot", { tabId });
+    // Its size in the picture's own pixels (the display here is at 125%).
     expect(shot).toEqual({
       tabId,
       url: SHOP,
+      width: 1600,
+      height: 1000,
       modelImages: [{ mimeType: "image/jpeg", data: "SlBFRw==" }],
     });
     expect(chrome.calls.map((c) => c.method)).toContain("tabs.show");
@@ -111,6 +123,73 @@ describe("Jarvis's browser", () => {
       "tabs.close",
     ]);
     expect(chrome.calls.map((c) => c.method)).toContain("tabs.release");
+  });
+
+  it("turns a link reference into its address before the call runs or waits", async () => {
+    await ok("browser.open", { url: SHOP });
+    await ok("browser.read", { tabId: 1 });
+    const open = t.kernel.registry.action("browser.open")!;
+    const ctx = { db: t.tdb.db, now: new Date() };
+    const input = { tabId: 1, link: "L2", newTab: true };
+    const snap = await open.snapshot!(input, ctx);
+    expect(snap).toEqual({ url: "https://reviews.example/kettle", link: undefined });
+    // As stored with an approval: the address, no reference that only this process knew.
+    const stored = JSON.parse(JSON.stringify({ ...input, ...snap }));
+    expect(stored).toEqual({ tabId: 1, newTab: true, url: "https://reviews.example/kettle" });
+    expect(await ok("browser.open", stored)).toMatchObject({ tabId: 2 });
+    await expect(open.snapshot!({ tabId: 1, link: "L9", newTab: false }, ctx)).rejects.toThrow(
+      /no L9/,
+    );
+  });
+
+  it("keeps where to read on and every link in sight on a long page", async () => {
+    const { tabId } = await ok<{ tabId: number }>("browser.open", {
+      url: "https://links.example/",
+    });
+    const page = await ok<Record<string, unknown>>("browser.read", { tabId, maxChars: 15_000 });
+    expect(Object.keys(page)).toEqual(["tabId", "url", "title", "next", "sends", "links", "text"]);
+    expect(JSON.stringify(page, null, 1).length).toBeLessThanOrEqual(19_000);
+    const links = page.links as Record<string, string>;
+    const shown = [...String(page.text).matchAll(/\[(L\d+)\]/g)].map((m) => m[1]!);
+    expect(Object.keys(links)).toEqual(shown);
+    expect(page.next).toEqual({ offset: String(page.text).length });
+  });
+
+  it("goes back and forward, and says why a page didn't load", async () => {
+    const { tabId } = await ok<{ tabId: number }>("browser.open", { url: SHOP });
+    await ok("browser.navigate", { tabId, url: "https://shop.example/k/1" });
+    expect(await ok("browser.navigate", { tabId, url: "back" })).toMatchObject({
+      finalUrl: SHOP,
+      title: "Shop",
+      errorText: null,
+    });
+    expect(await ok("browser.navigate", { tabId, url: "forward" })).toMatchObject({
+      finalUrl: "https://shop.example/k/1",
+    });
+    expect(await ok("browser.navigate", { tabId, url: "https://gone.example/" })).toMatchObject({
+      errorText: "net::ERR_NAME_NOT_RESOLVED",
+    });
+    const blocked = await t.kernel.execute(
+      "browser.navigate",
+      { tabId, url: "https://www.paypal.com/" },
+      jarvis,
+    );
+    expect(blocked).toMatchObject({ status: "error", code: "forbidden" });
+  });
+
+  it("stops at a dialog until it's answered, and shows it in the tab list", async () => {
+    const { tabId } = await ok<{ tabId: number }>("browser.open", { url: SHOP });
+    chrome.openDialog(tabId, { type: "alert", message: "Hello", url: SHOP });
+    const tabs = await ok<{ tabs: unknown[] }>("browser.tabs", {});
+    expect(tabs.tabs[0]).toMatchObject({ dialog: { type: "alert", message: "Hello" } });
+    const read = await t.kernel.execute("browser.read", { tabId }, jarvis);
+    expect(read).toMatchObject({ status: "error", code: "conflict" });
+    expect(await ok("browser.dialog", { tabId, accept: true })).toMatchObject({
+      answered: "alert",
+    });
+    expect(await ok("browser.read", { tabId })).toMatchObject({ title: "Shop" });
+    const none = await t.kernel.execute("browser.dialog", { tabId, accept: true }, jarvis);
+    expect(none).toMatchObject({ status: "error", code: "not_found" });
   });
 
   it("is never offered to outside agents or integrations", async () => {

@@ -267,7 +267,7 @@ export const prepRoutine: RoutineDef = {
   description: "At 6 a.m., a prep packet for each meeting in the next 48 hours.",
   cron: "0 6 * * *",
   staleAfterSeconds: 3 * 3600,
-  async run(_firing, ctx) {
+  async run(firing, ctx) {
     const rules = await getSetting(ctx.db, "owner.dayRules");
     const todo: { ev: EventView; facts: string; outside: boolean }[] = [];
     for (const ev of await eventsToPrep(ctx)) {
@@ -276,7 +276,8 @@ export const prepRoutine: RoutineDef = {
       todo.push({ ev, facts: f.text, outside: f.outside });
     }
     if (todo.length === 0) return [];
-    const date = localDate(ctx.now, rules.timeZone);
+    // The day it was due, even when it runs late (D54).
+    const date = localDate(firing.scheduledFor, rules.timeZone);
     return [
       {
         kind: "turn",

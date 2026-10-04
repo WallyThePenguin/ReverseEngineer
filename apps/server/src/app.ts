@@ -47,6 +47,7 @@ import { desktopRoutes } from "./routes/desktop.ts";
 import { deviceRoutes } from "./routes/devices.ts";
 import { eventRoutes } from "./routes/events.ts";
 import { googleRoutes } from "./routes/google.ts";
+import { healthRoutes } from "./routes/health.ts";
 import { importRoutes } from "./routes/imports.ts";
 import { mailRoutes } from "./routes/mail.ts";
 import { pushRoutes } from "./routes/push.ts";
@@ -135,6 +136,7 @@ export function createApp(opts: AppOptions) {
   app.use("/api/*", authenticate());
   app.use("/mcp", authenticate());
   app.use("/api/*", sameOriginWrites());
+  app.route("/api/health", healthRoutes(bridge, opts.config.webDist));
   app.route("/api/auth", authRoutes());
   app.route("/api/events", eventRoutes());
   app.route("/api/browser", browserRoutes(bridge));

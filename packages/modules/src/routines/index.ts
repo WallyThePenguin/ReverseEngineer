@@ -54,15 +54,31 @@ type RoutineRow = typeof routine.$inferSelect & { title: string };
 
 async function loadRoutine(db: DbOrTx, routineId: string) {
   const [row] = await db
-    .select({ r: routine, title: entity.title, next: schedule.nextRunAt, last: schedule.lastRunAt })
+    .select({
+      r: routine,
+      title: entity.title,
+      next: schedule.nextRunAt,
+      last: schedule.lastRunAt,
+      outcome: schedule.lastOutcome,
+    })
     .from(routine)
     .innerJoin(entity, eq(entity.id, routine.entityId))
     .leftJoin(schedule, eq(schedule.id, scheduleId(routineId)))
     .where(and(eq(routine.entityId, routineId), isNull(entity.deletedAt)));
-  return row ? { ...row.r, title: row.title, nextRunAt: row.next, lastRunAt: row.last } : null;
+  return row
+    ? {
+        ...row.r,
+        title: row.title,
+        nextRunAt: row.next,
+        lastRunAt: row.last,
+        lastOutcome: row.outcome,
+      }
+    : null;
 }
 
-const view = (r: RoutineRow & { nextRunAt: Date | null; lastRunAt: Date | null }) => ({
+const view = (
+  r: RoutineRow & { nextRunAt: Date | null; lastRunAt: Date | null; lastOutcome: string | null },
+) => ({
   id: r.entityId,
   title: r.title,
   instructions: r.instructions,
@@ -70,6 +86,8 @@ const view = (r: RoutineRow & { nextRunAt: Date | null; lastRunAt: Date | null }
   active: r.active,
   nextRunAt: r.active ? r.nextRunAt : null,
   lastRunAt: r.lastRunAt,
+  /** How its last turn went: queued, retrying, done, failed, or skipped_* (D54). */
+  lastOutcome: r.lastOutcome,
 });
 
 const describeRoutine: Describe = async (entityId, ctx) => {
@@ -102,7 +120,8 @@ const due: ReflexDef = {
         lane: "deep",
         subjectId: routineId,
         dedupeKey: `routine:${routineId}:${at}`,
-        context: { routine: r.title },
+        // How the turn went shows on the routine, Run now included (D54).
+        context: { routine: r.title, scheduleId: scheduleId(routineId) },
         prompt: [
           `It's time for the owner's routine "${r.title}" (${describeCron(r.cron)}). They wrote:`,
           "",

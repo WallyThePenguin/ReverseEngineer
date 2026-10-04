@@ -10,7 +10,7 @@ import {
   requireEntity,
   updateEntity,
 } from "@hearth/kernel";
-import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { body, describeRow, id, liveEntity, preview } from "../shared.ts";
 import { appendLog, routeLane } from "./log.ts";
@@ -219,13 +219,28 @@ export const chatModule = defineModule({
       description: "Jarvis answers every message you send it.",
       mode: "reactive",
       on: ["chat.message_posted"],
-      run(event) {
+      async run(event, ctx) {
         const p = event.payload as {
           conversationId: string;
           text: string;
           lane: "fast" | "deep";
           heard?: boolean;
+          idx: number;
         };
+        // You pressed Stop before Jarvis saw this (it was down): let it go (D54).
+        const [stopped] = await ctx.db
+          .select({ idx: conversationLog.idx })
+          .from(conversationLog)
+          .where(
+            and(
+              eq(conversationLog.conversationId, p.conversationId),
+              eq(conversationLog.kind, "notice"),
+              gt(conversationLog.idx, p.idx),
+              sql`${conversationLog.payload}->>'stopped' = 'true'`,
+            ),
+          )
+          .limit(1);
+        if (stopped) return [];
         return [
           {
             kind: "turn",

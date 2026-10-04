@@ -76,6 +76,13 @@ export const jarvisTurn = pgTable("jarvis_turn", {
   finishedAt: ts("finished_at"),
   firstTokenMs: integer("first_token_ms"),
   durationMs: integer("duration_ms"),
+  /** Model attempts started: a turn that hit a passing error is tried again (D54). */
+  attempts: integer("attempts").notNull().default(0),
+  /** What kind of error ended the last attempt (see packages/jarvis/src/failures.ts). */
+  errorKind: text("error_kind"),
+  /** A routine's plain version, published if the model never manages it (D54). */
+  fallback: jsonb("fallback").$type<unknown[]>(),
+  cancelRequestedAt: ts("cancel_requested_at"),
 });
 
 export const observation = pgTable("observation", {

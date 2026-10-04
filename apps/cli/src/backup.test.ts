@@ -1,21 +1,25 @@
 import { randomBytes } from "node:crypto";
-import { copyFile, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { createTestDatabase, type TestDatabase } from "@hearth/db/testing";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   type BackupConfig,
+  dataFolders,
+  listBlobs,
   type Runner,
-  restoredPath,
   runBackup,
   runProgram,
   snapshotId,
+  snapshotPath,
 } from "./backup.ts";
+import { dataFolder, type FakeRestic, fakeRestic } from "./testing/restic.ts";
 
 let db: TestDatabase;
 let dir: string;
 let cfg: BackupConfig;
+let restic: FakeRestic | null = null;
 beforeEach(async () => {
   db = await createTestDatabase();
   dir = await mkdtemp(join(tmpdir(), "hearth-backup-test-"));
@@ -28,33 +32,10 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   await db.destroy();
+  await restic?.destroy();
+  restic = null;
   await rm(dir, { recursive: true, force: true });
 });
-
-/** restic, faked: remembers uploads and restores them where real restic would. */
-function fakeRestic(calls: string[][]): Runner {
-  let uploaded = "";
-  return async (cmd, args) => {
-    calls.push([cmd, ...args]);
-    if (cmd !== "restic") return runProgram(cmd, args);
-    const sub = args[2];
-    if (sub === "backup") {
-      uploaded = args.at(-1)!;
-      const summary = { message_type: "summary", snapshot_id: "4f2a9c1e0b7d" };
-      return {
-        code: 0,
-        stdout: `{"message_type":"status"}\n${JSON.stringify(summary)}\n`,
-        stderr: "",
-      };
-    }
-    if (sub === "restore") {
-      const target = restoredPath(args[args.indexOf("--target") + 1]!, uploaded);
-      await mkdir(dirname(target), { recursive: true });
-      await copyFile(uploaded, target);
-    }
-    return { code: 0, stdout: "", stderr: "" };
-  };
-}
 
 describe("hearth backup", () => {
   it("dumps the database and proves it restores, even without off-site storage", async () => {
@@ -64,22 +45,51 @@ describe("hearth backup", () => {
     expect((await readdir(dir)).filter((f) => f.endsWith(".dump"))).toHaveLength(1);
   });
 
-  it("uploads with restic, prunes, and restores the uploaded copy for the check", async () => {
-    const calls: string[][] = [];
+  it("uploads the dump with the stored files, never the vault key, and checks what came back", async () => {
+    restic = await fakeRestic();
+    const data = await dataFolder(dir);
+    const { blobs, voice } = dataFolders(data);
+    const missing = join(data, "not-there");
     const result = await runBackup(
-      { ...cfg, repository: "rclone:gdrive:hearth" },
-      fakeRestic(calls),
+      { ...cfg, repository: "rclone:gdrive:hearth", folders: [blobs, voice, missing] },
+      restic.run,
     );
-    expect(result).toMatchObject({
-      ok: true,
-      offsite: true,
-      snapshot: "4f2a9c1e0b7d",
-      restoreTested: true,
-    });
-    const restic = calls.filter((c) => c[0] === "restic").map((c) => c[3]);
-    expect(restic).toEqual(["backup", "forget", "restore"]);
-    const restore = calls.find((c) => c[0] === "pg_restore")!;
-    expect(restore.at(-1)).toContain("hearth-restore-");
+    expect(result).toMatchObject({ ok: true, offsite: true, restoreTested: true });
+    expect(result.snapshot).toBe(restic.snapshots[0]!.id);
+    expect(result.detail).toMatch(/records restored, 3 stored files checked\.$/);
+
+    const calls = restic.calls.filter((c) => c[0] === "restic");
+    expect(calls.map((c) => c[3])).toEqual(["backup", "forget", "dump", "dump", "dump", "dump"]);
+    const backup = calls[0]!;
+    expect(backup.slice(-3)).toEqual([expect.stringMatching(/\.dump$/), blobs, voice]);
+    expect(backup).toContain("--exclude");
+    expect(backup[backup.indexOf("--exclude") + 1]).toBe("vault.key");
+    // Pruned across snapshots, whatever each one's dump is called; four weeks kept.
+    const forget = calls[1]!;
+    expect(forget[forget.indexOf("--group-by") + 1]).toBe("host,tags");
+    expect(forget[forget.indexOf("--keep-weekly") + 1]).toBe("4");
+    const restore = restic.calls.find((c) => c[0] === "pg_restore")!;
+    expect(restore.at(-1)).toContain(".restore-check-");
+  });
+
+  it("fails the check when a stored file comes back changed", async () => {
+    restic = await fakeRestic();
+    const data = await dataFolder(dir, 1);
+    const { blobs } = dataFolders(data);
+    const tampering: Runner = async (cmd, args) => {
+      const r = await restic!.run(cmd, args);
+      if (args[2] === "backup") {
+        const [blob] = await listBlobs(restic!.copyOf(blobs));
+        await writeFile(blob!, "not what was sent");
+      }
+      return r;
+    };
+    const result = await runBackup(
+      { ...cfg, repository: "rclone:gdrive:hearth", folders: [blobs] },
+      tampering,
+    );
+    expect(result).toMatchObject({ ok: false, restoreTested: false });
+    expect(result.detail).toMatch(/^Restore check failed: a stored file came back changed/);
   });
 
   it("reports which step failed, in words you can act on", async () => {
@@ -97,12 +107,10 @@ describe("hearth backup", () => {
     expect(r2.detail).toBe("Database dump failed: pg_dump: error: connection refused");
   });
 
-  it("reads restic's snapshot id and restored paths on every platform", () => {
+  it("reads restic's snapshot id, and names paths inside a snapshot on every platform", () => {
     expect(snapshotId('{"message_type":"summary","snapshot_id":"abc"}')).toBe("abc");
     expect(snapshotId("not json")).toBeNull();
-    expect(restoredPath("/tmp/r", "/data/hearth.dump", "linux")).toBe("/tmp/r/data/hearth.dump");
-    expect(restoredPath("/tmp/r", "C:/Hearth/hearth.dump", "win32")).toBe(
-      "/tmp/r/C/Hearth/hearth.dump",
-    );
+    expect(snapshotPath("/data/hearth.dump", "linux")).toBe("/data/hearth.dump");
+    expect(snapshotPath("D:\\Hearth\\data\\blobs", "win32")).toBe("/D/Hearth/data/blobs");
   });
 });

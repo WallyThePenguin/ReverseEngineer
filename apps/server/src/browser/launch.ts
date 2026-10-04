@@ -9,7 +9,7 @@
 import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
-import { join } from "node:path";
+import { join, posix, win32 } from "node:path";
 import { ActionError } from "@hearth/kernel";
 
 export type LaunchMode = "task" | "direct" | "off";
@@ -95,6 +95,8 @@ export function chromeCandidates(
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
 ): string[] {
+  // That platform's separators, whatever this runs on.
+  const { join } = platform === "win32" ? win32 : posix;
   if (platform === "win32") {
     const app = join("Google", "Chrome", "Application", "chrome.exe");
     return [env.ProgramFiles, env["ProgramFiles(x86)"], env.LOCALAPPDATA]

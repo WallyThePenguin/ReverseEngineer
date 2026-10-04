@@ -107,6 +107,52 @@ function Screen(props: { b: LiveBrowser }) {
   );
 }
 
+/**
+ * The page opened a dialog (an alert, a confirm, a prompt, a "leave site?"). Nothing else works in
+ * the tab until it's answered, so you can answer it here.
+ */
+function DialogBar(props: { b: LiveBrowser }) {
+  const dialog = () => props.b.current()?.dialog ?? null;
+  const [text, setText] = createSignal<string | null>(null);
+  const answer = (accept: boolean) => {
+    const d = dialog();
+    props.b.send({
+      type: "dialog",
+      accept,
+      ...(d?.type === "prompt" && accept ? { promptText: text() ?? d.defaultPrompt ?? "" } : {}),
+    });
+    setText(null);
+  };
+  return (
+    <Show when={dialog()}>
+      {(d) => (
+        <div class="flex flex-wrap items-center gap-2 border-b border-line bg-accent-soft px-3 py-1.5 text-sm">
+          <span class="min-w-0 flex-1 break-words">
+            {d().type === "beforeunload" ? "The page asks whether to leave it." : "The page asks:"}{" "}
+            <span class="text-muted">{d().type === "beforeunload" ? "" : d().message}</span>
+          </span>
+          <Show when={d().type === "prompt"}>
+            <input
+              class="min-w-32 rounded-md border border-line bg-panel px-2 py-0.5 text-xs"
+              aria-label="Your answer"
+              value={text() ?? d().defaultPrompt ?? ""}
+              onInput={(e) => setText(e.currentTarget.value)}
+            />
+          </Show>
+          <Button small kind="primary" onClick={() => answer(true)}>
+            {d().type === "beforeunload" ? "Leave" : "OK"}
+          </Button>
+          <Show when={d().type !== "alert"}>
+            <Button small onClick={() => answer(false)}>
+              {d().type === "beforeunload" ? "Stay" : "Cancel"}
+            </Button>
+          </Show>
+        </div>
+      )}
+    </Show>
+  );
+}
+
 /** Chrome isn't connected: open it from here, or pair it in Settings. */
 function ChromeClosed(props: { b: LiveBrowser }) {
   const [asked, setAsked] = createSignal(false);
@@ -259,7 +305,13 @@ export function Browser() {
             </Button>
           </Show>
         </form>
-        <Show when={b.error()}>
+        <Show when={b.problem()}>
+          <p class="border-b border-line bg-accent-soft px-3 py-1 text-xs text-warn">
+            {b.problem()}
+          </p>
+        </Show>
+        <DialogBar b={b} />
+        <Show when={b.error() && !b.current()?.dialog}>
           <p class="border-b border-line bg-accent-soft px-3 py-1 text-xs text-bad">{b.error()}</p>
         </Show>
         <Show
