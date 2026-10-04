@@ -54,6 +54,8 @@ jobs:
         run: pnpm test
       - name: Build the web app
         run: pnpm build:web
+      - name: Main bundle size, and no Loro or WebAssembly in it
+        run: pnpm check:bundle
       - name: Browser smoke test
         env:
           HEARTH_ORIGIN: http://localhost:4400
