@@ -1,10 +1,8 @@
 // A small notice when Hearth changed under the open page: it was updated (reload to get the new
-// version), or the server's database doesn't fit its code. Checks every few minutes, and when you
-// come back to the page.
+// version), or the server's database doesn't fit its code. Checks every few minutes while the page
+// is in view, and when you come back to it.
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
-import { type Notice, noticeFor, pageBuild, type ServerBuild } from "../lib/version.ts";
-
-const EVERY_MS = 5 * 60_000;
+import { type Notice, noticeFor, pageBuild, type ServerBuild, watchBuild } from "../lib/version.ts";
 
 export function UpdateNotice() {
   const [notice, setNotice] = createSignal<Notice>(null);
@@ -18,19 +16,7 @@ export function UpdateNotice() {
   };
   onMount(() => {
     // The development server rebuilds as you go; there's nothing to reload into.
-    if (import.meta.env.DEV) return;
-    void check();
-    const timer = setInterval(check, EVERY_MS);
-    const onVisible = () => {
-      if (document.visibilityState === "visible") void check();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("online", check);
-    onCleanup(() => {
-      clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("online", check);
-    });
+    if (!import.meta.env.DEV) onCleanup(watchBuild(() => void check()));
   });
 
   return (

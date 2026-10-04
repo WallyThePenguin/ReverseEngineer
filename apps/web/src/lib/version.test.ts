@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { noticeFor, pageBuild } from "./version.ts";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { CHECK_EVERY_MS, noticeFor, pageBuild, watchBuild } from "./version.ts";
 
 describe("whether the page is the Hearth that's running", () => {
   const fits = { ok: true };
@@ -28,5 +28,45 @@ describe("whether the page is the Hearth that's running", () => {
     expect(pageBuild(page("abc") as unknown as Document)).toBe("abc");
     expect(pageBuild(page("") as unknown as Document)).toBeNull();
     expect(pageBuild(page(null) as unknown as Document)).toBeNull();
+  });
+});
+
+describe("asking which build is running", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("asks every few minutes only while the page is in view, and when it's back", () => {
+    vi.useFakeTimers();
+    const win = new EventTarget();
+    const doc = Object.assign(new EventTarget(), {
+      visibilityState: "visible" as DocumentVisibilityState,
+    });
+    let asked = 0;
+    const stop = watchBuild(
+      () => {
+        asked += 1;
+      },
+      win,
+      doc,
+    );
+    expect(asked).toBe(1);
+    vi.advanceTimersByTime(CHECK_EVERY_MS);
+    expect(asked).toBe(2);
+    // A tab left in the background doesn't ask.
+    doc.visibilityState = "hidden";
+    doc.dispatchEvent(new Event("visibilitychange"));
+    vi.advanceTimersByTime(6 * CHECK_EVERY_MS);
+    expect(asked).toBe(2);
+    // Back in view, or back online: it asks at once.
+    doc.visibilityState = "visible";
+    doc.dispatchEvent(new Event("visibilitychange"));
+    expect(asked).toBe(3);
+    win.dispatchEvent(new Event("online"));
+    expect(asked).toBe(4);
+    stop();
+    vi.advanceTimersByTime(CHECK_EVERY_MS);
+    win.dispatchEvent(new Event("online"));
+    expect(asked).toBe(4);
   });
 });
