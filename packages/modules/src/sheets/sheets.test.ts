@@ -114,9 +114,12 @@ describe("spreadsheets", () => {
       for (let c = 0; c < 10; c++)
         cells[`${"ABCDEFGHIJ"[c]}${r}`] = c === 0 ? String(r * 3) : `=A${r}*${c + 1}`;
     const book = { sheets: [{ id: "s1", name: "Big", cells, widths: {} }] };
-    results(book);
+    // The first few runs are slow while V8 compiles IronCalc's WebAssembly fully (100+ ms), so
+    // they don't count: a server works out sheets all day. The best of ten then allows for a
+    // machine busy with other work.
+    for (let n = 0; n < 3; n++) results(book);
     let best = Number.POSITIVE_INFINITY;
-    for (let n = 0; n < 5; n++) {
+    for (let n = 0; n < 10; n++) {
       const t0 = performance.now();
       const out = results(book);
       best = Math.min(best, performance.now() - t0);
