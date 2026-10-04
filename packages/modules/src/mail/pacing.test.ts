@@ -134,6 +134,36 @@ describe("when Gmail says slow down", () => {
   }, 240_000);
 });
 
+describe("a first sync", () => {
+  it("says how far it has got, and doesn't announce old mail as new", async () => {
+    for (let i = 0; i < 250; i++)
+      g.gmail.seed({ from: ANA, subject: `Old ${i}`, text: "." }, ["INBOX"]);
+    const progress = async () =>
+      (await ok<(AccountView & Record<string, unknown>)[]>("mail.accounts"))[0]!;
+    await sync();
+    expect(await progress()).toMatchObject({
+      state: "catching_up",
+      firstSyncDone: false,
+      backfill: { fetched: 50, target: 250 },
+      waiting: 50,
+    });
+    for (let i = 0; i < 40; i++) {
+      const r = await sync();
+      if (r.retryAt) t.clock.advance(60_000);
+      else if (!r.more) break;
+    }
+    expect(await stored()).toBe(250);
+    expect(await progress()).toMatchObject({
+      state: "ok",
+      firstSyncDone: true,
+      backfill: null,
+      waiting: 0,
+    });
+    expect(await t.events("mail.received")).toEqual([]);
+    expect(g.gmail.rejected).toBe(0);
+  });
+});
+
 describe("what it fetches", () => {
   it("takes flags from history, and ignores flag changes on mail it doesn't keep", async () => {
     const kept = g.gmail.deliver({ from: ANA, subject: "Kept", text: "." });
