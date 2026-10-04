@@ -2,7 +2,7 @@
 
 import { sendKeptNotes } from "./docStore.ts";
 import type { Binding } from "./hotkeys.ts";
-import { toast } from "./live.ts";
+import { onLiveEvent, toast } from "./live.ts";
 import { act } from "./query.ts";
 
 /** What you can move to the trash yourself; mail and events belong to their sync. */
@@ -22,6 +22,9 @@ export const TRASHABLE = new Set([
   "brief",
   "journal",
 ]);
+
+/** Restores this close together (a record and what went with it, an event each) send once. */
+const SEND_KEPT_AFTER_MS = 300;
 
 interface Moved {
   title: string;
@@ -69,8 +72,27 @@ export async function restore(id: string): Promise<boolean> {
   const r = await act<Moved>("entity.restore", { id });
   if (!r) return false;
   toast.show(`Restored ${named(r.title)}${more(r.withIt)}.`);
-  // Edits this device kept for a deleted note go now, not at the next start: an open note sends
-  // its own, but one that isn't open has nothing else to send them (D59).
-  void sendKeptNotes();
   return true;
+}
+
+/**
+ * Whenever something comes back from the trash, restored here or anywhere else (Jarvis, the
+ * phone, another browser), sends the edits this device kept for notes deleted before they reached
+ * Hearth. An open note sends its own; one that isn't open would otherwise wait for the next start
+ * of Hearth here (D59). One send at a time, so two never open the same note at once.
+ */
+export function sendKeptOnRestore(): () => void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let sending = Promise.resolve();
+  const stop = onLiveEvent((e) => {
+    if (e.kind !== "entity.restored") return;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      sending = sending.then(sendKeptNotes).catch(() => {});
+    }, SEND_KEPT_AFTER_MS);
+  });
+  return () => {
+    clearTimeout(timer);
+    stop();
+  };
 }

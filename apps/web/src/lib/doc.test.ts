@@ -1,8 +1,8 @@
 // A note's edits are written ahead (D59): one made just before its tab dies is sent by the next
 // open, as the same peer, without clashing; edits are dropped from disk only once a saved copy
 // holds them, and one tab's saved copy never loses another's; a deleted note keeps what Hearth
-// never got, and sends it once the note is restored. Runs against a fake Hearth and an in-memory
-// stand-in for IndexedDB.
+// never got, and sends it once the note is restored, however the restore and Hearth's answers
+// cross. Runs against a fake Hearth and an in-memory stand-in for IndexedDB.
 import { LoroDoc, VersionVector } from "loro-crdt";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PendingKey, PendingUpdate, SavedDoc } from "./docStore.ts";
@@ -15,6 +15,8 @@ const disk = vi.hoisted(() => ({
   peer: 1001n,
   /** Writing ahead fails, as it does where IndexedDB can't be opened. */
   full: false,
+  /** Saving a copy waits for this (IndexedDB is slow). */
+  slow: null as Promise<void> | null,
 }));
 
 vi.mock("./docStore.ts", () => ({
@@ -30,6 +32,7 @@ vi.mock("./docStore.ts", () => ({
     next: (s: SavedDoc | null) => SavedDoc | null,
     drop: PendingKey[],
   ) => {
+    await disk.slow;
     const rec = next(disk.docs.get(id) ?? null);
     if (rec) disk.docs.set(id, structuredClone(rec));
     else disk.docs.delete(id);
@@ -59,6 +62,8 @@ const unb64 = (s: string) => new Uint8Array(Buffer.from(s, "base64"));
 /** Hearth's copy of the note, and how it answers. */
 let hearth: LoroDoc;
 let mode: "up" | "down" | "hang" | "gone" | "refuse" | "fail" = "up";
+/** While set, Hearth's answers wait for it: each is decided as its request arrives. */
+let late: Promise<void> | null = null;
 let syncs = 0;
 const reply = (body: unknown, status = 200) => Response.json(body, { status });
 
@@ -70,6 +75,8 @@ beforeEach(() => {
   disk.updates.clear();
   disk.peer = 1001n;
   disk.full = false;
+  disk.slow = null;
+  late = null;
   feed.clear();
   hearth = new LoroDoc();
   hearth.getText("body").insert(0, "Plan");
@@ -86,13 +93,14 @@ beforeEach(() => {
   vi.stubGlobal("document", Object.assign(new EventTarget(), { visibilityState: "visible" }));
   vi.stubGlobal("BroadcastChannel", undefined);
   vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
-    if (mode === "down") throw new TypeError("Failed to fetch");
-    if (mode === "hang") return new Promise(() => {});
-    if (mode === "gone")
-      return reply({ status: "error", code: "not_found", message: "No such doc" });
-    if (mode === "fail")
+    const m = mode;
+    await late;
+    if (m === "down") throw new TypeError("Failed to fetch");
+    if (m === "hang") return new Promise(() => {});
+    if (m === "gone") return reply({ status: "error", code: "not_found", message: "No such doc" });
+    if (m === "fail")
       return reply({ status: "error", code: "failed", message: "deadlock detected (40P01)" });
-    if (mode === "refuse")
+    if (m === "refuse")
       return reply({ status: "error", code: "invalid_input", message: "That's too long to save." });
     syncs++;
     const i = JSON.parse(String(init.body)) as { update?: string; version?: string };
@@ -311,5 +319,47 @@ describe("a note's edits, written ahead", () => {
     await a.doc.close();
     expect(disk.updates.size).toBe(0);
     expect(disk.docs.get("n1")!.unsent).toBeUndefined();
+  });
+
+  it("syncs when the restore comes while a deleted note is still keeping its edits", async () => {
+    const a = await open();
+    mode = "gone";
+    let kept!: () => void;
+    disk.slow = new Promise((r) => (kept = r));
+    a.type(" (draft)");
+    await vi.advanceTimersByTimeAsync(600);
+    mode = "up";
+    hear("entity.restored");
+    await vi.advanceTimersByTimeAsync(0);
+    kept();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(a.seen.at(-1)).toBe("ok");
+    expect(hearthText()).toBe("Plan (draft)");
+    await a.doc.close();
+  });
+
+  it("syncs again when Hearth says it's gone after the restore was heard", async () => {
+    const a = await open();
+    mode = "gone";
+    let answer!: () => void;
+    late = new Promise((r) => (answer = r));
+    a.type(" (draft)");
+    await vi.advanceTimersByTimeAsync(600);
+    // Hearth found it in the trash, but its answer lands after the restore.
+    mode = "up";
+    late = null;
+    hear("entity.restored");
+    answer();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(a.seen).not.toContain("gone");
+    expect(a.seen.at(-1)).toBe("ok");
+    expect(hearthText()).toBe("Plan (draft)");
+    await a.doc.close();
+  });
+
+  it("fails to open as gone, not out of reach, when it's in the trash with no copy here", async () => {
+    const { LiveDoc, NoteGone } = await import("./doc.ts");
+    mode = "gone";
+    await expect(new LiveDoc("n1").open()).rejects.toBeInstanceOf(NoteGone);
   });
 });

@@ -49,11 +49,13 @@ export function CanvasBoard(props: { id: string; pane: number }) {
       { defer: true },
     ),
   );
-  onMount(async () => {
-    await b.load();
-    setCam(fit(b.board, el.getBoundingClientRect()));
+  onMount(() => {
+    void b.load();
     el.addEventListener("wheel", wheel, { passive: false });
   });
+  // Fitted to what's on it once it's first read: as it opens, or once it's restored if it opened
+  // from the trash (until then there's nothing to fit).
+  createEffect(on(b.loaded, (ok) => ok && setCam(fit(b.board, el.getBoundingClientRect()))));
   onCleanup(() => {
     el?.removeEventListener("wheel", wheel);
     void b.flush();

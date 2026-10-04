@@ -84,8 +84,13 @@ export function createSaver<T>(o: SaverOptions<T>) {
   let retry: number | undefined;
   let keeping = false;
   let closed = false;
+  /** Restores heard: one heard while a request was out makes its "not found" out of date. */
+  let restores = 0;
 
   const unsaved = () => dirty || title !== undefined;
+  /** Hearth answered for the trash, but it was restored after the request went: ask again. */
+  const stale = (err: unknown, heard: number) =>
+    err instanceof ApiError && err.code === "not_found" && heard !== restores;
 
   /** Writes the unsaved copy (once per tick, however many changes it held). */
   const keep = () => {
@@ -141,6 +146,7 @@ export function createSaver<T>(o: SaverOptions<T>) {
         const data = o.current();
         const name = title;
         const input = o.input(data, version, name);
+        const heard = restores;
         dirty = false;
         setSaving(true);
         try {
@@ -163,9 +169,11 @@ export function createSaver<T>(o: SaverOptions<T>) {
               again = true;
             } catch (e) {
               if (isTransient(e)) later(e);
+              else if (stale(e, heard)) again = true;
               else refused(e);
             }
-          } else if (isTransient(err) || merges >= MAX_MERGES) later(err);
+          } else if (stale(err, heard)) again = true;
+          else if (isTransient(err) || merges >= MAX_MERGES) later(err);
           else refused(err);
         }
       } while (again);
@@ -224,10 +232,12 @@ export function createSaver<T>(o: SaverOptions<T>) {
       return;
     }
     const at = edits;
+    const heard = restores;
     let r: Remote<T>;
     try {
       r = await o.get();
     } catch (err) {
+      if (stale(err, heard)) return load();
       if (err instanceof ApiError && err.code === "not_found") refused(err);
       else if (!loaded && isTransient(err)) await open(null, err);
       return;
@@ -253,7 +263,9 @@ export function createSaver<T>(o: SaverOptions<T>) {
     if (unsaved()) void save();
   }
   const stopLive = onLiveEvent((e) => {
-    if (e.kind === "entity.restored" && e.entityId === o.id) void restored();
+    if (e.kind !== "entity.restored" || e.entityId !== o.id) return;
+    restores++;
+    void restored();
   });
 
   const hidden = () => {

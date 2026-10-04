@@ -24,6 +24,7 @@ import { useHotkeys } from "../lib/hotkeys.ts";
 import { live, queryClient, toast } from "../lib/live.ts";
 import { narrow } from "../lib/narrow.ts";
 import { type ListView, layout, type Pane, type PaneRoute } from "../lib/panes.ts";
+import { sendKeptOnRestore } from "../lib/trash.ts";
 import { Activity } from "../views/Activity.tsx";
 import { Browser } from "../views/Browser.tsx";
 import { Calendar } from "../views/Calendar.tsx";
@@ -132,8 +133,9 @@ function Shell(props: { onSignOut: () => void }) {
   const waiting = useWaiting();
   onMount(() => {
     live.start();
-    // Note edits a closed tab never sent (D59).
+    // Note edits a closed tab never sent, and a deleted note's once it's restored (D59).
     void sendKeptNotes();
+    onCleanup(sendKeptOnRestore());
     // The home screen's "Talk to Jarvis" shortcut.
     if (new URLSearchParams(location.search).has("jarvis")) jarvis.toggle(true);
   });

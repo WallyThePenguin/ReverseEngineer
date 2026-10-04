@@ -1,7 +1,8 @@
 // End-to-end check that a closed tab loses nothing (D59): in each editor (a note, a board, a
 // spreadsheet, meeting notes) make an edit while Hearth takes the save and never answers, close
 // the tab mid-save, open it again, and the edit reaches Hearth. Then a board edit made while Jarvis
-// adds a card keeps both, and a note deleted while open saves what was typed in it once restored.
+// adds a card keeps both, a note deleted while open saves what was typed in it once restored, and
+// one opened from the trash opens once it's restored.
 // Runs its own server (development login, on HEARTH_E2E_PORT) against HEARTH_DATABASE_URL, and its
 // own browser with the service worker off so saves can be held.
 //
@@ -278,6 +279,29 @@ try {
       const { body } = await act<{ body: string | null }>(p, "entity.get", { id: note.id });
       if (body?.startsWith("t") && body.endsWith(" and back")) break;
       if (i === 50) throw new Error("the restored note didn't save what was typed in it");
+      await p.waitForTimeout(200);
+    }
+    await p.close();
+  });
+
+  await step("a note opened from the trash opens once it's restored", async () => {
+    const note = await act<{ id: string }>(home, "note.create", { title: `Bin ${tag}`, body: "" });
+    await act(home, "entity.trash", { id: note.id });
+    // Never opened in this browser, so there's no copy of it here to read.
+    const p = await context.newPage();
+    await p.goto(`${base}/note/${note.id}`);
+    await p.getByText("there's no copy of it on this device").waitFor({ timeout: 20_000 });
+    if (await p.getByText("Couldn't open this note").count())
+      throw new Error("a note in the trash says Hearth isn't running");
+    await p.getByRole("button", { name: "Restore", exact: true }).click();
+    const editor = p.locator('.cm-content[contenteditable="true"]');
+    await editor.waitFor();
+    await editor.click();
+    await p.keyboard.type("back from the bin");
+    for (let i = 0; ; i++) {
+      const { body } = await act<{ body: string | null }>(p, "entity.get", { id: note.id });
+      if (body === "back from the bin") break;
+      if (i === 50) throw new Error("the note restored after it opened didn't save");
       await p.waitForTimeout(200);
     }
     await p.close();

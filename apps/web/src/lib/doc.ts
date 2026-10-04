@@ -52,6 +52,9 @@ export type DocStatus =
   /** Deleted, until it's restored; `unsent` if it held edits Hearth never got (kept here). */
   | { kind: "gone"; unsent: boolean };
 
+/** The note is in the trash, and this device has no copy of it to open until it's restored. */
+export class NoteGone extends Error {}
+
 export class LiveDoc {
   readonly id: string;
   readonly doc = new LoroDoc();
@@ -80,6 +83,8 @@ export class LiveDoc {
   private running: Promise<void> | null = null;
   private again = false;
   private gone = false;
+  /** Restores heard: one heard while a sync was out makes its "not found" out of date. */
+  private restores = 0;
   private closed = false;
   private stops: (() => void)[] = [];
 
@@ -116,6 +121,7 @@ export class LiveDoc {
       await this.sync();
       if (this.server === null) {
         await this.close();
+        if (this.gone) throw new NoteGone("This note is in the trash.");
         throw new Error("This note isn't available offline yet.");
       }
       // Edits written ahead by a copy that never saved one: that first sync only fetched the
@@ -227,6 +233,7 @@ export class LiveDoc {
         await this.written();
         const from = this.server ? VersionVector.decode(unb64(this.server)) : null;
         const update = from && this.hasNew(from) ? this.doc.export({ mode: "update", from }) : null;
+        const heard = this.restores;
         try {
           const r = await action<{ update: string; version: string }>(
             "doc.sync",
@@ -243,7 +250,12 @@ export class LiveDoc {
           this.onStatus({ kind: "ok" });
           await this.keep();
         } catch (err) {
-          if (err instanceof ApiError && err.code === "not_found") return this.lost();
+          if (err instanceof ApiError && err.code === "not_found") {
+            // Restored while this was on its way: Hearth answered for the trash, so ask again.
+            if (this.restores === heard) return this.lost();
+            this.again = true;
+            continue;
+          }
           if (isTransient(err)) {
             this.onStatus({ kind: isOffline(err) ? "offline" : "retrying" });
             if (!this.closed)
@@ -308,8 +320,9 @@ export class LiveDoc {
     this.gone = true;
     window.clearTimeout(this.timer);
     window.clearTimeout(this.retry);
-    const unsent = this.unsent();
+    // Asked once every edit is on disk, so one typed meanwhile isn't dropped without a copy.
     await this.written();
+    const unsent = this.unsent();
     const drop = [...this.adopted];
     for (let n = this.kept + 1; n <= this.n; n++) drop.push([this.id, this.tab, n]);
     await keepDoc(
@@ -318,8 +331,9 @@ export class LiveDoc {
       (saved) => (unsent ? this.copy(saved) : saved?.unsent && !this.holds(saved) ? saved : null),
       drop,
     );
-    // Unless it was restored meanwhile.
     if (this.gone) this.onStatus({ kind: "gone", unsent });
+    // Restored meanwhile: the sync it asked for found this one running, so it goes now.
+    else this.schedule(0);
   }
 
   /**
@@ -327,6 +341,7 @@ export class LiveDoc {
    * still holds every edit, and the version Hearth last had, so the next sync sends them all.
    */
   private restored() {
+    this.restores++;
     if (!this.gone) return;
     this.gone = false;
     this.onStatus({ kind: "ok" });

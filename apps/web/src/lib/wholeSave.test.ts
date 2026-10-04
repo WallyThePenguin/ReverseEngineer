@@ -1,7 +1,8 @@
 // Saving a board whole (D59): a save that lost a race is merged card by card and sent again, a
 // save that can't reach Hearth keeps trying, Hearth's own reason shows when it refuses one, a
 // closing page still sends what's unsaved, and a board restored from the trash saves what was
-// changed while it was there. Runs against a fake Hearth (no DOM or IndexedDB here).
+// changed while it was there, however the restore and Hearth's answers cross. Runs against a fake
+// Hearth (no DOM or IndexedDB here).
 import type { Canvas, CanvasNode } from "@hearth/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LiveEvent } from "./live.ts";
@@ -30,6 +31,9 @@ let refuse: string | null = null;
 let failing = false;
 /** The board is in the trash: Hearth says there's no such board. */
 let trashed = false;
+/** While set, Hearth's answers wait for it: each is decided as its request arrives. */
+let late: Promise<void> | null = null;
+let held = 0;
 let sent: { input: { baseVersion: number; board: Canvas }; keepalive: boolean }[] = [];
 
 const reply = (body: unknown, status = 200) => Response.json(body, { status });
@@ -41,6 +45,8 @@ beforeEach(() => {
   refuse = null;
   failing = false;
   trashed = false;
+  late = null;
+  held = 0;
   feed.clear();
   sent = [];
   const win = Object.assign(new EventTarget(), {
@@ -50,8 +56,13 @@ beforeEach(() => {
   vi.stubGlobal("window", win);
   vi.stubGlobal("document", Object.assign(new EventTarget(), { visibilityState: "visible" }));
   vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+    const inTrash = trashed;
+    if (late) {
+      held++;
+      await late;
+    }
     if (down) throw new TypeError("Failed to fetch");
-    if (trashed)
+    if (inTrash)
       return reply({ status: "error", code: "not_found", message: "No such canvas" }, 404);
     const input = JSON.parse(String(init.body));
     if (url.endsWith("canvas.get"))
@@ -193,6 +204,37 @@ describe("saving a board whole", () => {
     trashed = false;
     hear("entity.restored");
     await vi.advanceTimersByTimeAsync(0);
+    expect(texts(shown())).toEqual(["one"]);
+    expect(saver.problem()).toBeNull();
+  });
+
+  it("saves a change Hearth said was in the trash when the restore was heard first", async () => {
+    const { saver, edit } = await openBoard();
+    trashed = true;
+    let answer!: () => void;
+    late = new Promise((r) => (answer = r));
+    edit((b) => b.nodes.push(card("b", "two")));
+    await vi.waitFor(() => expect(held).toBe(1));
+    trashed = false;
+    late = null;
+    hear("entity.restored");
+    answer();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(texts(server.board)).toEqual(["one", "two"]);
+    expect(saver.problem()).toBeNull();
+  });
+
+  it("opens a board Hearth said was in the trash when the restore was heard first", async () => {
+    trashed = true;
+    let answer!: () => void;
+    late = new Promise((r) => (answer = r));
+    const opening = openBoard();
+    await vi.waitFor(() => expect(held).toBe(1));
+    trashed = false;
+    late = null;
+    hear("entity.restored");
+    answer();
+    const { saver, shown } = await opening;
     expect(texts(shown())).toEqual(["one"]);
     expect(saver.problem()).toBeNull();
   });
