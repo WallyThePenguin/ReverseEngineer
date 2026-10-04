@@ -1,4 +1,10 @@
-export const TEMPLATE_DB = "hearth_test_template";
+import { createHash } from "node:crypto";
+
+/**
+ * The migrated database each test file clones. Named after the checkout, so test runs in two
+ * worktrees against the same Postgres don't drop each other's template.
+ */
+export const TEMPLATE_DB = `hearth_test_template_${createHash("sha256").update(process.cwd()).digest("hex").slice(0, 8)}`;
 
 /** A server URL for tests; the database part is replaced per test. */
 export function adminUrl(env: NodeJS.ProcessEnv = process.env): string {
