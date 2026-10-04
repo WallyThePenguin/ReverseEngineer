@@ -40,7 +40,8 @@ export async function runHeartbeat(kernel: Kernel, event: HearthEvent): Promise<
       trigger: "routine",
       lane: "fast",
       dedupeKey: `heartbeat:${String(event.payload.scheduledFor)}`,
-      context: { routine: "heartbeat", items: items.length },
+      // A turn that fails for good puts these back for the next heartbeat (D54).
+      context: { routine: "heartbeat", items: items.length, itemIds: items.map((i) => i.id) },
       prompt: [
         "Heartbeat. These came up since your last check. For each, pick the lightest outcome:",
         "act, ask, tell (inbox_notify, only if it can't wait), note (jarvis_observe), or nothing.",

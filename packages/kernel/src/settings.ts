@@ -28,6 +28,8 @@ export interface Settings {
   "voice.styles": { name: string; match: string; instructions: string }[];
   /** The key pair phone notifications are signed with, made the first time one is turned on. */
   "push.vapid": { publicKey: string; privateKey: string } | null;
+  /** When the Jarvis process last said it's alive (every 30 s), and since when it's been up. */
+  "jarvis.alive": { at: string; since: string; pid: number } | null;
 }
 
 export const SETTING_DEFAULTS: Settings = {
@@ -47,6 +49,7 @@ export const SETTING_DEFAULTS: Settings = {
     { name: "Email", match: "gmail", instructions: "Clear, friendly full sentences." },
   ],
   "push.vapid": null,
+  "jarvis.alive": null,
 };
 
 export async function getSetting<K extends keyof Settings>(

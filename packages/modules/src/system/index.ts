@@ -187,7 +187,9 @@ export const systemModule = defineModule({
           status: string;
           detail: string;
         };
-        if (status !== "failing") return [];
+        // Jarvis's own alerts say what failed and are kept apart per outage (D54); the worker
+        // raises its own when Jarvis stops checking in.
+        if (status !== "failing" || component === "jarvis") return [];
         return [
           {
             kind: "tell",
