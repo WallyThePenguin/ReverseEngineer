@@ -8,9 +8,8 @@ vi.mock("./live.ts", () => ({
   toast: { show: (text: string, tone = "info") => shown.push({ text, tone }) },
 }));
 
-const { approvalStateText, decide, deciding, isDecided, isWaiting } = await import(
-  "./approvals.ts"
-);
+const { approvalStateText, decide, decidedAs, deciding, isDecided, isWaiting, settledAs } =
+  await import("./approvals.ts");
 
 let calls = 0;
 function reply(status: number, body: unknown, wait = 0) {
@@ -36,6 +35,7 @@ describe("deciding an approval", () => {
     expect(calls).toBe(1);
     expect(deciding("a1")).toBe(false);
     expect(isDecided("a1")).toBe(true);
+    expect(decidedAs("a1")).toBe("executed");
     expect(shown).toEqual([{ text: "Approved and done.", tone: "info" }]);
     await decide("a1", "approve");
     expect(calls).toBe(1);
@@ -45,6 +45,8 @@ describe("deciding an approval", () => {
     reply(409, { status: "error", code: "conflict", message: "This was already denied." });
     await decide("a2", "approve");
     expect(isDecided("a2")).toBe(true);
+    // A yes that found it denied says it was denied, not that you approved it.
+    expect(decidedAs("a2")).toBe("denied");
     expect(shown).toEqual([{ text: "This was already denied.", tone: "info" }]);
   });
 
@@ -58,6 +60,7 @@ describe("deciding an approval", () => {
     reply(503, { status: "error", code: "unavailable", message: "Hearth is busy." });
     await decide("a3", "approve");
     expect(isDecided("a3")).toBe(false);
+    expect(decidedAs("a3")).toBe(null);
   });
 
   it("stops waiting for you the moment it's decided here, before the lists catch up", async () => {
@@ -66,11 +69,29 @@ describe("deciding an approval", () => {
     reply(200, { status: "ok", result: {} });
     await decide("a4", "deny");
     expect(isWaiting("a4", "pending")).toBe(false);
+    expect(decidedAs("a4")).toBe("denied");
     expect(shown).toEqual([{ text: "Denied.", tone: "info" }]);
+  });
+
+  it("reads what became of it from what Hearth said when it couldn't take the decision", () => {
+    const conflict = (message: string) => ({ code: "conflict", message });
+    expect(settledAs("deny", conflict("This was already approved and done."))).toBe("executed");
+    expect(settledAs("approve", conflict("This was already denied."))).toBe("denied");
+    expect(settledAs("deny", conflict("This was already approved, and it failed."))).toBe("failed");
+    expect(settledAs("deny", conflict("This is already being done."))).toBe("executing");
+    expect(settledAs("approve", conflict("This approval ran out before anyone decided."))).toBe(
+      "expired",
+    );
+    // Approved, and then it couldn't run: that's a failure, not a yes that went through.
+    expect(settledAs("approve", conflict("Hearth couldn't start this, so nothing was run."))).toBe(
+      "failed",
+    );
+    expect(settledAs("deny", { code: "not_found", message: "Approval not found" })).toBe("gone");
   });
 
   it("names each state in a few words", () => {
     expect(approvalStateText("executing")).toBe("Being done…");
     expect(approvalStateText("expired")).toBe("Ran out before you decided");
+    expect(approvalStateText("gone")).toBe("No longer waiting");
   });
 });

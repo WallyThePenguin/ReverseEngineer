@@ -5,6 +5,7 @@ import { action } from "./api.ts";
 import { affectedByChange } from "./invalidate.ts";
 import { live, queryClient, reportError } from "./live.ts";
 import { applyOptimistic } from "./optimistic.ts";
+import type { Approval } from "./types.ts";
 
 /**
  * Reads an action's result. Re-runs when `input` changes or a live event affects it, and every
@@ -30,6 +31,20 @@ export function useAction<T>(
  */
 export function inboxInput(view: "live" | "snoozed" | "done", lane?: "signal" | "noise") {
   return { view, lane: view === "live" ? lane : undefined, limit: 100 };
+}
+
+/** How many waiting approvals that read brings: past that, one left out of it may still wait. */
+export const PENDING_LIMIT = 50;
+
+/**
+ * The approvals waiting for your yes or no. The sidebar's count and a conversation's approval
+ * cards ask the same way, so they share one cached read, which any approval's change refreshes.
+ */
+export function usePendingApprovals() {
+  return useAction<Approval[]>("approval.list", () => ({
+    status: "pending",
+    limit: PENDING_LIMIT,
+  }));
 }
 
 /**

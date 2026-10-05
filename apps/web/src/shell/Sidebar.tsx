@@ -10,8 +10,8 @@ import { okToSignOut } from "../lib/docStore.ts";
 import { MOD } from "../lib/hotkeys.ts";
 import { live } from "../lib/live.ts";
 import { type ListView, layout } from "../lib/panes.ts";
-import { inboxInput, useAction } from "../lib/query.ts";
-import type { Approval, InboxRow } from "../lib/types.ts";
+import { inboxInput, useAction, usePendingApprovals } from "../lib/query.ts";
+import type { InboxRow } from "../lib/types.ts";
 
 /** Whether the sidebar is tucked away on a computer (it gives the panes room), remembered. */
 export const sidebar = createRoot(() => {
@@ -63,10 +63,7 @@ export function SidebarRail() {
  * card and the approval itself are the same thing). */
 export function useWaiting() {
   const inbox = useAction<InboxRow[]>("inbox.list", () => inboxInput("live", "signal"));
-  const approvals = useAction<Approval[]>("approval.list", () => ({
-    status: "pending",
-    limit: 50,
-  }));
+  const approvals = usePendingApprovals();
   return () => {
     const pending = new Set((approvals.data ?? []).map((a) => a.id));
     const unseen = (inbox.data ?? []).filter(

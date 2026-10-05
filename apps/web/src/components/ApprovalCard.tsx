@@ -15,7 +15,7 @@ import {
   onMount,
   Show,
 } from "solid-js";
-import { approvalStateText, decide, deciding, isWaiting } from "../lib/approvals.ts";
+import { approvalStateText, decide, decidedAs, deciding, isWaiting } from "../lib/approvals.ts";
 import { humanTimes } from "../lib/format.ts";
 import { Icon, type IconName } from "./icons.tsx";
 import { Card } from "./kit/Card.tsx";
@@ -29,6 +29,7 @@ const OUTCOME: Record<string, { icon: IconName; class: string }> = {
   denied: { icon: "x", class: "text-muted" },
   failed: { icon: "bad", class: "text-bad" },
   expired: { icon: "alarm-clock", class: "text-muted" },
+  gone: { icon: "info", class: "text-muted" },
 };
 
 const HEADING = "min-w-0 flex-1 text-heading break-words";
@@ -41,7 +42,10 @@ export function ApprovalCard(props: {
   why?: string | null;
   /** Exactly what would happen, such as an email's whole text. */
   text?: string | null;
-  /** "pending" while it waits for you, then what became of it. */
+  /**
+   * "pending" while it waits for you, then what became of it ("gone" when all that's known is
+   * that it no longer waits), or null while that isn't known yet.
+   */
   status: string | null;
   /** Jarvis is the one asking: the card carries its mark. */
   byJarvis?: boolean;
@@ -64,14 +68,19 @@ export function ApprovalCard(props: {
   const waiting = () => isWaiting(props.approvalId, props.status);
   // The calendar's times as you'd say them; the rest of it, and the text, exactly as written.
   const what = () => humanTimes(props.what);
-  // Decided here a moment ago, before the lists catch up with what became of it.
-  const outcome = () =>
-    props.status === "pending"
-      ? { text: "Decided", icon: "check" as const, class: "text-muted" }
-      : {
-          text: approvalStateText(props.status!),
-          ...(OUTCOME[props.status!] ?? { icon: "info" as const, class: "text-muted" }),
-        };
+  // What became of it: Hearth's word for it once the lists have it, and until then what came of
+  // deciding it here (your yes or no, or what Hearth said someone else had done first).
+  const state = () => {
+    const s = props.status;
+    return s && s !== "pending" && s !== "gone" ? s : (decidedAs(props.approvalId) ?? s);
+  };
+  const outcome = () => {
+    const s = state() ?? "gone";
+    return {
+      text: approvalStateText(s),
+      ...(OUTCOME[s] ?? { icon: "info" as const, class: "text-muted" }),
+    };
+  };
   return (
     <Card labelledby={id} class={props.class}>
       <div class="flex items-start gap-2">
@@ -100,9 +109,9 @@ export function ApprovalCard(props: {
       </div>
       <Show when={props.why}>{(why) => <p class="mt-1 text-sm text-muted">{why()}</p>}</Show>
       <Show when={props.text}>{(text) => <ExactText text={text()} />}</Show>
-      <Show when={props.status || meta()}>
+      <Show when={state() || meta()}>
         <div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-meta text-muted">
-          <Show when={!waiting() && props.status}>
+          <Show when={!waiting() && state()}>
             <p class="flex items-center gap-1.5">
               <Icon name={outcome().icon} size={14} class={outcome().class} />
               {outcome().text}
