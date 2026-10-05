@@ -3,7 +3,14 @@
 // words, a routine publishes its plain version, set-aside heartbeat items go back on the pile,
 // and an alert goes out when Jarvis looks broken rather than unlucky.
 import { weakerOrigin } from "@hearth/core";
-import { conversationLog, event, heartbeatItem, jarvisTurn, schedule } from "@hearth/db";
+import {
+  conversationLog,
+  event,
+  heartbeatItem,
+  jarvisTurn,
+  schedule,
+  type TurnOutcome,
+} from "@hearth/db";
 import {
   appendEvents,
   getSetting,
@@ -18,6 +25,7 @@ import { and, count, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import { BACKOFF_MINUTES, type Failure, failure, friendlyError, PASSING } from "./failures.ts";
 import { applyOutcomes } from "./outcomes.ts";
 import { writeLog } from "./threads.ts";
+import type { ToolCallRecord } from "./tools.ts";
 import { alertFailure } from "./turn-alerts.ts";
 import type { TurnLog } from "./turn-log.ts";
 
@@ -344,4 +352,17 @@ export async function recoverInterrupted(env: EndEnv): Promise<number> {
     await failTurn(env, end, failure("interrupted", "Interrupted by a restart"), 0);
   }
   return rows.length;
+}
+
+/** Tools that tell or note rather than act. */
+const QUIET_ACTIONS = new Set(["inbox.notify", "jarvis.observe", "record.read"]);
+
+/** What a turn that finished came to, from the tools it ran. */
+export function classifyOutcome(calls: ToolCallRecord[]): TurnOutcome {
+  const ok = calls.filter((c) => c.status === "ok");
+  if (ok.some((c) => c.risk !== "read" && !QUIET_ACTIONS.has(c.action))) return "act";
+  if (calls.some((c) => c.status === "pending_approval")) return "ask";
+  if (ok.some((c) => c.action === "inbox.notify")) return "tell";
+  if (ok.some((c) => c.action === "jarvis.observe")) return "note";
+  return "nothing";
 }

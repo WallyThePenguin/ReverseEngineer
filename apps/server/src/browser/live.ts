@@ -96,6 +96,9 @@ export class LiveView {
     }
     const tabId = this.watching.get(ws);
     if (tabId === undefined) return;
+    // You pressing or typing in the tab: Jarvis's steps there hold off for a moment (B1).
+    if (/^(mouse|wheel|key|text)$/.test(msg.type) && msg.kind !== "mouseMoved")
+      this.bridge.driver.ownerInput(tabId);
     switch (msg.type) {
       case "navigate":
         if (msg.url) await this.cdp(tabId, "Page.navigate", { url: msg.url });
@@ -243,7 +246,10 @@ export class LiveView {
       for (const ws of cast.viewers) {
         send(ws, {
           type: "error",
-          message: "Chrome stopped sharing that tab (the bar was closed).",
+          message:
+            e.params.reason === "released"
+              ? "Jarvis gave that tab back, so it isn't shared any more."
+              : "Chrome stopped sharing that tab (the bar was closed).",
         });
         this.watching.delete(ws);
       }

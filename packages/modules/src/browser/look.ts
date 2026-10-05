@@ -1,9 +1,10 @@
-// Looking at a page in your Chrome: as text, the way a person reads it, or as a picture. Pages are
-// outside content, so both make the rest of a turn untrusted (D25).
-import { defineAction, type ModelImage } from "@hearth/kernel";
+// Reading a page in your Chrome as text, the way a person reads it, with the older references
+// ("E4") the hands in act.ts still take; browser_read_page, browser_get_text and the screenshot
+// come from the server's driver (drive.ts). Pages are outside content, so reading one makes the
+// rest of a turn untrusted (D25).
+import { defineAction } from "@hearth/kernel";
 import { z } from "zod";
 import { assertAllowed, browser, CALLERS } from "./access.ts";
-import type { BrowserClient } from "./client.ts";
 import { findTab, type PageSnapshot, readPage, rememberLinks } from "./page.ts";
 
 /** The most of a page read at once; longer pages are cut off there. */
@@ -49,37 +50,11 @@ export function readResult(
   }
 }
 
-/** The size of what a tab shows, in the screenshot's pixels, and the page's zoom to get there. */
-export async function viewport(client: BrowserClient, tabId: number) {
-  const m = await client
-    .call<{
-      cssVisualViewport?: {
-        clientWidth: number;
-        clientHeight: number;
-        pageX: number;
-        pageY: number;
-      };
-      visualViewport?: { clientWidth: number; clientHeight: number };
-      cssContentSize?: { width: number; height: number };
-    }>("cdp", { tabId, method: "Page.getLayoutMetrics", params: {} })
-    .catch(() => null);
-  const css = m?.cssVisualViewport;
-  if (!css?.clientWidth) return null;
-  const scale = (m?.visualViewport?.clientWidth ?? css.clientWidth) / css.clientWidth || 1;
-  return {
-    css,
-    scale,
-    width: Math.round(css.clientWidth * scale),
-    height: Math.round(css.clientHeight * scale),
-    content: m?.cssContentSize ?? null,
-  };
-}
-
 export const lookActions = [
   defineAction({
     name: "browser.read",
     description:
-      "Read the page in a tab as text, the way a person sees it. Links show as references like [L4]; follow one with browser_open {tabId, link}. Things you can press or type into show as [button E3: Add to cart], [field E5: Search] and so on: use browser_click, browser_type, browser_choose and browser_submit with them. `sends` lists the ones that would send something. Long pages come in parts: pass next.offset to read on.",
+      "The older reader, for when browser_read_page or browser_get_text fails on a page. Reads the page in a tab as text, the way a person sees it. Links show as references like [L4]; follow one with browser_open {tabId, link}. Things you can press or type into show as [button E3: Add to cart], [field E5: Search] and so on: use browser_click, browser_type, browser_choose and browser_submit with them. `sends` lists the ones that would send something. Long pages come in parts: pass next.offset to read on.",
     input: z.object({
       tabId: z.number().int(),
       offset: z.number().int().min(0).default(0),
@@ -87,6 +62,7 @@ export const lookActions = [
     }),
     risk: "read",
     callers: CALLERS,
+    io: true,
     external: true,
     async handler(i, ctx) {
       const client = browser(ctx);
@@ -97,35 +73,6 @@ export const lookActions = [
       await assertAllowed(ctx, page.url);
       rememberLinks(i.tabId, page.url, page.links, page.elements);
       return readResult(i.tabId, page, i.offset, i.maxChars);
-    },
-  }),
-  defineAction({
-    name: "browser.screenshot",
-    description:
-      "Look at a tab: a picture of what it shows now, and its size in pixels. Use it when the page's look matters (a chart, a layout, a captcha) or reading it as text wasn't enough.",
-    input: z.object({ tabId: z.number().int() }),
-    risk: "read",
-    callers: CALLERS,
-    external: true,
-    async handler(i, ctx) {
-      const client = browser(ctx);
-      const tab = await findTab(client, i.tabId);
-      await assertAllowed(ctx, tab.url);
-      // Chrome only draws the tab showing in its window.
-      if (!tab.handed) await client.call("tabs.show", { tabId: i.tabId });
-      const size = await viewport(client, i.tabId);
-      const shot = await client.call<{ data: string }>("cdp", {
-        tabId: i.tabId,
-        method: "Page.captureScreenshot",
-        params: { format: "jpeg", quality: 60 },
-      });
-      const modelImages: ModelImage[] = [{ mimeType: "image/jpeg", data: shot.data }];
-      return {
-        tabId: i.tabId,
-        url: tab.url,
-        ...(size ? { width: size.width, height: size.height } : {}),
-        modelImages,
-      };
     },
   }),
 ];

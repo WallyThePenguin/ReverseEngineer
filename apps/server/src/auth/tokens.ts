@@ -1,7 +1,7 @@
 // Bearer tokens for browser sessions and API clients. Only a hash is stored; the token itself
 // is shown once, when it's made.
 import { timingSafeEqual } from "node:crypto";
-import type { PrincipalKind } from "@hearth/core";
+import { PRINCIPAL, type PrincipalKind } from "@hearth/core";
 import { createSession, type DbOrTx, hashToken, newToken, principal, session } from "@hearth/db";
 import { logLine } from "@hearth/kernel";
 import { and, eq, isNull, like, lte, not, or } from "drizzle-orm";
@@ -109,6 +109,39 @@ export async function checkToken(
   return result;
 }
 
+/** How long a check of one of Hearth's own internal tokens is remembered. */
+export const INTERNAL_CHECK_MS = 30_000;
+const internalChecks = new Map<string, { at: number; session: SessionPrincipal }>();
+/**
+ * Whose tokens are remembered: Jarvis's and the worker's, never an outside agent's, so revoking
+ * or disabling one (`hearth token revoke`, from any process) takes effect at once.
+ */
+const INTERNAL = new Set<string>([PRINCIPAL.jarvis, PRINCIPAL.system]);
+
+/**
+ * checkToken, remembering for a short while the answer for Jarvis's and the worker's own API
+ * tokens, which call the server many times a turn (B1: a browser step is one request, and its
+ * sign-in check shouldn't be a database read each time). Revoking a token forgets it at once.
+ */
+export async function checkTokenFast(
+  db: DbOrTx,
+  token: string,
+  now = new Date(),
+): Promise<TokenCheck> {
+  const hash = token && token.length <= 200 ? hashToken(token) : "";
+  const hit = hash ? internalChecks.get(hash) : undefined;
+  if (hit && now.getTime() - hit.at < INTERNAL_CHECK_MS)
+    return { ok: true, session: hit.session, extendedUntil: null };
+  const r = await checkToken(db, token, now);
+  const s = r.ok ? r.session : null;
+  if (s && s.sessionKind === "api" && !s.scopes && INTERNAL.has(s.principal)) {
+    internalChecks.set(hash, { at: now.getTime(), session: s });
+    if (internalChecks.size > 100)
+      internalChecks.delete(internalChecks.keys().next().value as string);
+  } else if (hash) internalChecks.delete(hash);
+  return r;
+}
+
 export async function resolveToken(
   db: DbOrTx,
   token: string,
@@ -119,6 +152,7 @@ export async function resolveToken(
 }
 
 export async function revokeToken(db: DbOrTx, token: string, now = new Date()): Promise<void> {
+  internalChecks.delete(hashToken(token));
   await db
     .update(session)
     .set({ revokedAt: now })

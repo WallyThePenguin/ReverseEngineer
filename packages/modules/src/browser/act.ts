@@ -1,20 +1,42 @@
 // Jarvis's hands in your Chrome (B2, D52): click, type, pick from lists and submit. Things are
-// found by the references the page reader gave them ("E4"). A press that would send something is
-// free on a site you trust, unless it hits the floor (payments, passwords and security, moving
-// money, deleting an account); otherwise it's refused here and goes through browser.submit, which
-// waits for your yes. Passwords are typed only by browser.sign_in, from the vault, and card
-// details never.
+// found by the refs browser_read_page gave them ("ref_12") or points in the last screenshot,
+// which go to the server's driver (B1, drive-act.ts), or by the older references browser_read
+// gave them ("E4"), which still work here. A press that would send something is free on a site
+// you trust, unless it hits the floor (payments, passwords and security, moving money, deleting
+// an account); otherwise it's refused and goes through browser.submit, which waits for your yes.
+// Passwords are typed only by browser.sign_in, from the vault, and card details never.
 import { type ActionContext, ActionError, defineAction } from "@hearth/kernel";
 import { z } from "zod";
 import { assertAllowed, browser, CALLERS } from "./access.ts";
 import { askWhy, isTrusted, judge, type Verdict } from "./classify.ts";
 import type { BrowserClient, TabInfo } from "./client.ts";
+import { DRIVER_REF, point } from "./drive.ts";
+import { driverClick, driverPress, driverProbe, driverType } from "./drive-act.ts";
 import { clickAt, insertText, pressKey } from "./input.ts";
 import { pace } from "./pace.ts";
 import { elementSeen, evaluate, pageCall, pageFunction } from "./page.ts";
 import { afterStep, assertSite, beforeStep, ref, SITE_CHECK, tabId, tabPin } from "./step.ts";
 
 export { afterStep } from "./step.ts";
+
+/** A ref from either reader: browser_read_page's "ref_12", or browser_read's "E4". */
+const anyRef = z
+  .string()
+  .regex(/^(ref_\d+|E\d+)$/)
+  .describe(
+    'Something on the page, by its ref from browser_read_page or browser_find ("ref_12"), or from browser_read ("E3").',
+  );
+
+/** Whether a step goes to the server's driver: anything but browser_read's "E4". */
+const toDriver = (r: string | undefined) => r === undefined || DRIVER_REF.test(r);
+
+/** A step where browser_read's references can't go: they need a ref_N from browser_read_page. */
+function legacyOnly(what: string): never {
+  throw new ActionError(
+    "invalid_input",
+    `${what} works with refs from browser_read_page ("ref_12"), not browser_read's. Read the page with browser_read_page.`,
+  );
+}
 
 const ACT = pageFunction("./page-act.js", "pageAct");
 const PROBE = pageFunction("./page-probe.js", "pageProbe");
@@ -97,7 +119,16 @@ async function assertMayPress(
 }
 
 /** "\"Email\" on shop.example", from what the page reader last saw. */
-function described(i: { tabId: number; ref: string; site?: string }): string {
+function described(i: {
+  tabId: number;
+  ref?: string | undefined;
+  coordinate?: number[] | undefined;
+  site?: string | undefined;
+}): string {
+  const on = i.site ? ` on ${i.site}` : "";
+  if (!i.ref)
+    return `${i.coordinate ? `[${i.coordinate.join(", ")}]` : "where the cursor is"} in tab ${i.tabId}${on}`;
+  if (DRIVER_REF.test(i.ref)) return `${i.ref} in tab ${i.tabId}${on}`;
   const seen = elementSeen(i.tabId, i.ref);
   const where = i.site ?? (seen ? new URL(seen.url).hostname : `tab ${i.tabId}`);
   const what = seen?.element?.label ? `"${seen.element.label}"` : i.ref;
@@ -125,48 +156,68 @@ export const actActions = [
   defineAction({
     name: "browser.click",
     description:
-      "Click something on a page by its reference (a button, tab, menu, checkbox...). On a site the owner trusts it presses anything but payments, passwords and security settings, money moves and account deletion; elsewhere it won't press what sends, posts or deletes (use browser_submit). Read the page again afterwards.",
-    input: z.object({ tabId, ref, site: SITE_CHECK.optional() }),
+      'Click something on a page (a button, link, tab, menu, checkbox...): by its ref from browser_read_page or browser_find, or at coordinate, a point [x, y] in the tab\'s last screenshot. button "right" opens a menu; clickCount 2 double-clicks; modifiers like "shift" or "ctrl+shift". On a site the owner trusts it presses anything but payments, passwords and security settings, money moves and account deletion; elsewhere it won\'t press what sends, posts or deletes (use browser_submit). It says what changed on the page; screenshot: true adds a picture.',
+    input: z.object({
+      tabId,
+      ref: anyRef.optional(),
+      coordinate: point.optional(),
+      button: z.enum(["left", "right", "middle"]).default("left"),
+      clickCount: z.number().int().min(1).max(3).default(1),
+      modifiers: z.string().max(40).optional(),
+      screenshot: z.boolean().default(false),
+      site: SITE_CHECK.optional(),
+    }),
     risk: "internal",
     callers: CALLERS,
+    io: true,
     // Results carry the page's own words (a button's name), so they're outside content.
     external: true,
     pin: tabPin,
     summarize: (i) => `Click ${described(i)}`,
     async handler(i, ctx) {
-      const { client, tab, known, el } = await locate(ctx, i, "inspect");
+      if (toDriver(i.ref)) return driverClick(ctx, i);
+      if (i.coordinate || i.button !== "left" || i.clickCount > 1 || i.modifiers || i.screenshot)
+        legacyOnly("Clicking with a coordinate, button, clickCount, modifiers or screenshot");
+      const ref = i.ref as string;
+      const { client, tab, known, el } = await locate(ctx, { tabId: i.tabId, ref }, "inspect");
       assertSite(tab, i.site);
       if (el.isLink)
         throw new ActionError(
           "invalid_input",
-          `${i.ref} is a link to a page; open it with browser_open and its [L] reference.`,
+          `${ref} is a link to a page; open it with browser_open and its [L] reference.`,
         );
       if (TYPEABLE.has(el.kind) || el.kind === "password field")
-        throw new ActionError("invalid_input", `${i.ref} is a ${el.kind}; use browser_type.`);
+        throw new ActionError("invalid_input", `${ref} is a ${el.kind}; use browser_type.`);
       await assertMayPress(ctx, tab, el, `Pressing "${el.label}"`);
-      assertPressable(el, i.ref);
-      await clickAt(client, i.tabId, i.ref, el.x, el.y);
+      assertPressable(el, ref);
+      await clickAt(client, i.tabId, ref, el.x, el.y);
       return { tabId: i.tabId, pressed: el.label, ...(await afterStep(ctx, client, tab, known)) };
     },
   }),
   defineAction({
     name: "browser.type",
     description:
-      "Type into a field or text area by its reference. Replaces what's there unless clear is false. Never presses Enter (browser_key or browser_submit does). Passwords are typed only by browser_sign_in, and card details never.",
+      "Type into a field or text area as real keystrokes: by its ref, or without one into whatever has the keyboard's focus (after a click, say). With a ref it replaces what's there unless clear is false. Never presses Enter (browser_key or browser_submit does). Passwords are typed only by browser_sign_in, and card details never.",
     input: z.object({
       tabId,
-      ref,
+      ref: anyRef.optional(),
       text: z.string().max(10_000),
       clear: z.boolean().default(true),
       site: SITE_CHECK.optional(),
     }),
     risk: "internal",
     callers: CALLERS,
+    io: true,
     external: true,
     pin: tabPin,
     summarize: (i) => `Type into ${described(i)}: "${i.text.slice(0, 120)}"`,
     async handler(i, ctx) {
-      const { client, tab, el } = await locate(ctx, i, "inspect");
+      if (toDriver(i.ref)) return driverType(ctx, i);
+      const { client, tab, el } = await locate(
+        ctx,
+        { tabId: i.tabId, ref: i.ref as string },
+        "inspect",
+      );
       assertSite(tab, i.site);
       if (el.kind === "password field")
         throw new ActionError(
@@ -177,7 +228,13 @@ export const actActions = [
       if (!TYPEABLE.has(el.kind))
         throw new ActionError("invalid_input", `${i.ref} is a ${el.kind}, not a field.`);
       if (el.disabled) throw new ActionError("failed", `"${el.label}" is disabled right now.`);
-      const ready = await locate(ctx, i, "focus", { clear: i.clear }, false);
+      const ready = await locate(
+        ctx,
+        { tabId: i.tabId, ref: i.ref as string },
+        "focus",
+        { clear: i.clear },
+        false,
+      );
       if (!ready.el.focused)
         throw new ActionError("failed", `Couldn't put the cursor in "${el.label}".`);
       if (i.text) await insertText(client, i.tabId, i.text);
@@ -187,10 +244,11 @@ export const actActions = [
   defineAction({
     name: "browser.choose",
     description:
-      'Pick an option in a list (by its text), or set a checkbox to "on" or "off", by reference.',
+      'Pick an option in a list (by its text), or set a checkbox to "on" or "off", by a reference from browser_read ("E3"). With refs from browser_read_page, use browser_form_input.',
     input: z.object({ tabId, ref, value: z.string().max(300), site: SITE_CHECK.optional() }),
     risk: "internal",
     callers: CALLERS,
+    io: true,
     external: true,
     pin: tabPin,
     summarize: (i) => `Set ${described(i)} to "${i.value}"`,
@@ -212,24 +270,34 @@ export const actActions = [
   defineAction({
     name: "browser.submit",
     description:
-      "Press something that sends, with the owner's yes: a form's submit button, Send, Buy, Post, or Enter in a field. Give the name it showed in browser_read as label; it's checked against the page before pressing.",
+      "Press something that sends, with the owner's yes: a form's submit button, Send, Buy, Post, or Enter in a field. Give its ref and the name it showed in browser_read_page as label; both are checked against the page before pressing.",
     input: z.object({
       tabId,
-      ref,
+      ref: anyRef,
       label: z
         .string()
         .max(200)
-        .describe("Its name as browser_read showed it, e.g. 'Place order'."),
+        .describe("Its name as browser_read_page showed it, e.g. 'Place order'."),
       site: SITE_CHECK.describe("The site the page is on, e.g. shop.example."),
       sends: SENDS.optional(),
     }),
     risk: "outward",
     callers: CALLERS,
+    io: true,
     external: true,
     // Pinned to what the press would send, so the card can show it and the press is refused if
     // the page or the form changed by the time it's approved.
     async pin(i, services) {
       const client = services.service<BrowserClient>("browser");
+      if (DRIVER_REF.test(i.ref)) {
+        // The tab's address, even for a form in a frame from another site: the approved press
+        // then runs only while the tab is still on that site.
+        const [tab, sends] = await Promise.all([
+          tabPin(i, services),
+          driverProbe(client, i.tabId, i.ref),
+        ]);
+        return tab && sends ? { url: tab.url, extra: { sends } } : null;
+      }
       const sends = await probeForm(client, i.tabId, i.ref);
       return sends ? { url: sends.url, extra: { sends } } : null;
     },
@@ -238,6 +306,7 @@ export const actActions = [
       return `Press "${i.label}" on ${i.site}${fields.length ? `, sending ${fields.join(", ")}` : ""}`;
     },
     async handler(i, ctx) {
+      if (DRIVER_REF.test(i.ref)) return driverPress(ctx, i);
       const { client, tab, known, el } = await locate(ctx, i, "inspect");
       assertSite(tab, i.site);
       if (!same(el.label, i.label))

@@ -1,11 +1,10 @@
-// Moving around in a tab (D52): go to an address, back, forward or reload; scroll with the mouse
-// wheel; wait a moment, or for a page to load.
+// Moving around in a tab (D52): go to an address, back, forward or reload; wait a moment, or for a
+// page to load. Scrolling is the driver's (drive-act.ts).
 import { ActionError, defineAction } from "@hearth/kernel";
 import { z } from "zod";
 import { assertAllowed, browser, CALLERS } from "./access.ts";
 import type { BrowserClient, TabInfo } from "./client.ts";
 import { cdp } from "./input.ts";
-import { viewport } from "./look.ts";
 import { pace } from "./pace.ts";
 import { findTab, forgetLinks, waitForLoad } from "./page.ts";
 import { tabId } from "./step.ts";
@@ -79,6 +78,7 @@ export const navigateActions = [
     }),
     risk: "read",
     callers: CALLERS,
+    io: true,
     // It reports the page's own address and title.
     external: true,
     opensUrl: (i) => (moveOf(i.url) ? null : i.url),
@@ -119,60 +119,6 @@ export const navigateActions = [
     },
   }),
   defineAction({
-    name: "browser.scroll",
-    description:
-      "Scroll a tab with the mouse wheel: up, down, left or right, by amount wheel steps (about 100 pixels each). Give coordinate, a point [x, y] in the tab's last screenshot, to scroll a part of the page (a list, a map); otherwise it scrolls the middle of the page.",
-    input: z.object({
-      tabId,
-      direction: z.enum(["up", "down", "left", "right"]),
-      amount: z.number().int().min(1).max(30).default(3),
-      coordinate: z.tuple([z.number().min(0), z.number().min(0)]).optional(),
-    }),
-    risk: "read",
-    callers: CALLERS,
-    async handler(i, ctx) {
-      const client = browser(ctx);
-      const tab = await findTab(client, i.tabId);
-      await assertAllowed(ctx, tab.url);
-      const before = await viewport(client, i.tabId);
-      const scale = before?.scale ?? 1;
-      const [x, y] = i.coordinate
-        ? [i.coordinate[0] / scale, i.coordinate[1] / scale]
-        : [(before?.css.clientWidth ?? 800) / 2, (before?.css.clientHeight ?? 600) / 2];
-      const step = i.amount * 100;
-      const deltaX = i.direction === "left" ? -step : i.direction === "right" ? step : 0;
-      const deltaY = i.direction === "up" ? -step : i.direction === "down" ? step : 0;
-      await cdp(client, i.tabId, "Input.dispatchMouseEvent", {
-        type: "mouseWheel",
-        x,
-        y,
-        deltaX,
-        deltaY,
-      });
-      // Smooth scrolling takes a moment to land.
-      await sleep(350);
-      const after = await viewport(client, i.tabId);
-      const at = (v: typeof after) =>
-        v ? { x: Math.round(v.css.pageX), y: Math.round(v.css.pageY) } : null;
-      const from = at(before);
-      const to = at(after);
-      return {
-        tabId: i.tabId,
-        scrolled: i.direction,
-        position: to,
-        moved: from && to ? from.x !== to.x || from.y !== to.y : null,
-        ...(after?.content
-          ? {
-              pageSize: {
-                width: Math.round(after.content.width),
-                height: Math.round(after.content.height),
-              },
-            }
-          : {}),
-      };
-    },
-  }),
-  defineAction({
     name: "browser.wait",
     description:
       "Wait a few seconds (10 at most) for a page to settle, and with tabId, for that tab to finish loading.",
@@ -182,6 +128,7 @@ export const navigateActions = [
     }),
     risk: "read",
     callers: CALLERS,
+    io: true,
     async handler(i, ctx) {
       const started = Date.now();
       await sleep(i.seconds * 1000);

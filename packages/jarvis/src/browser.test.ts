@@ -1,5 +1,5 @@
 import { DEFAULT_SITE_RULES } from "@hearth/core";
-import { approval } from "@hearth/db";
+import { approval, jarvisTurn } from "@hearth/db";
 import { newId, ownerCaller } from "@hearth/kernel";
 import { BROWSER_SERVICE } from "@hearth/modules";
 import { FakeBrowser, instantLoads } from "@hearth/modules/testing";
@@ -50,6 +50,10 @@ describe("Jarvis browsing in a turn", () => {
     expect(pending).toMatchObject({ action: "browser.open", origin: "untrusted" });
     // The address in the page's text was seen, so it could be opened; nothing else was.
     expect(chrome.tabs.map((t) => t.url)).toEqual(["https://shop.example/k/1"]);
+    // The turn's tabs share a tab group of their own (B1).
+    const [turn] = await h.tdb.db.select().from(jarvisTurn);
+    const opened = chrome.calls.find((c) => c.method === "tabs.open");
+    expect(opened?.params).toEqual({ url: SHOP, group: turn?.id });
   });
 
   it("refuses blocked sites before reaching Chrome", async () => {
@@ -66,6 +70,14 @@ describe("Jarvis browsing in a turn", () => {
 
   it("hands Jarvis a screenshot as a picture, not as text", async () => {
     chrome.hand(SHOP);
+    // The server's driver takes it (B1).
+    chrome.driver = (_op, p) => ({
+      tabId: p.tabId,
+      url: SHOP,
+      imageW: 1280,
+      imageH: 800,
+      image: { mimeType: "image/jpeg", data: "SlBFRw==" },
+    });
     const state: TurnState = {
       turnId: newId(),
       conversationId: newId(),

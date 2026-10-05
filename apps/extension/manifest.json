@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Hearth",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Lets Jarvis use this Chrome for you, from your own Hearth.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoYYagwF4/y0xXqpQlfV03y8jQT5jjG3RsT43ENkmOKX45ZNv0+txAwPzCuNJtt8dbqDjtliN2jUiSM78g/x/ySv96LLOipJlW848/YU+zCLdYpGM4XCX9xFdAgi3r89kqwFFY7+kf9egfkl70Y4m6Y6vMEVJe5wu/5+apNnrPf/SL6cX/95UfZb+4zWYmCORB2lsbJPuGU8x1H7rwsaIiixa7Zw7fEFvW5YCQz2GBqaIjtLg0Zyek/Osrjv4v1/dDQQeBvZWr2lwvxPL4qwtymVQmtz8r4Wo1toi+KD3U6JKYwtZUF8kvaztWo+UaADvnXAskohzxCMlaHrDFFBwpQIDAQAB",
-  "minimum_chrome_version": "120",
+  "minimum_chrome_version": "125",
   "permissions": [
     "debugger",
     "tabs",

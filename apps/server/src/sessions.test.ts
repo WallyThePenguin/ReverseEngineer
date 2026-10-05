@@ -7,7 +7,14 @@ import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { authenticate } from "./auth/middleware.ts";
 import { registrationOptions, relyingParty } from "./auth/passkeys.ts";
-import { checkToken, hashToken, revokeToken } from "./auth/tokens.ts";
+import {
+  checkToken,
+  checkTokenFast,
+  createApiToken,
+  hashToken,
+  revokeApiTokens,
+  revokeToken,
+} from "./auth/tokens.ts";
 import type { AppEnv, ServerDeps } from "./env.ts";
 import { eventRoutes } from "./routes/events.ts";
 import { createTestServer, TEST_ORIGIN, type TestServer } from "./testing/server.ts";
@@ -197,5 +204,50 @@ describe("passkey challenges", () => {
     const left = await t.kernel.db.select({ id: authChallenge.id }).from(authChallenge);
     expect(left.map((r) => r.id)).not.toContain("old");
     expect(left).toHaveLength(1);
+  });
+});
+
+describe("Hearth's own tokens", () => {
+  it("remembers an internal token's check for a moment, and forgets it when it's revoked", async () => {
+    const internal = await createSession(
+      t.kernel.db,
+      { principal: PRINCIPAL.jarvis, kind: "api", ttlDays: 1 },
+      T0,
+    );
+    const revokeInDb = (token: string) =>
+      t.kernel.db
+        .update(session)
+        .set({ revokedAt: at(MIN) })
+        .where(eq(session.tokenHash, hashToken(token)));
+    expect((await checkTokenFast(t.kernel.db, internal, at(MIN))).ok).toBe(true);
+    // Remembered: a change in the database shows only once the moment has passed.
+    await revokeInDb(internal);
+    expect((await checkTokenFast(t.kernel.db, internal, at(MIN + 5_000))).ok).toBe(true);
+    expect((await checkTokenFast(t.kernel.db, internal, at(2 * MIN))).ok).toBe(false);
+    // Revoking through Hearth forgets it at once.
+    const other = await createSession(
+      t.kernel.db,
+      { principal: PRINCIPAL.jarvis, kind: "api", ttlDays: 1 },
+      T0,
+    );
+    expect((await checkTokenFast(t.kernel.db, other, at(MIN))).ok).toBe(true);
+    await revokeToken(t.kernel.db, other, at(MIN));
+    expect((await checkTokenFast(t.kernel.db, other, at(MIN + 1_000))).ok).toBe(false);
+    // Your own sign-ins are always checked afresh.
+    const yours = await browserSession();
+    expect((await checkTokenFast(t.kernel.db, yours, at(MIN))).ok).toBe(true);
+    await revokeInDb(yours);
+    expect((await checkTokenFast(t.kernel.db, yours, at(MIN + 1_000))).ok).toBe(false);
+  });
+
+  it("checks an outside agent's token afresh, so revoking it from the CLI works at once", async () => {
+    const { token } = await createApiToken(t.kernel.db, "helper");
+    expect((await checkTokenFast(t.kernel.db, token, at(MIN))).ok).toBe(true);
+    // As `hearth token revoke` does, from another process: nothing here hears of it.
+    await revokeApiTokens(t.kernel.db, "helper", at(MIN));
+    expect(await checkTokenFast(t.kernel.db, token, at(MIN + 1_000))).toMatchObject({
+      ok: false,
+      reason: "revoked",
+    });
   });
 });

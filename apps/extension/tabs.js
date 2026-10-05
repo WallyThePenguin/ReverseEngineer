@@ -5,16 +5,21 @@
 import { assertWebUrl, HearthError } from "./rules.js";
 
 const GROUP_TITLE = "Jarvis";
+/** Each piece of work's group gets one of these, so groups side by side tell apart. */
+const COLORS = /** @type {const} */ (["blue", "cyan", "green", "orange", "pink", "yellow", "red"]);
+/** How many pieces of work's groups are remembered. */
+const KEPT_GROUPS = 20;
 
 /**
- * `from` is the tab each adopted pop-up came from.
- * @typedef {{ windowId: number | null, own: number[], handed: number[], from: Record<string, number> }} TabState
+ * `from` is the tab each adopted pop-up came from; `groups` the tab group of each piece of work
+ * (a Jarvis turn), by its key.
+ * @typedef {{ windowId: number | null, own: number[], handed: number[], from: Record<string, number>, groups: Record<string, number> }} TabState
  */
 
 /** @returns {Promise<TabState>} */
 export async function tabState() {
   return /** @type {TabState} */ (
-    await chrome.storage.session.get({ windowId: null, own: [], handed: [], from: {} })
+    await chrome.storage.session.get({ windowId: null, own: [], handed: [], from: {}, groups: {} })
   );
 }
 
@@ -104,16 +109,48 @@ async function jarvisWindow() {
   return win ? windowId : null;
 }
 
-/** @param {number} tabId @param {number} windowId @param {boolean} fresh a window Jarvis just made */
-async function addToGroup(tabId, windowId, fresh = false) {
+/**
+ * The group a tab joins in Jarvis's window: its piece of work's, if it has one and that's still
+ * there, or else the plain "Jarvis" group.
+ * @param {number} windowId @param {boolean} fresh a window Jarvis just made
+ * @param {string | null} work the piece of work (a Jarvis turn) the tab is for
+ */
+async function groupFor(windowId, fresh, work) {
+  if (work !== null) {
+    const known = (await tabState()).groups[work];
+    const group = known === undefined ? null : await chrome.tabGroups.get(known).catch(() => null);
+    return group?.windowId === windowId ? group : null;
+  }
   // In a window Jarvis just made, a "Jarvis" group already there came back with your last session.
-  const [group] = fresh ? [] : await chrome.tabGroups.query({ windowId, title: GROUP_TITLE });
+  if (fresh) return null;
+  const [group] = await chrome.tabGroups.query({ windowId, title: GROUP_TITLE });
+  return group ?? null;
+}
+
+/**
+ * Puts a tab in a group in Jarvis's window. Each piece of work gets a group of its own, named for
+ * when it started, so you can see what each one opened.
+ * @param {number} tabId @param {number} windowId @param {boolean} fresh a window Jarvis just made
+ * @param {string | null} work the piece of work (a Jarvis turn) the tab is for
+ */
+async function addToGroup(tabId, windowId, fresh = false, work = null) {
+  const group = await groupFor(windowId, fresh, work);
   if (group) {
     await chrome.tabs.group({ groupId: group.id, tabIds: [tabId] });
     return;
   }
   const groupId = await chrome.tabs.group({ tabIds: [tabId], createProperties: { windowId } });
-  await chrome.tabGroups.update(groupId, { title: GROUP_TITLE, color: "purple" });
+  if (work === null) {
+    await chrome.tabGroups.update(groupId, { title: GROUP_TITLE, color: "purple" });
+    return;
+  }
+  const at = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const hash = [...work].reduce((n, c) => n + c.charCodeAt(0), 0);
+  const color = COLORS[hash % COLORS.length] ?? "blue";
+  await chrome.tabGroups.update(groupId, { title: `${GROUP_TITLE} ${at}`, color });
+  await edit(({ groups }) => ({
+    groups: Object.fromEntries([...Object.entries(groups), [work, groupId]].slice(-KEPT_GROUPS)),
+  }));
 }
 
 // Changes to Jarvis's window happen one at a time, so two pages opened at once share a window.
@@ -163,8 +200,12 @@ async function leaveRestored() {
   for (const id of mine) await addToGroup(id, moved);
 }
 
-/** Opens a page in Jarvis's window, making the window (without focus) if it's gone. */
-export function openTab(/** @type {string} */ url, show = true) {
+/**
+ * Opens a page in Jarvis's window, making the window (without focus) if it's gone.
+ * @param {string} url
+ * @param {string | null} work the piece of work (a Jarvis turn) it's for, whose group it joins
+ */
+export function openTab(url, show = true, work = null) {
   assertWebUrl(url);
   return inTurn(async () => {
     let windowId = await jarvisWindow();
@@ -184,7 +225,7 @@ export function openTab(/** @type {string} */ url, show = true) {
     }
     const tabId = tab.id;
     if (tabId === undefined) throw new Error("Chrome didn't open a tab.");
-    await addToGroup(tabId, windowId, made);
+    await addToGroup(tabId, windowId, made, work);
     await edit(({ own }) => ({ own: [...own, tabId] }));
     await leaveRestored();
     return info(await chrome.tabs.get(tabId), false);
@@ -236,16 +277,24 @@ export async function adopt(openerTabId, tabId) {
     }
     return null;
   });
-  if (adopted === "own") await joinGroup(tabId);
+  if (adopted === "own") await joinGroup(tabId, openerTabId);
   return adopted !== null;
 }
 
-/** A tab Jarvis adopts in its own window joins the "Jarvis" group; a pop-up window has none. */
-/** @param {number} tabId */
-async function joinGroup(tabId) {
+/**
+ * A tab Jarvis adopts in its own window joins the group of the tab that opened it, or else the
+ * "Jarvis" group; a pop-up window has none.
+ * @param {number} tabId @param {number} openerTabId
+ */
+async function joinGroup(tabId, openerTabId) {
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   const windowId = await jarvisWindow();
   if (!tab || windowId === null || tab.windowId !== windowId || tab.groupId !== -1) return;
+  const opener = await chrome.tabs.get(openerTabId).catch(() => null);
+  if (opener && opener.windowId === windowId && opener.groupId !== -1) {
+    await chrome.tabs.group({ groupId: opener.groupId, tabIds: [tabId] }).catch(() => {});
+    return;
+  }
   await addToGroup(tabId, windowId).catch(() => {});
 }
 

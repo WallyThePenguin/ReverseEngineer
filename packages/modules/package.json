@@ -7,6 +7,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./testing": "./src/browser/testing.ts",
+    "./driver-kit": "./src/browser/driver-kit.ts",
+    "./chromium": "./src/browser/chromium.ts",
     "./google-testing": "./src/google/fake.ts"
   },
   "dependencies": {

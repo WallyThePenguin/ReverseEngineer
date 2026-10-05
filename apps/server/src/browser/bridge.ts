@@ -1,7 +1,7 @@
 // The server's end of the Hearth extension (D24, D52): one WebSocket from your Chrome, requests
 // out, results and page events back. Jarvis, the worker and the live view all go through here.
 // When Jarvis opens a page and Chrome is closed, this opens Chrome first (D28). The link speaks
-// protocol 2, is dropped when it misses two pings, and keeps a short log of what happened on it.
+// protocol 3, is dropped when it misses two pings, and keeps a short log of what happened on it.
 import { ActionError } from "@hearth/kernel";
 import {
   BRIDGE_PROTOCOL,
@@ -14,11 +14,14 @@ import {
 } from "@hearth/modules";
 import type { WebSocket } from "ws";
 import { BridgeLog } from "./bridge-log.ts";
+import { Driver } from "./driver/driver.ts";
 import type { ChromeLauncher } from "./launch.ts";
 import { ChromeOpener, type OpenTiming } from "./opener.ts";
 
 export interface CdpEvent {
   tabId: number;
+  /** The child session of a frame from another site, when the event is that frame's (B1). */
+  sessionId?: string;
   method: string;
   params: Record<string, unknown>;
 }
@@ -75,10 +78,13 @@ export class BrowserBridge implements BrowserClient {
   private readonly opener: ChromeOpener;
   /** Whether an extension is paired, as last seen. Null until known. */
   private paired: boolean | null = null;
+  /** The server-side driver (B1): driver.* requests run here, next to the link. */
+  readonly driver: Driver;
 
   constructor(opts: BridgeOptions = {}) {
     const isPaired = opts.isPaired ?? (async () => true);
     this.pingMs = opts.pingMs ?? PING_MS;
+    this.driver = new Driver(this);
     const check = async () => {
       this.paired = await isPaired();
       return this.paired;
@@ -185,6 +191,12 @@ export class BrowserBridge implements BrowserClient {
     params: Record<string, unknown> = {},
     timeoutMs = CALL_TIMEOUT_MS,
   ): Promise<T> {
+    if (m.startsWith("driver.")) {
+      // An extension from before B1 has no frame sessions or setup: it reloads itself first.
+      if (this.socket && (this.hello?.protocol ?? 0) < BRIDGE_PROTOCOL)
+        throw new ActionError("unavailable", this.problem() ?? OFFLINE_MESSAGE);
+      return this.driver.run(m.slice("driver.".length), params) as Promise<T>;
+    }
     if (!this.socket && m === "tabs.open" && this.opener.state().canOpen) await this.open();
     const ws = this.socket;
     if (!ws) throw new ActionError("unavailable", OFFLINE_MESSAGE);
@@ -271,6 +283,8 @@ export class BrowserBridge implements BrowserClient {
       error?: string;
       code?: string;
       tabId?: number;
+      sessionId?: string;
+      reason?: string;
       method?: string;
       params?: Record<string, unknown>;
       tabs?: TabInfo[];
@@ -300,11 +314,20 @@ export class BrowserBridge implements BrowserClient {
     } else if (this.socket !== ws) {
       // A replaced link's events and tabs are old news.
     } else if (msg.type === "event" && typeof msg.tabId === "number" && msg.method) {
-      const event = { tabId: msg.tabId, method: msg.method, params: msg.params ?? {} };
+      const event = {
+        tabId: msg.tabId,
+        ...(typeof msg.sessionId === "string" ? { sessionId: msg.sessionId } : {}),
+        method: msg.method,
+        params: msg.params ?? {},
+      };
       for (const listener of this.eventListeners) listener(event);
     } else if (msg.type === "detached" && typeof msg.tabId === "number") {
       for (const listener of this.eventListeners)
-        listener({ tabId: msg.tabId, method: "Hearth.detached", params: {} });
+        listener({
+          tabId: msg.tabId,
+          method: "Hearth.detached",
+          params: { reason: typeof msg.reason === "string" ? msg.reason : "" },
+        });
     } else if (msg.type === "tabs" && Array.isArray(msg.tabs)) {
       this.tabs = msg.tabs;
       this.notify();

@@ -1,7 +1,7 @@
 // Runs queued turns: builds the prompt and tools, runs the brain within its lane's time limit,
 // logs everything to the conversation, posts the reply where it was asked, and records how the
 // turn ended. A failure is told in plain words and tried again only when that's safe (D54).
-import { conversation, jarvisTurn, type TurnOutcome } from "@hearth/db";
+import { conversation, jarvisTurn } from "@hearth/db";
 import { getSetting, jarvisCaller, type Kernel } from "@hearth/kernel";
 import { type LogEntry, recallMemory, renderMemory } from "@hearth/modules";
 import { and, asc, desc, eq, lte, sql } from "drizzle-orm";
@@ -16,6 +16,16 @@ import { buildTools, readRecord, type ToolCallRecord, type TurnState } from "./t
 import { checkOpen } from "./trust.ts";
 import { alertLeftOut } from "./turn-alerts.ts";
 import {
+  bounded,
+  Deadline,
+  keepSession,
+  OUT_OF_STEPS,
+  replyOf,
+  TURN_LIMIT_MS,
+  thinkOn,
+} from "./turn-budget.ts";
+import {
+  classifyOutcome,
   type Ending,
   expireQueued,
   failTurn,
@@ -28,9 +38,6 @@ import {
 import type { TurnLog } from "./turn-log.ts";
 
 export type TurnRow = typeof jarvisTurn.$inferSelect;
-
-/** How long a turn may run before it's stopped, by lane; a voice command is waited on (D54). */
-export const TURN_LIMIT_MS = { fast: 10 * 60_000, deep: 30 * 60_000, voice: 2 * 60_000 };
 
 export interface RunnerOptions {
   kernel: Kernel;
@@ -48,19 +55,9 @@ export interface RunnerOptions {
 const REPLY_IN_THREAD = new Set(["mention", "assignment", "watch", "approval"]);
 /** Turns whose answer is pasted where nothing can approve it: they only rewrite text (D42). */
 const NO_TOOLS = new Set(["voice_command"]);
-const QUIET_ACTIONS = new Set(["inbox.notify", "jarvis.observe", "record.read"]);
 const WEB_TOOLS = new Set(["WebSearch", "WebFetch"]);
 /** What a tool says once its turn has been stopped or run out of time. */
 const ENDED = "Not run: this turn has been stopped. Don't call any more tools.";
-
-export function classifyOutcome(calls: ToolCallRecord[]): TurnOutcome {
-  const ok = calls.filter((c) => c.status === "ok");
-  if (ok.some((c) => c.risk !== "read" && !QUIET_ACTIONS.has(c.action))) return "act";
-  if (calls.some((c) => c.status === "pending_approval")) return "ask";
-  if (ok.some((c) => c.action === "inbox.notify")) return "tell";
-  if (ok.some((c) => c.action === "jarvis.observe")) return "note";
-  return "nothing";
-}
 
 /** A request without the tools Claude rejected, so one bad definition can't stop every turn. */
 function withoutTools(req: BrainRequest, leftOut: Set<string>): BrainRequest {
@@ -161,20 +158,21 @@ export class TurnRunner {
 
   async run(turn: TurnRow): Promise<void> {
     const started = performance.now();
-    const limit = this.limitFor(turn);
     const stop = new AbortController();
     this.aborts.set(turn.id, stop);
-    const signal = AbortSignal.any([stop.signal, AbortSignal.timeout(limit)]);
+    const deadline = new Deadline(this.limitFor(turn), this.limits.browser, stop.signal);
     const watching = this.watchForStop(turn.id, stop);
     const end = newEnding(turn);
     try {
-      await this.attempt(end, signal, started);
+      await this.attempt(end, deadline, started);
     } catch (err) {
+      // A turn that used the browser may have had longer than its lane gives.
+      const limit = deadline.limitMs;
       // Stop may be on the row before its signal arrives: a turn you stopped isn't queued again.
       const canceled = stop.signal.aborted || (await stopRequested(this.kernel, turn.id));
       const f: Failure = canceled
         ? failure("canceled", "Stopped by the owner")
-        : signal.aborted
+        : deadline.signal.aborted
           ? failure("timeout", `Ran past its ${Math.round(limit / 60_000)}-minute limit`)
           : classifyFailure(err);
       this.log(`turn ${turn.id} failed (${f.kind})`, err);
@@ -183,6 +181,7 @@ export class TurnRunner {
         this.log(`recording the failure of turn ${turn.id} failed`, e),
       );
     } finally {
+      deadline.clear();
       clearInterval(watching);
       this.aborts.delete(turn.id);
       await this.reportHealth().catch((err) => this.log("reporting health failed", err));
@@ -200,7 +199,7 @@ export class TurnRunner {
     return timer;
   }
 
-  private async attempt(end: Ending, signal: AbortSignal, started: number): Promise<void> {
+  private async attempt(end: Ending, deadline: Deadline, started: number): Promise<void> {
     const { turn } = end;
     const cid = await ensureConversation(this.kernel, turn);
     end.conversationId = cid;
@@ -269,17 +268,15 @@ export class TurnRunner {
         ? { readEarlier: conv.taintSource ?? "outside content" }
         : {}),
     });
-    const tools = bare
+    const built = bare
       ? []
       : buildTools(this.kernel, state, (kind, payload) => {
           // Counted as it starts: one still running when the model fails may yet do its thing.
           if (kind === "tool_call") end.started++;
           return log([{ kind, payload, turnId: turn.id }]);
-        }).map((t) => ({
-          ...t,
-          // Stopped or out of time: nothing more runs, whatever the brain goes on to ask.
-          run: (input: unknown) => (signal.aborted ? Promise.resolve(ENDED) : t.run(input)),
-        }));
+        });
+    // Stopped or out of time: nothing more runs. A browser tool gives the turn more time (B1).
+    const tools = bounded(built, deadline, ENDED);
     const stream = streamer(this.pool, cid, turn.id);
     const events: BrainEvents = {
       onText: (d) => stream.push(d),
@@ -301,23 +298,24 @@ export class TurnRunner {
       tools,
       ...(bare ? { web: false } : {}),
       sessionId: conv?.agentSessionId ?? null,
-      signal,
+      signal: deadline.signal,
     };
-    // However it ends, the next turn here knows what this one read (before its session is kept).
-    const result = await this.think(end, request, events).finally(async () => {
+    const think = (req: BrainRequest) => this.think(end, req, events);
+    // A kept session holds what was read, so the conversation remembers that first (D58).
+    const remember = () => keepTaint(this.kernel, cid, state, conv);
+    const keep = (id: string) => remember().then(() => keepSession(this.kernel, cid, id));
+    // However it ends, the next turn here knows what this one read.
+    const result = await thinkOn(request, think, state.calls, keep).finally(() => {
       stream.end();
-      await keepTaint(this.kernel, cid, state, conv);
+      return remember();
     });
     end.answered = true;
     end.firstTokenMs = result.firstTokenMs;
+    // Out of steps isn't a failure: it stops with what it said and offers to carry on (B1).
+    if (result.outOfSteps)
+      void log([{ kind: "assistant_message", payload: { text: OUT_OF_STEPS }, turnId: turn.id }]);
     await chain;
-    if (result.sessionId) {
-      await this.kernel.db
-        .update(conversation)
-        .set({ agentSessionId: result.sessionId })
-        .where(eq(conversation.entityId, cid));
-    }
-    const reply = result.text.trim();
+    const reply = replyOf(result);
     if (reply && turn.subjectId && REPLY_IN_THREAD.has(turn.trigger) && !state.postedToSubject) {
       const posted = await this.kernel.execute(
         "comment.create",

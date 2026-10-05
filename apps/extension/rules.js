@@ -3,7 +3,7 @@
 // same ones. Nothing here uses the chrome.* APIs, so the tests can load this file as it is.
 
 /** The link's protocol version. Raise it when the server and the extension must change together. */
-export const PROTOCOL = 2;
+export const PROTOCOL = 3;
 
 /**
  * The protocol commands Hearth may send to a tab: what it needs to look at, stream and operate a
@@ -28,6 +28,79 @@ export const ALLOWED = new Set([
   "Input.dispatchKeyEvent",
   "Input.insertText",
   "Emulation.setFocusEmulationEnabled",
+  // B1, the server's driver (D52): load progress, the accessibility tree, where things are on
+  // the page by their node numbers, and Hearth's own isolated worlds. Frames from other sites
+  // come in as child sessions of the tab.
+  "Page.setLifecycleEventsEnabled",
+  "Accessibility.enable",
+  "Accessibility.getFullAXTree",
+  "Accessibility.getPartialAXTree",
+  "DOM.describeNode",
+  "DOM.resolveNode",
+  "DOM.getContentQuads",
+  "DOM.getBoxModel",
+  "DOM.getNodeForLocation",
+  "DOM.scrollIntoViewIfNeeded",
+  "Runtime.callFunctionOn",
+  "Runtime.getProperties",
+  "Runtime.releaseObjectGroup",
+  "Log.enable",
+  "Target.setAutoAttach",
+]);
+
+/**
+ * What a tab's debugger session turns on as Hearth attaches (B1): the page's events (dialogs,
+ * navigations, load progress), the browser's log, the accessibility tree, focus emulation (so a
+ * tab behind another still takes keys and draws for a screenshot), and child sessions for frames
+ * from other sites, which run in their own processes. Not Runtime: pages can tell when it's on.
+ * @type {[string, Record<string, unknown>][]}
+ */
+export const SESSION_SETUP = [
+  ["Page.enable", {}],
+  ["Page.setLifecycleEventsEnabled", { enabled: true }],
+  ["Log.enable", {}],
+  ["Accessibility.enable", {}],
+  ["Emulation.setFocusEmulationEnabled", { enabled: true }],
+  [
+    "Target.setAutoAttach",
+    {
+      autoAttach: true,
+      waitForDebuggerOnStart: false,
+      flatten: true,
+      filter: [{ type: "iframe" }],
+    },
+  ],
+];
+
+/**
+ * The same for a frame's child session, which shares the tab's focus and log.
+ * @type {[string, Record<string, unknown>][]}
+ */
+export const CHILD_SETUP = [
+  ["Page.enable", {}],
+  ["Page.setLifecycleEventsEnabled", { enabled: true }],
+  ["Accessibility.enable", {}],
+  [
+    "Target.setAutoAttach",
+    {
+      autoAttach: true,
+      waitForDebuggerOnStart: false,
+      flatten: true,
+      filter: [{ type: "iframe" }],
+    },
+  ],
+];
+
+/**
+ * Page events the server has no use for, which the extension keeps to itself: the accessibility
+ * tree's change notices, and the protocol's bookkeeping of script contexts.
+ */
+export const QUIET_EVENTS = new Set([
+  "Accessibility.nodesUpdated",
+  "Accessibility.loadComplete",
+  "Runtime.executionContextCreated",
+  "Runtime.executionContextDestroyed",
+  "Runtime.executionContextsCleared",
 ]);
 
 /** The one command that works while a dialog is open; anything else would wait for an answer. */
@@ -59,20 +132,32 @@ export function assertWebUrl(url) {
 
 /**
  * Checks a command before it's sent: allowed at all, web addresses only, and scripts only in an
- * isolated world Hearth made, which the page's own scripts can't see.
+ * isolated world Hearth made, which the page's own scripts can't see. A page's elements are
+ * handed out only inside those worlds, so nothing Hearth holds belongs to the page's own
+ * scripts. Frames from other sites come only as flat child sessions, never paused.
  * @param {string} method
  * @param {Record<string, unknown>} params
- * @param {Set<unknown> | undefined} worlds the isolated worlds Hearth made in this tab
+ * @param {Set<unknown> | undefined} worlds the isolated worlds Hearth made in this tab or frame
  */
 export function checkCommand(method, params, worlds) {
   if (!ALLOWED.has(method))
     throw new HearthError("not_allowed", `${method} isn't something Hearth is allowed to do.`);
   if (method === "Page.navigate") assertWebUrl(String(params.url ?? ""));
-  if (method === "Runtime.evaluate" && !worlds?.has(params.contextId))
+  const outsideWorlds =
+    (method === "Runtime.evaluate" && !worlds?.has(params.contextId)) ||
+    (method === "Runtime.callFunctionOn" &&
+      (params.objectId !== undefined || !worlds?.has(params.executionContextId))) ||
+    (method === "DOM.resolveNode" && !worlds?.has(params.executionContextId));
+  if (outsideWorlds)
     throw new HearthError(
       "not_allowed",
       "Scripts may only run in an isolated world Hearth created.",
     );
+  if (
+    method === "Target.setAutoAttach" &&
+    (params.flatten !== true || params.waitForDebuggerOnStart === true)
+  )
+    throw new HearthError("not_allowed", "Frames are attached only as flat, running sessions.");
 }
 
 /** @typedef {{ type: string, message: string, url: string, defaultPrompt?: string }} Dialog */

@@ -16,12 +16,8 @@ async function showStatus() {
   statusEl.className = `status ${s.connected ? "on" : "off"}`;
 }
 
-const saved = /** @type {{ hearthUrl: string, token: string }} */ (
-  await chrome.storage.local.get({ hearthUrl: "http://127.0.0.1:4400", token: "" })
-);
-url.value = saved.hearthUrl;
-token.placeholder = saved.token ? "Saved. Paste a new code to replace it." : "";
-
+// Listening before anything is awaited: a press that comes before the saved values are read
+// still saves, rather than sending the form as a page load and losing the code.
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   const patch = { hearthUrl: url.value.trim() || "http://127.0.0.1:4400" };
@@ -32,6 +28,13 @@ form.addEventListener("submit", async (e) => {
   await chrome.runtime.sendMessage({ type: "reconnect" });
   setTimeout(() => void showStatus(), 1500);
 });
+
+const saved = /** @type {{ hearthUrl: string, token: string }} */ (
+  await chrome.storage.local.get({ hearthUrl: "http://127.0.0.1:4400", token: "" })
+);
+// What you've typed already stays.
+if (!url.value) url.value = saved.hearthUrl;
+token.placeholder = saved.token ? "Saved. Paste a new code to replace it." : "";
 await showStatus();
 setInterval(() => void showStatus(), 3000);
 

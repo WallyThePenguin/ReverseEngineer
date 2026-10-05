@@ -30,6 +30,8 @@ export class FakeBrowser implements BrowserClient {
   connected = true;
   /** When set, protocol commands fail with this message, as on a page that won't load. */
   cdpError: string | null = null;
+  /** Answers the server's driver (driver.read_page, driver.click...), when a test sets it. */
+  driver: ((op: string, params: Record<string, unknown>) => unknown) | null = null;
   tabs: TabInfo[] = [];
   readonly calls: { method: string; params: Record<string, unknown> }[] = [];
   readonly pages: Record<string, FakePage>;
@@ -104,6 +106,8 @@ export class FakeBrowser implements BrowserClient {
       case "cdp":
         return this.cdp(this.tab(params.tabId), String(params.method), params.params as never);
       default:
+        if (method.startsWith("driver.") && this.driver)
+          return this.driver(method.slice(7), params);
         throw new Error(`Unknown method ${method}`);
     }
   }

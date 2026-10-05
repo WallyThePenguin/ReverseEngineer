@@ -3,7 +3,7 @@
 import { type Db, principal, standingRule, type Tx } from "@hearth/db";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { type Deferred, requestApproval, resolveApproval } from "./approvals.ts";
+import { requestApproval, resolveApproval } from "./approvals.ts";
 import { isAudited, writeAudit } from "./audit.ts";
 import { type Clock, systemClock } from "./clock.ts";
 import {
@@ -17,6 +17,7 @@ import {
 import { appendEvents } from "./events.ts";
 import { guardAgentCall, isGuarded, withoutGiven } from "./guard.ts";
 import { newId } from "./ids.ts";
+import { type RunHooks, runIo } from "./io.ts";
 import { decide } from "./policy.ts";
 import type { Registry } from "./registry.ts";
 import type { ActionContext, ActionDef, Caller, EmitEvent } from "./types.ts";
@@ -156,8 +157,10 @@ export class Kernel {
     def: ActionDef,
     input: unknown,
     caller: Caller & { correlationId: string },
-    hooks: { approvalId?: string; inTx?: (tx: Tx, result: unknown) => Promise<Deferred> } = {},
+    hooks: RunHooks = {},
   ): Promise<ExecuteResult<R>> {
+    // Actions that wait on the world hold no transaction while they wait (io.ts, B1).
+    if (def.io) return runIo<R>(this, def, input, caller, hooks, (m) => this.log(m));
     const started = performance.now();
     const now = this.clock.now();
     const audited = isAudited(def, caller) || hooks.approvalId !== undefined;

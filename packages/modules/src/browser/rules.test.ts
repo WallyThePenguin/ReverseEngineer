@@ -5,9 +5,11 @@ import { describe, expect, it } from "vitest";
 import {
   ALLOWED,
   answersItself,
+  CHILD_SETUP,
   checkCommand,
   Dialogs,
   PROTOCOL,
+  SESSION_SETUP,
 } from "../../../../apps/extension/rules.js";
 import { BRIDGE_PROTOCOL, EXTENSION_ID } from "./protocol.ts";
 
@@ -38,6 +40,39 @@ describe("the extension's rules (D24, D52)", () => {
       /isolated/,
     );
     expect(() => checkCommand("Runtime.evaluate", { contextId: 2 }, new Set([2]))).not.toThrow();
+    // B1: a page's nodes are handed only into Hearth's worlds, never called on in the page's own.
+    expect(() =>
+      checkCommand(
+        "Runtime.callFunctionOn",
+        { objectId: "1.2.3", executionContextId: 2 },
+        new Set([2]),
+      ),
+    ).toThrow(/isolated/);
+    expect(() =>
+      checkCommand("Runtime.callFunctionOn", { executionContextId: 3 }, new Set([2])),
+    ).toThrow(/isolated/);
+    expect(() =>
+      checkCommand("Runtime.callFunctionOn", { executionContextId: 2 }, new Set([2])),
+    ).not.toThrow();
+    expect(() => checkCommand("DOM.resolveNode", { backendNodeId: 4 }, new Set([2]))).toThrow(
+      /isolated/,
+    );
+    expect(() =>
+      checkCommand("DOM.resolveNode", { backendNodeId: 4, executionContextId: 2 }, new Set([2])),
+    ).not.toThrow();
+    // Frames from other sites come only as flat sessions that keep running.
+    expect(() => checkCommand("Target.setAutoAttach", { flatten: false }, undefined)).toThrow();
+    expect(() =>
+      checkCommand(
+        "Target.setAutoAttach",
+        { flatten: true, waitForDebuggerOnStart: true },
+        undefined,
+      ),
+    ).toThrow();
+    for (const [method, params] of [...SESSION_SETUP, ...CHILD_SETUP])
+      expect(() => checkCommand(method, params, undefined)).not.toThrow();
+    expect(ALLOWED.has("Target.attachToTarget")).toBe(false);
+    expect(ALLOWED.has("Runtime.enable")).toBe(false);
   });
 
   it("let only the answer through while a dialog is open, and fail calls waiting on one", async () => {
@@ -93,7 +128,32 @@ const EVENTS = new Set([
   "Page.javascriptDialogOpening",
   "Page.javascriptDialogClosed",
   "Hearth.detached",
+  // The driver's (B1): frames, load progress, child sessions and the browser's log.
+  "Page.frameNavigated",
+  "Page.navigatedWithinDocument",
+  "Page.frameRequestedNavigation",
+  "Page.frameStartedLoading",
+  "Page.frameStoppedLoading",
+  "Page.frameDetached",
+  "Page.lifecycleEvent",
+  "Target.attachedToTarget",
+  "Target.detachedFromTarget",
+  "Log.entryAdded",
 ]);
+
+/** The protocol commands and events named in these files. */
+function namedIn(files: string[]): Set<string> {
+  const named = new Set<string>();
+  for (const file of files)
+    for (const m of read(file).matchAll(/"((?:[A-Z][a-zA-Z]+)\.[a-z][a-zA-Z]+)"/g))
+      if (
+        /^(Page|Runtime|Input|Emulation|DOM|Network|Storage|Browser|Target|Accessibility|Log|Fetch|Hearth)\./.test(
+          m[1]!,
+        )
+      )
+        named.add(m[1]!);
+  return named;
+}
 
 describe("what Hearth sends Chrome", () => {
   it("is all on the extension's list", () => {
@@ -102,17 +162,19 @@ describe("what Hearth sends Chrome", () => {
       ...sources("apps/server/src/browser/"),
     ];
     expect(files.length).toBeGreaterThan(10);
-    const named = new Set<string>();
-    for (const file of files)
-      for (const m of read(file).matchAll(/"((?:[A-Z][a-zA-Z]+)\.[a-z][a-zA-Z]+)"/g))
-        if (
-          /^(Page|Runtime|Input|Emulation|DOM|Network|Storage|Browser|Target|Accessibility|Log|Fetch|Hearth)\./.test(
-            m[1]!,
-          )
-        )
-          named.add(m[1]!);
-    const sent = [...named].filter((m) => !EVENTS.has(m));
+    const sent = [...namedIn(files)].filter((m) => !EVENTS.has(m));
     expect(sent.length).toBeGreaterThan(10);
     expect(sent.filter((m) => !ALLOWED.has(m))).toEqual([]);
+  });
+
+  it("and the list holds nothing Hearth doesn't send, so a page gets no more than it needs", () => {
+    const used = namedIn([
+      ...sources("packages/modules/src/browser/"),
+      ...sources("apps/server/src/browser/"),
+      "apps/extension/background.js",
+      "apps/extension/debugger.js",
+    ]);
+    for (const [method] of [...SESSION_SETUP, ...CHILD_SETUP]) used.add(method);
+    expect([...ALLOWED].filter((m) => !used.has(m))).toEqual([]);
   });
 });

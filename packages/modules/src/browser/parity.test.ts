@@ -223,7 +223,8 @@ describe.skipIf(!hasChromium)("Jarvis's browser, D52", () => {
     });
   });
 
-  it("goes back, forward and reloads, and scrolls", async () => {
+  // Scrolling is the server's driver's now: apps/server/src/browser/driver/module.test.ts.
+  it("goes back, forward and reloads", async () => {
     const { tabId } = await openShop();
     await ok("browser.navigate", { tabId, url: "https://shop.example/k/1" });
     expect(await ok("browser.navigate", { tabId, url: "back" })).toMatchObject({
@@ -238,12 +239,6 @@ describe.skipIf(!hasChromium)("Jarvis's browser, D52", () => {
       finalUrl: "https://shop.example/k/1",
     });
     await ok("browser.navigate", { tabId, url: "back" });
-    const down = await ok<{ position: { y: number } }>("browser.scroll", {
-      tabId,
-      direction: "down",
-      amount: 5,
-    });
-    expect(down.position.y).toBeGreaterThan(0);
     expect(chrome.sent.every((s) => s.method !== "Runtime.evaluate" || s.params.contextId)).toBe(
       true,
     );

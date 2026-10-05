@@ -86,7 +86,7 @@ export async function afterStep(
     notes.push(
       `A ${after.dialog.type} dialog opened; answer it with browser_dialog before anything else in this tab.`,
     );
-  for (const t of opened) notes.push(`It opened tab ${t.tabId}; read it with browser_read.`);
+  for (const t of opened) notes.push(`It opened tab ${t.tabId}; read it with browser_read_page.`);
   notes.push("Read the page again to see what changed.");
   return {
     url: after.url,
