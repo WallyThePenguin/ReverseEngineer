@@ -1,8 +1,8 @@
 // One open spreadsheet: the workbook as typed, its results, undo and redo, and saving. Every change
 // is saved whole a moment after you stop, kept on this device until Hearth has it, and merged cell
 // by cell with anything saved elsewhere meanwhile (Jarvis, another screen): D59. It takes no change
-// or new name until Hearth's copy has first been read: until then the screen holds a blank
-// workbook, not Hearth's, and its cells have the same names as Hearth's.
+// or new name until it has been read, from Hearth or from a copy kept here: until then the screen
+// holds a blank workbook, not Hearth's, and its cells have the same names as Hearth's.
 
 import {
   emptyWorkbook,

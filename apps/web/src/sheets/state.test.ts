@@ -1,7 +1,8 @@
-// A spreadsheet opened from the trash, or before Hearth answers (D59): until Hearth's copy has
-// been read it takes no cell, sheet or name, since what's on screen is a blank workbook whose
-// cells share their names with Hearth's, and a copy kept here earlier is what's saved once it's
-// restored. Runs against a fake Hearth and an in-memory stand-in for IndexedDB (no DOM here).
+// A spreadsheet opened from the trash, or before Hearth answers (D59): until it has been read,
+// from Hearth or from a copy kept here, it takes no cell, sheet or name, since what's on screen is
+// a blank workbook whose cells share their names with Hearth's, and a copy kept here earlier is
+// what's saved once it's restored, with its new name on screen. Runs against a fake Hearth, an
+// in-memory stand-in for IndexedDB and fake Web Locks (no DOM here).
 import type { Workbook } from "@hearth/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Unsaved } from "../lib/docStore.ts";
@@ -36,6 +37,19 @@ vi.mock("./engine.ts", () => ({ engine: () => new Promise(() => {}) }));
 const hear = (kind: string) => {
   for (const fn of feed) fn({ seq: 1, kind, entityId: "x1", actor: "owner", payload: {} });
 };
+/** The Web Locks this browser holds: a screen's copy is taken over only once its lock goes. */
+const held = new Set<string>();
+const locks = {
+  async request(name: string, fn: () => Promise<unknown>) {
+    held.add(name);
+    try {
+      return await fn();
+    } finally {
+      held.delete(name);
+    }
+  },
+  query: async () => ({ held: [...held].map((name) => ({ name })), pending: [] }),
+};
 
 /** What Hearth has: its first sheet has the id a new spreadsheet's first sheet gets. */
 let server: { version: number; title: string; book: Workbook };
@@ -57,12 +71,14 @@ beforeEach(() => {
   trashed = false;
   feed.clear();
   kept.clear();
+  held.clear();
   const win = Object.assign(new EventTarget(), {
     setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
     clearTimeout: (t: number) => clearTimeout(t),
   });
   vi.stubGlobal("window", win);
   vi.stubGlobal("document", Object.assign(new EventTarget(), { visibilityState: "visible" }));
+  vi.stubGlobal("navigator", { locks });
   vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
     if (trashed)
       return reply({ status: "error", code: "not_found", message: "No such spreadsheet" }, 404);
@@ -137,6 +153,25 @@ describe("a spreadsheet before it's first read", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(cells(server.book)).toEqual({ A1: "Revenue", B2: "kept edit" });
     expect(cells(second.book)).toEqual({ A1: "Revenue", B2: "kept edit" });
+    expect(kept.size).toBe(0);
+    await second.flush();
+  });
+
+  it("shows a new name kept here when it opens", async () => {
+    const { createSheet } = await import("./state.ts");
+    const first = createSheet("x1");
+    await first.load();
+    trashed = true;
+    first.rename("Renamed in the trash");
+    await vi.advanceTimersByTimeAsync(0);
+    await first.flush();
+    // Restored with no screen open: the next open takes the name in.
+    trashed = false;
+    const second = createSheet("x1");
+    await second.load();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(second.title()).toBe("Renamed in the trash");
+    expect(server.title).toBe("Renamed in the trash");
     expect(kept.size).toBe(0);
     await second.flush();
   });

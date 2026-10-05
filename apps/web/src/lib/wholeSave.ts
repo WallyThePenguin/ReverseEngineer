@@ -4,13 +4,15 @@
 // it. A save that fails for want of a connection is tried again with backoff; one Hearth turns
 // down because someone saved first (Jarvis adding cards, another screen) is merged piece by piece
 // and sent again. Changes made after it was deleted are kept too. Each screen keeps its own copy,
-// so two tabs never replace each other's; the next open takes in every copy kept for it, and so
-// does an open one once it's restored. No change is taken before the first read (of Hearth's
-// copy, or of one kept here).
+// so two tabs never replace each other's, and holds a lock on it while it's open: the next open
+// takes in every copy whose screen has closed, and so does an open one once it's restored
+// (copyLocks.ts). Boards and spreadsheets take no change before the first read (of Hearth's copy,
+// or of one kept here); meeting notes do (see `beforeRead`).
 
 import { createSignal } from "solid-js";
-import { ApiError, action } from "./api.ts";
-import { dropUnsaved, saveUnsaved, takeOverUnsaved, unsavedCopies } from "./docStore.ts";
+import { ApiError, action, isOffline, isTransient, notYet } from "./api.ts";
+import { closedCopies, holdCopy } from "./copyLocks.ts";
+import { dropUnsaved, saveUnsaved, takeOverUnsaved } from "./docStore.ts";
 import { backoff, onLiveEvent } from "./live.ts";
 
 const SAVE_AFTER_MS = 700;
@@ -38,11 +40,17 @@ export interface SaverOptions<T> {
   get(): Promise<Remote<T>>;
   merge(base: T, mine: T, theirs: T): T;
   /**
-   * One with nothing in it (a new board, a new spreadsheet's one empty sheet, no notes). A copy an
-   * older Hearth kept before the first read has no base, and is merged onto this as if everything
-   * in it had been added here.
+   * One with nothing in it (a new board, a new spreadsheet's one empty sheet, no notes). A copy
+   * kept before the first read (with `beforeRead`, or by an older Hearth) has no base, and is
+   * merged onto this as if everything in it had been added here.
    */
   empty(): T;
+  /**
+   * Takes changes before the first read, as meeting notes do: kept with no base, they're merged
+   * onto `empty()`, and lines merged that way only add to Hearth's. Boards and spreadsheets don't:
+   * until then the screen is blank, and a spreadsheet's cells share their names with Hearth's.
+   */
+  beforeRead?: boolean;
   /** A plain copy of what's on screen. */
   current(): T;
   /** Puts a copy that came from elsewhere, or a merge, on screen. */
@@ -53,35 +61,22 @@ export interface SaverOptions<T> {
   savedAs?(result: unknown): number;
 }
 
-/** Errors that say nothing about the save itself: try again later. */
-export const isTransient = (err: unknown) =>
-  !(err instanceof ApiError) || ["unreachable", "unavailable", "failed"].includes(err.code);
-
-/**
- * Hearth (or its database) out of reach, as opposed to Hearth failing at the save: only then do
- * messages say it can't be reached. A failure's own text is Hearth's internals, so it isn't shown.
- */
-export const isOffline = (err: unknown) =>
-  err instanceof ApiError && (err.code === "unreachable" || err.code === "unavailable");
-
-/** Why a save that will be tried again hasn't happened yet, in plain words. */
-export function notYet(err: unknown): string {
-  if (isOffline(err)) return "Not saved yet: can't reach Hearth. Trying again…";
-  if (err instanceof ApiError && err.code === "conflict")
-    return "Not saved yet: it keeps changing elsewhere. Trying again…";
-  return "Not saved yet: Hearth hit a problem saving it. Trying again…";
-}
-
 const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+const reason = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 export function createSaver<T>(o: SaverOptions<T>) {
   const [saving, setSaving] = createSignal(false);
   const [problem, setProblem] = createSignal<string | null>(null);
   const [gone, setGone] = createSignal(false);
-  /** Hearth's copy, or one kept here, has been read: until then it takes no change. */
+  /**
+   * Hearth's copy, or one kept here, has been read: until then it takes no change, unless
+   * `beforeRead`.
+   */
   const [loaded, setLoaded] = createSignal(false);
   /** This screen's own copy: no other screen replaces it, nor it theirs. */
   const own = `${o.key}#${crypto.randomUUID()}`;
+  /** Its copy's lock, held until it closes: nothing is kept, nor taken over, before it's held. */
+  const lock = holdCopy(own);
   let version = 0;
   let base: T | null = null;
   let dirty = false;
@@ -109,7 +104,7 @@ export function createSaver<T>(o: SaverOptions<T>) {
   const keep = () => {
     if (keeping) return;
     keeping = true;
-    queueMicrotask(() => {
+    void lock.held.then(() => {
       keeping = false;
       if (unsaved()) void saveUnsaved(copy());
     });
@@ -124,10 +119,7 @@ export function createSaver<T>(o: SaverOptions<T>) {
           ? `This ${o.noun} was deleted. Restore it from the trash to save changes here.`
           : `This ${o.noun} is in the trash. Restore it to open it here.`,
       );
-    } else {
-      const why = err instanceof Error ? err.message : String(err);
-      setProblem(`Hearth didn't save this: ${why}`);
-    }
+    } else setProblem(`Hearth didn't save this: ${reason(err)}`);
   };
 
   const later = (err: unknown) => {
@@ -208,11 +200,14 @@ export function createSaver<T>(o: SaverOptions<T>) {
   }
 
   /**
-   * The first look: Hearth's copy (null when reading it failed, because of `why`) and every copy
-   * kept here.
+   * The first look: Hearth's copy (null when reading it failed, because of `why`), every copy kept
+   * here by a screen since closed, and what this one took before it (see `beforeRead`).
    */
   async function open(r: Remote<T> | null, why?: unknown): Promise<void> {
-    const copies = await unsavedCopies<T>(o.key);
+    const others = await lock.held.then(() => closedCopies<T>(o.key, own));
+    // Another read got here first, or it was closed meanwhile: it takes nothing over.
+    if (loaded() || closed) return;
+    const copies = unsaved() ? [copy(), ...others] : others;
     if (!r && !copies.length) {
       setProblem(
         isOffline(why)
@@ -242,23 +237,26 @@ export function createSaver<T>(o: SaverOptions<T>) {
     base = r ? r.data : (newest.base ?? o.empty());
     version = r ? r.version : newest.baseVersion;
     const name = copies.find((k) => k.title !== undefined)?.title;
-    title = name !== r?.title ? name : undefined;
+    // show() leaves the name on screen while a new one waits to be saved, so this one goes first.
     o.show(data, name ?? r?.title);
+    title = name !== r?.title ? name : undefined;
     dirty = !r || !sameJson(data, r.data);
-    // This screen's copy holds them all now, so the others go (each unless its screen has kept a
-    // newer one since).
-    await takeOverUnsaved(unsaved() ? copy() : null, copies);
+    // This screen's copy holds them all now, so the others go.
+    await takeOverUnsaved(unsaved() ? copy() : null, others);
     if (unsaved()) void save();
+    // Hearth has all of it: a copy this screen kept before the first read can go.
+    else void dropUnsaved(own);
   }
 
   /**
-   * Takes in what other screens kept (one closed while it was in the trash): each is merged into
-   * this screen with what it was made on as its base, and goes (unless its screen has kept a newer
-   * one since), as this screen now holds it, in its own copy until Hearth has it.
+   * Takes in what screens kept that have closed since (one closed while it was in the trash); an
+   * open one saves its own once it hears the restore. Each is merged into this screen with what it
+   * was made on as its base, and goes, as this screen now holds it, in its own copy until Hearth
+   * has it.
    */
   async function absorb(): Promise<void> {
     if (!loaded()) return;
-    const others = (await unsavedCopies<T>(o.key)).filter((k) => k.key !== own);
+    const others = await lock.held.then(() => closedCopies<T>(o.key, own));
     if (!others.length) return;
     const now = o.current();
     let data = now;
@@ -287,6 +285,11 @@ export function createSaver<T>(o: SaverOptions<T>) {
       if (stale(err, heard)) return load();
       if (err instanceof ApiError && err.code === "not_found") refused(err);
       else if (!loaded() && isTransient(err)) await open(null, err);
+      else if (!loaded()) {
+        // Turned down: unless it takes changes before the first read, that's why it takes none.
+        const so = o.beforeRead ? "" : ", so it can't be changed here";
+        setProblem(`Hearth didn't open this ${o.noun}${so}: ${reason(err)}`);
+      }
       return;
     }
     if (!loaded()) return open(r);
@@ -303,7 +306,7 @@ export function createSaver<T>(o: SaverOptions<T>) {
 
   /**
    * Restored from the trash: read it again if Hearth said it was gone, and save what was changed
-   * meanwhile, here and on other screens.
+   * meanwhile, here and on screens closed since.
    */
   async function restored(): Promise<void> {
     if (gone()) {
@@ -337,7 +340,8 @@ export function createSaver<T>(o: SaverOptions<T>) {
     e.preventDefault();
     e.returnValue = "";
   };
-  const online = () => unsaved() && void save();
+  // Back online: try a first read that failed again, or send what's waiting.
+  const online = () => (loaded() ? unsaved() && void save() : void load());
   window.addEventListener("pagehide", hidden);
   document.addEventListener("visibilitychange", onVisibility);
   window.addEventListener("beforeunload", guard);
@@ -353,10 +357,10 @@ export function createSaver<T>(o: SaverOptions<T>) {
     load,
     /**
      * The screen changed it: save a moment after the last change. Before the first read there's
-     * no version it was made on, so it's ignored.
+     * no version it was made on, so it's ignored unless `beforeRead`.
      */
     changed() {
-      if (!loaded()) return;
+      if (!loaded() && !o.beforeRead) return;
       dirty = true;
       edits += 1;
       keep();
@@ -364,7 +368,7 @@ export function createSaver<T>(o: SaverOptions<T>) {
       timer = window.setTimeout(() => void save(), SAVE_AFTER_MS);
     },
     rename(name: string) {
-      if (!loaded()) return;
+      if (!loaded() && !o.beforeRead) return;
       title = name;
       keep();
       void save();
@@ -380,7 +384,8 @@ export function createSaver<T>(o: SaverOptions<T>) {
       window.removeEventListener("beforeunload", guard);
       window.removeEventListener("online", online);
       window.clearTimeout(retry);
-      return save();
+      // Its copy's lock goes once this save is done: until then no other screen takes the copy.
+      return save().finally(lock.release);
     },
   };
 }

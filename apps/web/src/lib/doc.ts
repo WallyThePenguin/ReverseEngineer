@@ -5,7 +5,7 @@
 // edit at once over a BroadcastChannel.
 
 import { LoroDoc, VersionVector } from "loro-crdt";
-import { ApiError, action } from "./api.ts";
+import { ApiError, action, isOffline, isTransient } from "./api.ts";
 import {
   appendUpdate,
   keepDoc,
@@ -17,7 +17,6 @@ import {
 } from "./docStore.ts";
 import { backoff, onLiveEvent } from "./live.ts";
 import { type Claim, claimPeer } from "./peer.ts";
-import { isOffline, isTransient } from "./wholeSave.ts";
 
 const SYNC_AFTER_MS = 500;
 /** Typing that never pauses still syncs this often. */

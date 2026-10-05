@@ -2,9 +2,9 @@
 // save that can't reach Hearth keeps trying, Hearth's own reason shows when it refuses one, a
 // closing page still sends what's unsaved, and a board restored from the trash saves what was
 // changed while it was there, however the restore and Hearth's answers cross, on this screen and
-// on one closed meanwhile. Nothing is taken before the first read, and a copy kept with no base
-// (by an older Hearth) deletes nothing of Hearth's board. Runs against a fake Hearth and an
-// in-memory stand-in for IndexedDB (no DOM here).
+// on one closed meanwhile. A board takes nothing before the first read, and a copy kept with no
+// base (by an older Hearth) deletes nothing of Hearth's board. Runs against a fake Hearth, an
+// in-memory stand-in for IndexedDB and fake Web Locks (no DOM here).
 import type { Canvas, CanvasNode } from "@hearth/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Unsaved } from "./docStore.ts";
@@ -38,6 +38,19 @@ vi.mock("./live.ts", async (original) => ({
 const hear = (kind: string) => {
   for (const fn of feed) fn({ seq: 1, kind, entityId: "b1", actor: "owner", payload: {} });
 };
+/** The Web Locks this browser holds: a screen's copy is taken over only once its lock goes. */
+const locked = new Set<string>();
+const locks = {
+  async request(name: string, fn: () => Promise<unknown>) {
+    locked.add(name);
+    try {
+      return await fn();
+    } finally {
+      locked.delete(name);
+    }
+  },
+  query: async () => ({ held: [...locked].map((name) => ({ name })), pending: [] }),
+};
 
 const card = (id: string, text: string): CanvasNode =>
   ({ id, kind: "text", x: 0, y: 0, w: 100, h: 40, text }) as unknown as CanvasNode;
@@ -68,6 +81,7 @@ beforeEach(() => {
   held = 0;
   feed.clear();
   kept.clear();
+  locked.clear();
   sent = [];
   const win = Object.assign(new EventTarget(), {
     setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
@@ -75,6 +89,7 @@ beforeEach(() => {
   });
   vi.stubGlobal("window", win);
   vi.stubGlobal("document", Object.assign(new EventTarget(), { visibilityState: "visible" }));
+  vi.stubGlobal("navigator", { locks });
   vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
     const inTrash = trashed;
     if (late) {

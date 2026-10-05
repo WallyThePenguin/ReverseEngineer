@@ -207,11 +207,8 @@ try {
     const typed = `Ship on Friday ${tag}`;
     const p = await killTab(context, {
       path: `/record/${meeting.id}`,
-      // It takes typing once Hearth's notes have been read.
       ready: (p) =>
-        p
-          .locator('textarea[placeholder="What matters in this meeting…"]:not([readonly])')
-          .waitFor({ timeout: 20_000 }),
+        p.getByPlaceholder("What matters in this meeting…").waitFor({ timeout: 20_000 }),
       action: "meeting.update",
       edit: async (p) => {
         await p.getByPlaceholder("What matters in this meeting…").click();

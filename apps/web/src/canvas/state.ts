@@ -1,8 +1,9 @@
 // One open board: what's on it, what's selected, undo and redo, and saving. Every change is saved
 // whole a moment after you stop, kept on this device until Hearth has it, and merged card by card
 // with anything saved elsewhere meanwhile (Jarvis adding cards, another screen): D59. It takes no
-// change or new name until Hearth's copy has first been read: one opened from the trash has
-// nothing on screen until it's restored, and a card put on that empty screen was made on nothing.
+// change or new name until it has been read, from Hearth or from a copy kept here: one opened from
+// the trash has nothing on screen until it's restored, and a card put on that empty screen was
+// made on nothing.
 
 import { type Canvas, type CanvasEdge, type CanvasNode, mergeCanvas } from "@hearth/core";
 import { batch, createSignal } from "solid-js";
