@@ -31,7 +31,7 @@ export function TabBar(props: { waiting: number; onMenu: () => void }) {
             <span class="relative">
               {t.label}
               <Show when={t.view === "inbox" && props.waiting > 0}>
-                <span class="absolute -top-1.5 -right-4 rounded-full bg-accent px-1 text-micro text-white">
+                <span class="absolute -top-1.5 -right-4 rounded-full bg-accent px-1 text-micro text-on-fill">
                   {props.waiting}
                 </span>
               </Show>

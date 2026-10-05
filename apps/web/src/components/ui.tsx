@@ -186,10 +186,10 @@ export function Button(props: {
 }) {
   const tone = () =>
     ({
-      primary: "bg-accent text-white",
+      primary: "bg-accent text-on-fill",
       plain: "border border-line bg-panel hover:bg-sunk",
       danger: "border border-line bg-panel text-bad hover:bg-sunk",
-      jarvis: "bg-jarvis text-white dark:text-[#15130f]",
+      jarvis: "bg-jarvis text-on-fill",
     })[props.kind ?? "plain"];
   return (
     <button

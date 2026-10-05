@@ -17,7 +17,7 @@ const TOOLS: { tool: Tool; label: string; key: string }[] = [
 const FILLS = ["#fff7ed", "#fef3c7", "#dcfce7", "#dbeafe", "#f3e8ff", "#fee2e2", "transparent"];
 
 const btn = (on: boolean) =>
-  `rounded px-2 py-1 text-xs ${on ? "bg-accent text-white" : "text-muted hover:bg-sunk hover:text-ink"}`;
+  `rounded px-2 py-1 text-xs ${on ? "bg-accent text-on-fill" : "text-muted hover:bg-sunk hover:text-ink"}`;
 
 export function Toolbar(props: {
   board: Board;

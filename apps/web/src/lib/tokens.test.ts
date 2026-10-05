@@ -75,6 +75,17 @@ function apart(a: string, b: string): number {
   return Math.hypot(...x.map((v, i) => v - y[i]!));
 }
 
+/** The web app's own source, tests left out. */
+function code(): [string, string][] {
+  const files = import.meta.glob<string>(["../**/*.{ts,tsx}", "!../**/*.test.ts"], {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  });
+  expect(Object.keys(files).length).toBeGreaterThan(50);
+  return Object.entries(files);
+}
+
 describe("colours", () => {
   it("each have a dark value", () => {
     for (const [name, value] of light) {
@@ -113,6 +124,15 @@ describe("colours", () => {
     }
   });
 
+  it("keep text readable on a solid fill, light and dark", () => {
+    for (const fill of ["accent", "bad", "jarvis"]) {
+      for (const [mode, values] of Object.entries(MODES)) {
+        const ratio = contrast(token(values, "--color-on-fill"), token(values, `--color-${fill}`));
+        expect(ratio, `${fill} in ${mode}`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+
   it("tell a warning, a failure and the accent highlight apart", () => {
     const soft = ["accent", "ok", "warn", "bad", "info"].map((t) => `--color-${t}-soft`);
     for (const [mode, values] of Object.entries(MODES)) {
@@ -133,15 +153,13 @@ describe("type", () => {
   });
 
   it("is sized from the scale, never 10 or 11 px by hand", () => {
-    const files = import.meta.glob<string>(["../**/*.{ts,tsx}", "!../**/*.test.ts"], {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    });
-    expect(Object.keys(files).length).toBeGreaterThan(50);
-    for (const [file, text] of Object.entries(files)) {
-      expect(text, file).not.toMatch(/text-\[1[01]px\]/);
-    }
+    for (const [file, text] of code()) expect(text, file).not.toMatch(/text-\[1[01]px\]/);
+  });
+});
+
+describe("text on a fill", () => {
+  it("uses text-on-fill, since white on the dark-mode accent reads at 2.8:1", () => {
+    for (const [file, text] of code()) expect(text, file).not.toMatch(/\btext-white\b/);
   });
 });
 

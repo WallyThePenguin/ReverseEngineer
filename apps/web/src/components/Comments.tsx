@@ -70,7 +70,7 @@ export function Comments(props: { parentId: string }) {
       <div class="flex justify-end">
         <button
           type="button"
-          class="rounded-md bg-accent px-3 py-1 text-sm font-medium text-white disabled:opacity-50"
+          class="rounded-md bg-accent px-3 py-1 text-sm font-medium text-on-fill disabled:opacity-50"
           disabled={!draft().trim() || sending()}
           onClick={send}
         >

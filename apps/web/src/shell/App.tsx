@@ -267,7 +267,7 @@ function Shell(props: { onSignOut: () => void }) {
         <For each={toast.toasts()}>
           {(t) => (
             <div
-              class={`flex items-center gap-3 rounded-lg px-4 py-2 text-sm shadow-lg ${t.tone === "error" ? "bg-bad text-white" : "bg-ink text-bg"}`}
+              class={`flex items-center gap-3 rounded-lg px-4 py-2 text-sm shadow-lg ${t.tone === "error" ? "bg-bad text-on-fill" : "bg-ink text-bg"}`}
             >
               <span>{t.text}</span>
               <Show when={t.action}>

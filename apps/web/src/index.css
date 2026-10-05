@@ -26,6 +26,9 @@
   /* Jarvis's colour stays its own: it means "Jarvis did this". */
   --color-jarvis: #4338ca;
   --color-jarvis-soft: #eef0ff;
+  /* Text on a solid accent, failure or Jarvis fill: a button, a count, an error toast. Dark mode
+     brightens those fills, so their text turns dark to stay readable. */
+  --color-on-fill: #ffffff;
 
   /* Each sub-product's colour (lib/apps.ts). It says which part of Hearth you're in, on a tile,
      the active sidebar row or the focused pane's top bar, and never stands for status. */
@@ -123,6 +126,7 @@
     --color-info-soft: #162636;
     --color-jarvis: #a5b4fc;
     --color-jarvis-soft: #23234a;
+    --color-on-fill: #15130f;
     --color-today: #fb923c;
     --color-mail: #7dd3fc;
     --color-calendar: #5eead4;

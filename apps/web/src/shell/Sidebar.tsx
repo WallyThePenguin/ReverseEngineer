@@ -136,7 +136,7 @@ export function Sidebar(props: {
               >
                 <span class="flex-1">{item.label}</span>
                 <Show when={count(item.view)}>
-                  <span class="rounded-full bg-accent px-1.5 text-micro font-semibold text-white">
+                  <span class="rounded-full bg-accent px-1.5 text-micro font-semibold text-on-fill">
                     {count(item.view)}
                   </span>
                 </Show>
