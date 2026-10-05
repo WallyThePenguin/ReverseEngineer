@@ -938,6 +938,8 @@ pub fn run(cli_args: CliArgs) {
             Some(vec!["--start-hidden"]),
         ))
         // Hearth's window opens where you left it. Only that window: the others place themselves.
+        // It puts itself back (hearth/window.rs), so loading out of sight at login it isn't
+        // maximized, which would show it.
         .plugin(
             tauri_plugin_window_state::Builder::new()
                 .with_state_flags(
@@ -946,6 +948,7 @@ pub fn run(cli_args: CliArgs) {
                         | tauri_plugin_window_state::StateFlags::MAXIMIZED,
                 )
                 .with_filter(|label| label == hearth::window::MAIN)
+                .skip_initial_state(hearth::window::MAIN)
                 .build(),
         )
         .manage(cli_args.clone())
@@ -1189,6 +1192,8 @@ pub fn run(cli_args: CliArgs) {
             }
             show_main_window(app);
         }
+        // Before the window-state plugin saves Hearth's window on the way out (hearth/window.rs).
+        tauri::RunEvent::ExitRequested { .. } => hearth::window::quitting(app),
         // Teardown transcribe.cpp before exit
         tauri::RunEvent::Exit => {
             if let Some(tm) = app.try_state::<Arc<TranscriptionManager>>() {

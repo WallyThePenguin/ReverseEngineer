@@ -16,11 +16,13 @@ use super::offline::{self, is_waiting, stop_waiting};
 use super::{deeplink, tell, toast};
 use crate::settings::get_settings;
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 use tauri::webview::{DownloadEvent, NewWindowResponse, PageLoadEvent};
 use tauri::window::Color;
 use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri_plugin_window_state::{StateFlags, WindowExt};
 
 pub const MAIN: &str = "hearth";
 pub const CAPTURE: &str = "hearth_capture";
@@ -28,6 +30,14 @@ pub const ASK: &str = "hearth_ask";
 
 /// Opened while its page is still loading, the main window comes up after this anyway.
 const SHOW_WITHIN: Duration = Duration::from_millis(300);
+
+/// Set while the main window hasn't come up since it was made. It goes back where you left it
+/// as it's made, but maximized only as it comes up: maximizing a window shows it, so loading out
+/// of sight at login it would blink up and take focus.
+static MAXIMIZE_ON_SHOW: AtomicBool = AtomicBool::new(false);
+
+/// The window-state plugin's name (lib.rs), to take it out when quitting.
+const WINDOW_STATE: &str = "window-state";
 
 /// Each window's page, by label.
 static PAGES: Mutex<BTreeMap<&'static str, Page>> = Mutex::new(BTreeMap::new());
@@ -136,6 +146,16 @@ pub fn close_all(app: &AppHandle) {
             .unwrap_or_else(|e| e.into_inner())
             .remove(label);
     }
+    MAXIMIZE_ON_SHOW.store(false, Ordering::SeqCst);
+}
+
+/// The app is quitting. A main window that never came up was never maximized (see
+/// MAXIMIZE_ON_SHOW), so the window-state plugin doesn't get to save it: it would forget that you
+/// left Hearth maximized. What it saved last time stays.
+pub fn quitting(app: &AppHandle) {
+    if MAXIMIZE_ON_SHOW.load(Ordering::SeqCst) && !app.remove_plugin(WINDOW_STATE) {
+        log::warn!("No {WINDOW_STATE} plugin to take out before quitting");
+    }
 }
 
 /// Hearth's address from settings, if it's a usable one.
@@ -170,11 +190,23 @@ async fn show(window: WebviewWindow, which: Which) {
 }
 
 fn bring_up(window: &WebviewWindow) {
+    if window.label() == MAIN && MAXIMIZE_ON_SHOW.swap(false, Ordering::SeqCst) {
+        restore(window, StateFlags::MAXIMIZED);
+    }
     // Windows may have changed between light and dark since the window was made.
     let _ = window.set_background_color(Some(background(dark())));
     let _ = window.unminimize();
     let _ = window.show();
     let _ = window.set_focus();
+}
+
+/// Puts the main window back as you left it, from the window-state plugin's record. On the main
+/// thread, as the plugin does: it holds its lock across calls that wait for that thread.
+fn restore(window: &WebviewWindow, flags: StateFlags) {
+    let w = window.clone();
+    let _ = window.run_on_main_thread(move || {
+        let _ = w.restore_state(flags);
+    });
 }
 
 /// Hearth's window at a page: made if need be, and loading it, but not shown.
@@ -375,6 +407,11 @@ fn build(app: &AppHandle, which: Which, home: &Url) -> tauri::Result<WebviewWind
 
     let window = b.build()?;
     mark_user_agent(&window, &app.package_info().version.to_string());
+    if which == Which::Main {
+        // Where you left it, and maximized as it comes up (see MAXIMIZE_ON_SHOW).
+        MAXIMIZE_ON_SHOW.store(true, Ordering::SeqCst);
+        restore(&window, StateFlags::SIZE | StateFlags::POSITION);
+    }
     Ok(window)
 }
 
