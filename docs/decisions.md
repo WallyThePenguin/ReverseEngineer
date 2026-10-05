@@ -1527,7 +1527,7 @@ learn the backup stopped). Alerts outside the budget (a bad night could wake the
 to stay fast to query and small to back up, and a failure nobody hears about is the kind that
 loses a week of mail or backups.
 
-## D62. Jarvis stops when asked; one that won't is named, never worked around (2026-10-05)
+## D63. Jarvis stops when asked; one that won't is named, never worked around (2026-10-05)
 
 **Decision:** Updates and restarts stop Jarvis by asking it, from your own account, and don't
 start another until it has gone. When it won't go, they say so, with the pid to end.

@@ -132,7 +132,7 @@ function servicesDir(): string | null {
 
 /**
  * As the "Hearth Jarvis" task, stops when asked through hearth-jarvis.stop, or when the task run
- * that started it ends (stop-request.ts, D62). A request from before this process started was
+ * that started it ends (stop-request.ts, D63). A request from before this process started was
  * for an earlier Jarvis.
  */
 function watchAsTask(stop: (why: string) => void): () => void {

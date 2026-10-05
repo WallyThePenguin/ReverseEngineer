@@ -1,4 +1,4 @@
-// How an update or `hearth restart` stops Jarvis from your own account (D62). As the "Hearth
+// How an update or `hearth restart` stops Jarvis from your own account (D63). As the "Hearth
 // Jarvis" task, Jarvis runs as you but in Windows' session 0, where your unelevated account can
 // neither read its start time nor end it. On 2026-10-05 Stop-Process said "Access is denied", the
 // old Jarvis kept running with its log open, and the task couldn't start the new one. So

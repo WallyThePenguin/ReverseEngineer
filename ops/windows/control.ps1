@@ -63,7 +63,7 @@ function Find-Jarvis([string]$Dir) {
   return @($found.Keys | ForEach-Object { [pscustomobject]@{ Id = $_; Verified = $found[$_] } })
 }
 
-# Asks Jarvis to stop (D62): it checks for this file every second, and stops for one newer than
+# Asks Jarvis to stop (D63): it checks for this file every second, and stops for one newer than
 # itself that's yours or an administrator's (apps/jarvis/src/stop-request.ts). Made afresh, so the
 # file is yours whoever made it first.
 function Request-JarvisStop([string]$Dir) {
@@ -86,7 +86,7 @@ function Test-LogFree([string]$Path) {
 }
 
 # Only an administrator can end a Jarvis that won't stop. (Restarting the PC isn't offered: when
-# the Hearth you update from predates D62, its update leaves the restarted Jarvis running too.)
+# the Hearth you update from predates D63, its update leaves the restarted Jarvis running too.)
 function Format-StuckJarvis([int[]]$Ids) {
   $which = if ($Ids.Count -gt 1) { "pids $($Ids -join ', ')" } else { "pid $Ids" }
   $kill = ($Ids | ForEach-Object { "/PID $_" }) -join " "
@@ -119,9 +119,9 @@ function Wait-JarvisGone($Found, [string]$Log, [int]$Sec) {
 # Stops Jarvis: $null once it has, otherwise what to tell you, and Hearth mustn't start another
 # (the task can't while the old one holds the log). Your unelevated account can neither end the
 # task's Jarvis nor read its start time, so it asks Jarvis (Request-JarvisStop) and ends the task
-# run, which a Jarvis since D62 also stops for. After $AskSec it ends what it's sure is Jarvis,
-# which works when this runs elevated. A Jarvis from before D62 ignores both: the update that
-# brings D62 can only say so, with the pid to end.
+# run, which a Jarvis since D63 also stops for. After $AskSec it ends what it's sure is Jarvis,
+# which works when this runs elevated. A Jarvis from before D63 ignores both: the update that
+# brings D63 can only say so, with the pid to end.
 function Stop-Jarvis([int]$AskSec = 15, [int]$KillSec = 15) {
   $dir = Get-ServiceDir
   $log = "$dir\hearth-jarvis.log"

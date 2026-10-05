@@ -130,7 +130,7 @@ export async function startJarvis(opts: JarvisServiceOptions) {
     engine,
     runner,
     /**
-     * Stops for a restart or an update (D62). A turn still running ends the way Stop ends it,
+     * Stops for a restart or an update (D63). A turn still running ends the way Stop ends it,
      * at once rather than up to its lane's 30 minutes later, and is left for the next start to
      * run again or report as cut short. A tool it had running gets a few seconds to finish.
      */

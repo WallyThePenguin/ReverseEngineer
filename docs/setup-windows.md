@@ -309,9 +309,9 @@ foreach ($f in "update.ps1", "control.ps1") {
 
 `-Root` says where Hearth is, since that copy isn't in its folder.
 
-**Stopping Jarvis (D62).** Your account can't end the task's Jarvis, so updates and
-`hearth restart` ask it to stop and wait for it. A Hearth from before D62 doesn't stop when asked,
-so the first update to D62 ends at "Making sure Jarvis has stopped". It names the old Jarvis's pid
+**Stopping Jarvis (D63).** Your account can't end the task's Jarvis, so updates and
+`hearth restart` ask it to stop and wait for it. A Hearth from before D63 doesn't stop when asked,
+so the first update to D63 ends at "Making sure Jarvis has stopped". It names the old Jarvis's pid
 and rolls back with that Jarvis left running. Then:
 
 1. In an administrator PowerShell, run the `taskkill /F /PID <pid>` it printed.

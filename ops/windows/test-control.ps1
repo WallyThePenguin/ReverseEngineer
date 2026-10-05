@@ -265,7 +265,7 @@ function Get-Item { param($Path) [pscustomobject]@{ LastWriteTime = $written } }
 function Get-Process { param($Id) $script:running[[int]$Id] }
 function Stop-Process { param($Id, [switch]$Force) $script:did += "kill $Id"; if ($script:killable) { $script:running.Remove([int]$Id) } }
 function Stop-ScheduledTask { $script:did += "end task" }
-# Jarvis since D62 stops when asked: it's gone, and its log with it.
+# Jarvis since D63 stops when asked: it's gone, and its log with it.
 function Request-JarvisStop { $script:did += "ask"; if ($script:honours) { $script:running.Clear() } }
 # Every Jarvis its task started holds the log.
 function Test-LogFree { -not @($script:holders | Where-Object { $script:running.ContainsKey($_) }).Count }
@@ -295,10 +295,10 @@ function Set-Jarvis([hashtable]$Running, [int[]]$Holders = @(), [switch]$Honours
 }
 
 Set-Jarvis @{ 999999 = (& $node $written.AddSeconds(-20)) } -Holders 999999 -Honours
-Assert-Equal (Stop-Jarvis) "" "a Jarvis since D62 stops when asked"
+Assert-Equal (Stop-Jarvis) "" "a Jarvis since D63 stops when asked"
 Assert-Equal ($script:did -join ", ") "ask, end task" "asked, its task ended, nothing killed"
 
-# The 2026-10-05 case: a Jarvis from before D62 ignores the request, and from your account its
+# The 2026-10-05 case: a Jarvis from before D63 ignores the request, and from your account its
 # start time can't be read nor can it be ended. It must be named, not taken for stopped.
 Set-Jarvis @{ 999996 = (& $sessionZero 999996) } -Holders 999996 -InFile 999996
 Assert-Equal (Stop-Jarvis) (& $stuck @(999996)) "an older Jarvis that won't go, unverified, is named"

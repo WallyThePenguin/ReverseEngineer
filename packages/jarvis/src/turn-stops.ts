@@ -1,5 +1,5 @@
 // How running turns are stopped: by the owner pressing Stop (D54), or because Jarvis itself is
-// stopping for a restart or an update (D62). Either way the turn's signal fires, so the brain is
+// stopping for a restart or an update (D63). Either way the turn's signal fires, so the brain is
 // let go and no further tool runs (turn-budget.ts). Only the reason differs: nobody pressed Stop
 // on a turn Jarvis's own stop cut short, so it isn't recorded as stopped. It's left running for
 // the next start, which says Jarvis restarted (recoverInterrupted).

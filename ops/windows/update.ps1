@@ -6,7 +6,7 @@
   install.ps1 lets your account stop and start Hearth's two services and the "Hearth Jarvis" task,
   so this runs unelevated. It asks hearth doctor how things are, takes a safety dump, stops Hearth,
   moves to the latest commit of the branch, installs, builds, migrates and starts everything again.
-  Your account can't end the task's Jarvis, so it's asked to stop (D62) and waited for: one that
+  Your account can't end the task's Jarvis, so it's asked to stop (D63) and waited for: one that
   won't go ends the update there, saying which pid an administrator has to end.
   Then the update has to prove itself (D57), or it's rolled back:
 
@@ -163,7 +163,7 @@ try {
   } elseif ((git rev-parse HEAD).Trim() -ne $new) {
     throw "The Hearth folder isn't on $($new.Substring(0, 7)), where the update left off."
   } else {
-    # The copy that started this one stopped Hearth with its own Stop-Jarvis, which before D62
+    # The copy that started this one stopped Hearth with its own Stop-Jarvis, which before D63
     # could miss Jarvis without a word (2026-10-05). Make sure, before anything is installed.
     Write-Host "== Making sure Jarvis has stopped"
     $stuck = Stop-Jarvis

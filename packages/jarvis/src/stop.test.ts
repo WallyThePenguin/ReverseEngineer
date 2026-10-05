@@ -1,7 +1,7 @@
 // Stop means stop, and a retry never does a thing twice (D54): a Stop pressed while Jarvis was
 // stuck survives the restart, a tool still running when the model fails rules out a retry, a
 // brain that carries on after Stop can't run anything, and one stopped first (or between tries)
-// never starts. Jarvis's own stop (an update, D62) ends turns the same way, without calling them
+// never starts. Jarvis's own stop (an update, D63) ends turns the same way, without calling them
 // stopped.
 import { conversationLog, jarvisTurn, task } from "@hearth/db";
 import { type Caller, ownerCaller } from "@hearth/kernel";
