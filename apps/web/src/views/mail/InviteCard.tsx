@@ -3,6 +3,7 @@
 import { createSignal, For, Show } from "solid-js";
 import { Icon } from "../../components/icons.tsx";
 import { Badge, Button } from "../../components/ui.tsx";
+import { date, dateTime } from "../../lib/format.ts";
 import { toast } from "../../lib/live.ts";
 import { act } from "../../lib/query.ts";
 import type { MailInvite } from "../../lib/types.ts";
@@ -19,15 +20,7 @@ export function InviteCard(props: { invite: MailInvite }) {
   const when = () => {
     const e = ev()!;
     const start = new Date(e.startsAt);
-    return e.allDay
-      ? start.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })
-      : start.toLocaleString(undefined, {
-          weekday: "short",
-          month: "short",
-          day: "numeric",
-          hour: "numeric",
-          minute: "2-digit",
-        });
+    return e.allDay ? date(start) : dateTime(start);
   };
   // A repeating meeting is answered for every time, unless you say this time only.
   const [scope, setScope] = createSignal<"all" | "this">("all");
