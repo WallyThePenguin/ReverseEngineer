@@ -28,14 +28,17 @@ than stop, and the PC is the one place where a CI mistake could reach the real t
 ## What the guard protects
 
 `ops/ci-runner/guard.ts` runs first in each job (right after the checkout it lives in), then again
-at the top of every step that starts a server, takes a backup or restores one. It exits 1, naming
-each problem, unless every one of these holds:
+at the top of every step that starts a server, takes a backup or restores one. It checks every
+time it's run: the rules are in `guard-rules.ts`, which the tests import, so `guard.ts` needs no
+test for being the main module, which a Node without `import.meta.main` (23.6 to 24.1) would fail,
+skipping the guard without a word. It exits 1, naming each problem, unless every one of these
+holds:
 
 | The live Hearth's | CI's own, which the guard insists on |
 | --- | --- |
 | Postgres on 5432 (`HEARTH_DATABASE_URL`'s default) | `HEARTH_DATABASE_URL`, `HEARTH_TEST_DATABASE_URL`, `PGHOST` and `PGPORT` on localhost:5499, with no query string (it could move the host or port) |
 | The `hearth` database | Databases named `hearth_ci_<run id>_<attempt>`, or that name and `_something` |
-| Port 4400 (`HEARTH_PORT`'s default), 4443 on Tailscale | `HEARTH_PORT`, `HEARTH_E2E_PORT`, `HEARTH_ORIGIN`, `HEARTH_LOCAL_ORIGIN` and `HEARTH_E2E_URL` on 4480-4499, loopback only |
+| Port 4400 (the default of `HEARTH_PORT` and of the end-to-end tests' `HEARTH_E2E_URL`), 4443 on Tailscale | `HEARTH_PORT`, `HEARTH_ORIGIN`, `HEARTH_E2E_URL` and `HEARTH_E2E_PORT` set, and they and `HEARTH_LOCAL_ORIGIN` on 4480-4499, loopback only |
 | `D:\Hearth` and its data (`HEARTH_DATA_DIR`'s default is the working folder) | `HEARTH_DATA_DIR`, `HEARTH_BACKUP_DIR`, `RESTIC_CACHE_DIR` set, and under `RUNNER_TEMP` |
 | Google Drive through `%APPDATA%\rclone\rclone.conf` | `RCLONE_CONFIG` set to an empty file under `RUNNER_TEMP`; no other `RCLONE_*` variable (they can define a remote) |
 | The restic repository and its password | `HEARTH_BACKUP_REPOSITORY` and `RESTIC_REPOSITORY`, if set, a local folder under `RUNNER_TEMP`; `RESTIC_PASSWORD`, if set, starting `ci-`; no `RESTIC_PASSWORD_COMMAND`; no `HEARTH_VAULT_KEY` |
@@ -57,6 +60,16 @@ Things the guard can't see, and how they're handled:
   CI judges only its Server, Build and Migrations checks, which `HEARTH_PORT` and the run's
   database point at the CI server.
 - `hearth restore --switch` and `hearth restart` restart the live services. CI runs neither.
+- `ops/windows/test-control.ps1` (the Windows job's "update and restart scripts" step) runs
+  control.ps1's `Stop-Jarvis`, `Stop-Hearth` and the rest with Windows faked, as you, whose
+  account may stop the live services and end Jarvis's task. Before it calls them,
+  `ops/windows/test-fence.ps1` follows every command they can reach and refuses unless each is the
+  test's own fake, one of control.ps1's functions, or a cmdlet that only filters, prints or tells
+  the time; it also refuses a command run by a variable and a .NET call that acts (`.Kill()`,
+  `.Stop()`, writing a file). Being a function isn't enough: Windows' own `Stop-ScheduledTask` and
+  `Start-ScheduledTask` are functions (the ScheduledTasks module's). The test moves ProgramData to
+  a temp folder, as does the step, so the services folder, where a stop request ends the live
+  Jarvis, is out of reach.
 
 The guard stops mistakes, not attacks. The Windows job runs as you, with your rights: install.ps1
 lets your account start and stop Hearth's services, and you can write to `D:\Hearth` and the
@@ -176,3 +189,17 @@ install over the live Hearth. When it lands, it moves out of `ci.yml` into its o
 - `ops/windows/test-install.ps1` gets a first check that refuses to go on where `hearth-server` is
   already a service or `D:\Hearth` exists, so even a wrong label can't install over the live
   Hearth.
+
+Not everything in #45 moves. Its `test-control.ps1` dot-sources `test-control-update.ps1`, which
+runs the real `update.ps1` (in a Windows PowerShell of its own, through `test-update-fakes.ps1`)
+with git, pnpm, the services, Jarvis's task and its processes faked. That stays in `ci.yml`'s
+`windows` job, here on the PC, so its fence stays and gets tighter when #45 is rebased on this:
+
+- `test-update-fakes.ps1` keeps ProgramData in its own work folder and keeps refusing to start
+  `update.ps1` until every command that could reach Hearth is a fake. Its check asks only that
+  each be a function, which Windows' own `Stop-ScheduledTask`, `Start-ScheduledTask`,
+  `Register-ScheduledTask` and the rest already are: it must also ask that each be defined in
+  `test-update-fakes.ps1` (the function's `ScriptBlock.File`), as `test-fence.ps1` does.
+- #45 moves the `Stop-Jarvis` tests into `test-control-jarvis.ps1`: `Assert-Fenced` moves with
+  them, called before the first stop with that file as the fakes' file, and its `Start-Service`
+  and `Start-ScheduledTask` fakes listed in `-Faked`.

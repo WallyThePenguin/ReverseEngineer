@@ -1,5 +1,7 @@
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
-import { check, type Host, main, runDatabase } from "./guard.ts";
+import { check, type Host, main, runDatabase } from "./guard-rules.ts";
 
 const T = "D:/hearth-ci/_work-win/_temp";
 const RCLONE = `${T}/rclone-empty.conf`;
@@ -18,6 +20,8 @@ const WINDOWS: NodeJS.ProcessEnv = {
   HEARTH_PORT: "4480",
   HEARTH_ORIGIN: "http://localhost:4480",
   HEARTH_HOST: "127.0.0.1",
+  HEARTH_E2E_URL: "http://localhost:4480",
+  HEARTH_E2E_PORT: "4484",
   HEARTH_DATA_DIR: `${T}/hearth-data`,
   HEARTH_BACKUP_DIR: `${T}/hearth-data/backups`,
   RESTIC_CACHE_DIR: `${T}/restic-cache`,
@@ -144,6 +148,9 @@ describe("the CI guard", () => {
     one(win({ HEARTH_ORIGIN: undefined }), "HEARTH_ORIGIN isn't set");
     one(win({ HEARTH_E2E_URL: "http://localhost:4400" }), "HEARTH_E2E_URL");
     one(win({ HEARTH_E2E_PORT: "4404" }), "HEARTH_E2E_PORT is 4404");
+    // The end-to-end tests' own defaults: the live server to drive, and ports outside CI's.
+    one(win({ HEARTH_E2E_URL: undefined }), "would drive http://localhost:4400");
+    one(linux({ HEARTH_E2E_PORT: undefined }), "HEARTH_E2E_PORT isn't set");
     one(win({ HEARTH_LOCAL_ORIGIN: "http://127.0.0.1:4400" }), "HEARTH_LOCAL_ORIGIN");
     one(win({ HEARTH_HOST: "0.0.0.0" }), "loopback only");
   });
@@ -299,5 +306,15 @@ describe("the CI guard", () => {
       err.mockRestore();
       log.mockRestore();
     }
+  });
+
+  it("checks whenever it's run, so a Node without import.meta.main can't skip it", () => {
+    const guard = fileURLToPath(new URL("./guard.ts", import.meta.url));
+    const run = spawnSync(process.execPath, [guard], {
+      env: { PATH: process.env.PATH ?? "", SystemRoot: process.env.SystemRoot ?? "" },
+      encoding: "utf8",
+    });
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain("RUNNER_TEMP isn't set");
   });
 });

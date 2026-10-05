@@ -39,6 +39,9 @@ jobs:
       HEARTH_HOST: 127.0.0.1
       HEARTH_PORT: "4480"
       HEARTH_ORIGIN: http://localhost:4480
+      # The end-to-end tests' own defaults are the live server (4400) and ports outside CI's.
+      HEARTH_E2E_URL: http://localhost:4480
+      HEARTH_E2E_PORT: "4484"
       HEARTH_CHROME_LAUNCH: "off"
       # The container gets 4 of the PC's 16 cores, which the live Hearth shares, and its CPU quota
       # stalls a busy moment where a GitHub runner wouldn't: timed tests get three times a
@@ -99,8 +102,6 @@ jobs:
       - name: Main bundle size, and no Loro or WebAssembly in it
         run: pnpm check:bundle
       - name: Browser smoke test
-        env:
-          HEARTH_E2E_URL: http://localhost:4480
         run: |
           node ops/ci-runner/guard.ts
           export HEARTH_WEB_DIST="$PWD/apps/web/dist"
@@ -150,9 +151,7 @@ jobs:
           for i in $(seq 1 30); do curl -sf "localhost:$HEARTH_PORT/api/health" > /dev/null && break; sleep 1; done
           pnpm --filter @hearth/web e2e:resilience
       - name: The app opens while Hearth is stopped or not answering, end-to-end
-        # Starts and stops its own server on this port.
-        env:
-          HEARTH_E2E_PORT: "4484"
+        # Starts and stops its own server, on the job's HEARTH_E2E_PORT (4484).
         run: |
           node ops/ci-runner/guard.ts
           pnpm --filter @hearth/web e2e:offline
@@ -198,6 +197,9 @@ jobs:
       HEARTH_HOST: 127.0.0.1
       HEARTH_PORT: "4480"
       HEARTH_ORIGIN: http://localhost:4480
+      # The end-to-end tests' own defaults are the live server (4400) and ports outside CI's.
+      HEARTH_E2E_URL: http://localhost:4480
+      HEARTH_E2E_PORT: "4484"
       HEARTH_CHROME_LAUNCH: "off"
       # Timed tests get three times a developer's PC's budget (packages/db/src/testing/timing.ts).
       # This PC is that developer's PC, but CI runs at below-normal priority beside the live
@@ -267,7 +269,13 @@ jobs:
         run: pnpm typecheck
       - name: File size limit
         run: pnpm check:size
+      # It runs control.ps1's stops and starts with Windows faked, as you, on the PC whose live
+      # services and Jarvis task your account may stop. ops/windows/test-fence.ps1 refuses to run
+      # them unless every command they reach is a fake or only reads; Hearth's services folder,
+      # where a stop request ends the live Jarvis, is found through ProgramData, moved here too.
       - name: The update and restart scripts (they parse; the update gate's logic)
+        env:
+          ProgramData: ${{ runner.temp }}\ProgramData
         run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ops/windows/test-control.ps1
       - name: The CI runner's scripts parse
         shell: powershell
@@ -291,8 +299,6 @@ jobs:
       # database at this run's. It also reads Windows' view of the live services and tasks, which
       # only asks; nothing it runs changes anything.
       - name: Server starts and reports this commit, the doctor agrees, then the browser smoke test
-        env:
-          HEARTH_E2E_URL: http://localhost:4480
         run: |
           node ops/ci-runner/guard.ts
           export HEARTH_WEB_DIST="$PWD/apps/web/dist"

@@ -1588,6 +1588,14 @@ guard stops a job before it can reach anything of the live Hearth's. See docs/ci
   backup and restore, and exits naming each problem: the live Postgres or ports, a folder outside
   the temp folder, the owner's rclone config, a `.env`, the owner's Chrome, the services' setting,
   a checkout outside `D:\hearth-ci` or overlapping `D:\Hearth`, a Linux job outside its container.
+  It checks whenever it's run: no test for being the main module, which a Node without
+  `import.meta.main` would fail and skip it.
+- **The update scripts' tests.** `ops/windows/test-control.ps1` runs control.ps1's stops and starts
+  with Windows faked, as the owner, whose account may stop the live services and end Jarvis's
+  task. `ops/windows/test-fence.ps1` refuses to run them unless every command they reach is the
+  test's own fake or only reads (Windows' own `Stop-ScheduledTask` is a function too, so being a
+  function isn't enough), and the test moves ProgramData to a temp folder, out of reach of the
+  live Jarvis's stop request.
 - **Never a fork's code**, and never the real install: PR #45's `windows-install` job moves to its
   own GitHub-hosted workflow, run only when `ops/windows/**` changes and billing allows.
 
