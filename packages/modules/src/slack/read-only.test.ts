@@ -41,6 +41,11 @@ describe("your own Slack token", () => {
     await api.replies(XOXP, "C1", "1.0", { oldest: "0", limit: 10 });
     await api.user(XOXP, "U1");
     await api.mentions(XOXP, "U1");
+    // Who's who and who's in a channel, for "tell Sam", and a read-back of a post (D62).
+    await api.users(XOXP);
+    await api.channel(XOXP, "C1");
+    await api.readBack(XOXP, "C1", { oldest: "0" });
+    await api.readBack(XOXP, "C1", { oldest: "0", threadTs: "1.0" });
     expect([...new Set(seen.map((s) => s.method))].sort()).toEqual([...USER_TOKEN_METHODS].sort());
     expect(seen.every((s) => s.token === `Bearer ${XOXP}`)).toBe(true);
   });
@@ -48,7 +53,7 @@ describe("your own Slack token", () => {
   it("lists no method that writes, and refuses one before anything is sent", () => {
     for (const m of USER_TOKEN_METHODS)
       expect(m).toMatch(
-        /^(auth\.test|users\.(conversations|info)|conversations\.(history|replies)|search\.messages)$/,
+        /^(auth\.test|users\.(conversations|info|list)|conversations\.(history|replies|info|members)|search\.messages)$/,
       );
     const seen = stubSlack();
     for (const write of [
@@ -79,6 +84,13 @@ describe("your own Slack token", () => {
     await expect(bot.history(XOXP, "D1", { oldest: "0", limit: 10 })).rejects.toThrow(
       /Only a xoxb- token/,
     );
+    // Posting as Jarvis, and reading back what it posted, take the bot's token too.
+    const post = { channel: "D1", text: "hi", outboxId: "o1" };
+    await expect(bot.post(XOXP, post)).rejects.toThrow(/Only a xoxb- token/);
+    await expect(bot.postEphemeral(XOXP, { ...post, user: "U1" })).rejects.toThrow(
+      /Only a xoxb- token/,
+    );
+    await expect(bot.readBack(XOXP, "D1", { oldest: "0" })).rejects.toThrow(/Only a xoxb- token/);
     expect(seen).toEqual([]);
     // The bot's own token goes through.
     expect(await bot.openDm(XOXB, "UME")).toBe("D1");
@@ -114,6 +126,7 @@ describe("who a Slack user is (users.info, with your token)", () => {
     expect(await httpSlack(BASE).user(XOXP, "UEXT")).toEqual({
       id: "UEXT",
       name: "Sam Lee",
+      realName: "Sam Lee",
       email: "sam@example.com",
       bot: false,
       guest: true,

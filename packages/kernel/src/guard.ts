@@ -4,6 +4,7 @@
 // turn's tools means a reflex's "act", a self-test step and a turn's tool call all get the same
 // checks, and an approval you give later runs exactly what was checked and shown.
 import { normalizeUrl, type SiteRules } from "@hearth/core";
+import { ActionError } from "./errors.ts";
 import type { Kernel } from "./kernel.ts";
 import { getSetting } from "./settings.ts";
 import { checkActing, checkOpen, type TrustState } from "./trust.ts";
@@ -90,7 +91,16 @@ export async function guardAgentCall(
     const pinned = parse(given);
     if (!pinned.success) return { kind: "invalid", error: pinned.error };
     try {
-      const snap = await def.snapshot(pinned.data, { db: kernel.db, now: kernel.clock.now() });
+      const snap = await def.snapshot(pinned.data, {
+        db: kernel.db,
+        now: kernel.clock.now(),
+        service: <T>(name: string): T => {
+          const s = kernel.services[name];
+          if (!s)
+            throw new ActionError("unavailable", `The ${name} isn't available in this process.`);
+          return s as T;
+        },
+      });
       given = { ...given, ...snap };
     } catch (err) {
       return { kind: "invalid", error: err };

@@ -1,10 +1,14 @@
 // A Slack workspace in memory, for tests. Like Slack, it pages: history newest first, a thread's
 // replies oldest first, at most `pageSize` a page. Jarvis's bot is in it too (D62): its tokens,
 // what they may do, the hello its socket gets, and its DMs, which only its own token reads. Users
-// can be guests, deactivated or from another org, as users.info says.
+// can be guests, deactivated or from another org, as users.info says. The bot posts only where
+// it's been invited, keeps its outbox ids on what it posts, and can be made to fail as Slack does:
+// refusing, asking to slow down, or posting without the answer coming back.
 import {
+  type ReadBackPage,
   SEARCH_PAGE,
   type SlackApi,
+  type SlackChannelFacts,
   type SlackConversation,
   SlackError,
   type SlackMatch,
@@ -17,6 +21,22 @@ import { BOT_SCOPES, JARVIS_APP_ID, KEPT_USER_SCOPES, USER_SCOPES } from "./bot/
 import type { Heard } from "./bot/socket.ts";
 
 const after = (ts: string, oldest: string) => Number(ts) > Number(oldest);
+
+/**
+ * How the bot's next post goes wrong: "lost_answer" posts it but the answer never comes back (a
+ * timeout); "no_answer" fails before Slack has it; a code is Slack refusing it (ratelimited with
+ * its Retry-After).
+ */
+export type PostFault = "lost_answer" | "no_answer" | { code: string; retryAfter?: number };
+
+/** One post the bot made, as Slack received it. */
+export interface FakePost {
+  channel: string;
+  text: string;
+  threadTs?: string;
+  outboxId?: string;
+  ephemeralTo?: string;
+}
 
 export class FakeSlack {
   token = "xoxp-1111-2222-test";
@@ -52,6 +72,12 @@ export class FakeSlack {
   ims = new Map<string, string>();
   /** How many times search.messages was asked. */
   searches = 0;
+  /** Channels as conversations.info and conversations.members show them. */
+  channelFacts = new Map<string, SlackChannelFacts>();
+  /** Every post the bot made, in order. */
+  posts: FakePost[] = [];
+  /** What goes wrong with the bot's next posts, one each. */
+  postFaults: PostFault[] = [];
 
   /** `extra`: what else the message carries, like the bot_id of a bot's post. */
   post(
@@ -107,6 +133,24 @@ export class FakeSlack {
     return this.page(list, p.cursor, p.limit);
   }
 
+  /** What's been posted in a place since `oldest` (inclusive), or in one thread, newest first. */
+  private readBackOf(channel: string, p: ReadBackPage): SlackMessage[] {
+    return (this.messages.get(channel) ?? [])
+      .filter((m) => Number(m.ts) >= Number(p.oldest))
+      .filter((m) =>
+        p.threadTs
+          ? m.ts === p.threadTs || m.threadTs === p.threadTs
+          : !m.threadTs || m.threadTs === m.ts,
+      )
+      .reverse();
+  }
+
+  /** A channel with the people in it; `bot` invites Jarvis's bot. */
+  channel(id: string, name: string, members: string[], more: Partial<SlackChannelFacts> = {}) {
+    const kind = id.startsWith("G") ? "private" : "channel";
+    this.channelFacts.set(id, { id, name, kind, archived: false, shared: false, members, ...more });
+  }
+
   api(): SlackApi {
     const check = (token: string) => {
       this.requests++;
@@ -157,6 +201,25 @@ export class FakeSlack {
         out.sort((a, b) => Number(b.ts) - Number(a.ts));
         return out.slice((page - 1) * SEARCH_PAGE, page * SEARCH_PAGE);
       },
+      users: async (token) => {
+        check(token);
+        this.calls.push("users.list");
+        return [...this.users.values()];
+      },
+      channel: async (token, id) => {
+        check(token);
+        this.calls.push(`channel ${id}`);
+        this.failIf(`channel ${id}`);
+        const facts = this.channelFacts.get(id);
+        if (!facts) throw new SlackError("channel_not_found");
+        return { ...facts, members: [...facts.members] };
+      },
+      readBack: async (token, channel, p) => {
+        check(token);
+        this.calls.push(`readback ${channel}`);
+        this.failIf(`readback ${channel}`);
+        return this.readBackOf(channel, p);
+      },
     };
   }
 
@@ -199,6 +262,39 @@ export class FakeSlack {
         this.failIf(`bot history ${channel}`);
         const page = this.historyOf(channel, p);
         return { messages: page.messages.map((m) => heard(channel, m)), next: page.next };
+      },
+      post: async (token, msg) => {
+        check(token, this.bot.token, `post ${msg.channel}`);
+        const fault = this.postFaults.shift();
+        if (fault && typeof fault === "object") throw new SlackError(fault.code, fault.retryAfter);
+        if (fault === "no_answer") throw new TypeError("fetch failed");
+        const channel = /^[UW]/.test(msg.channel)
+          ? (this.ims.get(msg.channel) ?? `D${msg.channel}`)
+          : msg.channel;
+        // Without chat:write.public the bot posts only where it's been invited.
+        const facts = this.channelFacts.get(channel);
+        if (/^[CG]/.test(channel) && !facts?.members.includes(this.bot.userId))
+          throw new SlackError(facts ? "not_in_channel" : "channel_not_found");
+        const extra = { botId: this.bot.botId, outboxId: msg.outboxId };
+        const ts = this.post(channel, this.bot.userId, msg.text, msg.threadTs, extra);
+        this.posts.push({
+          channel,
+          text: msg.text,
+          threadTs: msg.threadTs,
+          outboxId: msg.outboxId,
+        });
+        if (fault === "lost_answer")
+          throw new DOMException("The operation timed out.", "TimeoutError");
+        return { channel, ts };
+      },
+      postEphemeral: async (token, msg) => {
+        check(token, this.bot.token, `ephemeral ${msg.channel}`);
+        this.posts.push({ channel: msg.channel, text: msg.text, ephemeralTo: msg.user });
+      },
+      readBack: async (token, channel, p) => {
+        check(token, this.bot.token, `readback ${channel}`);
+        this.failIf(`bot readback ${channel}`);
+        return this.readBackOf(channel, p);
       },
     };
   }

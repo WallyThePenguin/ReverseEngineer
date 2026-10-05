@@ -1,6 +1,7 @@
 // Slack (M7, PLAN.md section 8.3): your team's Slack read in with your own token. What people
 // write there is outside content for Jarvis, and @mentions and direct messages land in the inbox.
-// Your token only reads. Jarvis posts as its own bot, connected here too (bot/, D62).
+// Your token only reads. Jarvis posts as its own bot, connected here too, through one outbox the
+// worker sends (bot/, D62).
 import { entity, slackBot, slackChannel, slackMessage, slackWorkspace } from "@hearth/db";
 import { ActionError, type DigestItem, defineAction, defineModule } from "@hearth/kernel";
 import { and, desc, eq, gte, ilike } from "drizzle-orm";
@@ -8,6 +9,7 @@ import { z } from "zod";
 import { syncFailedReflex } from "../connector-health.ts";
 import { describeRow, liveEntity, preview } from "../shared.ts";
 import { botActions } from "./bot/connect.ts";
+import { sendActions } from "./bot/send.ts";
 import { connectActions } from "./connect.ts";
 import { syncSlack } from "./sync.ts";
 
@@ -20,6 +22,7 @@ export {
 } from "./api.ts";
 export { httpSlackBot, SLACK_BOT_SERVICE, type SlackBotApi } from "./bot/api.ts";
 export { CATCH_UP_EVERY_MS, type CatchUp, catchUp } from "./bot/catchup.ts";
+export { POST_FLAGS, POST_MAX, slackText } from "./bot/filter.ts";
 export {
   type BotDown,
   botTrouble,
@@ -36,6 +39,18 @@ export {
   storeInbound,
 } from "./bot/inbound.ts";
 export { JARVIS_APP_ID, slackManifest } from "./bot/manifest.ts";
+export { type OutboxRound, sendOutbox } from "./bot/outbox.ts";
+export {
+  enqueue,
+  type NewPost,
+  OUTBOX_CHANNEL,
+  OUTBOX_EXPIRES_MS,
+  OUTBOX_POLL_MS,
+  type OutboxRow,
+  PACE_MS,
+  PER_MINUTE,
+  SENDING_STALE_MS,
+} from "./bot/queue.ts";
 export {
   ackOf,
   BACKOFF_RESET_MS,
@@ -138,6 +153,7 @@ export const slackModule = defineModule({
   actions: [
     ...connectActions,
     ...botActions,
+    ...sendActions,
     defineAction({
       name: "slack.channels",
       description: "The Slack channels and direct messages you're in, and which are read in.",

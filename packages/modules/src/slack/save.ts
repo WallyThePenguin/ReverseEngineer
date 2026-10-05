@@ -90,7 +90,7 @@ export function plainText(text: string, names: Map<string, string>): string {
 }
 
 /** A name someone else chose (a person, a channel), safe to put in Hearth's text. */
-const named = (s: string) => s.replace(/<(\/?m-ref)/gi, "‹$1");
+export const named = (s: string) => s.replace(/<(\/?m-ref)/gi, "‹$1");
 
 /** A Slack user's name, asked of Slack once and kept (with the person they are, by email). */
 export async function userName(ctx: ActionContext, ws: WorkspaceRow, token: string, id: string) {

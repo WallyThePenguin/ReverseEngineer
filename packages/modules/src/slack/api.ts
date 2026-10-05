@@ -2,6 +2,9 @@
 // Hearth runs on your PC with no public address, so it asks Slack for news instead of being
 // told: one channel at a time, within Slack's rate limits. With your token it only ever reads
 // (USER_TOKEN_METHODS); Jarvis posts as its own bot (bot/api.ts, D62).
+import { directoryReads, messageOf, userOf } from "./directory.ts";
+
+export { OUTBOX_EVENT } from "./directory.ts";
 
 export const SLACK_SERVICE = "slack";
 
@@ -18,6 +21,10 @@ export const USER_TOKEN_METHODS: ReadonlySet<string> = new Set([
   "conversations.replies",
   "users.info",
   "search.messages",
+  // Who's who and who's in a channel, for "tell Sam" (D62).
+  "users.list",
+  "conversations.info",
+  "conversations.members",
 ]);
 
 /** Refuses, before anything is sent, any call with your own token that isn't one of those reads. */
@@ -38,6 +45,8 @@ export interface SlackMessage {
   /** A thread's start: how many replies it has, and the newest one's ts. */
   replyCount?: number;
   latestReply?: string;
+  /** On a post Jarvis's outbox made: the outbox row it came from (OUTBOX_EVENT metadata). */
+  outboxId?: string;
 }
 
 /** One page of messages, and the cursor for the next page when there's more. */
@@ -57,6 +66,8 @@ export interface SlackConversation {
 export interface SlackUser {
   id: string;
   name: string;
+  /** Their full name, as their profile gives it (`name` is what they go by). */
+  realName?: string;
   email?: string;
   bot: boolean;
   /** A guest (single- or multi-channel): never answered by Jarvis (D62). */
@@ -69,6 +80,24 @@ export interface SlackUser {
 
 export interface SlackMatch extends SlackMessage {
   channel: string;
+}
+
+/** A channel as your token sees it (conversations.info and conversations.members). */
+export interface SlackChannelFacts {
+  id: string;
+  name: string;
+  kind: SlackConversation["kind"];
+  archived: boolean;
+  /** Shared with another org (Slack Connect), or about to be. */
+  shared: boolean;
+  /** Everyone in it, by id: Jarvis's bot too, once it's been invited. */
+  members: string[];
+}
+
+/** Where to read back from: a place since `oldest`, or one thread in it. */
+export interface ReadBackPage {
+  oldest: string;
+  threadTs?: string;
 }
 
 /** How many matches a page of search holds. */
@@ -102,6 +131,15 @@ export interface SlackApi {
    * page of SEARCH_PAGE at a time (page 1 is the newest).
    */
   mentions(token: string, userId: string, page?: number): Promise<SlackMatch[]>;
+  /** Everyone in the workspace (users.list), bots and deactivated users included. */
+  users(token: string): Promise<SlackUser[]>;
+  /** A channel, and who's in it. */
+  channel(token: string, id: string): Promise<SlackChannelFacts>;
+  /**
+   * What's been posted in a channel since `oldest`, with the outbox id on each of Jarvis's posts:
+   * how the outbox tells whether a post that may have gone out did (D62).
+   */
+  readBack(token: string, channel: string, page: ReadBackPage): Promise<SlackMessage[]>;
 }
 
 /** Slack said no. `retryAfter` is set when it asks Hearth to slow down. */
@@ -177,19 +215,6 @@ export async function slackRequest(
   return { body, scopes: scopesOf(res.headers) };
 }
 
-function message(m: Raw): SlackMessage {
-  return {
-    ts: String(m.ts),
-    user: str(m.user),
-    botId: str(m.bot_id),
-    text: str(m.text) ?? "",
-    threadTs: str(m.thread_ts),
-    subtype: str(m.subtype),
-    replyCount: typeof m.reply_count === "number" ? m.reply_count : undefined,
-    latestReply: str(m.latest_reply),
-  };
-}
-
 /** The cursor for the next page, when Slack says there's more. */
 const nextCursor = (r: Raw): string | undefined =>
   (r.has_more ? str((r.response_metadata as Raw | undefined)?.next_cursor) : undefined) ||
@@ -243,7 +268,7 @@ export function httpSlack(base = "https://slack.com/api"): SlackApi {
         limit: String(page.limit),
         inclusive: "false",
       });
-      return { messages: ((r.messages as Raw[]) ?? []).map(message), next: nextCursor(r) };
+      return { messages: ((r.messages as Raw[]) ?? []).map(messageOf), next: nextCursor(r) };
     },
     async replies(token, channel, threadTs, page) {
       const r = await call(token, "conversations.replies", {
@@ -254,24 +279,14 @@ export function httpSlack(base = "https://slack.com/api"): SlackApi {
         limit: String(page.limit),
         inclusive: "false",
       });
-      const messages = ((r.messages as Raw[]) ?? []).map(message);
+      const messages = ((r.messages as Raw[]) ?? []).map(messageOf);
       // Slack puts the thread's first message at the top of every page.
       return { messages: messages.filter((m) => m.ts !== threadTs), next: nextCursor(r) };
     },
     async user(token, id) {
       try {
         const r = await call(token, "users.info", { user: id });
-        const u = r.user as Raw;
-        const profile = (u.profile as Raw | undefined) ?? {};
-        return {
-          id,
-          name: str(profile.display_name) || str(u.real_name) || str(u.name) || id,
-          email: str(profile.email),
-          bot: Boolean(u.is_bot),
-          guest: Boolean(u.is_restricted || u.is_ultra_restricted),
-          deleted: Boolean(u.deleted),
-          teamId: str(u.team_id),
-        };
+        return userOf(r.user as Raw, id);
       } catch (err) {
         if (err instanceof SlackError && err.code === "user_not_found") return null;
         throw err;
@@ -290,11 +305,12 @@ export function httpSlack(base = "https://slack.com/api"): SlackApi {
         const permalink = str(m.permalink) ?? "";
         const thread = /thread_ts=([0-9.]+)/.exec(permalink)?.[1];
         return {
-          ...message(m),
+          ...messageOf(m),
           threadTs: thread,
           channel: String((m.channel as Raw | undefined)?.id ?? ""),
         };
       });
     },
+    ...directoryReads((token) => (method, params) => call(token, method, params)),
   };
 }

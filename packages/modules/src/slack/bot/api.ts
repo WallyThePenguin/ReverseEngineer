@@ -1,7 +1,17 @@
 // What Hearth asks of Slack as Jarvis's bot (D62): with the bot token (xoxb) and the app-level
 // token (xapp), never with your own. Your token can only read (api.ts USER_TOKEN_METHODS); this
 // client takes only the bot's and the app's tokens, so nothing Jarvis posts can go out as you.
-import { type Raw, SlackError, slackRequest, str } from "../api.ts";
+import {
+  OUTBOX_EVENT,
+  type Raw,
+  type ReadBackPage,
+  SlackError,
+  type SlackMessage,
+  slackRequest,
+  str,
+} from "../api.ts";
+import { readBackWith } from "../directory.ts";
+import { POST_FLAGS } from "./filter.ts";
 import { type Heard, heardOf } from "./socket.ts";
 
 export const SLACK_BOT_SERVICE = "slack_bot";
@@ -39,6 +49,22 @@ export interface SlackBotApi {
     channel: string,
     page: { oldest: string; cursor?: string; limit: number },
   ): Promise<{ messages: Heard[]; next?: string }>;
+  /**
+   * chat.postMessage as Jarvis, with text the outbox's filter made (filter.ts): no link parsing,
+   * no @names, no previews, and the outbox row's id in its metadata. `channel` may be a user's id,
+   * for the bot's DM with them; the answer names the channel it went to.
+   */
+  post(
+    botToken: string,
+    msg: { channel: string; text: string; threadTs?: string; outboxId: string },
+  ): Promise<{ channel: string; ts: string }>;
+  /** chat.postEphemeral: a note only `user` sees, which Slack doesn't keep. */
+  postEphemeral(
+    botToken: string,
+    msg: { channel: string; user: string; text: string; threadTs?: string },
+  ): Promise<void>;
+  /** What's been posted in one of the bot's DMs since `oldest`, with each post's outbox id. */
+  readBack(botToken: string, channel: string, page: ReadBackPage): Promise<SlackMessage[]>;
 }
 
 /** How long Slack has to say hello on a new socket. */
@@ -163,5 +189,46 @@ export function httpSlackBot(base = "https://slack.com/api"): SlackBotApi {
         : undefined;
       return { messages: ((r.messages as Raw[]) ?? []).map((m) => heardOf(m, channel)), next };
     },
+    async post(botToken, msg) {
+      const { body: r } = await slackRequest(
+        base,
+        only("xoxb-", botToken),
+        "chat.postMessage",
+        {
+          channel: msg.channel,
+          text: msg.text,
+          ...(msg.threadTs ? { thread_ts: msg.threadTs } : {}),
+          ...POST_FLAGS,
+          metadata: JSON.stringify({
+            event_type: OUTBOX_EVENT,
+            event_payload: { id: msg.outboxId },
+          }),
+        },
+        true,
+      );
+      return { channel: String(r.channel ?? msg.channel), ts: String(r.ts) };
+    },
+    async postEphemeral(botToken, msg) {
+      await slackRequest(
+        base,
+        only("xoxb-", botToken),
+        "chat.postEphemeral",
+        {
+          channel: msg.channel,
+          user: msg.user,
+          text: msg.text,
+          ...(msg.threadTs ? { thread_ts: msg.threadTs } : {}),
+          ...POST_FLAGS,
+        },
+        true,
+      );
+    },
+    readBack: (botToken, channel, page) =>
+      readBackWith(
+        async (method, params) =>
+          (await slackRequest(base, only("xoxb-", botToken), method, params)).body,
+        channel,
+        page,
+      ),
   };
 }

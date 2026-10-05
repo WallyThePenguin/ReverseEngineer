@@ -1,6 +1,6 @@
 // The worker: fires schedules (routines, reminders, checks), checks watched pages, syncs
-// Google Calendar, mail, Slack and GitHub, holds Jarvis's Slack socket, and keeps an eye on
-// Hearth's health.
+// Google Calendar, mail, Slack and GitHub, holds Jarvis's Slack socket and posts what Jarvis
+// says there, and keeps an eye on Hearth's health.
 
 import { githubAccount, googleAccount, slackWorkspace } from "@hearth/db";
 import { integrationCaller, type Kernel, pruneAudit, startScheduler } from "@hearth/kernel";
@@ -10,6 +10,7 @@ import { jarvisWatchdog } from "./jarvis-watchdog.ts";
 import { type MailRoundOptions, mailRound } from "./mail-loop.ts";
 import { scheduleWatch } from "./schedule-health.ts";
 import { type SlackBot, startSlackBot } from "./slack-bot.ts";
+import { type SlackOutbox, type SlackOutboxOptions, startSlackOutbox } from "./slack-outbox.ts";
 import { checkSyncs, ErrorClock } from "./sync-health.ts";
 import { checkDueWatches } from "./watches.ts";
 
@@ -28,6 +29,8 @@ export interface WorkerOptions extends HealthOptions {
    * it the worker doesn't hold the socket.
    */
   slackInbound?: InboundStore;
+  /** Where the Slack outbox hears a new post (LISTEN), so it goes at once rather than within 5 s. */
+  listenPool?: SlackOutboxOptions["pool"];
   log?: (msg: string, err?: unknown) => void;
 }
 
@@ -171,6 +174,10 @@ export function startWorker(opts: WorkerOptions) {
   const slackBot: SlackBot | null = opts.slackInbound
     ? startSlackBot({ kernel, inbound: opts.slackInbound, log: (m, e) => log(m, e) })
     : null;
+  // And the one sender of what Jarvis posts there, on the same install (D62).
+  const slackOutbox: SlackOutbox | null = opts.slackInbound
+    ? startSlackOutbox({ kernel, pool: opts.listenPool, log: (m, e) => log(m, e) })
+    : null;
 
   // Routine audit rows (reads, check-ins, syncs) are let go after a while (AUDIT_KEEP), and what
   // Slack members wrote to Jarvis after 30 days (D62).
@@ -196,9 +203,11 @@ export function startWorker(opts: WorkerOptions) {
     calendars,
     mail,
     slackBot,
+    slackOutbox,
     tick: scheduler.tick,
     stop() {
       slackBot?.stop();
+      void slackOutbox?.stop();
       clearInterval(timer);
       clearInterval(watchTimer);
       clearInterval(calendarTimer);

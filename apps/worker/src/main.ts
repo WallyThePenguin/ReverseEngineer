@@ -25,7 +25,8 @@ import {
 import { startWorker } from "./worker.ts";
 
 export async function runWorker(): Promise<() => Promise<void>> {
-  const database = connect(databaseUrl(), { max: 4 });
+  // One connection more than the syncs need: the Slack outbox holds one to LISTEN (D62).
+  const database = connect(databaseUrl(), { max: 5 });
   // Jarvis's Slack socket stores what it hears on a connection of its own, so a sync holding the
   // pool can't keep Slack waiting for its ack (D62).
   const slackInbound = inboundStore(databaseUrl());
@@ -50,10 +51,12 @@ export async function runWorker(): Promise<() => Promise<void>> {
     kernel,
     dataDir: process.env.HEARTH_DATA_DIR ?? process.cwd(),
     slackInbound,
+    listenPool: database.pool,
   });
   console.log("Hearth worker running: schedules and health checks.");
   return async () => {
     worker.stop();
+    await worker.slackOutbox?.stop();
     await slackInbound.close();
     await database.close();
   };
