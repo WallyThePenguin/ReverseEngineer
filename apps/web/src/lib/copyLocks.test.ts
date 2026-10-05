@@ -1,9 +1,10 @@
 // Which copies a screen takes in as it opens or hears a restore, and its first read (D59). Each
 // screen holds a Web Lock named after its own copy while it's open, and keeps nothing before it's
-// held, so another takes over only the copy of a screen that closed or crashed: an open one saves
-// its own, and a card it removes after the restore stays removed. Without Web Locks none is taken
-// over. A first read that fails is tried again once the browser is back online, one Hearth turns
-// down says why, and meeting notes take typing before it. Runs against a fake Hearth, an in-memory
+// held, so another takes over only the copy of a screen that closed or crashed, as that screen left
+// it: an open one saves its own, and a card it removes after the restore stays removed. Without Web
+// Locks every other copy is taken over, so one a closed tab kept is still sent. A first read that
+// fails is tried again once the browser is back online, one Hearth turns down says why, and nothing
+// typed before it is taken, in meeting notes too. Runs against a fake Hearth, an in-memory
 // stand-in for IndexedDB and fake Web Locks (no DOM here).
 import { type Canvas, type CanvasNode, mergeCanvas, mergeText } from "@hearth/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -44,16 +45,24 @@ const restore: LiveEvent = {
 
 /** The Web Locks this browser holds, by name, in the order they were taken. */
 const held = new Set<string>();
+/** While set, a look at whether a lock is free waits for it first. */
+let slow: Promise<void> | null = null;
+type Granted = (lock: { name: string } | null) => Promise<unknown>;
+type Request = [Granted] | [{ ifAvailable?: boolean }, Granted];
 const locks = {
-  async request(name: string, fn: () => Promise<unknown>) {
+  async request(name: string, ...args: Request) {
+    const fn = args.length === 2 ? args[1] : args[0];
+    if (args.length === 2 && args[0].ifAvailable) {
+      if (slow) await slow;
+      if (held.has(name)) return fn(null);
+    }
     held.add(name);
     try {
-      return await fn();
+      return await fn({ name });
     } finally {
       held.delete(name);
     }
   },
-  query: async () => ({ held: [...held].map((name) => ({ name })), pending: [] }),
 };
 
 const card = (id: string, text: string): CanvasNode =>
@@ -67,6 +76,8 @@ let down = false;
 let trashed = false;
 /** Hearth turns reads down, saying this. */
 let forbid: string | null = null;
+/** While set, Hearth's answers to reads wait for it. */
+let late: Promise<void> | null = null;
 const reply = (body: unknown, status = 200) => Response.json(body, { status });
 
 beforeEach(() => {
@@ -75,6 +86,8 @@ beforeEach(() => {
   down = false;
   trashed = false;
   forbid = null;
+  late = null;
+  slow = null;
   feed.clear();
   kept.clear();
   held.clear();
@@ -86,6 +99,7 @@ beforeEach(() => {
   vi.stubGlobal("document", Object.assign(new EventTarget(), { visibilityState: "visible" }));
   vi.stubGlobal("navigator", { locks });
   vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+    if (url.endsWith(".get") && late) await late;
     if (down) throw new TypeError("Failed to fetch");
     if (trashed) return reply({ status: "error", code: "not_found", message: "No such" }, 404);
     const input = JSON.parse(String(init.body));
@@ -111,7 +125,8 @@ async function open<T>(o: {
   noun?: string;
   /** What the page shows before the first read. */
   shown?: T;
-  beforeRead?: boolean;
+  /** Returns before the first read is done. */
+  early?: boolean;
 }) {
   const { createSaver } = await import("./wholeSave.ts");
   const { action } = await import("./api.ts");
@@ -121,7 +136,6 @@ async function open<T>(o: {
     key: "x:r1",
     noun: o.noun ?? "board",
     action: "x.save",
-    beforeRead: o.beforeRead,
     input: (data, baseVersion) => ({ id: "r1", data, baseVersion }),
     get: () => action<{ title: string; data: T; version: number }>("x.get"),
     merge: o.merge,
@@ -131,14 +145,18 @@ async function open<T>(o: {
       shown = structuredClone(data);
     },
   });
-  await saver.load();
+  const loading = saver.load();
+  if (!o.early) await loading;
   const edit = (fn: (d: T) => T) => {
     shown = fn(structuredClone(shown));
     saver.changed();
   };
-  return { saver, edit, shown: () => shown };
+  return { saver, edit, shown: () => shown, loading };
 }
 const board = () => open<Canvas>({ merge: mergeCanvas, empty: () => ({ nodes: [], edges: [] }) });
+/** Meeting notes, set up as MeetingNotes.tsx sets them up, with the page's copy on screen. */
+const notes = (shown = "", early = false) =>
+  open<string>({ merge: mergeText, empty: () => "", noun: "meeting", shown, early });
 const add =
   (...cards: CanvasNode[]) =>
   (b: Canvas) => ({ ...b, nodes: [...b.nodes, ...cards] });
@@ -201,43 +219,69 @@ describe("copies kept by other screens", () => {
     expect(kept.size).toBe(0);
   });
 
-  it("keeps nothing before its own lock is held, so no other screen takes its copy as closed", async () => {
+  it("opens only once its own lock is held, so it keeps nothing another takes as closed", async () => {
     let grant = () => {};
     const granted = new Promise<void>((r) => {
       grant = r;
     });
-    const request = async (name: string, fn: () => Promise<unknown>) => {
+    const request = async (name: string, ...args: Request) => {
       await granted;
-      return locks.request(name, fn);
+      return locks.request(name, ...args);
     };
     vi.stubGlobal("navigator", { locks: { ...locks, request } });
-    const { createSaver } = await import("./wholeSave.ts");
-    let shown = "Agenda";
-    const saver = createSaver<string>({
-      id: "r1",
-      key: "x:r1",
-      noun: "meeting",
-      action: "x.save",
-      beforeRead: true,
-      input: (data, baseVersion) => ({ id: "r1", data, baseVersion }),
-      get: () => new Promise(() => {}),
-      merge: mergeText,
-      empty: () => "",
-      current: () => shown,
-      show: (data) => {
-        shown = data;
-      },
+    const b = await open<Canvas>({
+      merge: mergeCanvas,
+      empty: () => ({ nodes: [], edges: [] }),
+      early: true,
     });
-    shown = "Agenda\nTyped at once";
-    saver.changed();
+    await vi.advanceTimersByTimeAsync(0);
+    // Hearth's board is read, but the screen isn't open yet: a card put on it is ignored.
+    expect(b.saver.loaded()).toBe(false);
+    b.edit(add(card("e", "Early")));
     await vi.advanceTimersByTimeAsync(0);
     expect(kept.size).toBe(0);
     grant();
+    await b.loading;
+    expect(texts(b.shown())).toEqual(["one"]);
+    b.edit(add(card("n", "Now")));
     await vi.advanceTimersByTimeAsync(0);
     expect([...kept.keys()]).toEqual([...held]);
   });
 
-  it("without Web Locks, takes over no other screen's copy: it stays kept here", async () => {
+  it.each([
+    ["lands", false],
+    ["can't reach Hearth", true],
+  ])(
+    "takes a closed screen's copy as that screen left it (its last save %s)",
+    async (_, offline) => {
+      const p = await board();
+      const q = await board();
+      q.edit(add(card("t", "Q temp")));
+      await vi.advanceTimersByTimeAsync(0);
+      // P hears a restore and reads Q's copy, but is slow to look at Q's lock...
+      let go = () => {};
+      slow = new Promise<void>((r) => {
+        go = r;
+      });
+      const [toP] = [...feed];
+      toP!(restore);
+      await vi.advanceTimersByTimeAsync(0);
+      // ...and meanwhile Q removes the card and closes.
+      q.edit(drop("t"));
+      await vi.advanceTimersByTimeAsync(0);
+      down = offline;
+      await q.saver.close();
+      down = false;
+      slow = null;
+      go();
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(texts(server.data)).toEqual(["one"]);
+      expect(texts(p.shown())).toEqual(["one"]);
+      expect(kept.size).toBe(0);
+    },
+  );
+
+  it("without Web Locks, takes over every other screen's copy as it hears a restore", async () => {
     vi.stubGlobal("navigator", {});
     const p = await board();
     const q = await board();
@@ -249,9 +293,24 @@ describe("copies kept by other screens", () => {
     trashed = false;
     for (const fn of feed) fn(restore);
     await vi.advanceTimersByTimeAsync(0);
-    // Q can't tell P closed, so it saves only its own.
-    expect(texts(server.data)).toEqual(["one", "Q card"]);
-    expect([...kept.values()].map((k) => texts(k.data))).toEqual([["one", "P card"]]);
+    // Q can't tell whether P is still open, so it saves P's copy too.
+    expect(texts(server.data)).toEqual(["one", "P card", "Q card"]);
+    expect(kept.size).toBe(0);
+  });
+
+  it("without Web Locks, sends at the next open what a tab closed offline kept", async () => {
+    vi.stubGlobal("navigator", {});
+    const p = await board();
+    down = true;
+    p.edit(add(card("p", "P card")));
+    await vi.advanceTimersByTimeAsync(700);
+    await p.saver.close();
+    down = false;
+    const q = await board();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(texts(server.data)).toEqual(["one", "P card"]);
+    expect(texts(q.shown())).toEqual(["one", "P card"]);
+    expect(kept.size).toBe(0);
   });
 });
 
@@ -268,39 +327,53 @@ describe("the first read", () => {
     expect(p.saver.problem()).toBeNull();
   });
 
-  it("says why when Hearth turns it down, and that a board can't be changed until then", async () => {
+  it("says why when Hearth turns it down, and that it can't be changed until then", async () => {
     forbid = "Not yours.";
     const b = await board();
     expect(b.saver.problem()).toBe(
       "Hearth didn't open this board, so it can't be changed here: Not yours.",
     );
-    // Meeting notes take typing meanwhile.
-    const m = await open<string>({
-      merge: mergeText,
-      empty: () => "",
-      noun: "meeting",
-      beforeRead: true,
-    });
-    expect(m.saver.problem()).toBe("Hearth didn't open this meeting: Not yours.");
+    // Meeting notes too: the box stays read-only, and this says why under it.
+    const m = await notes();
+    expect(m.saver.problem()).toBe(
+      "Hearth didn't open this meeting, so it can't be changed here: Not yours.",
+    );
   });
 
-  it("isn't waited for by meeting notes: typing before it is merged by line", async () => {
-    server.data = "Agenda\nFrom Jarvis";
-    down = true;
-    // The page's copy, from before Jarvis wrote.
-    const m = await open<string>({
-      merge: mergeText,
-      empty: () => "",
-      noun: "meeting",
-      shown: "Agenda",
-      beforeRead: true,
+  // Typed onto the page's copy before it, a change has no base: merged by line onto none, an edited
+  // line would stay beside the new one, and a deleted one would come back.
+  it("is waited for by meeting notes: what's typed before it isn't taken", async () => {
+    server.data = "Agenda\nOwner";
+    let answer = () => {};
+    late = new Promise<void>((r) => {
+      answer = r;
     });
-    m.edit((t) => `${t}\nTyped offline`);
-    await vi.advanceTimersByTimeAsync(700);
-    down = false;
+    const m = await notes("Agenda\nOwner", true);
+    m.edit((t) => `${t}: Sam`);
+    await vi.advanceTimersByTimeAsync(10);
+    late = null;
+    answer();
+    await m.loading;
     await vi.advanceTimersByTimeAsync(2_000);
-    expect(server.data).toBe("Agenda\nTyped offline\nFrom Jarvis");
-    expect(m.shown()).toBe("Agenda\nTyped offline\nFrom Jarvis");
+    expect(server.data).toBe("Agenda\nOwner");
+    expect(m.shown()).toBe("Agenda\nOwner");
+    expect(kept.size).toBe(0);
+  });
+
+  it("is waited for by meeting notes while it can't reach Hearth, which they say", async () => {
+    server.data = "Agenda\nOwner: TBD";
+    down = true;
+    const m = await notes("Agenda\nOwner: TBD");
+    expect(m.saver.problem()).toBe(
+      "Can't open this meeting right now: can't reach Hearth. Trying again…",
+    );
+    m.edit((t) => t.replace("TBD", "Sam"));
+    await vi.advanceTimersByTimeAsync(5_000);
+    down = false;
+    window.dispatchEvent(new Event("online"));
+    await vi.advanceTimersByTimeAsync(40_000);
+    expect(server.data).toBe("Agenda\nOwner: TBD");
+    expect(m.shown()).toBe("Agenda\nOwner: TBD");
     expect(kept.size).toBe(0);
   });
 });

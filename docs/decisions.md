@@ -1363,13 +1363,14 @@ a busy Slack channel lost messages for good.
   a copy waits in IndexedDB with the version it was made on; the page sends it as it closes, and
   the next open sends what never arrived. Each screen keeps its own copy, so two tabs can't
   replace each other's, and holds a Web Lock named after it while it's open: the next open merges
-  in every copy whose screen has closed or crashed, and leaves an open screen's to it, so a card
-  that screen removes later stays removed. Without Web Locks none is taken over, and a copy whose
-  screen closed before saving it stays on the device. A board or a spreadsheet takes no change
-  until Hearth's copy (or one kept here) has been read; meeting notes take typing before then (on
-  flaky Wi-Fi, say). A copy kept before the first read (by meeting notes, or by an older Hearth)
-  has no base, and is merged onto an empty one as if everything in it had been added there; lines
-  merged that way only add. Jarvis must pass the version it read.
+  in every copy whose screen has closed or crashed, as that screen left it, and leaves an open
+  screen's to it, so a card that screen removes later stays removed. Without Web Locks (a page on
+  plain http, an older browser) there's no telling, so the next open, or a screen hearing of a
+  restore, merges in every other copy: one a closed tab kept is still sent, and in the rare case
+  its screen is still open, a card that screen removes later can come back. A board, a
+  spreadsheet or meeting notes take no change until Hearth's copy (or one kept here) has been
+  read; a copy an older Hearth kept before then has no base, and is merged onto an empty one as if
+  everything in it had been added there. Jarvis must pass the version it read.
 - **Whole-note writes don't erase typing.** Jarvis rewriting a whole note must pass the revision
   it read; checklist-to-tasks locks the note and changes only the items it links. A rewrite's
   diff gets 200 ms and then goes line by line.
@@ -1379,15 +1380,16 @@ a busy Slack channel lost messages for good.
   paragraph as it is by then.
 - **Failures say what happened.** "Can't reach Hearth" only when it can't; when Hearth turns a
   change down, its own reason, and likewise when it turns down the first read of a board, a
-  spreadsheet or meeting notes for anything but the trash (a board or a spreadsheet adds that it
-  can't be changed until then). A first read that can't reach Hearth, or that Hearth fails at, is
-  tried again with backoff, and any that failed is tried again as soon as the browser is back
-  online. A note deleted while open turns read-only with Copy text (its checklist boxes too) and
-  keeps its saved copy, with what it never sent, on the device; restored (here or anywhere), it's
-  editable again and sends what it kept. Boards, spreadsheets and meeting notes likewise keep their
-  changes: once restored, each screen that has it open saves its own and what screens closed
-  meanwhile kept, and otherwise the next open does. Signing out asks first when edits haven't
-  reached Hearth, since it deletes this device's copies.
+  spreadsheet or meeting notes for anything but the trash, adding that it can't be changed here.
+  A first read that can't reach Hearth, or that Hearth fails at, is tried again with backoff and
+  as soon as the browser is back online; if there's a copy kept here for the screen to take over,
+  it opens from that instead, and its save is tried again with backoff and as soon as the browser
+  is back online. A note deleted while open turns read-only with Copy text (its checklist boxes
+  too) and keeps its saved copy, with what it never sent, on the device; restored (here or
+  anywhere), it's editable again and sends what it kept. Boards, spreadsheets and meeting notes
+  likewise keep their changes: once restored, each screen that has it open saves its own and what
+  screens closed meanwhile kept, and otherwise the next open does. Signing out asks first when
+  edits haven't reached Hearth, since it deletes this device's copies.
 
 **Alternatives:** A sync socket with a server-side log (PLAN 8.5; more moving parts than an
 action that is already ordered and durable). Loro for boards and sheets too (a rewrite of both

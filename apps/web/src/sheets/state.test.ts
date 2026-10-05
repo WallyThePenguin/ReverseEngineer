@@ -39,16 +39,18 @@ const hear = (kind: string) => {
 };
 /** The Web Locks this browser holds: a screen's copy is taken over only once its lock goes. */
 const held = new Set<string>();
+type Granted = (lock: { name: string } | null) => Promise<unknown>;
 const locks = {
-  async request(name: string, fn: () => Promise<unknown>) {
+  async request(name: string, ...args: [Granted] | [{ ifAvailable?: boolean }, Granted]) {
+    const fn = args.length === 2 ? args[1] : args[0];
+    if (args.length === 2 && args[0].ifAvailable && held.has(name)) return fn(null);
     held.add(name);
     try {
-      return await fn();
+      return await fn({ name });
     } finally {
       held.delete(name);
     }
   },
-  query: async () => ({ held: [...held].map((name) => ({ name })), pending: [] }),
 };
 
 /** What Hearth has: its first sheet has the id a new spreadsheet's first sheet gets. */

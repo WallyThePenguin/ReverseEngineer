@@ -1,7 +1,6 @@
 // Your notes during a meeting: saved a moment after you stop typing, kept on this device until
 // Hearth has them, and sent as the page closes, so a crash or a closed laptop mid-meeting loses
-// nothing (D59). Notes saved elsewhere meanwhile are merged line by line, not overwritten, and so
-// is what's typed before Hearth's notes are first read.
+// nothing (D59). Notes saved elsewhere meanwhile are merged line by line, not overwritten.
 
 import { mergeText } from "@hearth/core";
 import { createEffect, on, onCleanup, onMount, Show } from "solid-js";
@@ -25,9 +24,6 @@ export function MeetingNotes(props: { id: string; notes: string; revision: numbe
     },
     merge: mergeText,
     empty: () => "",
-    // Typed before the first read, onto the page's copy (on flaky Wi-Fi, say): merged onto none,
-    // so Hearth's lines all stay.
-    beforeRead: true,
     current: () => area?.value ?? "",
     show(notes) {
       if (!area || area.value === notes) return;
@@ -59,6 +55,9 @@ export function MeetingNotes(props: { id: string; notes: string; revision: numbe
         }}
         class="min-h-32 w-full resize-y rounded-md border border-line bg-panel px-3 py-2 text-sm outline-none"
         placeholder="What matters in this meeting…"
+        // Until the first read (Hearth's notes, or a copy kept here), what's here is the page's
+        // copy, which that read replaces. One that fails or is turned down says so below.
+        readOnly={!saver.loaded()}
         onInput={() => saver.changed()}
       />
       <Show when={saver.problem()}>{(why) => <p class="mt-1 text-xs text-bad">{why()}</p>}</Show>

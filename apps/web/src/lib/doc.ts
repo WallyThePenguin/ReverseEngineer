@@ -4,6 +4,7 @@
 // hung connection loses nothing: the next open sends it. Other tabs with the note open get each
 // edit at once over a BroadcastChannel.
 
+import { randomHex } from "@hearth/core";
 import { LoroDoc, VersionVector } from "loro-crdt";
 import { ApiError, action, isOffline, isTransient } from "./api.ts";
 import {
@@ -32,11 +33,6 @@ const b64 = (u: Uint8Array) => {
   return btoa(s);
 };
 const unb64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
-/** A short random key (getRandomValues works on plain http too; randomUUID needs https). */
-const randomKey = () =>
-  Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) =>
-    b.toString(16).padStart(2, "0"),
-  ).join("");
 
 /** Where this screen's edits stand. */
 export type DocStatus =
@@ -65,7 +61,7 @@ export class LiveDoc {
   onStatus: (status: DocStatus) => void = () => {};
   private server: string | null = null;
   /** This copy's own key for the edits it writes ahead, and how many it has written. */
-  private readonly tab = randomKey();
+  private readonly tab = randomHex(8);
   private n = 0;
   /** This copy's edits up to here are in the saved copy, and dropped. */
   private kept = 0;

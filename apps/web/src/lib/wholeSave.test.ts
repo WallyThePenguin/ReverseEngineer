@@ -2,9 +2,10 @@
 // save that can't reach Hearth keeps trying, Hearth's own reason shows when it refuses one, a
 // closing page still sends what's unsaved, and a board restored from the trash saves what was
 // changed while it was there, however the restore and Hearth's answers cross, on this screen and
-// on one closed meanwhile. A board takes nothing before the first read, and a copy kept with no
-// base (by an older Hearth) deletes nothing of Hearth's board. Runs against a fake Hearth, an
-// in-memory stand-in for IndexedDB and fake Web Locks (no DOM here).
+// on one closed meanwhile. A board takes nothing before the first read, a copy kept with no base
+// (by an older Hearth) deletes nothing of Hearth's board, and one is opened and saved on a page
+// served over plain http too. Runs against a fake Hearth, an in-memory stand-in for IndexedDB and
+// fake Web Locks (no DOM here).
 import type { Canvas, CanvasNode } from "@hearth/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Unsaved } from "./docStore.ts";
@@ -40,16 +41,18 @@ const hear = (kind: string) => {
 };
 /** The Web Locks this browser holds: a screen's copy is taken over only once its lock goes. */
 const locked = new Set<string>();
+type Granted = (lock: { name: string } | null) => Promise<unknown>;
 const locks = {
-  async request(name: string, fn: () => Promise<unknown>) {
+  async request(name: string, ...args: [Granted] | [{ ifAvailable?: boolean }, Granted]) {
+    const fn = args.length === 2 ? args[1] : args[0];
+    if (args.length === 2 && args[0].ifAvailable && locked.has(name)) return fn(null);
     locked.add(name);
     try {
-      return await fn();
+      return await fn({ name });
     } finally {
       locked.delete(name);
     }
   },
-  query: async () => ({ held: [...locked].map((name) => ({ name })), pending: [] }),
 };
 
 const card = (id: string, text: string): CanvasNode =>
@@ -206,6 +209,19 @@ describe("saving a board whole", () => {
     // Not tried again by itself: it would only be turned down again.
     await vi.advanceTimersByTimeAsync(60_000);
     expect(sent).toHaveLength(1);
+  });
+
+  it("opens and saves on a page served over plain http, which has no crypto.randomUUID", async () => {
+    // Nor Web Locks: both need https (or localhost).
+    const real = globalThis.crypto;
+    vi.stubGlobal("crypto", { getRandomValues: real.getRandomValues.bind(real) });
+    vi.stubGlobal("navigator", {});
+    const { saver, edit, shown } = await openBoard();
+    expect(texts(shown())).toEqual(["one"]);
+    edit((b) => b.nodes.push(card("b", "two")));
+    await vi.advanceTimersByTimeAsync(700);
+    expect(texts(server.board)).toEqual(["one", "two"]);
+    expect(saver.problem()).toBeNull();
   });
 
   it("sends what's unsaved as the page closes, without waiting for the pause", async () => {
