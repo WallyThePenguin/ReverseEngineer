@@ -168,7 +168,7 @@ export function MiniApp(props: { page: MiniPage }) {
         <For each={toast.toasts()}>
           {(t) => (
             <div
-              class={`rounded-lg px-4 py-2 text-sm shadow-lg ${t.tone === "error" ? "bg-bad text-white" : "bg-ink text-bg"}`}
+              class={`rounded-lg px-4 py-2 text-sm shadow-lg ${t.tone === "error" ? "bg-bad text-on-fill" : "bg-ink text-bg"}`}
             >
               {t.text}
             </div>

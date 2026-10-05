@@ -4,6 +4,8 @@
 // and reach Gmail within a minute. Older conversations load as you scroll down to them.
 
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
+import { Icon } from "../components/icons.tsx";
+import { Skeleton } from "../components/kit/Skeleton.tsx";
 import { Badge, Button, Empty, PaneHeader } from "../components/ui.tsx";
 import { debounced } from "../lib/debounce.ts";
 import { ago } from "../lib/format.ts";
@@ -209,7 +211,7 @@ export function Mail(props: { pane: number }) {
           when={(accounts.data ?? []).length > 0 || accounts.isLoading}
           fallback={<Empty>No mail account yet. Connect Gmail in Settings.</Empty>}
         >
-          <Show when={!threads.isLoading} fallback={<Empty>Loading…</Empty>}>
+          <Show when={!threads.isLoading} fallback={<Skeleton />}>
             <Show
               when={list().length > 0}
               fallback={
@@ -253,8 +255,8 @@ export function Mail(props: { pane: number }) {
                           <span class="text-muted"> · {t.snippet}</span>
                         </span>
                         <Show when={t.starred}>
-                          <span class="text-warn" title="Starred">
-                            ★
+                          <span class="self-center text-warn" title="Starred">
+                            <Icon name="star" size={14} filled label="Starred" />
                           </span>
                         </Show>
                         <Show when={view() !== "inbox" && t.inInbox}>

@@ -161,7 +161,7 @@ try {
     await side.locator(`button[title="Your conversations"]`).click();
     await side.getByRole("searchbox", { name: "Find a conversation" }).fill(`plan ${tag}`);
     await side.getByRole("button", { name: new RegExp(`^Kitchen plan ${tag}`) }).click();
-    await side.getByRole("button", { name: `Kitchen plan ${tag} ▾` }).waitFor();
+    await side.getByRole("button", { name: `Kitchen plan ${tag}`, exact: true }).waitFor();
     await side.getByRole("button", { name: "Conversation actions" }).waitFor();
     await p.getByRole("button", { name: "More actions" }).click();
     await p.getByRole("menuitem", { name: "Move to trash" }).click();
@@ -169,7 +169,7 @@ try {
     // A lone pane goes back to the inbox.
     await p.getByRole("heading", { name: "Inbox" }).waitFor();
     // Jarvis's pane lets go of it too.
-    await side.getByRole("button", { name: "New conversation ▾" }).waitFor();
+    await side.getByRole("button", { name: "New conversation", exact: true }).waitFor();
     if ((await run<unknown[]>(p, "conversation.list", { query: `plan ${tag}` })).length)
       throw new Error("the trashed conversation is still listed");
   });
@@ -202,12 +202,12 @@ try {
       );
       await p.goto(`${base}/tasks`);
       await p.getByText(`Couldn't load your tasks: ${down}`).waitFor();
-      await p.getByText("Hearth can't reach its database right now").waitFor();
+      await p.getByText("Hearth can't get to your data right now").waitFor();
       if (await p.getByText("No tasks here.").count()) throw new Error("a failed read looks empty");
       await p.unroute("**/api/actions/task.list");
       await p.getByRole("button", { name: "Try again" }).click();
       await p.getByText(titles[0]!).waitFor();
-      await p.getByText("Hearth can't reach its database right now").waitFor({ state: "detached" });
+      await p.getByText("Hearth can't get to your data right now").waitFor({ state: "detached" });
 
       // A record that isn't there is "not found" at once; one that failed to load isn't.
       await p.goto(`${base}/task/00000000-0000-4000-8000-000000000000`);

@@ -2,6 +2,7 @@
 // the keyboard inside while open and hand focus back when they close.
 
 import { For } from "solid-js";
+import { Icon } from "../components/icons.tsx";
 import { Kbd } from "../components/ui.tsx";
 import { useDialogFocus } from "../lib/focus.ts";
 import { listHotkeys } from "../lib/hotkeys.ts";
@@ -29,11 +30,11 @@ export function Shortcuts(props: { onClose: () => void }) {
           </h2>
           <button
             type="button"
-            class="rounded px-2 text-lg leading-none text-muted hover:bg-sunk hover:text-ink"
+            class="-mr-1 flex size-8 items-center justify-center rounded-md text-muted hover:bg-sunk hover:text-ink"
             aria-label="Close"
             onClick={props.onClose}
           >
-            ×
+            <Icon name="x" size={18} />
           </button>
         </div>
         <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">

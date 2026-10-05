@@ -12,5 +12,8 @@ export default defineConfig({
     testTimeout: 20_000,
     hookTimeout: 60_000,
     pool: "forks",
+    // Stylesheets are left out of tests, except one imported with ?raw for its text
+    // (apps/web/src/lib/tokens.test.ts checks index.css).
+    css: { include: [/\.css\?raw$/] },
   },
 });

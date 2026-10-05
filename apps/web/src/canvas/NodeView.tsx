@@ -80,7 +80,7 @@ export function NodeView(props: {
             const r = m() as Extract<CanvasNode, { type: "entitymention" }>;
             return (
               <div class="flex h-full flex-col justify-center gap-0.5 px-3 py-2">
-                <span class="text-[11px] font-medium uppercase tracking-wide text-faint">
+                <span class="text-micro uppercase tracking-wide text-faint">
                   {TYPE_LABEL[r.entityType] ?? r.entityType}
                 </span>
                 <span class="truncate font-medium text-accent">{r.label || "Untitled"}</span>

@@ -1,27 +1,8 @@
 // Pane routes and how they're written in the URL: /inbox+task/0190...+note/0191...
 
-export type ListView =
-  | "inbox"
-  | "mail"
-  | "tasks"
-  | "notes"
-  | "canvases"
-  | "sheets"
-  | "people"
-  | "calendar"
-  | "memory"
-  | "voice"
-  | "browser"
-  | "activity"
-  | "settings"
-  | "trash";
-
-export type PaneRoute =
-  | { view: ListView }
-  | { view: "task" | "note" | "canvas" | "sheet" | "record" | "chat" | "thread"; id: string };
-
-export const MAX_PANES = 3;
-const LIST_VIEWS = new Set([
+/** Every list view. None is ever taken away: links already sent out name them (push, the
+ * service worker, the desktop app, installed home-screen icons). */
+export const LIST_VIEWS = [
   "inbox",
   "mail",
   "tasks",
@@ -36,8 +17,26 @@ const LIST_VIEWS = new Set([
   "activity",
   "settings",
   "trash",
-]);
-const RECORD_VIEWS = new Set(["task", "note", "canvas", "sheet", "record", "chat", "thread"]);
+] as const;
+export type ListView = (typeof LIST_VIEWS)[number];
+
+/** The views that show one record: task/0190... */
+export const RECORD_VIEWS = [
+  "task",
+  "note",
+  "canvas",
+  "sheet",
+  "record",
+  "chat",
+  "thread",
+] as const;
+export type RecordView = (typeof RECORD_VIEWS)[number];
+
+export type PaneRoute = { view: ListView } | { view: RecordView; id: string };
+
+export const MAX_PANES = 3;
+const LISTS = new Set<string>(LIST_VIEWS);
+const RECORDS = new Set<string>(RECORD_VIEWS);
 const ID = /^[0-9a-f-]{36}$/i;
 
 export function encodeRoute(r: PaneRoute): string {
@@ -46,8 +45,8 @@ export function encodeRoute(r: PaneRoute): string {
 
 export function decodeRoute(s: string): PaneRoute | null {
   const [view, id] = s.split("/");
-  if (view && LIST_VIEWS.has(view) && !id) return { view } as PaneRoute;
-  if (view && RECORD_VIEWS.has(view) && id && ID.test(id)) return { view, id } as PaneRoute;
+  if (view && LISTS.has(view) && !id) return { view } as PaneRoute;
+  if (view && RECORDS.has(view) && id && ID.test(id)) return { view, id } as PaneRoute;
   return null;
 }
 

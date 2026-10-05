@@ -2,6 +2,7 @@
 // want one, your own fields, and everything linked to them. And a company's page: its people.
 
 import { createSignal, For, type JSX, Show } from "solid-js";
+import { Icon } from "../components/icons.tsx";
 import { Overflow, ROW_MENU } from "../components/Menu.tsx";
 import { Empty } from "../components/ui.tsx";
 import { ago, day, TYPE_LABEL } from "../lib/format.ts";
@@ -80,7 +81,7 @@ function Fields(props: { id: string; fields: Record<string, string> }) {
               <button
                 type="button"
                 // Always there on a phone, where nothing hovers.
-                class="-my-2 min-h-11 min-w-11 text-faint md:my-0 md:min-h-0 md:min-w-0 md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100"
+                class="-my-2 flex min-h-11 min-w-11 items-center justify-center text-faint hover:text-ink md:my-0 md:min-h-0 md:min-w-0 md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100"
                 title="Remove"
                 aria-label={`Remove ${k}`}
                 onClick={() => {
@@ -88,7 +89,7 @@ function Fields(props: { id: string; fields: Record<string, string> }) {
                   void save(rest);
                 }}
               >
-                ×
+                <Icon name="x" size={14} />
               </button>
             </li>
           )}

@@ -3,6 +3,7 @@
 
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { Portal } from "solid-js/web";
+import { Icon } from "./icons.tsx";
 
 export interface MenuItem {
   label: string;
@@ -12,11 +13,11 @@ export interface MenuItem {
 }
 
 /**
- * A list row's ⋯ button: always there on a phone, which has no pointer to hover with; on a
+ * A list row's "more" button: always there on a phone, which has no pointer to hover with; on a
  * computer it shows on the row you point at or have selected. The row needs the `group` class.
  */
 export const ROW_MENU =
-  "flex min-h-11 min-w-11 items-center justify-center rounded text-lg leading-none text-muted hover:bg-sunk hover:text-ink md:-my-1 md:min-h-7 md:min-w-7 md:opacity-0 md:group-hover:opacity-100 md:group-data-[active=true]:opacity-100 md:focus:opacity-100 md:aria-expanded:opacity-100";
+  "flex min-h-11 min-w-11 items-center justify-center rounded text-muted hover:bg-sunk hover:text-ink md:-my-1 md:min-h-7 md:min-w-7 md:opacity-0 md:group-hover:opacity-100 md:group-data-[active=true]:opacity-100 md:focus:opacity-100 md:aria-expanded:opacity-100";
 
 /** Where the menu goes: under the button, or above it when there's no room below. */
 function placement(button: HTMLElement, items: number): Record<string, string> {
@@ -81,7 +82,7 @@ export function Overflow(props: {
         type="button"
         class={
           props.class ??
-          "flex min-h-11 min-w-11 items-center justify-center rounded text-lg leading-none text-muted hover:bg-sunk hover:text-ink md:min-h-7 md:min-w-7"
+          "flex min-h-11 min-w-11 items-center justify-center rounded text-muted hover:bg-sunk hover:text-ink md:min-h-7 md:min-w-7"
         }
         aria-label={props.label ?? "More actions"}
         title={props.label ?? "More actions"}
@@ -93,7 +94,7 @@ export function Overflow(props: {
           if (open()) queueMicrotask(() => items()[0]?.focus({ preventScroll: true }));
         }}
       >
-        ⋯
+        <Icon name="ellipsis" size={18} />
       </button>
       <Show when={open()}>
         {/* Drawn over everything, so a scrolling list can't cut it off. */}

@@ -1,7 +1,9 @@
 // Your calendar as a list: the next week, day by day, with focus blocks and answers marked.
 
 import { createSignal, For, Show } from "solid-js";
+import { Icon } from "../components/icons.tsx";
 import { Badge, Button, Empty, PaneHeader } from "../components/ui.tsx";
+import { hours, plural, span, time } from "../lib/format.ts";
 import { layout } from "../lib/panes.ts";
 import { useAction } from "../lib/query.ts";
 import type { CalEvent } from "../lib/types.ts";
@@ -10,7 +12,13 @@ import { takeNotes } from "./Meeting.tsx";
 const DAY_MS = 24 * 3600_000;
 const dayLabel = (d: Date) =>
   d.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
-const time = (d: Date) => d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+/** "Wednesday, Oct 7, 4 to 4:30 p.m.", or both days for an event that runs past midnight. */
+const when = (start: Date, end: Date) =>
+  start.toDateString() === end.toDateString()
+    ? `${dayLabel(start)}, ${hours(start, end)}`
+    : span(start, end);
+/** The tick or cross after the name of someone who has answered an invitation. */
+const ANSWERED = "ml-0.5 inline align-[-2px]";
 
 export function Calendar(props: { pane: number }) {
   const [offset, setOffset] = createSignal(0);
@@ -74,7 +82,7 @@ export function Calendar(props: { pane: number }) {
                           )
                         }
                       >
-                        <span class="w-20 shrink-0 text-xs text-muted">
+                        <span class="w-20 shrink-0 text-xs text-muted tabular-nums">
                           {e.allDay ? "all day" : time(new Date(e.startsAt))}
                         </span>
                         <span
@@ -90,7 +98,7 @@ export function Calendar(props: { pane: number }) {
                         </Show>
                         <Show when={e.attendees.filter((a) => !a.self).length > 0}>
                           <span class="text-xs text-faint">
-                            {e.attendees.filter((a) => !a.self).length} guests
+                            {plural(e.attendees.filter((a) => !a.self).length, "guest")}
                           </span>
                         </Show>
                       </li>
@@ -116,7 +124,7 @@ export function EventPanel(props: { id: string }) {
           <p class="font-medium">
             {e().allDay
               ? `${dayLabel(new Date(e().startsAt))}, all day`
-              : `${dayLabel(new Date(e().startsAt))}, ${time(new Date(e().startsAt))} to ${time(new Date(e().endsAt))}`}
+              : when(new Date(e().startsAt), new Date(e().endsAt))}
             {e().status === "cancelled" ? " (cancelled)" : ""}
           </p>
           <Show when={e().location}>
@@ -125,13 +133,20 @@ export function EventPanel(props: { id: string }) {
           <Show when={e().attendees.filter((a) => !a.self).length > 0}>
             <p class="text-muted">
               With{" "}
-              {e()
-                .attendees.filter((a) => !a.self)
-                .map(
-                  (a) =>
-                    `${a.name ?? a.email}${a.response === "accepted" ? " ✓" : a.response === "declined" ? " ✗" : ""}`,
-                )
-                .join(", ")}
+              <For each={e().attendees.filter((a) => !a.self)}>
+                {(a, i) => (
+                  <>
+                    {i() > 0 ? ", " : ""}
+                    {a.name ?? a.email}
+                    <Show when={a.response === "accepted"}>
+                      <Icon name="check" size={14} label="(going)" class={`${ANSWERED} text-ok`} />
+                    </Show>
+                    <Show when={a.response === "declined"}>
+                      <Icon name="x" size={14} label="(not going)" class={`${ANSWERED} text-bad`} />
+                    </Show>
+                  </>
+                )}
+              </For>
             </p>
           </Show>
           <p class="flex gap-3 pt-1">

@@ -1,17 +1,29 @@
-// A small notice when Hearth changed under the open page: it was updated (reload to get the new
-// version), or the server's database doesn't fit its code. Checks every few minutes while the page
-// is in view, and when you come back to it.
+// A notice when Hearth changed under the open page: it was updated (reload to get the new
+// version), or an update on the PC didn't finish, so its database doesn't fit its code. Checks
+// every few minutes while the page is in view, and when you come back to it.
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
-import { type Notice, noticeFor, pageBuild, type ServerBuild, watchBuild } from "../lib/version.ts";
+import {
+  type Notice as BuildNotice,
+  noticeFor,
+  pageBuild,
+  type ServerBuild,
+  watchBuild,
+} from "../lib/version.ts";
+import { Notice } from "./kit/Notice.tsx";
+import { Button } from "./ui.tsx";
 
 export function UpdateNotice() {
-  const [notice, setNotice] = createSignal<Notice>(null);
+  const [notice, setNotice] = createSignal<BuildNotice>(null);
+  const [checking, setChecking] = createSignal(false);
   const check = async () => {
+    setChecking(true);
     try {
       const res = await fetch("/api/health/deep", { cache: "no-store" });
       if (res.ok) setNotice(noticeFor(pageBuild(), (await res.json()) as ServerBuild));
     } catch {
       // Offline or restarting: nothing to say yet.
+    } finally {
+      setChecking(false);
     }
   };
   onMount(() => {
@@ -22,23 +34,34 @@ export function UpdateNotice() {
   return (
     <Show when={notice()}>
       {(n) => (
-        <div class="pointer-events-auto flex items-center gap-3 rounded-lg bg-ink px-4 py-2 text-sm text-bg shadow-lg">
-          <Show
-            when={n() === "updated"}
-            fallback={
-              <span>Hearth's database doesn't match its code. Run hearth doctor on your PC.</span>
+        <Show
+          when={n() === "updated"}
+          fallback={
+            // `hearth doctor` says what's wrong on the PC; here it's said in plain words.
+            <Notice
+              tone="bad"
+              action={
+                <Button small disabled={checking()} onClick={() => void check()}>
+                  {checking() ? "Checking…" : "Check again"}
+                </Button>
+              }
+            >
+              Hearth on your PC didn't finish its last update, so some things may not work. Updating
+              it again usually fixes this.
+            </Notice>
+          }
+        >
+          <Notice
+            tone="info"
+            action={
+              <Button small onClick={() => location.reload()}>
+                Reload
+              </Button>
             }
           >
-            <span>Hearth was updated.</span>
-            <button
-              type="button"
-              class="font-semibold underline underline-offset-2"
-              onClick={() => location.reload()}
-            >
-              Reload
-            </button>
-          </Show>
-        </div>
+            Hearth was updated.
+          </Notice>
+        </Show>
       )}
     </Show>
   );
