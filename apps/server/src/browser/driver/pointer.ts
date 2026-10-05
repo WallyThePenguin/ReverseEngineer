@@ -156,24 +156,36 @@ export async function dragStep(
   return `Dragged "${a.name}" to "${b.name}"`;
 }
 
-const settledScroll = async (d: DriverContext) => {
-  let last = "";
-  for (let n = 0; n < 12; n++) {
-    const now = await d.worlds.evaluate<{ x: number; y: number; w: number; h: number }>(
+/** How long a wheel gets to start moving the page before it counts as having gone nowhere. */
+const SCROLL_START_MS = 600;
+
+/**
+ * Where the page stops after a wheel. Chromium scrolls a frame or more after the wheel lands, later
+ * on a busy PC, so two equal reads only mean "stopped" once the page has left where it was; one
+ * that can't go further stays put for SCROLL_START_MS.
+ */
+const settledScroll = async (d: DriverContext, from: { x: number; y: number }) => {
+  const read = () =>
+    d.worlds.evaluate<{ x: number; y: number; w: number; h: number }>(
       undefined,
       d.tab.mainFrame ?? "",
       "__hearth.scroll()",
     );
+  const until = Date.now() + SCROLL_START_MS;
+  let now = await read();
+  while (now.x === from.x && now.y === from.y && Date.now() < until) {
+    await new Promise((r) => setTimeout(r, 40));
+    now = await read();
+  }
+  let last = `${now.x},${now.y}`;
+  for (let n = 0; n < 12; n++) {
+    await new Promise((r) => setTimeout(r, 60));
+    now = await read();
     const key = `${now.x},${now.y}`;
     if (key === last) return now;
     last = key;
-    await new Promise((r) => setTimeout(r, 60));
   }
-  return d.worlds.evaluate<{ x: number; y: number; w: number; h: number }>(
-    undefined,
-    d.tab.mainFrame ?? "",
-    "__hearth.scroll()",
-  );
+  return now;
 };
 
 export async function scrollStep(
@@ -201,7 +213,7 @@ export async function scrollStep(
     "__hearth.scroll()",
   );
   await wheel(d.cdp, at.x, at.y, dx, dy);
-  const to = await settledScroll(d);
+  const to = await settledScroll(d, from);
   d.tab.shot = null;
   return {
     did: `Scrolled ${i.direction}`,
