@@ -1,11 +1,13 @@
 // Stop means stop, and a retry never does a thing twice (D54): a Stop pressed while Jarvis was
 // stuck survives the restart, a tool still running when the model fails rules out a retry, a
 // brain that carries on after Stop can't run anything, and one stopped first (or between tries)
-// never starts.
-import { jarvisTurn, task } from "@hearth/db";
+// never starts. Jarvis's own stop (an update, D62) ends turns the same way, without calling them
+// stopped.
+import { conversationLog, jarvisTurn, task } from "@hearth/db";
 import { type Caller, ownerCaller } from "@hearth/kernel";
-import { asc } from "drizzle-orm";
+import { asc, inArray } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { BrainRequest } from "./brain.ts";
 import { FaultyBrain, rejectTool } from "./brains/faulty.ts";
 import { ScriptedBrain } from "./brains/scripted.ts";
 import { createJarvisHarness, type JarvisHarness } from "./testing.ts";
@@ -150,5 +152,101 @@ describe("a retry", () => {
     await h.settle();
     expect(calls).toBe(1);
     expect(await tasks()).toHaveLength(1);
+  });
+});
+
+describe("Jarvis stopping (an update or a restart)", () => {
+  /** What conversations were told, notices and errors, in order. */
+  const told = async () =>
+    (
+      await h.tdb.db
+        .select()
+        .from(conversationLog)
+        .where(inArray(conversationLog.kind, ["notice", "error"]))
+        .orderBy(asc(conversationLog.idx))
+    ).map((l) => String(l.payload.message ?? l.payload.text));
+
+  /**
+   * Starts a turn whose brain never finishes and ignores its signal, like a long deep-lane one,
+   * and resolves once the brain is running, with the runner still draining (in an object: an
+   * async function returning the promise itself would wait for it).
+   */
+  async function thinkingForever(alsoRun?: (req: BrainRequest) => void) {
+    let thinking = () => {};
+    const started = new Promise<void>((r) => {
+      thinking = r;
+    });
+    script.run = (req) =>
+      new Promise(() => {
+        alsoRun?.(req);
+        thinking();
+      });
+    await chat("hi");
+    await h.engine.processAvailable();
+    const draining = h.runner.drain();
+    // A turn that ends before the brain starts (a setup error, say) fails here, not at the timeout.
+    if ((await Promise.race([started, draining.then(() => "ended")])) === "ended") {
+      const [t] = await turns();
+      throw new Error(`The turn ended before the brain started (${t?.status}: ${t?.error})`);
+    }
+    return { draining };
+  }
+
+  it("ends a running turn at once, and leaves it for the next start without calling it stopped", async () => {
+    await start();
+    const { draining } = await thinkingForever();
+    h.runner.stops.interruptAll();
+    await draining;
+    // Nobody pressed Stop and nothing failed: the turn waits for the next start.
+    expect((await turns())[0]).toMatchObject({ status: "running", errorKind: null });
+    expect(await told()).toEqual([]);
+
+    await h.runner.recoverInterrupted();
+    expect((await turns())[0]).toMatchObject({ status: "queued", errorKind: "interrupted" });
+    expect(await told()).toEqual(["Jarvis restarted, so it's starting this again."]);
+  });
+
+  it("never starts the brain for a turn claimed just as Jarvis stops", async () => {
+    await start();
+    await chat("hi");
+    await h.engine.processAvailable();
+    const turn = await h.runner.claimNext();
+    h.runner.stops.interruptAll();
+    await h.runner.run(turn!);
+    expect(script.requests).toHaveLength(0);
+    expect((await turns())[0]).toMatchObject({ status: "running", errorKind: null });
+  });
+
+  it("lets a tool that was running finish, for as long as it's given", async () => {
+    await start();
+    let release = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    before("task.create", () => gate);
+    const { draining } = await thinkingForever((req) => {
+      void req.tools.find((t) => t.name === "task_create")!.run({ title: "Book dentist" });
+    });
+    h.runner.stops.interruptAll();
+    await draining;
+    // Out of time, it stops waiting, whatever the tool is doing.
+    await h.runner.stops.settled(20);
+    expect(await tasks()).toHaveLength(0);
+    release();
+    await h.runner.stops.settled(5_000);
+    expect(await tasks()).toHaveLength(1);
+    // It had used a tool, so the next start says it was cut short rather than run it again.
+    await h.runner.recoverInterrupted();
+    expect((await turns())[0]).toMatchObject({ status: "failed", errorKind: "interrupted" });
+  });
+
+  it("still records the owner's Stop as stopped", async () => {
+    await start();
+    const { draining } = await thinkingForever();
+    const [turn] = await turns();
+    h.runner.cancel(turn!.id);
+    h.runner.stops.interruptAll();
+    await draining;
+    expect((await turns())[0]).toMatchObject({ status: "canceled", errorKind: "canceled" });
   });
 });
