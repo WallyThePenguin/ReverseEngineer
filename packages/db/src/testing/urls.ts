@@ -15,7 +15,7 @@ export function adminUrl(env: NodeJS.ProcessEnv = process.env): string {
   const url = env.HEARTH_TEST_DATABASE_URL;
   if (!url)
     throw new Error(
-      "Set HEARTH_TEST_DATABASE_URL to a Postgres just for tests (README, \"Tests\"); they never pick one themselves, so they can't reach the one holding your data.",
+      'Set HEARTH_TEST_DATABASE_URL to a Postgres just for tests (README, "Tests"); they never pick one themselves, so they can\'t reach the one holding your data.',
     );
   return url;
 }
