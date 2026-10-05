@@ -14,7 +14,6 @@ import {
   Switch,
 } from "solid-js";
 import { Login } from "../auth/Login.tsx";
-import { UpdateNotice } from "../components/UpdateNotice.tsx";
 import { PaneContext } from "../components/ui.tsx";
 import { ChatView } from "../jarvis/Conversation.tsx";
 import { JarvisPane, jarvis } from "../jarvis/JarvisPane.tsx";
@@ -46,15 +45,9 @@ import { Voice } from "../views/Voice.tsx";
 import { CommandPalette } from "./CommandPalette.tsx";
 import { MenuDrawer, Shortcuts } from "./Overlays.tsx";
 import { Sidebar, SidebarRail, sidebar, useWaiting } from "./Sidebar.tsx";
-import {
-  Crashed,
-  Degraded,
-  PaneCrashed,
-  Reconnecting,
-  Unreachable,
-  useAutoRetry,
-} from "./Status.tsx";
+import { Crashed, Notices, PaneCrashed, Unreachable, useAutoRetry } from "./Status.tsx";
 import { TabBar } from "./TabBar.tsx";
+import { Toasts } from "./Toasts.tsx";
 
 function PaneView(props: { route: PaneRoute; index: number }) {
   const id = () => ("id" in props.route ? props.route.id : "");
@@ -253,41 +246,8 @@ function Shell(props: { onSignOut: () => void }) {
       <Show when={help()}>
         <Shortcuts onClose={() => setHelp(false)} />
       </Show>
-      {/* One above the other, so an update notice never hides "Reconnecting…". */}
-      <div class="pointer-events-none fixed left-1/2 top-[calc(env(safe-area-inset-top)+0.5rem)] z-50 flex -translate-x-1/2 flex-col items-center gap-2">
-        <Reconnecting />
-        <Degraded />
-        <UpdateNotice />
-      </div>
-      <div
-        class="pointer-events-none fixed bottom-16 left-1/2 z-50 flex w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col items-center gap-2 md:bottom-4"
-        role="status"
-        aria-live="polite"
-      >
-        <For each={toast.toasts()}>
-          {(t) => (
-            <div
-              class={`flex items-center gap-3 rounded-lg px-4 py-2 text-sm shadow-lg ${t.tone === "error" ? "bg-bad text-on-fill" : "bg-ink text-bg"}`}
-            >
-              <span>{t.text}</span>
-              <Show when={t.action}>
-                {(a) => (
-                  <button
-                    type="button"
-                    class="pointer-events-auto -my-1 min-h-9 shrink-0 rounded px-2 font-semibold underline underline-offset-2 hover:opacity-80"
-                    onClick={() => {
-                      toast.dismiss(t.id);
-                      a().run();
-                    }}
-                  >
-                    {a().label}
-                  </button>
-                )}
-              </Show>
-            </div>
-          )}
-        </For>
-      </div>
+      <Notices />
+      <Toasts />
     </div>
   );
 }

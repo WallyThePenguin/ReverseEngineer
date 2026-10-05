@@ -202,12 +202,12 @@ try {
       );
       await p.goto(`${base}/tasks`);
       await p.getByText(`Couldn't load your tasks: ${down}`).waitFor();
-      await p.getByText("Hearth can't reach its database right now").waitFor();
+      await p.getByText("Hearth can't get to your data right now").waitFor();
       if (await p.getByText("No tasks here.").count()) throw new Error("a failed read looks empty");
       await p.unroute("**/api/actions/task.list");
       await p.getByRole("button", { name: "Try again" }).click();
       await p.getByText(titles[0]!).waitFor();
-      await p.getByText("Hearth can't reach its database right now").waitFor({ state: "detached" });
+      await p.getByText("Hearth can't get to your data right now").waitFor({ state: "detached" });
 
       // A record that isn't there is "not found" at once; one that failed to load isn't.
       await p.goto(`${base}/task/00000000-0000-4000-8000-000000000000`);

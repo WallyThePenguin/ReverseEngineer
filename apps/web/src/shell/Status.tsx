@@ -2,6 +2,8 @@
 // page or a "Loading…" that never ends, and it comes back by itself once it can.
 
 import { createEffect, type JSX, onCleanup, Show } from "solid-js";
+import { Notice } from "../components/kit/Notice.tsx";
+import { UpdateNotice } from "../components/UpdateNotice.tsx";
 import { Button } from "../components/ui.tsx";
 import { degraded } from "../lib/degraded.ts";
 import { backoff, live } from "../lib/live.ts";
@@ -100,33 +102,40 @@ export function PaneCrashed(props: { error: unknown; reset: () => void }) {
 
 /**
  * Shown while Hearth answers but can't reach its database: what's on screen may be out of date.
- * It clears itself once a read works. (Hearth out of reach altogether is Reconnecting's.) The
- * shell places it, with Reconnecting and the update notice.
+ * It clears itself once a read works. (Hearth out of reach altogether is Reconnecting's.)
  */
 export function Degraded() {
   return (
     <Show when={degraded.on() && !live.reconnecting()}>
-      <div
-        class="max-w-[calc(100vw-2rem)] rounded-lg bg-ink px-4 py-1.5 text-center text-sm text-bg shadow-lg"
-        role="status"
-      >
-        Hearth can't reach its database right now, so this may be out of date. It catches up by
-        itself.
-      </div>
+      <Notice tone="warn">
+        Hearth can't get to your data right now, so what you see may be out of date. It catches up
+        by itself.
+      </Notice>
+    </Show>
+  );
+}
+
+/** Shown while the live connection to Hearth is down; it clears itself once it's back. */
+export function Reconnecting() {
+  return (
+    <Show when={live.reconnecting()}>
+      <Notice icon="loader-circle" spin>
+        Reconnecting…
+      </Notice>
     </Show>
   );
 }
 
 /**
- * Shown while the live connection to Hearth is down; it clears itself once it's back. The shell
- * places it, above an update notice.
+ * How Hearth is, at the top of the screen: one notice above the other, so an update notice never
+ * hides "Reconnecting…". Clicks go through to the page, except on their buttons.
  */
-export function Reconnecting() {
+export function Notices() {
   return (
-    <Show when={live.reconnecting()}>
-      <div class="rounded-full bg-ink px-4 py-1.5 text-sm text-bg shadow-lg" role="status">
-        Reconnecting…
-      </div>
-    </Show>
+    <div class="pointer-events-none fixed left-1/2 top-[calc(env(safe-area-inset-top)+0.5rem)] z-50 flex w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col items-center gap-2">
+      <Reconnecting />
+      <Degraded />
+      <UpdateNotice />
+    </div>
   );
 }
