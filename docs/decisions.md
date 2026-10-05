@@ -1612,3 +1612,56 @@ than a labelled sidebar). Keeping the fourteen-item sidebar (what the owner foun
 it stands "it feels too complex for me to use in my day to day, the visual ui isnt there, it feels
 barebones." The owner approved the plan on 2026-10-05 with four choices: the look first; phone
 tabs Today, Mail, Jarvis, Tasks and More; People as its own part; and the name "Docs".
+
+## D66. CI runs on the owner's PC, fenced off from the live Hearth (2026-10-05)
+
+**Decision:** Both CI jobs run on self-hosted runners on the PC, next to the live Hearth, and a
+guard stops a job before it can reach anything of the live Hearth's. See docs/ci.md.
+
+- **Two runners.** `hearth-pc-win`: GitHub's runner in `D:\hearth-ci`, as the owner, unelevated,
+  at below-normal priority, started at sign-in from the Startup folder. `hearth-pc-linux`: a Docker
+  Desktop container from GitHub's runner image, with PostgreSQL 16 and Chromium's libraries, 4
+  CPUs and 8 GB, no published ports, no Docker socket and none of the PC's drives. One job each at
+  a time; tests 4 files at a time.
+- **CI's own of everything.** Postgres on 5499 (Windows: the PC's test cluster; Linux: a cluster
+  the job starts in its temp folder), a database per run (`hearth_ci_<run>_<attempt>`, dropped at
+  the end), ports 4480-4499, folders under the runner's temp folder, an empty rclone config, a
+  throwaway restic password, Chrome launch off. Hearth's defaults point at the live install, so
+  the workflow sets every one of them at the job.
+- **The guard.** `ops/ci-runner/guard.ts` runs first in each job and again before every server,
+  backup and restore, and exits naming each problem: the live Postgres or ports, a folder outside
+  the temp folder, the owner's rclone config, a `.env`, the owner's Chrome, the services' setting,
+  a checkout outside `D:\hearth-ci` or overlapping `D:\Hearth`, a Linux job outside its container.
+  It checks whenever it's run: no test for being the main module, which a Node without
+  `import.meta.main` would fail and skip it.
+- **The update scripts' tests.** `ops/windows/test-control.ps1` runs control.ps1's stops and starts
+  with Windows faked, as the owner, whose account may stop the live services and end Jarvis's
+  task. `ops/windows/test-fence.ps1` refuses to run them unless every command they reach is the
+  test's own fake or only reads (Windows' own `Stop-ScheduledTask` is a function too, so being a
+  function isn't enough), and the test moves ProgramData to a temp folder, out of reach of the
+  live Jarvis's stop request.
+- **Never a fork's code**, and never the real install: PR #45's `windows-install` job moves to its
+  own GitHub-hosted workflow, run only when `ops/windows/**` changes and billing allows.
+
+**Alternatives:**
+- Waiting for GitHub's billing. Every merge since would go untested on Windows and Linux.
+- Another CI service. CodeRabbit reviews pull requests; it doesn't run the tests. A hosted CI's
+  free tier for a private repository means another account with access to the code, a second
+  workflow format, and tight minutes for Windows, which the PC already is.
+- Self-hosted runners on another machine. There isn't one.
+- The Windows runner elevated, or as a service. Administrator rights would let a job change
+  anything on the PC; a service needs an administrator to install.
+- A Windows account of the runner's own, without the owner's right to start and stop Hearth's
+  services (install.ps1) or to write to `D:\Hearth`. The better fence, later: making the account
+  needs an administrator. Until then the guard stops mistakes, not a branch written to do harm,
+  as with Claude's sessions running the tests on the PC today.
+- Docker for the Windows job too. Windows containers need Hyper-V isolation and a different
+  Docker mode from the Linux runner, and the job's point is to test Windows as the PC runs it.
+- D57 chose GitHub's runners because they're disposable and ours would hold secrets. CI here has
+  no secrets, and the guard keeps the owner's (the rclone config, the restic password, the vault
+  key, the `.env`) out of its jobs' settings.
+
+**Why:** On 2026-10-05 GitHub stopped starting hosted jobs ("recent account payments have failed
+or your spending limit needs to be increased"), but still dispatched to a self-hosted runner
+(probe run 37350213541). The PC is the only machine, and the live Hearth is on it, so CI there is
+worth having only if a slip in a workflow or a default can't touch the real thing.

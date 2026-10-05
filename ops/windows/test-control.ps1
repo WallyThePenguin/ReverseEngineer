@@ -1,11 +1,15 @@
 <#
   Tests for the update gate's logic in control.ps1, and that every script in ops\windows parses.
-  Touches nothing: no services, no tasks, no network. CI runs it on Windows:
+  Touches nothing: no services, no tasks, no network. CI runs it on Windows, on the PC that is also
+  the live Hearth's (D66), so test-fence.ps1 checks the fakes before anything is stopped:
     powershell -NoProfile -ExecutionPolicy Bypass -File ops\windows\test-control.ps1
 #>
 $ErrorActionPreference = "Stop"
 $Root = "C:\nowhere"
 . "$PSScriptRoot\control.ps1"
+. "$PSScriptRoot\test-fence.ps1"
+# Hearth's services folder, where a stop request ends the live Jarvis, is found through this.
+$env:ProgramData = Join-Path ([IO.Path]::GetTempPath()) "hearth-test-control\ProgramData"
 $failures = 0
 
 function Assert-Equal($Actual, $Expected, [string]$What) {
@@ -293,6 +297,13 @@ function Set-Jarvis([hashtable]$Running, [int[]]$Holders = @(), [switch]$Honours
   $script:did = @()
   $script:states = @("")
 }
+function Stop-Service { param($Name) $script:did += "stop $($Name -join ' ')" }
+function Start-Service { param($Name) $script:did += "start $($Name -join ' ')" }
+function Start-ScheduledTask { $script:did += "start task" }
+# Nothing below reaches the real thing: every command these can reach is one of the fakes above.
+Assert-Fenced -Entry "Stop-Jarvis", "Stop-Hearth", "Start-Hearth", "Get-RollbackParts" -Fakes $PSCommandPath `
+  -Code "$PSScriptRoot\control.ps1" -Faked "Stop-Service", "Start-Service", "Stop-ScheduledTask",
+  "Start-ScheduledTask", "Stop-Process", "Request-JarvisStop", "Get-ServiceDir", "New-Object", "Get-CimInstance"
 
 Set-Jarvis @{ 999999 = (& $node $written.AddSeconds(-20)) } -Holders 999999 -Honours
 Assert-Equal (Stop-Jarvis) "" "a Jarvis since D63 stops when asked"
@@ -327,7 +338,6 @@ Assert-Equal (Stop-Jarvis) "" "the task's own node child, found before the task 
 Assert-Equal ($script:did -join ", ") "ask, end task, kill 999988" "and ended when elevated"
 
 # A Jarvis that won't stop leaves the services alone, unless it's a rollback (-Anyway).
-function Stop-Service { param($Name) $script:did += "stop $($Name -join ' ')" }
 Set-Jarvis @{ 999996 = (& $sessionZero 999996) } -Holders 999996 -InFile 999996
 $threw = ""
 try { Stop-Hearth | Out-Null } catch { $threw = "$_" }
@@ -342,7 +352,7 @@ Assert-Equal "$($parts.Parts) | $($parts.Stuck)" "server worker | $(& $stuck @(9
 Set-Jarvis @{}
 Assert-Equal "$((Get-RollbackParts).Parts)" "server worker jarvis" "a rollback starts all of Hearth"
 
-foreach ($f in "Test-Path", "Get-Content", "Get-Item", "Get-Process", "Stop-Process", "Stop-ScheduledTask", "Get-CimInstance", "New-Object", "Stop-Service") {
+foreach ($f in "Test-Path", "Get-Content", "Get-Item", "Get-Process", "Stop-Process", "Stop-ScheduledTask", "Get-CimInstance", "New-Object", "Stop-Service", "Start-Service", "Start-ScheduledTask") {
   Remove-Item "function:$f"
 }
 

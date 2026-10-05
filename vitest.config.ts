@@ -6,6 +6,7 @@ export default defineConfig({
       "packages/*/src/**/*.test.ts",
       "apps/{server,worker,jarvis,cli}/src/**/*.test.ts",
       "apps/web/src/{lib,canvas,sheets}/**/*.test.ts",
+      "ops/ci-runner/**/*.test.ts",
     ],
     globalSetup: ["packages/db/src/testing/global-setup.ts"],
     testTimeout: 20_000,
