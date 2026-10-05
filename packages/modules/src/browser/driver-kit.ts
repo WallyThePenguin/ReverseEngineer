@@ -1,6 +1,7 @@
 // What the server's driver (apps/server/src/browser/driver, B1) shares with the browser module:
 // the page-side helpers it installs in its isolated worlds, the test for what sends and when to
-// ask (classify.ts), keys, pacing, and the policy each step carries from the kernel to Chrome.
+// ask (classify.ts), keys, pacing, how a read says the page is still loading, and the policy each
+// step carries from the kernel to Chrome.
 import { PAGE_RULES } from "./classify.ts";
 import { pageFunction } from "./page.ts";
 
@@ -15,7 +16,7 @@ export {
 } from "./classify.ts";
 export { type Combo, isPaste, keyEvents, parseCombo, parseKeys, types } from "./keys.ts";
 export { isLoopbackHost, paceFor } from "./pace.ts";
-export { snapshotExpression } from "./page.ts";
+export { loadingRead, STILL_LOADING, snapshotExpression } from "./page.ts";
 export { keyRefusal } from "./steps.ts";
 
 const ELEMENTS = pageFunction("./page-elements.js", "pageElements");

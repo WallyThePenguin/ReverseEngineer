@@ -5,6 +5,7 @@ import { ALL_MODULES } from "../index.ts";
 import { BROWSER_SERVICE, BrowserError } from "./client.ts";
 import { fitTree, linksToKeep } from "./drive.ts";
 import { pacing } from "./pace.ts";
+import { STILL_LOADING } from "./page.ts";
 import { FakeBrowser, instantLoads } from "./testing.ts";
 
 // The browser module's side of the server's driver (B1): one request per step, carrying the
@@ -208,6 +209,19 @@ describe("the browser module on the server's driver", () => {
     });
     expect(batch).toMatchObject({ did: "batch done" });
     expect(driven.at(-1)?.params).toMatchObject({ screenshot: true, steps: expect.any(Array) });
+  });
+
+  it("says first when the driver caught the page still loading", async () => {
+    const tabId = await openShop();
+    const answer = chrome.driver;
+    chrome.driver = (op, params) => ({ ...(answer?.(op, params) as object), loading: true });
+    expect(await ok("browser.get_text", { tabId })).toMatchObject({
+      loading: true,
+      text: `${STILL_LOADING}\nKettles [L1]`,
+      links: { L1: "https://shop.example/k/1" },
+    });
+    // The driver's own words on browser_read_page and browser_find come through as they are.
+    expect(await ok("browser.read_page", { tabId })).toMatchObject({ loading: true });
   });
 
   it("brings only Jarvis's own tabs to the front", async () => {

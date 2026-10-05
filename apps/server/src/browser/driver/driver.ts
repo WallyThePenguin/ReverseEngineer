@@ -5,6 +5,7 @@
 import {
   type DriverPolicy,
   isLoopbackHost,
+  loadingRead,
   paceFor,
   snapshotExpression,
 } from "@hearth/modules/driver-kit";
@@ -15,7 +16,7 @@ import { formInputStep, keyStep, pressStep, probeStep, typeStep } from "./keyboa
 import { clickStep, dragStep, hoverStep, scrollStep, scrollToStep } from "./pointer.ts";
 import { find, lineText, render, shownByRef } from "./render.ts";
 import { Base, Batch, Policy, Read, ref, STEPS, type StepName } from "./schemas.ts";
-import { readTree } from "./snapshot.ts";
+import { comingIn, readTree, stillLoading } from "./snapshot.ts";
 import { TabState } from "./tab.ts";
 import { Cdp, type CdpTransport } from "./transport.ts";
 import { screenshot, zoom } from "./vision.ts";
@@ -144,7 +145,10 @@ export class Driver {
         return {
           ...this.where(d),
           found: found.length,
-          text: found.map((l) => `- ${lineText(l)}`).join("\n"),
+          ...loadingRead(
+            found.map((l) => `- ${lineText(l)}`).join("\n"),
+            await stillLoading(d, tree.page),
+          ),
           links: tree.links,
         };
       }
@@ -152,7 +156,13 @@ export class Driver {
         const i = Base.extend({
           maxChars: z.number().int().min(500).max(300_000).default(20_000),
         }).parse(raw);
-        return d.worlds.evaluate(undefined, d.tab.mainFrame ?? "", snapshotExpression(i.maxChars));
+        // The page's readyState comes along with its text, for no more than the read.
+        const { ready, ...page } = await d.worlds.evaluate<{ url: string; ready: string }>(
+          undefined,
+          d.tab.mainFrame ?? "",
+          `({ ...${snapshotExpression(i.maxChars)}, ready: document.readyState })`,
+        );
+        return comingIn(d.tab, page.url, ready) ? { ...page, loading: true } : page;
       }
       case "screenshot": {
         const i = Base.extend({ scale: z.number().min(0.1).max(1).optional() }).parse(raw);
@@ -212,15 +222,18 @@ export class Driver {
     });
     if (!out)
       throw fail("gone", `${i.refId} isn't on the page any more. Read the whole page again.`);
-    const view = await d.cdp.send<{
-      cssVisualViewport: {
-        clientWidth: number;
-        clientHeight: number;
-        pageX: number;
-        pageY: number;
-      };
-      cssContentSize: { width: number; height: number };
-    }>("Page.getLayoutMetrics");
+    const [view, loading] = await Promise.all([
+      d.cdp.send<{
+        cssVisualViewport: {
+          clientWidth: number;
+          clientHeight: number;
+          pageX: number;
+          pageY: number;
+        };
+        cssContentSize: { width: number; height: number };
+      }>("Page.getLayoutMetrics"),
+      stillLoading(d, tree.page),
+    ]);
     const v = view.cssVisualViewport;
     return {
       ...this.where(d),
@@ -231,7 +244,7 @@ export class Driver {
         scrollY: Math.round(v.pageY),
         pageHeight: Math.round(view.cssContentSize.height),
       },
-      text: out.text,
+      ...loadingRead(out.text, loading),
       ...(out.cut
         ? {
             cut: `Cut off at ${i.maxChars} characters: read a part with refId, use browser_find, or filter "interactive".`,

@@ -15,7 +15,7 @@ import { browser, CALLERS } from "./access.ts";
 import type { DriverPolicy } from "./driver-kit.ts";
 import { READ_BUDGET, readResult } from "./look.ts";
 import { pacing } from "./pace.ts";
-import { findTab, type PageSnapshot, rememberLinks } from "./page.ts";
+import { findTab, loadingRead, type PageSnapshot, rememberLinks } from "./page.ts";
 import { tabId } from "./step.ts";
 
 /** A ref from browser_read_page or browser_find. */
@@ -152,10 +152,14 @@ export const driveLookActions = [
     external: true,
     async handler(i, ctx) {
       const upTo = Math.min(300_000, i.offset + i.maxChars);
-      const page = await drive<PageSnapshot>(ctx, "get_text", { tabId: i.tabId, maxChars: upTo });
+      const page = await drive<PageSnapshot & { loading?: boolean }>(ctx, "get_text", {
+        tabId: i.tabId,
+        maxChars: upTo,
+      });
       rememberLinks(i.tabId, page.url, page.links);
       const { sends: _none, ...result } = readResult(i.tabId, page, i.offset, i.maxChars);
-      return result;
+      // Said first, as browser_read_page says it, without moving where the next part starts.
+      return { ...result, ...loadingRead(result.text, page.loading === true) };
     },
   }),
   defineAction({

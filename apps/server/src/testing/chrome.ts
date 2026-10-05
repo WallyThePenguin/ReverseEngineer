@@ -18,6 +18,20 @@ import { Driver } from "../browser/driver/driver.ts";
 import type { CdpTransport, DriverEvent } from "../browser/driver/transport.ts";
 import { CdpConnection, type CdpMessage, FixtureServer, type Site } from "./cdp-connection.ts";
 
+/**
+ * How long open waits for a page to load (browser.open waits up to 20 s on Chrome's word that the
+ * tab is loading): inside a test's 20 s, with Chromium's slow first page out of the way (WARM_MS).
+ */
+const LOAD_MS = 15_000;
+
+/**
+ * How long a new Chromium gets to load a first page, before any test opens one. On the Windows CI
+ * runner the first page after launch went wrong where later ones took 0.1 to 0.4 s: its test spent
+ * 7 to 12 s in open and then read an empty page. useChrome's hook allows for this, on top of
+ * Chromium's own start.
+ */
+export const WARM_MS = 60_000;
+
 interface Tab {
   id: number;
   targetId: string;
@@ -26,6 +40,8 @@ interface Tab {
   openerTabId: number | null;
   url: string;
   title: string;
+  /** As the extension's tab list has it: from a navigation's start till its page has loaded. */
+  loading: boolean;
   /** Child sessions (frames from other sites) and the frame each is for. */
   children: Map<string, string>;
   /** Isolated worlds made, per session ("" for the tab's own). */
@@ -56,7 +72,38 @@ export class TestChrome implements BrowserClient, CdpTransport {
     const conn = await CdpConnection.launch(executable);
     const chrome = new TestChrome(conn, server);
     await conn.send("Target.setDiscoverTargets", { discover: true });
+    await chrome.warmUp().catch(async (err) => {
+      await chrome.close();
+      throw err;
+    });
     return chrome;
+  }
+
+  /**
+   * Loads a first page and closes it again, so no test starts on Chromium's first page. One that
+   * doesn't load, slow or dropped, is tried again in a new tab till WARM_MS has gone, and then
+   * the launch fails, saying what the last try found.
+   */
+  private async warmUp(): Promise<void> {
+    const until = Date.now() + WARM_MS;
+    let failed: unknown = "there was no time";
+    for (;;) {
+      const left = Math.min(LOAD_MS, Math.floor((until - Date.now()) / 1000) * 1000);
+      if (left < 1000) break;
+      failed = await this.open(this.url("a.test", "/"), false, left).then(
+        () => null,
+        (err) => err ?? "it failed",
+      );
+      if (!failed) break;
+      await new Promise((res) => setTimeout(res, 500));
+    }
+    // Every tab it opened goes, loaded or not.
+    for (const tab of [...this.tabs])
+      await this.call("tabs.close", { tabId: tab.id }).catch(() => {});
+    if (failed)
+      throw new Error(
+        `Chromium's first page didn't load: ${failed instanceof Error ? failed.message : failed}`,
+      );
   }
 
   url(host: string, path = "/"): string {
@@ -77,35 +124,59 @@ export class TestChrome implements BrowserClient, CdpTransport {
     return () => this.listeners.delete(listener);
   }
 
-  /** Opens a page as one of Jarvis's tabs (or one you handed it), and waits for it to load. */
-  async open(url: string, handed = false): Promise<number> {
+  /**
+   * Opens a page as one of Jarvis's tabs (or one you handed it), and waits for it to load, as
+   * browser.open does before Jarvis reads it. A page that doesn't load fails here, by name, rather
+   * than as an empty read later on.
+   */
+  async open(url: string, handed = false, loadMs = LOAD_MS): Promise<number> {
     const { targetId } = await this.conn.send<{ targetId: string }>("Target.createTarget", {
       url: "about:blank",
     });
     const tab = await this.adopt(targetId, handed, null);
-    await this.call("cdp", { tabId: tab.id, method: "Page.navigate", params: { url } });
-    await this.loaded(tab.id);
+    // The wait starts before Page.navigate, which answers only once the page's response is in.
+    const until = Date.now() + loadMs;
+    const nav = await this.call<{ errorText?: string }>(
+      "cdp",
+      { tabId: tab.id, method: "Page.navigate", params: { url } },
+      Math.max(100, loadMs),
+    ).catch((err) => {
+      // No answer in the time there was: loaded says where the tab got to.
+      if (!/didn't answer/.test(String(err))) throw err;
+      return null;
+    });
+    if (nav?.errorText) throw new Error(`${url} didn't load: ${nav.errorText}`);
+    await this.loaded(tab.id, url, until, loadMs);
     return tab.id;
   }
 
-  /** Waits until the tab's page has loaded (not the blank page a new tab starts on). */
-  async loaded(tabId: number): Promise<void> {
+  /**
+   * Waits until the tab's page has loaded, not the blank page a new tab starts on. Page.navigate
+   * answers once the response is in, before the new page replaces the blank one, and Chrome holds
+   * the tab's other commands till it has; so each check gets only the time that's left.
+   */
+  private async loaded(tabId: number, url: string, until: number, ms: number): Promise<void> {
     const tab = this.tab(tabId);
-    for (let n = 0; n < 100; n++) {
+    let state = "blank";
+    for (;;) {
       const r = await this.conn
-        .send<{ result: { value: boolean } }>(
+        .send<{ result: { value?: string } }>(
           "Runtime.evaluate",
           {
-            expression: `document.readyState === "complete" && location.href !== "about:blank"`,
+            expression: `location.href === "about:blank" ? "blank" : document.readyState`,
             returnByValue: true,
           },
           tab.session,
+          Math.max(100, until - Date.now()),
         )
-        // The page's context goes as the new one comes.
-        .catch(() => ({ result: { value: false } }));
-      if (r.result.value) return;
+        // Held past the wait, or the page's context went as the new one came.
+        .catch(() => ({ result: { value: undefined } }));
+      state = r.result.value ?? state;
+      if (state === "complete") return;
+      if (Date.now() >= until) break;
       await new Promise((res) => setTimeout(res, 50));
     }
+    throw new Error(`${url} didn't load in ${ms / 1000} s: it's still "${state}".`);
   }
 
   /** Runs an expression in the page's own world: for tests to look, never for the driver. */
@@ -205,7 +276,7 @@ export class TestChrome implements BrowserClient, CdpTransport {
       title: t.title,
       active: true,
       handed: t.handed,
-      loading: false,
+      loading: t.loading,
       openerTabId: t.openerTabId,
       dialog: this.dialogs.get(t.id),
       error: null,
@@ -223,6 +294,7 @@ export class TestChrome implements BrowserClient, CdpTransport {
       openerTabId: opener,
       url: "",
       title: "",
+      loading: false,
       children: new Map(),
       worlds: new Map(),
     };
@@ -265,6 +337,11 @@ export class TestChrome implements BrowserClient, CdpTransport {
     );
     if (!tab || !m.method) return;
     const child = tab.session === m.sessionId ? undefined : m.sessionId;
+    // The tab's own frame has the target's id.
+    if (!child && params.frameId === tab.targetId) {
+      if (m.method === "Page.frameStartedLoading") tab.loading = true;
+      if (m.method === "Page.frameStoppedLoading") tab.loading = false;
+    }
     if (m.method === "Target.attachedToTarget") {
       const sid = String(params.sessionId);
       tab.children.set(sid, (params.targetInfo as { targetId: string }).targetId);

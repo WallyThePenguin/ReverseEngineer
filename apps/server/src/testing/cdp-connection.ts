@@ -19,14 +19,27 @@ export interface CdpMessage {
   error?: { message: string };
 }
 
+/**
+ * A page that's slow to come: the rest `afterMs` after the first part, or sooner when a test
+ * calls finish(), so it's still loading till then. With no first part nothing comes till then,
+ * not even the headers, and a tab going to it stays on the page it was on.
+ */
+export interface SlowPage {
+  first?: string;
+  rest: string;
+  afterMs: number;
+}
+
 /** Pages by host and path ("a.test/form"), or by path alone for any host. */
-export type Site = Record<string, string | ((body: string) => string)>;
+export type Site = Record<string, string | ((body: string) => string) | SlowPage>;
 
 export class FixtureServer {
   readonly server: Server;
   readonly posts: { url: string; body: string }[] = [];
   port = 0;
   private readonly site: Site;
+  /** The slow pages still coming, each a way to send its rest now. */
+  private readonly coming = new Set<() => void>();
 
   constructor(site: Site) {
     this.site = site;
@@ -44,10 +57,31 @@ export class FixtureServer {
           res.writeHead(404).end("Not found");
           return;
         }
-        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        res.end(typeof page === "function" ? page(body) : page);
+        const head = () => res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        if (typeof page !== "object") {
+          head().end(typeof page === "function" ? page(body) : page);
+          return;
+        }
+        if (page.first !== undefined) head().write(page.first);
+        const send = () => {
+          if (!this.coming.delete(send)) return;
+          clearTimeout(timer);
+          (page.first === undefined ? head() : res).end(page.rest);
+        };
+        const timer = setTimeout(send, page.afterMs);
+        this.coming.add(send);
+        // A tab that went elsewhere, or a Chromium that closed, takes nothing more.
+        res.on("close", () => {
+          this.coming.delete(send);
+          clearTimeout(timer);
+        });
       });
     });
+  }
+
+  /** Sends the rest of every slow page still coming, now. */
+  finish(): void {
+    for (const send of [...this.coming]) send();
   }
 
   async start(): Promise<void> {

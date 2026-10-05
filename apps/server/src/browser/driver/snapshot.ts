@@ -1,10 +1,12 @@
 // Reading a page as its accessibility tree (B1, D52): what a screen reader would announce, frame by
 // frame, frames from other sites included (each in its own child session), merged with a pass in
 // Hearth's isolated world that finds what a page made clickable without saying so and says what
-// pressing each thing would do. Things get refs ("ref_12") that stay the same across reads.
+// pressing each thing would do. Things get refs ("ref_12") that stay the same across reads, and a
+// read says when it caught the page still loading.
 import type { Floor } from "@hearth/modules/driver-kit";
 import type { DriverContext } from "./context.ts";
 import { isGone } from "./errors.ts";
+import type { TabState } from "./tab.ts";
 
 interface AXValue {
   type: string;
@@ -161,11 +163,23 @@ async function scanFrame(d: DriverContext, session: string | undefined, frameId:
   return new Map(info.filter((x) => x.id).map((x) => [x.id, x]));
 }
 
+/** What the root of the tab's page says of it: busy till the page has loaded, and its address. */
+export interface PageState {
+  busy: boolean;
+  url: string;
+}
+
 interface Walk {
   d: DriverContext;
   frames: number;
   refreshed: boolean;
   links: Set<string>;
+  page: PageState;
+}
+
+function pageState(root: AXNode | undefined): PageState {
+  const prop = (name: string) => root?.properties?.find((p) => p.name === name)?.value.value;
+  return { busy: Boolean(prop("busy")), url: String(prop("url") ?? "") };
 }
 
 /** One frame's lines: its accessibility tree, with the world's word on each element. */
@@ -180,6 +194,7 @@ async function frameLines(w: Walk, session: string | undefined, frameId: string)
       throw err;
     }),
   ]);
+  if (own && !session) w.page = pageState(ax.nodes[0]);
   const byId = new Map(ax.nodes.map((n) => [n.nodeId, n]));
   const frameUrl = await d.frameUrl(session, frameId);
 
@@ -287,12 +302,38 @@ function siteOf(url: string): string {
   }
 }
 
-/** The whole page, every frame, as lines; and the link addresses it showed. */
-export async function readTree(d: DriverContext): Promise<{ lines: Line[]; links: string[] }> {
+/** The whole page, every frame, as lines; the link addresses it showed; and the page's state. */
+export async function readTree(
+  d: DriverContext,
+): Promise<{ lines: Line[]; links: string[]; page: PageState }> {
   await d.seed();
   const main = d.tab.mainFrame;
-  if (!main) return { lines: [], links: [] };
-  const w: Walk = { d, frames: 0, refreshed: false, links: new Set() };
+  const page = { busy: false, url: "" };
+  if (!main) return { lines: [], links: [], page };
+  const w: Walk = { d, frames: 0, refreshed: false, links: new Set(), page };
   const lines = await frameLines(w, undefined, main);
-  return { lines, links: [...w.links] };
+  return { lines, links: [...w.links], page: w.page };
+}
+
+/**
+ * Whether a read caught the tab's page still coming in, so it shows part of the page or none of
+ * it: the page is still being parsed, or the tab is still on its blank page with one on the way
+ * (a pop-up, listed as it opens). Chrome marks a page busy till it has loaded, so a loaded page
+ * costs nothing more; a busy one is asked how far it got, since one that's only waiting on its
+ * pictures and the like ("interactive") has all its text.
+ */
+export async function stillLoading(d: DriverContext, page: PageState): Promise<boolean> {
+  const ready = page.busy
+    ? await d.worlds
+        .evaluate<string>(undefined, d.tab.mainFrame ?? "", "document.readyState")
+        // Gone as it was asked: the page is changing under the read.
+        .catch(() => "loading")
+    : "complete";
+  return comingIn(d.tab, page.url, ready);
+}
+
+/** The same, from the page's address and readyState as a read found them. */
+export function comingIn(tab: TabState, url: string, ready: string): boolean {
+  if (!url || url === "about:blank") return tab.starting;
+  return ready === "loading";
 }

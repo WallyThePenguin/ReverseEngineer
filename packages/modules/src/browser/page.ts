@@ -53,6 +53,18 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** How long to wait for pages: before a navigation shows, between checks, and after a load. */
 export const loadTiming = { startMs: 400, pollMs: 300, settleMs: 500 };
 
+/** What a read says first when it caught the page still coming in (B1). */
+export const STILL_LOADING = "The page is still loading; read it again in a moment.";
+
+/**
+ * A read's text, led by STILL_LOADING and marked `loading` when it caught the page still coming
+ * in: Jarvis may be looking at part of the page, or none of it.
+ */
+export function loadingRead(text: string, loading: boolean) {
+  if (!loading) return { text };
+  return { loading: true as const, text: text ? `${STILL_LOADING}\n${text}` : STILL_LOADING };
+}
+
 /** The tabs Jarvis may use. */
 export const listTabs = (client: BrowserClient) => client.call<TabInfo[]>("tabs.list");
 

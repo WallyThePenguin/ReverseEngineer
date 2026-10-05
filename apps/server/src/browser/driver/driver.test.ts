@@ -1,5 +1,7 @@
 // The driver on a real Chromium (B1): reading pages by their accessibility tree, frames from
 // other sites included, and acting by refs and screenshot points, with every press judged.
+import type { TabInfo } from "@hearth/modules";
+import { STILL_LOADING } from "@hearth/modules/driver-kit";
 import { describe, expect, it } from "vitest";
 import { refOf, useChrome } from "../../testing/drive.ts";
 
@@ -135,4 +137,68 @@ describe.runIf(h.run)("the driver", () => {
     expect(zoomed.image.mimeType).toBe("image/png");
     expect(zoomed.imageW).toBeGreaterThan(100);
   });
+});
+
+describe.runIf(h.run)("a read of a page still loading", () => {
+  // A page can move on after browser.open's wait (a script sends it elsewhere, or a click starts
+  // a page later than a step waits for). A read that lands while that page is still coming says
+  // so first, so Jarvis doesn't act on part of the page, or none of it, without knowing.
+  it("says the page is still loading till it has, and nothing of it after", async () => {
+    const tabId = await chrome().open(chrome().url("a.test", "/"));
+    const tab = async () =>
+      (await chrome().call<TabInfo[]>("tabs.list")).find((t) => t.tabId === tabId);
+    await chrome().call("cdp", {
+      tabId,
+      method: "Page.navigate",
+      params: { url: chrome().url("a.test", "/unfinished") },
+    });
+    // Its first part is in once the new page has parsed it; the rest waits for finish().
+    await expect
+      .poll(() => chrome().peek<string>(tabId, `document.body?.innerText ?? ""`))
+      .toContain("The start");
+    expect((await tab())?.loading).toBe(true);
+    const early = await drive("read_page", { tabId });
+    expect(early.loading).toBe(true);
+    expect(early.text.split("\n")[0]).toBe(STILL_LOADING);
+    expect(early.text).toContain("The start");
+    expect(early.text).not.toContain("The end");
+    const found = await drive("find", { tabId, query: "start" });
+    expect(found.loading).toBe(true);
+    expect(found.text.split("\n")[0]).toBe(STILL_LOADING);
+    expect(await drive("get_text", { tabId })).toMatchObject({ loading: true, text: "The start" });
+
+    chrome().server.finish();
+    await expect.poll(() => chrome().peek(tabId, "document.readyState")).toBe("complete");
+    await expect.poll(async () => (await tab())?.loading).toBe(false);
+    const late = await drive("read_page", { tabId });
+    expect(late.loading).toBeUndefined();
+    expect(late.text).toContain('heading "The end"');
+    expect(late.text).not.toContain(STILL_LOADING);
+    expect((await drive("find", { tabId, query: "end" })).loading).toBeUndefined();
+    expect((await drive("get_text", { tabId })).loading).toBeUndefined();
+  });
+});
+
+describe.runIf(h.run)("the tests' Chrome", () => {
+  // The tests' open waits for a page to load, as browser.open does before Jarvis reads it (B1).
+  // It once gave up after a set number of checks and handed over a tab whose first read came
+  // back empty, the way a tab still on its blank page reads. The test has a minute: its four new
+  // tabs and two pages that take 2.5 s each went past the usual 20 s under load.
+  it("hands over a tab once its page has loaded, and fails by name when it doesn't", async () => {
+    // Nothing comes for 2.5 s: the tab is still on its blank page when the wait runs out.
+    const held = chrome().url("a.test", "/held");
+    await expect(chrome().open(held, false, 250)).rejects.toThrow(
+      `${held} didn't load in 0.25 s: it's still "blank".`,
+    );
+    // Its heading comes 2.5 s after the rest. The wait starts before Page.navigate, so a late
+    // answer can't stretch it till the page is done.
+    const slow = chrome().url("a.test", "/slow");
+    await expect(chrome().open(slow, false, 250)).rejects.toThrow(`${slow} didn't load in 0.25 s`);
+    // With the usual wait, the first read shows each page. Each is asked for afresh, since Chrome
+    // held a second request for /held till the first one's answer came.
+    const first = await chrome().open(`${held}?again`);
+    expect((await drive("read_page", { tabId: first })).text).toContain('heading "Held"');
+    const second = await chrome().open(`${slow}?again`);
+    expect((await drive("read_page", { tabId: second })).text).toContain('heading "Slow"');
+  }, 60_000);
 });
