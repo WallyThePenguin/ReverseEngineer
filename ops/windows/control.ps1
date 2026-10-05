@@ -1,8 +1,9 @@
 <#
   Stopping, starting and checking Hearth, shared by update.ps1 and restart.ps1, which dot-source
-  this file; it only defines functions. They run unelevated once install.ps1 has given your
-  account the rights to Hearth's two services and the "Hearth Jarvis" task. They read $Root, the
-  Hearth folder, from the script that dot-sources them.
+  this file; it only defines functions (Jarvis's are in control-jarvis.ps1, which it dot-sources).
+  They run unelevated once install.ps1 has given your account the rights to Hearth's two services
+  and the "Hearth Jarvis" task. They read $Root, the Hearth folder, from the script that
+  dot-sources them.
 #>
 
 function Get-EnvValue([string]$Name) {
@@ -24,78 +25,8 @@ function Resolve-HearthParts([string]$Which) {
   return @($Which)
 }
 
-# When $Proc started. Your unelevated account may not open the task's Jarvis to ask (it runs in
-# the task's own logon session), but Windows' process list (WMI) still says. $null if neither does.
-function Get-StartTime($Proc) {
-  try { $started = $Proc.StartTime } catch { $started = $null }
-  if ($started) { return $started }
-  try {
-    $listed = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$Proc.Id)" -ErrorAction Stop
-    if ($listed) { return $listed.CreationDate }
-  } catch {}
-  return $null
-}
-
-# Whether $Proc is the Jarvis that wrote its pid file at $Written. The file outlives a Jarvis that
-# was killed or crashed, and Windows reuses pids; a process that got the pid later started after
-# the file was written, so it isn't Jarvis. One whose start time can't be read isn't trusted.
-function Test-JarvisPid($Proc, [datetime]$Written) {
-  if (-not $Proc -or $Proc.ProcessName -ne "node") { return $false }
-  $started = Get-StartTime $Proc
-  return $null -ne $started -and $started -le $Written.AddSeconds(5)
-}
-
-# The Jarvis processes running now. An unelevated account can't read session-0 command lines, so:
-# the pid Jarvis wrote at startup, plus every node under a running instance of its task.
-function Find-Jarvis {
-  $pids = @()
-  $pidFile = "$env:ProgramData\Hearth\services\hearth-jarvis.pid"
-  if (Test-Path $pidFile) {
-    $proc = Get-Process -Id ([int](Get-Content $pidFile -Raw).Trim()) -ErrorAction SilentlyContinue
-    if (Test-JarvisPid $proc (Get-Item $pidFile).LastWriteTime) { $pids += $proc.Id }
-  }
-  $scheduler = New-Object -ComObject Schedule.Service
-  $scheduler.Connect()
-  $task = $scheduler.GetFolder("\").GetTask("Hearth Jarvis")
-  foreach ($run in @($task.GetInstances(0))) {
-    $pids += @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $($run.EnginePID)" |
-      Where-Object { $_.Name -eq "node.exe" } | ForEach-Object { $_.ProcessId })
-  }
-  return @($pids | Select-Object -Unique)
-}
-
-# Which of $Pids are still a running node after up to $TimeoutSec.
-function Wait-JarvisGone([int[]]$Pids, [int]$TimeoutSec) {
-  $deadline = (Get-Date).AddSeconds($TimeoutSec)
-  while ($true) {
-    $left = @($Pids | Where-Object { (Get-Process -Id $_ -ErrorAction SilentlyContinue).ProcessName -eq "node" })
-    if (-not $left.Count -or (Get-Date) -ge $deadline) { return $left }
-    Start-Sleep -Milliseconds 500
-  }
-}
-
-# What to say about a Jarvis that won't stop. While it runs, the task can't start another: cmd
-# can't open the log that Jarvis still holds, so each start fails at once and logs nothing.
-function Get-JarvisLeftMessage([int[]]$Left) {
-  return "Jarvis (pid $($Left -join ', ')) is still running, on the code it started with, and this account can't stop it. " +
-    "While it runs, the Hearth Jarvis task can't start a new one. From an elevated PowerShell, run: " +
-    "Stop-Process -Id $($Left -join ',') -Force; then try again."
-}
-
-function Stop-Jarvis([int]$TimeoutSec = 40) {
-  $pids = @(Find-Jarvis)
-  # Stopping the task ends cmd, and Jarvis stops itself within seconds of that
-  # (apps/jarvis/src/main.ts): your unelevated account can't end the task's processes itself.
-  # Elevated it can, which also ends a Jarvis from before Jarvis did that.
-  Stop-ScheduledTask -TaskName "Hearth Jarvis" -ErrorAction SilentlyContinue
-  foreach ($p in $pids) {
-    try { Stop-Process -Id $p -Force -ErrorAction Stop } catch {}
-  }
-  $null = Wait-TaskStopped "Hearth Jarvis"
-  # Up to the CLI's 15 seconds to stop, after the 2 it takes to notice.
-  $left = @(Wait-JarvisGone $pids $TimeoutSec)
-  if ($left.Count) { throw (Get-JarvisLeftMessage $left) }
-}
+# Finding, stopping and waiting for Jarvis (D63).
+. "$PSScriptRoot\control-jarvis.ps1"
 
 # Until Windows no longer counts a task as running, up to $TimeoutSec. The task ignores a start
 # while a run is still counted (IgnoreNew), so `hearth restart jarvis`, which starts it again
@@ -110,9 +41,14 @@ function Wait-TaskStopped([string]$Name, [int]$TimeoutSec = 15) {
   return $false
 }
 
-function Stop-Hearth([string[]]$Parts = @("server", "worker", "jarvis")) {
+# Jarvis first: one that won't stop throws, leaving the rest as it was, unless -Anyway (a rollback
+# has to stop the rest whatever Jarvis does).
+function Stop-Hearth([string[]]$Parts = @("server", "worker", "jarvis"), [switch]$Anyway) {
   Write-Host "== Stopping Hearth ($($Parts -join ', '))"
-  if ($Parts -contains "jarvis") { Stop-Jarvis }
+  $stuck = $null
+  if ($Parts -contains "jarvis") { $stuck = Stop-Jarvis }
+  if ($stuck -and -not $Anyway) { throw "$stuck." }
+  if ($stuck) { Write-Host "$stuck." }
   $services = @($Parts | Where-Object { $_ -ne "jarvis" } | ForEach-Object { "hearth-$_" })
   if ($services.Count) { Stop-Service $services }
 }
@@ -121,12 +57,7 @@ function Start-Hearth([string[]]$Parts = @("server", "worker", "jarvis")) {
   Write-Host "== Starting Hearth ($($Parts -join ', '))"
   $services = @($Parts | Where-Object { $_ -ne "jarvis" } | ForEach-Object { "hearth-$_" })
   if ($services.Count) { Start-Service $services }
-  if ($Parts -contains "jarvis") {
-    # One Jarvis at a time, and a start would fail on the log an old one holds anyway.
-    $left = @(Find-Jarvis)
-    if ($left.Count) { throw (Get-JarvisLeftMessage $left) }
-    Start-ScheduledTask -TaskName "Hearth Jarvis"
-  }
+  if ($Parts -contains "jarvis") { Start-ScheduledTask -TaskName "Hearth Jarvis" }
 }
 
 # Waits for the server to answer /api/health, up to a minute.
@@ -190,10 +121,15 @@ function Get-DeepProblem($Deep, [datetime]$Since, [string]$Sha, [string[]]$Parts
     if (-not $c -or (ConvertTo-UtcTime $c.at) -lt $Since) { return "the $part hasn't reported in since it started" }
     # The jarvis component can be the worker saying Jarvis hasn't checked in; only a running
     # Jarvis writes jarvisAlive, and its since says when that Jarvis started, so one the stop
-    # missed (still on the old code) doesn't count either. (A server from before jarvisAlive,
-    # gone back to, doesn't say.)
+    # missed (still on the old code) doesn't count either. One that has checked in since the
+    # restart is that one, still running, and the new one can't start while it holds the log:
+    # named, so you know what to end (2026-10-05). (A server from before jarvisAlive, gone back
+    # to, doesn't say.)
     if ($part -eq "jarvis" -and $Deep.PSObject.Properties["jarvisAlive"] -and
       (ConvertTo-UtcTime $Deep.jarvisAlive.since) -lt $Since) {
+      if ($Deep.jarvisAlive.pid -and (ConvertTo-UtcTime $Deep.jarvisAlive.at) -ge $Since) {
+        return Format-StuckJarvis @([int]$Deep.jarvisAlive.pid)
+      }
       return "Jarvis hasn't checked in since it started"
     }
     if ($c.status -eq "failing" -and $Failed -notcontains $part) { return "the $part says: $($c.detail)" }
@@ -238,24 +174,6 @@ function Wait-Hearth {
     }
     if ((Get-Date) -ge $deadline) { return $why }
     Start-Sleep -Seconds 3
-  }
-}
-
-# When a Jarvis started after $Since (UTC) checked in, or $null if none has within $TimeoutSec: its
-# pid file, written once it's running, or the server's word (jarvisAlive). On a busy PC Jarvis can
-# take minutes to start, so one look after a few seconds would call a slow start a failed one.
-function Wait-JarvisCheckIn([datetime]$Since, [string]$PidFile, [int]$TimeoutSec = 180) {
-  $deadline = (Get-Date).AddSeconds($TimeoutSec)
-  while ($true) {
-    $file = Get-Item $PidFile -ErrorAction SilentlyContinue
-    if ($file -and $file.LastWriteTimeUtc -ge $Since) { return $file.LastWriteTimeUtc }
-    $deep = Get-DeepHealth
-    if ($deep.Status -eq 200 -and $deep.Body.jarvisAlive) {
-      $at = ConvertTo-UtcTime $deep.Body.jarvisAlive.since
-      if ($at -ge $Since) { return $at }
-    }
-    if ((Get-Date) -ge $deadline) { return $null }
-    Start-Sleep -Seconds 2
   }
 }
 

@@ -126,14 +126,14 @@ if ((Test-Path $oldJarvis) -and (Get-Service hearth-jarvis -ErrorAction Silently
   & $oldJarvis stopwait | Out-Null
   & $oldJarvis uninstall | Out-Null
 }
-# Only that service's files: hearth-jarvis.log and hearth-jarvis.pid are the task's.
+# Only that service's files: hearth-jarvis.log, .pid and .stop are the task's.
 foreach ($ext in "exe", "xml", "out.log", "err.log", "wrapper.log") {
   Remove-Item (Join-Path $ServiceDir "hearth-jarvis.$ext") -ErrorAction SilentlyContinue
 }
 
 # Jarvis: as you (S4U: no password, no window), restarted if it stops.
 # HEARTH_AS_SERVICE tells it to open Chrome through the "Hearth Chrome" task, on your desktop,
-# and to stop when its task is stopped (it watches the cmd that writes its log).
+# and to stop when asked or when its task is stopped (D63: apps/jarvis/src/stop-request.ts).
 $jarvisLog = Join-Path $ServiceDir "hearth-jarvis.log"
 $jarvisPidFile = Join-Path $ServiceDir "hearth-jarvis.pid"
 $action = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\cmd.exe" -WorkingDirectory $Root `
@@ -152,15 +152,22 @@ $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoi
   -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -Priority 4
 $user = New-ScheduledTaskPrincipal -UserId $me -LogonType S4U -RunLevel Limited
 if (Get-ScheduledTask -TaskName "Hearth Jarvis" -ErrorAction SilentlyContinue) {
+  # Asked first, as updates ask (D63): a Jarvis since then stops the way SIGTERM stops it.
+  Request-JarvisStop $ServiceDir
   Stop-ScheduledTask -TaskName "Hearth Jarvis"
 }
-# Stopping the task ends cmd; a Jarvis from before it stopped with its task may run on. Never leave
-# two Jarvises running, nor one holding its log, which the new one's cmd couldn't then open.
+# Stopping the task ends cmd; a Jarvis from before D63 runs on. Never leave two Jarvises running,
+# nor one holding its log, which the new one's cmd couldn't then open. Elevated, every node's
+# command line can be read, and any that's left is ended.
 $strays = @(Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" |
-  Where-Object { $_.CommandLine -match 'main\.ts"?\s+jarvis' } | ForEach-Object { $_.ProcessId })
-foreach ($p in $strays) { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue }
-$left = @(Wait-JarvisGone $strays 15)
-if ($left.Count) { Write-Warning "Couldn't stop the Jarvis already running (pid $($left -join ', '))." }
+  Where-Object { $_.CommandLine -match 'main\.ts"?\s+jarvis' } |
+  ForEach-Object { [pscustomobject]@{ Id = [int]$_.ProcessId; Verified = $true; Started = $_.CreationDate } })
+$left = Wait-JarvisGone $strays $jarvisLog 15
+if ($left) {
+  foreach ($j in $strays) { Stop-Process -Id $j.Id -Force -ErrorAction SilentlyContinue }
+  $left = Wait-JarvisGone $strays $jarvisLog 15
+}
+if ($left) { Write-Warning "Couldn't stop the Jarvis already running: $left." }
 # Its log carries on from install to install; one over 10 MB is kept as hearth-jarvis.old.log.
 if ((Test-Path $jarvisLog) -and (Get-Item $jarvisLog).Length -gt 10MB) {
   Move-Item -Force $jarvisLog (Join-Path $ServiceDir "hearth-jarvis.old.log") -ErrorAction SilentlyContinue

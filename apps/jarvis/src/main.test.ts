@@ -1,24 +1,27 @@
-import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTestDatabase, type TestDatabase } from "@hearth/db/testing";
 import { getSetting } from "@hearth/kernel";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { isRunning, runJarvis, whenParentEnds } from "./main.ts";
+import { runJarvis } from "./main.ts";
 
 let dataDir: string;
-const saved = { url: process.env.HEARTH_DATABASE_URL, dir: process.env.HEARTH_DATA_DIR };
+const KEYS = [
+  "HEARTH_DATABASE_URL",
+  "HEARTH_DATA_DIR",
+  "ProgramData",
+  "HEARTH_AS_SERVICE",
+] as const;
+const saved = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
 beforeEach(() => {
   dataDir = mkdtempSync(join(tmpdir(), "hearth-jarvis-"));
   process.env.HEARTH_DATA_DIR = dataDir;
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 afterEach(() => {
-  for (const [key, value] of [
-    ["HEARTH_DATABASE_URL", saved.url],
-    ["HEARTH_DATA_DIR", saved.dir],
-  ] as const) {
+  for (const key of KEYS) {
+    const value = saved[key];
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
   }
@@ -52,23 +55,46 @@ describe("the Jarvis process", () => {
         await stop();
       }
     });
-  });
 
-  // As the "Hearth Jarvis" task: stopping the task ends the cmd Jarvis runs under, and only that.
-  it("notices when the process it runs under has ended", async () => {
-    const parent = spawn(process.execPath, ["-e", "setTimeout(() => {}, 300)"]);
-    const ended = new Promise((resolve) => parent.once("exit", resolve));
-    const pid = parent.pid!;
-    expect(isRunning(pid)).toBe(true);
-    const gone = vi.fn();
-    const unwatch = whenParentEnds(pid, gone, 50);
-    try {
-      expect(gone).not.toHaveBeenCalled();
-      await ended;
-      await vi.waitFor(() => expect(gone).toHaveBeenCalledOnce());
-      expect(isRunning(pid)).toBe(false);
-    } finally {
-      unwatch();
-    }
+    describe("and a services folder of its own", () => {
+      // Never the real one (C:\ProgramData\Hearth\services): the live Jarvis's pid file is there.
+      let services: string;
+      let exit: ReturnType<typeof vi.spyOn>;
+      beforeEach(() => {
+        process.env.ProgramData = dataDir;
+        services = join(dataDir, "Hearth", "services");
+        mkdirSync(services, { recursive: true });
+        exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+      });
+
+      it("stops when asked through hearth-jarvis.stop, as the task", async () => {
+        process.env.HEARTH_AS_SERVICE = "1";
+        const stop = await runJarvis({ ownProcess: false });
+        try {
+          const pidFile = join(services, "hearth-jarvis.pid");
+          expect(readFileSync(pidFile, "utf8")).toBe(String(process.pid));
+          writeFileSync(join(services, "hearth-jarvis.stop"), new Date().toISOString());
+          // Who wrote it is checked with PowerShell on Windows: give it time.
+          await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0), { timeout: 15_000 });
+          // Stopped as SIGTERM stops it: the pid file is gone with the process.
+          expect(existsSync(pidFile)).toBe(false);
+        } finally {
+          await stop();
+        }
+      }, 30_000);
+
+      it("doesn't stop for hearth-jarvis.stop when it isn't the task", async () => {
+        const stop = await runJarvis({ ownProcess: false });
+        try {
+          writeFileSync(join(services, "hearth-jarvis.stop"), new Date().toISOString());
+          // It would look every second.
+          await new Promise((r) => setTimeout(r, 2500));
+          expect(exit).not.toHaveBeenCalled();
+          expect(existsSync(join(services, "hearth-jarvis.pid"))).toBe(false);
+        } finally {
+          await stop();
+        }
+      });
+    });
   });
 });

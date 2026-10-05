@@ -13,8 +13,9 @@
 
   GitHub's Windows runners have UAC off, so the Limited task still gets a full token there (it
   says so, as a warning): what runs unelevated is the same account in its own logon session, not
-  fewer rights. The restart phase covers what fewer rights change: it stops Jarvis's task alone,
-  all your unelevated account can do, and Jarvis must end with it.
+  fewer rights. So each update and restart must stop Jarvis by asking it (D63), as your account
+  has to, and Jarvis must log that it stopped. The restart phase covers the rest of what fewer
+  rights change: it stops Jarvis's task alone, and Jarvis must notice and end with it.
 #>
 [CmdletBinding()]
 param(
@@ -119,6 +120,19 @@ function Invoke-Unelevated([string]$Name, [string]$Command, [int]$TimeoutSec = 6
   return [int](Get-Content $codeFile -Raw).Trim()
 }
 
+# How many times Jarvis has logged that it's stopping, asked or because its task run ended (D63:
+# apps/jarvis/src/main.ts). Get-Content shares the log with the cmd and node still writing it.
+$jarvisLog = Join-Path $serviceDir "hearth-jarvis.log"
+function Get-JarvisStops([string]$Why = "") {
+  $line = [regex]::Escape("$Why, so Jarvis is stopping.")
+  return [regex]::Matches("$(Get-Content -Raw $jarvisLog -ErrorAction SilentlyContinue)", $line).Count
+}
+
+# Jarvis stopped as an update asks it to (D63), not ended after it wouldn't.
+function Assert-JarvisAsked([string]$What, [int]$Before) {
+  if ((Get-JarvisStops) -le $Before) { Fail "${What}: Jarvis never logged that it was stopping, so it didn't stop when asked" }
+}
+
 function Assert-Said([string]$Name, [string]$Pattern) {
   if (-not (Select-String -Quiet -Path (Join-Path $work "$Name.out.log") -Pattern $Pattern)) {
     Fail "$Name didn't say /$Pattern/"
@@ -216,30 +230,34 @@ switch ($Phase) {
     # Nothing new: -Force runs every step anyway, on the same commit.
     $head = Get-Head
     $since = [datetime]::UtcNow
+    $stops = Get-JarvisStops
     $code = Invoke-Update "update" "-Force"
     if ($code -ne 0) { Fail "update.ps1 exited $code" }
     Assert-Said "update" "== DONE: Hearth is up on $($head.Substring(0, 7))"
+    Assert-JarvisAsked "update.ps1 -Force" $stops
     Assert-Up $head $since "After update.ps1 -Force"
   }
 
   "restart" {
-    # A Jarvis that outlived its task is how Hearth's PC kept running old code: your unelevated
-    # account can only stop the task, which ends cmd, not node. Stopping the task alone must end
-    # Jarvis, whether Windows takes it down with cmd or it notices and stops itself.
-    # Get-Content, which shares the log with the cmd and node still writing it.
-    $logFile = Join-Path $serviceDir "hearth-jarvis.log"
-    $noticed = [regex]::Escape("Its task was stopped, so Jarvis is stopping")
-    $saidBefore = [regex]::Matches("$(Get-Content -Raw $logFile)", $noticed).Count
-    $jarvisPids = @(Get-JarvisNodes | ForEach-Object { [int]$_.ProcessId })
-    if ($jarvisPids.Count -ne 1) { Fail "expected one Jarvis to stop, found $($jarvisPids.Count)" }
+    # A Jarvis that outlived its task is how Hearth's PC kept running old code (D63): ending the
+    # task ends cmd, not node. Ending the task alone must end Jarvis, and by its own watch: it
+    # notices its task run has ended and stops, as it logs. Windows taking it down with cmd
+    # wouldn't show the watch works.
+    $ended = "The task that started Jarvis has ended"
+    $saidBefore = Get-JarvisStops $ended
+    $jarvis = @(Get-JarvisNodes | ForEach-Object {
+        [pscustomobject]@{ Id = [int]$_.ProcessId; Verified = $true; Started = $_.CreationDate }
+      })
+    if ($jarvis.Count -ne 1) { Fail "expected one Jarvis to stop, found $($jarvis.Count)" }
     Stop-ScheduledTask -TaskName "Hearth Jarvis"
-    $left = @(Wait-JarvisGone $jarvisPids 40)
-    if ($left.Count) { Fail "Jarvis (pid $($left -join ', ')) was still running 40 s after its task was stopped" }
-    $how = if ([regex]::Matches("$(Get-Content -Raw $logFile)", $noticed).Count -gt $saidBefore) {
-      "it noticed and stopped itself"
-    } else { "Windows ended it with the task" }
-    Write-Host "Stopping the Hearth Jarvis task alone stopped Jarvis (pid $($jarvisPids -join ', ')): $how."
+    $left = Wait-JarvisGone $jarvis $jarvisLog 40
+    if ($left) { Fail "40 s after its task was stopped: $left" }
+    if ((Get-JarvisStops $ended) -le $saidBefore) {
+      Fail "Jarvis (pid $($jarvis.Id)) ended without logging '$ended': its watch isn't what stopped it"
+    }
+    Write-Host "Stopping the Hearth Jarvis task alone stopped Jarvis (pid $($jarvis.Id)): it noticed and stopped itself."
 
+    # Nothing to stop now: `hearth restart jarvis` starts it again.
     $since = [datetime]::UtcNow
     $code = Invoke-Unelevated "restart" "& pnpm hearth restart jarvis" 240
     if ($code -ne 0) { Fail "hearth restart jarvis exited $code" }
@@ -253,10 +271,13 @@ switch ($Phase) {
       Add-Content -Path "$edit\ops\windows\update.ps1" -Value "# CI: a change, so the update hands over to this copy."
     }
     $since = [datetime]::UtcNow
+    $stops = Get-JarvisStops
     $code = Invoke-Update "update-new"
     if ($code -ne 0) { Fail "update.ps1 exited $code" }
     Assert-Said "update-new" "This update changes the updater"
     Assert-Said "update-new" "== Carrying on with the updated update.ps1"
+    Assert-Said "update-new" "== Making sure Jarvis has stopped"
+    Assert-JarvisAsked "updating to a new update.ps1" $stops
     Assert-Said "update-new" "== DONE: Hearth is up on $($new.Substring(0, 7))"
     if ((Get-Head) -ne $new) { Fail "the checkout is on $(Get-Head), not $new" }
     Assert-Up $new $since "After updating to a new update.ps1"
@@ -273,13 +294,16 @@ switch ($Phase) {
       Set-Content -Path "$dir\0999_ci_fails.down.sql" -Value "SELECT 1;"
     }
     $since = [datetime]::UtcNow
+    $stops = Get-JarvisStops
     $code = Invoke-Update "rollback"
     if ($code -eq 0) { Fail "update.ps1 succeeded with a migration that fails" }
+    Assert-JarvisAsked "the update rolled back" $stops
     Assert-Said "rollback" "UPDATE FAILED: Migrating the database failed"
     Assert-Said "rollback" "== Reverting migration 0998_ci_applies"
     Assert-Said "rollback" "== Hearth is back up on $($old.Substring(0, 7))"
     if ((Get-Head) -ne $old) { Fail "the checkout is on $(Get-Head), not back on $old" }
     $probe = "$(psql $env:HEARTH_DATABASE_URL -tAc "SELECT to_regclass('ci_rollback_probe')")".Trim()
+    if ($LASTEXITCODE -ne 0) { Fail "psql couldn't look for the reverted migration's table (exit $LASTEXITCODE)" }
     if ($probe) { Fail "the reverted migration's table is still there" }
     Assert-Up $old $since "After the rollback"
   }
@@ -294,6 +318,9 @@ switch ($Phase) {
     Get-Service hearth-* -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "$($_.Name): $($_.Status)" }
     Write-Host "== Jarvis processes"
     Get-JarvisNodes | ForEach-Object { Write-Host "$($_.ProcessId) (parent $($_.ParentProcessId)), started $($_.CreationDate)" }
+    Write-Host "== Jarvis's pid file and stop request (D63)"
+    Get-ChildItem $serviceDir -Filter "hearth-jarvis.*" -ErrorAction SilentlyContinue |
+      ForEach-Object { Write-Host "$($_.Name): $($_.Length) bytes, written $($_.LastWriteTime.ToString('o'))" }
     Write-Host "== Deep health"
     $deep = Get-DeepHealth
     if ($deep.Body) { $deep.Body | ConvertTo-Json -Depth 5 | Write-Host } else { Write-Host "HTTP $($deep.Status)" }

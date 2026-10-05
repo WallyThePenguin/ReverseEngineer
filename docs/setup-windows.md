@@ -263,10 +263,10 @@ What to expect:
   `worker`, or `jarvis`). It waits until what it restarted reports in, and says if it doesn't.
   It needs no administrator once `install.ps1` has run. Jarvis's log is `hearth-jarvis.log` in
   the same folder as the services'.
-- If a restart or an update says Jarvis is still running and your account can't stop it, that
-  Jarvis is from before Jarvis stopped along with its task. While it runs, the task can't start
-  a new one. Stop it from an elevated PowerShell with the `Stop-Process` line it prints (or run
-  `install.ps1` again), then `pnpm hearth restart jarvis`.
+- If a restart, an update or `pnpm hearth doctor` says an older Jarvis is still running and
+  Hearth can't stop it from your account, that Jarvis is from before Jarvis stopped when asked
+  (D63). While it runs, the task can't start a new one. Run the `taskkill` line it prints as
+  administrator (or run `install.ps1` again), then `pnpm hearth restart jarvis`.
 - If a service log says `EPERM`, its account can't read `node_modules`: run
   `Remove-Item -Recurse -Force node_modules`, then `pnpm install`, then `pnpm hearth restart`.
 - If a service log says it "won't start" because the database is missing updates, run
@@ -305,13 +305,24 @@ old checks. Run the new one directly that once, from the Hearth folder:
 ```powershell
 git fetch origin claude/admiring-wright-ghc2o3
 $tmp = New-Item -ItemType Directory -Force "$env:TEMP\hearth-update"
-foreach ($f in "update.ps1", "control.ps1") {
+foreach ($f in "update.ps1", "control.ps1", "control-jarvis.ps1") {
   git show "origin/claude/admiring-wright-ghc2o3:ops/windows/$f" | Set-Content "$tmp\$f"
 }
 & "$tmp\update.ps1" -Root (Get-Location).Path
 ```
 
 `-Root` says where Hearth is, since that copy isn't in its folder.
+
+**Stopping Jarvis (D63).** Your account can't end the task's Jarvis, so updates and
+`hearth restart` ask it to stop and wait for it. A Hearth from before D63 doesn't stop when asked,
+so the first update to D63 ends at "Making sure Jarvis has stopped". It names the old Jarvis's pid
+and rolls back with that Jarvis left running. Then:
+
+1. In an administrator PowerShell, run the `taskkill /F /PID <pid>` it printed.
+2. Run `.\ops\windows\update.ps1` again within about three minutes. After that, the old Hearth's
+   worker starts its Jarvis again, and the old update would leave that one running too.
+
+Restarting the PC doesn't help: the old Jarvis starts again at boot, in the same state.
 
 ### Restoring from a backup
 
