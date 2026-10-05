@@ -1,6 +1,6 @@
 // Chat with Jarvis, and comment threads on any record. Jarvis answers chat messages and
 // @mentions wherever they appear.
-import { asUntrusted, formatDateTime } from "@hearth/core";
+import { formatDateTime } from "@hearth/core";
 import { conversation, conversationLog, entity } from "@hearth/db";
 import {
   createEntity,
@@ -14,6 +14,7 @@ import { and, asc, desc, eq, gt, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { body, describeRow, id, liveEntity, preview } from "../shared.ts";
 import { appendLog, routeLane } from "./log.ts";
+import { answerMention } from "./mention.ts";
 
 const lane = z.enum(["fast", "deep"]);
 
@@ -268,39 +269,7 @@ export const chatModule = defineModule({
         ];
       },
     },
-    {
-      name: "chat.answer_mention",
-      description:
-        "When you @mention Jarvis in a note, task, comment or doc, it answers right there.",
-      mode: "reactive",
-      on: ["jarvis.mentioned"],
-      run(event) {
-        const p = event.payload as {
-          type: string;
-          parentId: string | null;
-          anchor: string;
-          context: string;
-          outside?: boolean;
-        };
-        const subjectId = p.type === "comment" && p.parentId ? p.parentId : event.entityId;
-        // Written after reading outside content (or on a device's say-so), or in a record whose
-        // text is outside content, so what it asks is outside content too, and the turn starts
-        // untrusted (D58).
-        const outside = event.origin === "untrusted" || p.outside === true;
-        return [
-          {
-            kind: "turn",
-            trigger: "mention",
-            lane: routeLane(p.context),
-            subjectId,
-            ...(outside ? { untrusted: true } : {}),
-            dedupeKey: `mention:${event.entityId}:${p.anchor}`,
-            context: { sourceId: event.entityId, sourceType: p.type },
-            prompt: `You were @mentioned in a ${p.type}. Read the record, then answer or do what was asked:\n\n${outside ? asUntrusted(p.context, p.type) : p.context}`,
-          },
-        ];
-      },
-    },
+    answerMention,
   ],
 });
 

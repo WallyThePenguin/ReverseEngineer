@@ -19,7 +19,7 @@ import { Kbd, PaneContext } from "../components/ui.tsx";
 import { ChatView } from "../jarvis/Conversation.tsx";
 import { JarvisPane, jarvis } from "../jarvis/JarvisPane.tsx";
 import { getMe, setSignedOutHandler } from "../lib/api.ts";
-import { forgetAllDocs } from "../lib/docStore.ts";
+import { forgetAllDocs, sendKeptNotes } from "../lib/docStore.ts";
 import { listHotkeys, useHotkeys } from "../lib/hotkeys.ts";
 import { live, queryClient, toast } from "../lib/live.ts";
 import { narrow } from "../lib/narrow.ts";
@@ -145,6 +145,8 @@ function Shell(props: { onSignOut: () => void }) {
   const waiting = useWaiting();
   onMount(() => {
     live.start();
+    // Note edits a closed tab never sent (D59).
+    void sendKeptNotes();
     // The home screen's "Talk to Jarvis" shortcut.
     if (new URLSearchParams(location.search).has("jarvis")) jarvis.toggle(true);
   });

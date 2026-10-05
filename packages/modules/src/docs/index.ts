@@ -20,9 +20,14 @@ import {
   textOf,
 } from "./store.ts";
 
-/** A live doc's record, or not_found. */
-async function docRow(ctx: Pick<ActionContext, "tx">, docId: string) {
-  const [row] = await ctx.tx.select().from(entity).where(eq(entity.id, docId));
+/**
+ * A live doc's record, or not_found. `lock` holds it, as every writer does before it reads the
+ * doc: a writer reading the doc first would hold its snapshot while waiting for a sync that holds
+ * the record and wants the snapshot to fold into, and the two would deadlock.
+ */
+async function docRow(ctx: Pick<ActionContext, "tx">, docId: string, lock = false) {
+  const read = ctx.tx.select().from(entity).where(eq(entity.id, docId));
+  const [row] = lock ? await read.for("update") : await read;
   if (!row || row.deletedAt || !DOC_TYPES.has(row.type))
     throw new ActionError("not_found", "No such doc");
   return row;
@@ -136,7 +141,7 @@ export const docActions = [
     risk: "internal",
     callers: ["owner"],
     async handler(i, ctx) {
-      const row = await docRow(ctx, i.id);
+      const row = await docRow(ctx, i.id, true);
       const text = await at(ctx, i.id, i.frontiers);
       const spec = DOC_TYPES.get(row.type)!;
       if (text.length > spec.maxChars)

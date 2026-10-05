@@ -88,6 +88,28 @@ describe("meeting notes", () => {
     });
   });
 
+  it("saves notes over the copy they were typed on, and refuses to save over a newer one", async () => {
+    const { id } = await ok<{ id: string }>("meeting.start", { title: "Standup" });
+    const first = await ok<{ notes: string; revision: number }>("meeting.get", { id });
+    const saved = await ok<{ revision: number }>("meeting.update", {
+      id,
+      notes: "Ship Friday",
+      revision: first.revision,
+    });
+    expect(saved.revision).toBe(first.revision + 1);
+    // Another screen still on the first copy: told, so it merges instead of overwriting.
+    const stale = await t.kernel.execute(
+      "meeting.update",
+      { id, notes: "Ask Sam", revision: first.revision },
+      ownerCaller(),
+    );
+    expect(stale).toMatchObject({ status: "error", code: "conflict" });
+    expect(await ok("meeting.get", { id })).toMatchObject({
+      notes: "Ship Friday",
+      revision: saved.revision,
+    });
+  });
+
   it("keeps one copy of each transcript segment, however often it's sent", async () => {
     const { id } = await ok<{ id: string }>("meeting.start", { title: "Call" });
     const seg = { id: "them:1000", channel: "them", startMs: 1000, endMs: 3000, text: "Hi" };

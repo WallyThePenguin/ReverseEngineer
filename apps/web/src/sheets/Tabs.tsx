@@ -31,9 +31,7 @@ export function Tabs(props: { sheet: Sheet; tab: number; onTab: (i: number) => v
       window.alert("That name is taken, or uses [ ] : * ? / \\ or '.");
       return;
     }
-    props.sheet.change((d) => {
-      d.sheets[i]!.name = name;
-    });
+    props.sheet.renameSheet(i, name);
   };
   const remove = (i: number) => {
     const s = props.sheet.book.sheets[i]!;

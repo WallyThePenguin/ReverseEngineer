@@ -4,6 +4,7 @@ export * from "./filter.ts";
 export * from "./ids.ts";
 export * from "./interrupts.ts";
 export * from "./mentions.ts";
+export * from "./merge.ts";
 export * from "./schedule.ts";
 export * from "./security.ts";
 export * from "./sheet.ts";

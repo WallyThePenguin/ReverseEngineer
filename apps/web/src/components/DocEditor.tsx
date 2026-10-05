@@ -10,7 +10,7 @@ import {
 } from "@codemirror/autocomplete";
 import { defaultKeymap } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
-import { EditorState, type Range } from "@codemirror/state";
+import { Compartment, EditorState, type Range } from "@codemirror/state";
 import {
   Decoration,
   type DecorationSet,
@@ -21,12 +21,12 @@ import {
   type ViewUpdate,
   WidgetType,
 } from "@codemirror/view";
-import { JARVIS_ENTITY_ID, renderMention, unescapeText } from "@hearth/core";
+import { JARVIS_ENTITY_ID, newMentionId, renderMention, unescapeText } from "@hearth/core";
 import { LoroExtensions } from "loro-codemirror";
 import { UndoManager } from "loro-crdt";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { action } from "../lib/api.ts";
-import { LiveDoc } from "../lib/doc.ts";
+import { type DocStatus, LiveDoc } from "../lib/doc.ts";
 import { TYPE_LABEL, who } from "../lib/format.ts";
 import { layout, routeFor } from "../lib/panes.ts";
 import type { SearchHit } from "../lib/types.ts";
@@ -141,7 +141,13 @@ async function mentions(ctx: CompletionContext) {
       (h): Completion => ({
         label: h.title || "Untitled",
         detail: TYPE_LABEL[h.type] ?? h.type,
-        apply: renderMention({ type: h.type, id: h.id, label: h.title || "Untitled" }),
+        // Its own id: the anchor Jarvis answers it by, however the note changes around it (D59).
+        apply: renderMention({
+          type: h.type,
+          id: h.id,
+          label: h.title || "Untitled",
+          mid: newMentionId(),
+        }),
       }),
     ),
   };
@@ -155,36 +161,63 @@ const theme = EditorView.theme({
   ".cm-cursor": { borderLeftColor: "var(--color-ink)" },
 });
 
+/** A deleted note can still be read and copied, but not changed. */
+const READ_ONLY = [EditorState.readOnly.of(true), EditorView.editable.of(false)];
+
 export default function DocEditor(props: { id: string; placeholder?: string }) {
   let host!: HTMLDivElement;
   const [state, setState] = createSignal<"opening" | "open" | "failed">("opening");
-  const [saved, setSaved] = createSignal(true);
+  const [status, setStatus] = createSignal<DocStatus>({ kind: "ok" });
   const [editedBy, setEditedBy] = createSignal<string | null>(null);
+  const [copied, setCopied] = createSignal(false);
+  const editable = new Compartment();
   let view: EditorView | undefined;
   let live: LiveDoc | undefined;
   let clear: number | undefined;
+  let disposed = false;
+
+  const gone = () => {
+    const s = status();
+    return s.kind === "gone" ? s : null;
+  };
+  const refused = () => {
+    const s = status();
+    return s.kind === "refused" ? s.message : null;
+  };
+  const copy = () =>
+    void navigator.clipboard
+      .writeText(live?.text ?? "")
+      .then(() => setCopied(true))
+      .catch(() => {});
 
   onMount(async () => {
-    live = new LiveDoc(props.id);
-    live.onSaved = setSaved;
-    live.onRemote = (actor) => {
+    const doc = new LiveDoc(props.id);
+    live = doc;
+    doc.onStatus = (s) => {
+      setStatus(s);
+      if (s.kind === "gone") view?.dispatch({ effects: editable.reconfigure(READ_ONLY) });
+    };
+    doc.onRemote = (actor) => {
       setEditedBy(actor);
       window.clearTimeout(clear);
       clear = window.setTimeout(() => setEditedBy(null), 5000);
     };
     try {
-      await live.open();
+      await doc.open();
     } catch {
-      setState("failed");
+      if (!disposed) setState("failed");
       return;
     }
-    const undo = new UndoManager(live.doc, {});
+    // Closed while it opened: there's nowhere to show it any more.
+    if (disposed) return;
+    const undo = new UndoManager(doc.doc, {});
     view = new EditorView({
       parent: host,
       state: EditorState.create({
-        doc: live.text,
+        doc: doc.text,
         extensions: [
-          LoroExtensions(live.doc, undefined, undo, (d) => d.getText("body")),
+          editable.of(gone() ? READ_ONLY : []),
+          LoroExtensions(doc.doc, undefined, undo, (d) => d.getText("body")),
           // Undo is Loro's: it undoes only your own edits, not Jarvis's or another screen's.
           keymap.of([...completionKeymap, ...defaultKeymap]),
           markdown(),
@@ -203,20 +236,41 @@ export default function DocEditor(props: { id: string; placeholder?: string }) {
     setState("open");
   });
   onCleanup(() => {
+    disposed = true;
     window.clearTimeout(clear);
     view?.destroy();
-    live?.close();
+    void live?.close();
   });
 
   return (
     <div>
+      <Show when={gone()}>
+        {(g) => (
+          <div class="mb-2 flex flex-wrap items-center gap-3 rounded-md border border-line bg-sunk px-3 py-2 text-sm">
+            <span>
+              {g().unsent
+                ? "This was deleted before your last changes reached Hearth. Copy the text to keep them."
+                : "This was deleted. You can still read it here."}
+            </span>
+            <button type="button" class="text-accent hover:underline" onClick={copy}>
+              {copied() ? "Copied" : "Copy text"}
+            </button>
+          </div>
+        )}
+      </Show>
       <div class="mb-1 flex h-5 items-center gap-3 text-xs text-faint">
         <Show when={state() === "opening"}>Opening…</Show>
         <Show when={state() === "failed"}>
           <span class="text-bad">Couldn't open this note. Check that Hearth is running.</span>
         </Show>
-        <Show when={state() === "open" && !saved()}>
-          Not saved yet: will sync when Hearth is back.
+        <Show when={state() === "open" && status().kind === "offline"}>
+          Not saved yet: can't reach Hearth. It's kept here and goes when Hearth is back.
+        </Show>
+        <Show when={state() === "open" && status().kind === "retrying"}>
+          Not saved yet: Hearth hit a problem saving it. It's kept here, and Hearth tries again.
+        </Show>
+        <Show when={state() === "open" && refused()}>
+          {(why) => <span class="text-bad">Hearth didn't save this: {why()}</span>}
         </Show>
         <Show when={editedBy()}>
           {(by) => <span class="text-jarvis">{who(by())} is editing…</span>}

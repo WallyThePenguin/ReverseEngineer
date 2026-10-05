@@ -3,6 +3,7 @@
 import { For, Show } from "solid-js";
 import { JarvisDot, jarvis } from "../jarvis/JarvisPane.tsx";
 import { authPost } from "../lib/api.ts";
+import { okToSignOut } from "../lib/docStore.ts";
 import { live } from "../lib/live.ts";
 import { type ListView, layout } from "../lib/panes.ts";
 import { inboxInput, useAction } from "../lib/query.ts";
@@ -120,6 +121,8 @@ export function Sidebar(props: {
         type="button"
         class="rounded-md px-2 py-1.5 text-left text-sm text-muted hover:text-ink"
         onClick={async () => {
+          // Signing out deletes this device's copies, edits Hearth hasn't got included.
+          if (!(await okToSignOut())) return;
           await authPost("logout").catch(() => {});
           props.onSignOut();
         }}

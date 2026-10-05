@@ -29,7 +29,14 @@ export function signedOut() {
 
 const UNREACHABLE = "Can't reach Hearth right now. Try again in a moment.";
 
-async function post(path: string, body: unknown): Promise<Response> {
+export interface SendOptions {
+  /** Gives up after this long, as if Hearth were out of reach. */
+  timeoutMs?: number;
+  /** Still sent if the page closes meanwhile (bodies up to 64 kB). */
+  keepalive?: boolean;
+}
+
+async function post(path: string, body: unknown, opts: SendOptions = {}): Promise<Response> {
   let res: Response;
   try {
     res = await fetch(path, {
@@ -37,6 +44,8 @@ async function post(path: string, body: unknown): Promise<Response> {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body ?? {}),
       credentials: "same-origin",
+      ...(opts.keepalive ? { keepalive: true } : {}),
+      ...(opts.timeoutMs ? { signal: AbortSignal.timeout(opts.timeoutMs) } : {}),
     });
   } catch {
     // Offline, or the PC is out of reach.
@@ -62,13 +71,17 @@ async function resultOf<T>(res: Response): Promise<ActionResult<T>> {
 }
 
 /** Runs an action and returns its full result, including approvals and denials. */
-export async function runAction<T>(name: string, input: unknown = {}): Promise<ActionResult<T>> {
-  return resultOf<T>(await post(`/api/actions/${name}`, input));
+export async function runAction<T>(
+  name: string,
+  input: unknown = {},
+  opts?: SendOptions,
+): Promise<ActionResult<T>> {
+  return resultOf<T>(await post(`/api/actions/${name}`, input, opts));
 }
 
 /** Runs an action and returns its result, or throws. */
-export async function action<T>(name: string, input: unknown = {}): Promise<T> {
-  const r = await runAction<T>(name, input);
+export async function action<T>(name: string, input: unknown = {}, opts?: SendOptions): Promise<T> {
+  const r = await runAction<T>(name, input, opts);
   if (r.status === "ok") return r.result;
   if (r.status === "pending_approval") throw new ApiError(202, "pending_approval", r.summary);
   if (r.status === "denied") throw new ApiError(403, "denied", r.reason);
