@@ -1,11 +1,21 @@
 // A Slack member is refused everything that doesn't name them, and what does name them is held
 // to their own rules, before and after you approve it (D62).
 import { memberPrincipal, PRINCIPAL_KINDS, RISKS, type Risk } from "@hearth/core";
-import { approval, audit, notification, principal, standingRule } from "@hearth/db";
-import { and, eq } from "drizzle-orm";
+import {
+  approval,
+  audit,
+  entity,
+  notification,
+  principal,
+  standingRule,
+  type Tx,
+} from "@hearth/db";
+import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
-import { ownerCaller, systemCaller } from "./callers.ts";
+import { jarvisCaller, memberCaller, ownerCaller, systemCaller } from "./callers.ts";
+import { ActionError } from "./errors.ts";
+import { createEntity, updateEntity } from "./graph.ts";
 import { newId } from "./ids.ts";
 import { createNotification } from "./notify.ts";
 import { decide, isVisibleTo } from "./policy.ts";
@@ -18,6 +28,27 @@ const record = (name: string) => async (_i: unknown, ctx: ActionContext) => {
   ran[name] = [...(ran[name] ?? []), ctx.caller];
   return { ok: true };
 };
+
+/** Which guarded actions' snapshot and pin code ran: each reads your data in real actions. */
+const looked: string[] = [];
+/** Guarded like mail.send, whose snapshot loads your draft and fails with what it found. */
+const guardedFor = (name: string, risk: Risk, callers?: Caller["kind"][]) =>
+  defineAction({
+    name,
+    description: "Guarded: its snapshot and pin read your data",
+    input: z.object({ id: z.string(), snapshot: z.string().optional() }),
+    risk,
+    ...(callers ? { callers } : {}),
+    pin: async () => {
+      looked.push(`${name} pin`);
+      return null;
+    },
+    snapshot: async () => {
+      looked.push(`${name} snapshot`);
+      throw new ActionError("not_found", "No draft with that id.");
+    },
+    handler: record(name),
+  });
 
 const everyone = [...PRINCIPAL_KINDS];
 const byRisk = RISKS.map((risk) =>
@@ -34,13 +65,32 @@ const byRisk = RISKS.map((risk) =>
 const probe = defineModule({
   name: "probe",
   description: "Test module",
-  entityTypes: [],
+  entityTypes: ["probe_note"],
   events: [],
   knowledge: {},
   reflexes: [],
   noReflexesBecause: "test module",
   actions: [
     ...byRisk,
+    guardedFor("probe.drafts", "outward", ["owner", "agent"]),
+    guardedFor("probe.drafts_anyone", "outward"),
+    guardedFor("probe.drafts_wipe", "destructive", everyone),
+    defineAction({
+      name: "probe.write",
+      description: "Write a note as anyone",
+      input: z.object({ body: z.string() }),
+      risk: "internal",
+      callers: everyone,
+      handler: (i, ctx) => createEntity(ctx, { type: "probe_note", title: "", body: i.body }),
+    }),
+    defineAction({
+      name: "probe.edit",
+      description: "Edit a note as anyone",
+      input: z.object({ id: z.string(), body: z.string() }),
+      risk: "internal",
+      callers: everyone,
+      handler: (i, ctx) => updateEntity(ctx, i.id, { body: i.body }),
+    }),
     defineAction({
       name: "probe.anyone",
       description: "No callers list: everyone but members",
@@ -94,13 +144,11 @@ const probe = defineModule({
 const OWN = memberPrincipal("T1", "U_OWN");
 const WILD = memberPrincipal("T2", "U_WILD");
 const NONE = memberPrincipal("T3", "U_NONE");
-const member = (id: string, extra: Partial<Caller> = {}): Caller => ({
-  principal: id,
-  kind: "member",
-  origin: "untrusted",
-  via: "slack",
-  ...extra,
-});
+/** A member's caller as Hearth makes it, for one of the principals above. */
+const member = (id: string, extra: Parameters<typeof memberCaller>[2] = {}): Caller => {
+  const [, , team, user] = id.split(":");
+  return memberCaller(team!, user!, extra);
+};
 
 let t: TestKernel;
 beforeAll(async () => {
@@ -235,5 +283,105 @@ describe("the kernel, for a member", () => {
     expect(byKey.member).toMatchObject({ deliveredAt: null, deferredReason: "budget_spent" });
     expect(byKey.member?.deadline).not.toBeNull();
     expect(byKey.hearth?.deliveredAt).not.toBeNull();
+  });
+
+  it("refuses a member before a guarded action's snapshot or pin reads anything", async () => {
+    // Not naming members, by list or by having none, and naming them but too risky for them.
+    // Bad input is refused the same way: what an action expects is no business of theirs.
+    const names = ["probe.drafts", "probe.drafts_anyone", "probe.drafts_wipe"];
+    for (const name of names)
+      for (const input of [{ id: "d1" }, {}])
+        expect(await t.kernel.execute(name, input, member(OWN))).toMatchObject({
+          status: "denied",
+        });
+    expect(looked).toEqual([]);
+    const refused = await t.tdb.db
+      .select()
+      .from(audit)
+      .where(and(inArray(audit.action, names), eq(audit.principal, OWN)));
+    expect(refused).toHaveLength(6);
+    expect(refused.every((r) => r.outcome === "denied")).toBe(true);
+    // Jarvis may call it, so its checks still run first, and their error is Jarvis's to see.
+    expect(await t.kernel.execute("probe.drafts", { id: "d1" }, jarvisCaller("agent"))).toEqual({
+      status: "error",
+      code: "not_found",
+      message: "No draft with that id.",
+    });
+    expect(looked).toEqual(["probe.drafts pin", "probe.drafts snapshot"]);
+  });
+});
+
+describe("a member's origin", () => {
+  it("is untrusted however the caller is made", () => {
+    expect(memberCaller("T1", "U_OWN", { turnId: "turn" })).toEqual({
+      principal: OWN,
+      kind: "member",
+      origin: "untrusted",
+      via: "slack",
+      turnId: "turn",
+    });
+    // Even if a runner forced its way past the types.
+    const forced = { origin: "owner", kind: "agent" } as unknown as Parameters<
+      typeof memberCaller
+    >[2];
+    expect(memberCaller("T1", "U_OWN", forced)).toMatchObject({
+      kind: "member",
+      origin: "untrusted",
+    });
+  });
+
+  it("is held untrusted by the kernel when a caller is built by hand with another", async () => {
+    // Built the way a slip in a runner would: a member, with Jarvis's or your own origin.
+    const slipped = (id: string, origin: Caller["origin"]): Caller => ({ ...member(id), origin });
+    const mine = await t.kernel.execute<{ id: string }>(
+      "probe.write",
+      { body: "Mine" },
+      ownerCaller(),
+    );
+    if (mine.status !== "ok") throw new Error(JSON.stringify(mine));
+    const edited = await t.kernel.execute(
+      "probe.edit",
+      { id: mine.result.id, body: "Theirs" },
+      slipped(OWN, "agent"),
+    );
+    const made = await t.kernel.execute<{ id: string }>(
+      "probe.write",
+      { body: "New" },
+      slipped(OWN, "owner"),
+    );
+    if (edited.status !== "ok" || made.status !== "ok") throw new Error("write failed");
+    // Your record, once a member has written in it, is outside content; so is theirs.
+    const rows = await t.tdb.db
+      .select({ id: entity.id, outside: entity.outside })
+      .from(entity)
+      .where(inArray(entity.id, [mine.result.id, made.result.id]));
+    expect(rows.map((r) => r.outside)).toEqual([true, true]);
+    // What they did is stamped as outside, so a reflex's turn from it starts untrusted.
+    const theirs = (await t.events()).filter(
+      (e) => e.actor === OWN && e.kind.startsWith("entity."),
+    );
+    expect(theirs.map((e) => [e.kind, e.origin])).toEqual([
+      ["entity.updated", "untrusted"],
+      ["entity.created", "untrusted"],
+    ]);
+    // A held call waits, and runs once you say yes, as untrusted.
+    ran["probe.outward"] = [];
+    const held = await t.kernel.execute("probe.outward", { n: 9 }, slipped(NONE, "owner"));
+    if (held.status !== "pending_approval") throw new Error(JSON.stringify(held));
+    const [a] = await t.tdb.db.select().from(approval).where(eq(approval.id, held.approvalId));
+    expect(a?.origin).toBe("untrusted");
+    await t.kernel.decideApproval(held.approvalId, "approve", ownerCaller());
+    expect(ran["probe.outward"]).toMatchObject([{ principal: NONE, origin: "untrusted" }]);
+    // And a run or a context built straight from such a caller, as approvals and io do.
+    const at = t.clock.now();
+    const raw = { ...slipped(OWN, "agent"), correlationId: newId() };
+    const ctx = t.kernel.context(t.tdb.db as unknown as Tx, raw, at, []);
+    expect(ctx.caller.origin).toBe("untrusted");
+    const def = t.kernel.registry.action("probe.read")!;
+    await t.kernel.run(def, {}, raw);
+    expect(ran["probe.read"]?.at(-1)).toMatchObject({ principal: OWN, origin: "untrusted" });
+    const audited = await t.tdb.db.select().from(audit).where(eq(audit.principal, OWN));
+    expect(audited.map((r) => r.origin)).not.toContain("agent");
+    expect(audited.map((r) => r.origin)).not.toContain("owner");
   });
 });

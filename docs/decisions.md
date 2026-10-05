@@ -1572,6 +1572,15 @@ names `member` as an allowed caller.
   are denied. An `askFirst` holds any call for your yes, as it does Jarvis's.
 - `isVisibleTo` follows the same rule. `hasStandingRule` now answers for members, and
   `guardAgentCall` runs for them too.
+- **Who may call is settled first.** `execute` refuses a call `decide()` denies before it reads
+  the input or runs the action's snapshot or pin. Those read your data (`mail.send` loads the
+  draft), so a member asking for an action that isn't theirs gets "denied" and an audit row,
+  never that code's error.
+- **A member's call is always untrusted.** `memberCaller` builds it that way, and the kernel
+  (`execute`, `run`, `context`) makes any member caller untrusted before anything reads its
+  origin: event stamps (and so the turns a reflex starts from them), `entity.outside` on what it
+  writes or edits, and the approval it waits on. A runner that builds a member's caller wrongly
+  still can't make their words inside content.
 - **Why this survives approvals:** the kind lives on the principal row, so a held reply is still
   a member's call after you approve it. `resolveApproval` rebuilds the caller with
   `principalKind(requestedBy)`. An optional field on Jarvis's caller would be gone at that point

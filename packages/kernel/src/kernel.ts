@@ -6,6 +6,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { requestApproval, resolveApproval } from "./approvals.ts";
 import { isAudited, writeAudit } from "./audit.ts";
+import { normalizeCaller } from "./callers.ts";
 import { type Clock, systemClock } from "./clock.ts";
 import {
   ActionError,
@@ -59,7 +60,7 @@ export class Kernel {
     caller: Caller,
   ): Promise<ExecuteResult<R>> {
     try {
-      return await this.decideAndRun<R>(name, rawInput, caller);
+      return await this.decideAndRun<R>(name, rawInput, normalizeCaller(caller));
     } catch (err) {
       // Failed before the action itself ran: checking a standing rule, asking for approval.
       this.log(`Action ${name} couldn't start: ${logLine(err)}`);
@@ -75,17 +76,26 @@ export class Kernel {
     const def = this.registry.action(name);
     if (!def)
       return { status: "error", code: "unknown_action", message: `No action named ${name}` };
+    const correlationId = caller.correlationId ?? newId();
     // Calls made as Jarvis, or as a Slack member's turn, are checked against the page they open
     // or act on, and capture what they'll do, before they run or wait for your yes (D25, D30,
     // D58, D62).
     const guarded = guardsCaller(caller) && isGuarded(def);
     const raw = guarded ? withoutGiven(def, rawInput ?? {}) : (rawInput ?? {});
+    // Whether this caller may make this call at all is settled before its input is read or its
+    // snapshot or pin runs. Those read your data (a draft, a meeting, the open tab), and a caller
+    // that's refused, a Slack member above all, mustn't set them off or get their errors back
+    // instead of a refusal (D62). The guard below only adds an askFirst, so the decision after it
+    // can turn an allow into an ask but can't let through what this refuses.
+    const standing = await this.hasStandingRule(def.name, caller);
+    const refused = decide(def, caller, standing);
+    if (refused.kind === "deny")
+      return this.refuse(def, caller, raw, refused.reason, correlationId);
     const parsed = def.input.safeParse(raw);
     if (!parsed.success) {
       return { status: "error", code: "invalid_input", message: z.prettifyError(parsed.error) };
     }
     let input: unknown = parsed.data;
-    const correlationId = caller.correlationId ?? newId();
     if (guarded) {
       const g = await guardAgentCall(this, def, raw, input, caller);
       if (g.kind === "invalid")
@@ -99,7 +109,7 @@ export class Kernel {
       input = g.input;
       if (g.askFirst) caller = { ...caller, askFirst: caller.askFirst ?? g.askFirst };
     }
-    const decision = decide(def, caller, await this.hasStandingRule(def.name, caller));
+    const decision = decide(def, caller, standing);
     if (decision.kind === "deny")
       return this.refuse(def, caller, input, decision.reason, correlationId);
     if (decision.kind === "ask") {
@@ -161,6 +171,8 @@ export class Kernel {
     caller: Caller & { correlationId: string },
     hooks: RunHooks = {},
   ): Promise<ExecuteResult<R>> {
+    // An approved call comes straight here, so a member's is made untrusted here too (D62).
+    caller = normalizeCaller(caller);
     // Actions that wait on the world hold no transaction while they wait (io.ts, B1).
     if (def.io) return runIo<R>(this, def, input, caller, hooks, (m) => this.log(m));
     const started = performance.now();
@@ -227,6 +239,7 @@ export class Kernel {
     now: Date,
     buffered: EmitEvent[],
   ): ActionContext {
+    caller = normalizeCaller(caller);
     const ctx: ActionContext = {
       tx,
       caller,

@@ -19,6 +19,7 @@ import {
   integrationCaller,
   isVisibleTo,
   jarvisCaller,
+  memberCaller,
   newId,
   ownerCaller,
   Registry,
@@ -41,7 +42,7 @@ const CALLERS: Record<PrincipalKind, Caller> = {
   mcp_client: { principal: "mcp:laptop", kind: "mcp_client", origin: "untrusted", via: "mcp" },
   integration: integrationCaller("slack"),
   system: systemCaller(),
-  member: { principal: MEMBER, kind: "member", origin: "untrusted", via: "slack" },
+  member: memberCaller("T1", "U1"),
 };
 
 /** Writes a record any kind of caller may write, so each one's @Jarvis can be tried. */

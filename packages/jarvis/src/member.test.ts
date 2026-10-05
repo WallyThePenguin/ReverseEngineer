@@ -2,14 +2,21 @@
 // @mention, so a member's words never become a turn with your rights (D58, D62).
 import { JARVIS_ENTITY_ID, memberPrincipal, PRINCIPAL_KINDS, renderMention } from "@hearth/core";
 import { jarvisTurn, principal } from "@hearth/db";
-import { type Caller, createEntity, defineAction, defineModule, ownerCaller } from "@hearth/kernel";
+import {
+  type Caller,
+  createEntity,
+  defineAction,
+  defineModule,
+  memberCaller,
+  ownerCaller,
+} from "@hearth/kernel";
 import { MENTION_SETTLE_MS } from "@hearth/modules";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { createJarvisHarness, type JarvisHarness } from "./testing.ts";
 
 const SAM = memberPrincipal("T1", "U_SAM");
-const sam: Caller = { principal: SAM, kind: "member", origin: "untrusted", via: "slack" };
+const sam = memberCaller("T1", "U_SAM");
 
 /** A note anyone may write, members included, so a member's @Jarvis can be tried. */
 const probe = defineModule({
