@@ -5,6 +5,16 @@
   Touches nothing: the processes, the task, the services, the request and the log are all faked.
 #>
 
+# Stop-Jarvis waits as long as a Jarvis since D63 can take to stop once asked: a check to notice
+# the request, finding out who asked, then its own stop limit (apps/jarvis/src). Read before
+# Get-Content is faked below.
+$src = "$PSScriptRoot\..\..\apps\jarvis\src"
+$ms = { param($file, $name) [int](([regex]::Match((Get-Content -Raw "$src\$file"), "const $name = ([\d_]+);").Groups[1].Value) -replace "_", "") }
+$takes = (& $ms "stop-request.ts" "CHECK_EVERY_MS") + (& $ms "stop-request.ts" "OWNER_CHECK_MS") + (& $ms "main.ts" "STOP_LIMIT_MS")
+$ask = ((Get-Command Stop-Jarvis).ScriptBlock.Ast.Parameters | Where-Object { $_.Name.VariablePath.UserPath -eq "AskSec" }).DefaultValue.Value
+Assert-Equal ($takes -ge 3000 -and $ask * 1000 -gt $takes) $true "Stop-Jarvis waits $ask s, longer than the $($takes / 1000) s a Jarvis asked can take to stop"
+
+
 # Stop-Jarvis trusts its pid file only for the process that wrote it: the file outlives a Jarvis
 # that was killed or crashed, and Windows hands its pid to later processes. One whose start time
 # Windows won't tell this account (the task's Jarvis, from your unelevated account: 2026-10-05)
@@ -48,6 +58,9 @@ function Request-JarvisStop { $script:did += "ask"; if ($script:honours) { $scri
 # Every Jarvis its task started holds the log.
 function Test-LogFree { -not @($script:holders | Where-Object { $script:running.ContainsKey($_) }).Count }
 function Get-CimInstance { @($script:children | ForEach-Object { [pscustomobject]@{ Name = "node.exe"; ProcessId = $_ } }) }
+# When Windows says each process started (WMI): unknown, unless a test says.
+$script:starts = @{}
+function Get-ProcessStart { param([int]$Id) $script:starts[$Id] }
 function New-Object {
   $task = [pscustomobject]@{ Runs = $script:runs }
   $task | Add-Member -MemberType ScriptMethod -Name GetInstances -Value { $this.Runs }
@@ -70,6 +83,7 @@ function Set-Jarvis([hashtable]$Running, [int[]]$Holders = @(), [switch]$Honours
   $script:runs = @($Children | Select-Object -First 1 | ForEach-Object { [pscustomobject]@{ EnginePID = 999980 } })
   $script:did = @()
   $script:states = @("")
+  $script:starts = @{}
 }
 
 Set-Jarvis @{ 999999 = (& $node $written.AddSeconds(-20)) } -Holders 999999 -Honours
@@ -120,6 +134,48 @@ Assert-Equal "$($parts.Parts) | $($parts.Stuck)" "server worker | $(& $stuck @(9
 Set-Jarvis @{}
 Assert-Equal "$((Get-RollbackParts).Parts)" "server worker jarvis" "a rollback starts all of Hearth"
 
+# Windows hands a pid on: a later process with Jarvis's pid isn't named as Jarvis, by its name, or
+# by when it started when Windows said when Jarvis did.
+$found = [pscustomobject]@{ Id = 999999; Verified = $true; Started = $written.AddSeconds(-20) }
+Set-Jarvis @{ 999999 = [pscustomobject]@{ ProcessName = "chrome"; Id = 999999 } }
+Assert-Equal (Test-StillJarvis $found) $false "a process that got Jarvis's pid isn't node"
+Set-Jarvis @{ 999999 = (& $node $written.AddHours(2)) }
+$script:starts[999999] = $written.AddHours(2)
+Assert-Equal (Test-StillJarvis $found) $false "a later node.exe with Jarvis's pid, by when it started"
+Assert-Equal (Wait-JarvisGone @($found) $log 0) "" "and isn't named"
+$script:starts[999999] = $written.AddSeconds(-20)
+Assert-Equal (Test-StillJarvis $found) $true "Jarvis itself, still running"
+$found.Started = $null
+Assert-Equal (Test-StillJarvis $found) $true "a node.exe with its pid is taken for it when Windows didn't say when it started"
+
+# Start-Hearth refuses before it starts anything when a Jarvis is left over: an update would roll
+# back with the services already on the new code (and the task can't start another anyway).
+function Start-Service { param($Name) $script:did += "start $($Name -join ' ')" }
+function Start-ScheduledTask { $script:did += "start task" }
+function Clear-JarvisStopRequest { $script:did += "clear request" }
+Set-Jarvis @{ 999996 = (& $sessionZero 999996) } -Holders 999996 -InFile 999996
+$threw = ""
+try { Start-Hearth | Out-Null } catch { $threw = "$_" }
+Assert-Equal "$threw | $($script:did -join ', ')" "$(& $stuck @(999996)). | " "Start-Hearth starts nothing with a Jarvis left over"
+Start-Hearth @("server", "worker") | Out-Null
+Assert-Equal ($script:did -join ", ") "start hearth-server hearth-worker" "a rollback that leaves that Jarvis out starts the rest"
+Set-Jarvis @{}
+Start-Hearth | Out-Null
+Assert-Equal ($script:did -join ", ") "clear request, start hearth-server hearth-worker, start task" `
+  "otherwise it clears an old stop request and starts all three"
+
+# Stopping Jarvis failing outright (the task scheduler not answering, say) stops nothing else,
+# unless it's a rollback: the code on disk changes next, so the services must stop regardless.
+function New-Object { throw "The RPC server is unavailable" }
+Set-Jarvis @{}
+$threw = ""
+try { Stop-Hearth | Out-Null } catch { $threw = "$_" }
+Assert-Equal "$threw | $($script:did -join ', ')" "The RPC server is unavailable | " "Stop-Hearth stops nothing when stopping Jarvis fails"
+Stop-Hearth -Anyway | Out-Null
+Assert-Equal ($script:did -join ", ") "stop hearth-server hearth-worker" "a rollback stops the services when stopping Jarvis fails"
+$parts = Get-RollbackParts
+Assert-Equal "$($parts.Parts) | $($parts.Stuck -match 'RPC server')" "server worker | True" "and starts them again without Jarvis, not knowing about it"
+
 # Waiting for a new Jarvis to check in: its pid file, or the server's word.
 function Get-Item { param($Path) [pscustomobject]@{ LastWriteTimeUtc = $script:pidWritten } }
 $script:pidWritten = $since.AddMinutes(-5)
@@ -134,6 +190,6 @@ $script:answers = @([pscustomobject]@{ Status = 200; Body = $survivor })
 Assert-Equal (Wait-JarvisCheckIn $since "x.pid" 0) "" "only an old Jarvis checking in: not the new one"
 
 foreach ($f in "Test-Path", "Get-Content", "Get-Item", "Get-Process", "Stop-Process", "Stop-ScheduledTask", "Get-CimInstance",
-  "New-Object", "Stop-Service") {
+  "New-Object", "Stop-Service", "Start-Service", "Start-ScheduledTask") {
   Remove-Item "function:$f"
 }

@@ -42,19 +42,33 @@ function Wait-TaskStopped([string]$Name, [int]$TimeoutSec = 15) {
 }
 
 # Jarvis first: one that won't stop throws, leaving the rest as it was, unless -Anyway (a rollback
-# has to stop the rest whatever Jarvis does).
+# has to stop the rest whatever Jarvis does, even when stopping Jarvis fails outright: the code on
+# disk changes next).
 function Stop-Hearth([string[]]$Parts = @("server", "worker", "jarvis"), [switch]$Anyway) {
   Write-Host "== Stopping Hearth ($($Parts -join ', '))"
   $stuck = $null
-  if ($Parts -contains "jarvis") { $stuck = Stop-Jarvis }
+  if ($Parts -contains "jarvis") {
+    try { $stuck = Stop-Jarvis } catch {
+      if (-not $Anyway) { throw }
+      $stuck = "Stopping Jarvis failed: $($_.Exception.Message)"
+    }
+  }
   if ($stuck -and -not $Anyway) { throw "$stuck." }
-  if ($stuck) { Write-Host "$stuck." }
+  if ($stuck) { Write-Host "$($stuck.TrimEnd('.'))." }
   $services = @($Parts | Where-Object { $_ -ne "jarvis" } | ForEach-Object { "hearth-$_" })
   if ($services.Count) { Stop-Service $services }
 }
 
+# Refuses before it starts anything when a Jarvis is left over: the task couldn't start another
+# while that one holds the log, and an update rolling back would then find the services already
+# running the new code.
 function Start-Hearth([string[]]$Parts = @("server", "worker", "jarvis")) {
   Write-Host "== Starting Hearth ($($Parts -join ', '))"
+  if ($Parts -contains "jarvis") {
+    $stuck = Get-StuckJarvis
+    if ($stuck) { throw "$stuck." }
+    Clear-JarvisStopRequest (Get-ServiceDir)
+  }
   $services = @($Parts | Where-Object { $_ -ne "jarvis" } | ForEach-Object { "hearth-$_" })
   if ($services.Count) { Start-Service $services }
   if ($Parts -contains "jarvis") { Start-ScheduledTask -TaskName "Hearth Jarvis" }

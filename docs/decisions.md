@@ -1533,21 +1533,31 @@ loses a week of mail or backups.
 start another until it has gone. When it won't go, they say so, with the pid to end.
 
 - **Jarvis stops itself.** As the task (`HEARTH_AS_SERVICE=1`), Jarvis checks every second for
-  `hearth-jarvis.stop` next to its pid file. It stops for one written after it started, if the
-  file belongs to your account, the Administrators group or SYSTEM. Any local account can create
-  files in that folder, so the owner is checked, once per request. Jarvis also stops when the
-  task's cmd.exe has gone, which is what ending the task does. It exits 0, so the task's
-  restart-on-failure doesn't bring it back mid-update.
+  `hearth-jarvis.stop` next to its pid file, from before its start-up, which has taken two
+  minutes on a busy PC. It stops for one written after it started, if the file belongs to your
+  account, the Administrators group or SYSTEM. Any local account can create files in that
+  folder, so the owner is checked, once per request. Jarvis also stops when the task's cmd.exe
+  has gone, which is what ending the task does, even while it's still checking an owner. It
+  exits 0, so the task's restart-on-failure doesn't bring it back mid-update. It removes the
+  request it stopped for, and Hearth removes an old one before starting Jarvis, so a clock that
+  steps back can't stop the next Jarvis.
 - **Turns end truthfully.** A turn cut short this way isn't recorded as stopped by you. It's left
   running for the next Jarvis to pick up again (D54). Tools already under way get 8 seconds to
   finish. Your own Stop is still recorded as stopped.
 - **Updates and restarts wait for it.** `Stop-Jarvis` writes the request, ends the task run, and
-  waits up to 15 seconds for Jarvis's pid to go and its log to open again. Then it ends what it's
-  sure is Jarvis, which only works elevated, and waits 15 seconds more.
+  waits up to 40 seconds for Jarvis's pid to go and its log to open again: the most a Jarvis
+  asked can take (a second to notice, up to 20 to learn who asked, 12 to stop). Then it ends
+  what it's sure is Jarvis, which only works elevated, and waits 15 seconds more. A pid Windows
+  has handed to another process since isn't Jarvis: it must still be node.exe, started when
+  Jarvis did whenever Windows says.
 - **One that won't go is named.** A Jarvis still there, or a log still held, ends the update or
-  restart before anything else is stopped. Hearth says which pid to end with `taskkill` as
-  administrator. A rollback starts the server and worker and leaves that Jarvis as it was. The
-  gate names the pid of a Jarvis that last reported in before the update.
+  restart before anything else is stopped, and starting Hearth refuses before it starts
+  anything. Hearth says which pid to end with `taskkill` as administrator. A rollback starts the
+  server and worker and leaves that Jarvis as it was. The gate names the pid of a Jarvis that
+  last reported in before the update, and the doctor one still running outside its idle task.
+- **A rollback never changes code under running services.** It stops them first, even when
+  stopping Jarvis fails outright, and even when starting them failed partway. Should they not
+  stop, the new code stays and the update says so.
 - **The task is unchanged.** Its cmd.exe opens the log before any of Hearth's code runs, so no
   change inside Jarvis can let the task start while an older Jarvis holds the log. Instead, no
   Jarvis since this outlives its task run.

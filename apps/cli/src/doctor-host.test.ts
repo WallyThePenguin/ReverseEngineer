@@ -11,6 +11,7 @@ import {
   checkServices,
   checkTailscale,
   judgeJarvisTask,
+  pidRunning,
   probeServer,
 } from "./doctor-host.ts";
 
@@ -69,16 +70,25 @@ describe("hearth doctor, the running install", () => {
       pid: 106176,
     };
     const report = { jarvisAlive: alive } as DeepHealth;
-    const stray = judgeJarvisTask(idle, report, now);
+    const there = (pid: number) => pid === 106176;
+    const stray = judgeJarvisTask(idle, report, now, there);
     expect(stray.mark).toBe("fail");
     expect(stray.detail).toContain("pid 106176, since 2026-10-05T13:07:16.172Z");
-    expect(stray.detail).toContain("Stop-Process -Id 106176 -Force");
+    expect(stray.detail).toContain("taskkill /F /PID 106176 as administrator");
     // Quiet for minutes: that Jarvis is gone, and the task really is all that's wrong.
     const quiet = { jarvisAlive: { ...alive, at: "2026-10-05T13:50:00.000Z" } } as DeepHealth;
-    expect(judgeJarvisTask(idle, quiet, now)).toEqual(idle);
-    expect(judgeJarvisTask(idle, null, now)).toEqual(idle);
+    expect(judgeJarvisTask(idle, quiet, now, there)).toEqual(idle);
+    expect(judgeJarvisTask(idle, null, now, there)).toEqual(idle);
+    // Checked in seconds ago, but its process has gone since (it stopped, or crashed).
+    expect(judgeJarvisTask(idle, report, now, () => false)).toEqual(idle);
     const running = { name: "Jarvis task", mark: "ok", detail: "Running" } as const;
-    expect(judgeJarvisTask(running, report, now)).toEqual(running);
+    expect(judgeJarvisTask(running, report, now, there)).toEqual(running);
+  });
+
+  it("tells a running process from one that has gone", () => {
+    expect(pidRunning(process.pid)).toBe(true);
+    // Far above any pid Windows or Linux hands out.
+    expect(pidRunning(2 ** 30)).toBe(false);
   });
 
   it("asks the server how it is, and fails it when it doesn't answer", async () => {

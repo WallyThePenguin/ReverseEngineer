@@ -7,6 +7,12 @@
 # Hearth's services folder: the services' logs, and Jarvis's log, pid file and stop request.
 function Get-ServiceDir { return "$env:ProgramData\Hearth\services" }
 
+# When process $Id started, from Windows' process list (WMI), or $null when there's no such
+# process or Windows won't say.
+function Get-ProcessStart([int]$Id) {
+  try { return (Get-CimInstance Win32_Process -Filter "ProcessId = $Id" -ErrorAction Stop).CreationDate } catch { return $null }
+}
+
 # Whether $Proc is the Jarvis that wrote its pid file at $Written: "jarvis" when it is, $null when
 # it isn't, "unverified" when it's a node.exe whose start time Windows won't tell this account.
 # The file outlives a Jarvis that was killed or crashed, and Windows reuses pids; a process that
@@ -23,7 +29,8 @@ function Resolve-JarvisPid($Proc, [datetime]$Written) {
 
 # The processes that may be Jarvis: the pid Jarvis wrote at startup, and every node child of the
 # task's running process (Jarvis runs under cmd in the task, and an unelevated account can't read
-# session-0 command lines). Verified says it's surely Jarvis.
+# session-0 command lines). Verified says it's surely Jarvis; Started, when Windows says, tells it
+# from a process that gets its pid later (Test-StillJarvis).
 function Find-Jarvis([string]$Dir) {
   $found = @{}
   $pidFile = "$Dir\hearth-jarvis.pid"
@@ -40,7 +47,17 @@ function Find-Jarvis([string]$Dir) {
     Get-CimInstance Win32_Process -Filter "ParentProcessId = $($run.EnginePID)" |
       Where-Object { $_.Name -eq "node.exe" } | ForEach-Object { $found[[int]$_.ProcessId] = $true }
   }
-  return @($found.Keys | ForEach-Object { [pscustomobject]@{ Id = $_; Verified = $found[$_] } })
+  return @($found.Keys | ForEach-Object {
+      [pscustomobject]@{ Id = $_; Verified = $found[$_]; Started = Get-ProcessStart $_ }
+    })
+}
+
+# Whether $J, from Find-Jarvis, is still running: still a node.exe, and when Windows said when it
+# started, still that process. Windows hands a pid on, and a later process isn't Jarvis to name.
+function Test-StillJarvis($J) {
+  $proc = Get-Process -Id $J.Id -ErrorAction SilentlyContinue
+  if (-not $proc -or $proc.ProcessName -ne "node") { return $false }
+  return -not $J.Started -or (Get-ProcessStart $J.Id) -eq $J.Started
 }
 
 # Asks Jarvis to stop (D63): it checks for this file every second, and stops for one newer than
@@ -55,6 +72,13 @@ function Request-JarvisStop([string]$Dir) {
   } catch {
     Write-Warning "Couldn't ask Jarvis to stop ($file): $($_.Exception.Message)"
   }
+}
+
+# Removes a request left from an earlier stop, before Jarvis is started again. Jarvis removes the
+# one it stops for, and ignores one older than itself; but one it couldn't remove (an
+# administrator's) would stop the next Jarvis should the clock step back.
+function Clear-JarvisStopRequest([string]$Dir) {
+  Remove-Item -LiteralPath "$Dir\hearth-jarvis.stop" -Force -ErrorAction SilentlyContinue
 }
 
 # Whether the task could open Jarvis's log now. Its cmd.exe opens the log for append before it
@@ -89,7 +113,7 @@ function Get-JarvisVerdict($Alive, [bool]$LogFree, [string]$Log) {
 # Checks every half second, up to $Sec, until Jarvis has stopped: $null then, or what's wrong.
 function Wait-JarvisGone($Found, [string]$Log, [int]$Sec) {
   for ($i = 0; ; $i++) {
-    $alive = @($Found | Where-Object { Get-Process -Id $_.Id -ErrorAction SilentlyContinue })
+    $alive = @($Found | Where-Object { Test-StillJarvis $_ })
     $why = Get-JarvisVerdict $alive (Test-LogFree $Log) $Log
     if (-not $why -or $i -ge $Sec * 2) { return $why }
     Start-Sleep -Milliseconds 500
@@ -101,8 +125,10 @@ function Wait-JarvisGone($Found, [string]$Log, [int]$Sec) {
 # task's Jarvis nor read its start time, so it asks Jarvis (Request-JarvisStop) and ends the task
 # run, which a Jarvis since D63 also stops for. After $AskSec it ends what it's sure is Jarvis,
 # which works when this runs elevated. A Jarvis from before D63 ignores both: the update that
-# brings D63 can only say so, with the pid to end.
-function Stop-Jarvis([int]$AskSec = 15, [int]$KillSec = 15) {
+# brings D63 can only say so, with the pid to end. $AskSec is the longest a Jarvis since D63 can
+# take once asked: a second to notice, 20 to learn who asked (stop-request.ts), 12 to stop
+# (apps/jarvis/src/main.ts), with time to spare; test-control-jarvis.ps1 checks they agree.
+function Stop-Jarvis([int]$AskSec = 40, [int]$KillSec = 15) {
   $dir = Get-ServiceDir
   $log = "$dir\hearth-jarvis.log"
   # Before the task stops: its children are found through it.
@@ -112,8 +138,7 @@ function Stop-Jarvis([int]$AskSec = 15, [int]$KillSec = 15) {
   $why = Wait-JarvisGone $found $log $AskSec
   if ($why) {
     foreach ($j in @($found | Where-Object { $_.Verified })) {
-      $proc = Get-Process -Id $j.Id -ErrorAction SilentlyContinue
-      if ($proc -and $proc.ProcessName -eq "node") { Stop-Process -Id $j.Id -Force -ErrorAction SilentlyContinue }
+      if (Test-StillJarvis $j) { Stop-Process -Id $j.Id -Force -ErrorAction SilentlyContinue }
     }
     $why = Wait-JarvisGone $found $log $KillSec
   }
@@ -128,9 +153,10 @@ function Get-StuckJarvis {
 }
 
 # What a rollback starts again: all of Hearth, or all but Jarvis while an older one that wouldn't
-# stop holds its log (its task can't start another), with why.
+# stop holds its log (its task can't start another), with why. Should Windows not say, Jarvis is
+# left out too: Start-Hearth would refuse to start anything without knowing.
 function Get-RollbackParts {
-  $stuck = Get-StuckJarvis
+  try { $stuck = Get-StuckJarvis } catch { $stuck = "Hearth couldn't tell whether Jarvis has stopped ($_), so it wasn't started again" }
   if ($stuck) { return [pscustomobject]@{ Parts = @("server", "worker"); Stuck = $stuck } }
   return [pscustomobject]@{ Parts = @("server", "worker", "jarvis"); Stuck = $null }
 }

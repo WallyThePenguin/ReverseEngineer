@@ -169,7 +169,13 @@ try {
     Write-Host "== Making sure Jarvis has stopped"
     $stuck = Stop-Jarvis
     if ($stuck) {
-      throw "$stuck. (The Hearth you're updating from stops Jarvis the old way: if its worker starts that Jarvis again first, in about three minutes, the next update will leave it running too.)"
+      $why = "$stuck."
+      # A Hearth since D63 asks Jarvis to stop (control-jarvis.ps1 writes hearth-jarvis.stop).
+      git grep -q -F "hearth-jarvis.stop" $old -- ops/windows
+      if ($LASTEXITCODE -ne 0) {
+        $why += " (The Hearth you're updating from stops Jarvis the old way: if its worker starts that Jarvis again first, in about three minutes, the next update will leave it running too.)"
+      }
+      throw $why
     }
   }
   $needsInstall = @(git diff --name-only $old $new -- ops/windows/install.ps1 "ops/windows/*.xml").Count -gt 0
@@ -203,8 +209,10 @@ try {
     $applied = @(Get-AppliedMigrations $out)
     if ($code -ne 0) { throw "Migrating the database failed (exit $code)." }
     $since = [datetime]::UtcNow
-    Start-Hearth
+    # From here the new code may be running, even when Start-Hearth fails partway: a rollback
+    # stops it before anything on disk changes.
     $stopped = $false
+    Start-Hearth
     Assert-Healthy $new $since $before
     if ($needsInstall) {
       Write-Warning "This update changed how the services are installed. Run ops\windows\install.ps1 again from an elevated PowerShell."
@@ -218,9 +226,14 @@ try {
 } catch {
   Write-Host "UPDATE FAILED: $_"
   if ((git rev-parse HEAD).Trim() -ne $old) {
-    if (-not $stopped) { Stop-Hearth -Anyway; $stopped = $true }
+    if (-not $stopped) {
+      try { Stop-Hearth -Anyway; $stopped = $true } catch { Write-Host "Couldn't stop Hearth: $_" }
+    }
     if ($applied.Count) { Write-Host "This update applied $($applied -join ', ')." }
-    if (Undo-Migrations $applied) {
+    if (-not $stopped) {
+      # Never git reset, pnpm install or build under services running the new code: mixed code.
+      Write-Host "HEARTH IS LEFT ON $(Format-Sha $new), not rolled back: it couldn't be stopped. Run pnpm hearth doctor to see why."
+    } elseif (Undo-Migrations $applied) {
       Write-Host "== Putting the previous code back ($($old.Substring(0, 7)))"
       git reset --hard $old
       pnpm install --frozen-lockfile

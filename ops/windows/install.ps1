@@ -192,6 +192,7 @@ try {
 }
 # While Windows still counts the stopped run, IgnoreNew would drop this start without a word.
 if (-not (Wait-TaskStopped "Hearth Jarvis")) { Write-Warning "The Hearth Jarvis task hasn't stopped yet." }
+Clear-JarvisStopRequest $ServiceDir
 $jarvisSince = [datetime]::UtcNow
 Start-ScheduledTask -TaskName "Hearth Jarvis"
 Write-Host "Started the Hearth Jarvis task; waiting for Jarvis to check in..."

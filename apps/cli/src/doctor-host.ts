@@ -59,18 +59,36 @@ export function judgeTask(task: string, state: string | null | undefined): Check
   return { name, mark: "warn", detail: state };
 }
 
+/** Whether process `pid` is running on this PC. One this account may not signal still is. */
+export function pidRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
 /**
- * The Jarvis task idle while a Jarvis still checks in (every 30 seconds): one that outlived its
- * task's stop, still on the code it started with. While it holds its log, each start of the task
- * fails at once, so `hearth restart jarvis` can't help; only an elevated account can end it.
+ * The Jarvis task idle while a Jarvis still checks in (every 30 seconds) and its process is still
+ * there: one that outlived its task's stop, still on the code it started with (D63). While it
+ * holds its log, each start of the task fails at once, so `hearth restart jarvis` can't help;
+ * only an administrator can end it.
  */
-export function judgeJarvisTask(task: Check, report: DeepHealth | null, now = new Date()): Check {
+export function judgeJarvisTask(
+  task: Check,
+  report: DeepHealth | null,
+  now = new Date(),
+  running: (pid: number) => boolean = pidRunning,
+): Check {
   const alive = report?.jarvisAlive;
   if (task.name !== "Jarvis task" || !task.detail.startsWith("Not running") || !alive) return task;
   if (now.getTime() - new Date(alive.at).getTime() > 2 * 60_000) return task;
+  // Checked in lately, but gone since (it stopped, or crashed): nothing to name.
+  if (!running(alive.pid)) return task;
   return {
     ...task,
-    detail: `Not running, but a Jarvis it didn't start is (pid ${alive.pid}, since ${alive.since}), on the code it started with, and the task can't start another while it runs. From an elevated PowerShell: Stop-Process -Id ${alive.pid} -Force, then pnpm hearth restart jarvis`,
+    detail: `Not running, but a Jarvis it didn't start is (pid ${alive.pid}, since ${alive.since}), on the code it started with, and the task can't start another while it runs. Run taskkill /F /PID ${alive.pid} as administrator, then pnpm hearth restart jarvis`,
   };
 }
 

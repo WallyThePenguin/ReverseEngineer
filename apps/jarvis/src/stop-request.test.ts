@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -46,6 +46,8 @@ describe("a request to stop Jarvis", () => {
     writeFileSync(file, "now");
     await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce());
     expect(stop.mock.calls[0]?.[0]).toBe(`Your account asked Jarvis to stop (${file})`);
+    // Removed, so a clock that steps back can't make it the next Jarvis's.
+    expect(existsSync(file)).toBe(false);
     await aFewChecks();
     expect(stop).toHaveBeenCalledOnce();
   });
@@ -95,6 +97,34 @@ describe("a request to stop Jarvis", () => {
     alive = false;
     await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce());
     expect(stop.mock.calls[0]?.[0]).toBe("The task that started Jarvis has ended");
+  });
+
+  it("isn't waited on once the task run has ended", async () => {
+    let alive = true;
+    // Who asked never comes back (a PowerShell stuck starting on a busy PC).
+    const { stop } = watch({
+      parentAlive: () => alive,
+      whoAsked: vi.fn(() => new Promise<Asker>(() => {})),
+    });
+    writeFileSync(file, "now");
+    await aFewChecks();
+    expect(stop).not.toHaveBeenCalled();
+    alive = false;
+    await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce());
+    expect(stop.mock.calls[0]?.[0]).toBe("The task that started Jarvis has ended");
+    // It came with the end of the task run, for this Jarvis: removed too.
+    expect(existsSync(file)).toBe(false);
+  });
+
+  it("from an earlier Jarvis is left when the task run ends", async () => {
+    writeFileSync(file, "then");
+    const old = new Date(Date.now() - 120_000);
+    utimesSync(file, old, old);
+    let alive = true;
+    const { stop } = watch({ parentAlive: () => alive });
+    alive = false;
+    await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce());
+    expect(existsSync(file)).toBe(true);
   });
 
   it("is no longer watched for once Jarvis is stopping anyway", async () => {

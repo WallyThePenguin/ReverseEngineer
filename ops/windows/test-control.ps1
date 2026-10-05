@@ -230,6 +230,8 @@ Assert-Equal (Wait-TaskStopped "Hearth Jarvis" 0) $false "gives up when it won't
 
 # Finding, stopping and waiting for Jarvis (control-jarvis.ps1), with Windows faked.
 . "$PSScriptRoot\test-control-jarvis.ps1"
+# update.ps1 itself rolling back, run with everything it would touch faked.
+. "$PSScriptRoot\test-control-update.ps1"
 
 if ($failures) { Write-Host "$failures failed"; exit 1 }
 Write-Host "All passed."
