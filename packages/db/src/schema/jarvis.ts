@@ -22,7 +22,10 @@ export const conversation = pgTable("conversation", {
   subjectId: uuid("subject_id"),
   agentSessionId: text("agent_session_id"),
   lastTurnAt: ts("last_turn_at"),
-  /** "device" when the desktop app started it; a device can only read its own conversations. */
+  /**
+   * "device" when the desktop app started it; a device can only read its own conversations.
+   * "slack_member": a Slack member's conversation with Jarvis, where only their turns run (D62).
+   */
   startedVia: text("started_via"),
   /** When a turn here first read outside content: later turns start untrusted (D58). */
   taintedAt: ts("tainted_at"),
@@ -54,7 +57,9 @@ export type TurnTrigger =
   | "watch"
   | "reflex"
   | "routine"
-  | "voice_command";
+  | "voice_command"
+  /** A Slack member's message to Jarvis's bot: the turn runs as that member (D62). */
+  | "slack_member";
 export type TurnMode = "reactive" | "proactive";
 export type TurnLane = "fast" | "deep";
 export type TurnStatus = "queued" | "running" | "done" | "failed" | "skipped" | "canceled";

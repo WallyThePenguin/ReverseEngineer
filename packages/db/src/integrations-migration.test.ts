@@ -1,7 +1,7 @@
 // 0032_integrations on a database with rows in it: calendars move to keys of their own and back,
 // with their events still attached (D61).
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { migrateDown, migrateUp } from "./migrate.ts";
+import { loadMigrations, migrateDown, migrateUp } from "./migrate.ts";
 import { createTestDatabase, type TestDatabase } from "./testing/index.ts";
 
 let tdb: TestDatabase;
@@ -12,6 +12,14 @@ afterAll(() => tdb.destroy());
 
 const q = (sql: string, params: unknown[] = []) => tdb.pool.query(sql, params);
 const NAME = "0032_integrations";
+/** This migration and the ones after it (0033_slack_bot on), oldest first: what going below it
+ * reverts, and applies again. */
+const SINCE = loadMigrations()
+  .map((m) => m.name)
+  .filter((n) => n >= NAME);
+const down = async () =>
+  expect(await migrateDown(tdb.pool, SINCE.length)).toEqual([...SINCE].reverse());
+const up = async () => expect(await migrateUp(tdb.pool)).toEqual(SINCE);
 
 async function addEvent(id: string, calendarId: string, googleId: string, title: string) {
   await q(
@@ -33,7 +41,7 @@ const eventsOf = async () =>
 
 describe("0032_integrations", () => {
   it("gives each account's calendars their own keys, and takes them back", async () => {
-    expect(await migrateDown(tdb.pool, 1)).toEqual([NAME]);
+    await down();
     // As before: one row per Google calendar, under Google's id.
     await q(
       "INSERT INTO google_account (email, refresh_token, connected_at) VALUES ('me@example.com', 'rt1', '2026-01-01'), ('work@example.com', 'rt2', '2026-06-01')",
@@ -45,7 +53,7 @@ describe("0032_integrations", () => {
     await addEvent("00000000-0000-7000-8000-000000000002", "holidays", "h1", "New Year");
     await addEvent("00000000-0000-7000-8000-000000000003", "work@example.com", "w1", "Standup");
 
-    expect(await migrateUp(tdb.pool)).toEqual([NAME]);
+    await up();
     const cals = (await q("SELECT id, account, google_id, write_default FROM calendar")).rows;
     expect(cals).toHaveLength(3);
     for (const c of cals) {
@@ -74,7 +82,7 @@ describe("0032_integrations", () => {
     ).rejects.toThrow(/calendar_write_default/);
 
     // Back: Google's id is the key again, so the account connected first keeps the shared one.
-    expect(await migrateDown(tdb.pool, 1)).toEqual([NAME]);
+    await down();
     expect((await q("SELECT id, account FROM calendar ORDER BY id")).rows).toEqual([
       { id: "holidays", account: "me@example.com" },
       { id: "me@example.com", account: "me@example.com" },
@@ -89,12 +97,12 @@ describe("0032_integrations", () => {
     ]);
     expect((await q("SELECT title FROM entity WHERE title LIKE '%(work)'")).rows).toEqual([]);
 
-    expect(await migrateUp(tdb.pool)).toEqual([NAME]);
+    await up();
     expect(await eventsOf()).toHaveLength(3);
   });
 
   it("gives drafts written before it a Message-ID on their account's domain", async () => {
-    expect(await migrateDown(tdb.pool, 1)).toEqual([NAME]);
+    await down();
     await q(
       "INSERT INTO mail_account (id, provider, address) VALUES ('gmail:me@example.com', 'gmail', 'me@example.com')",
     );
@@ -104,10 +112,10 @@ describe("0032_integrations", () => {
     await q(
       "INSERT INTO mail_draft (entity_id, account_id) VALUES ('00000000-0000-7000-8000-0000000000d1', 'gmail:me@example.com')",
     );
-    expect(await migrateUp(tdb.pool)).toEqual([NAME]);
+    await up();
     const [draft] = (await q("SELECT message_id FROM mail_draft")).rows;
     expect(draft.message_id).toMatch(/^[0-9a-f]{32}@example\.com$/);
-    expect(await migrateDown(tdb.pool, 1)).toEqual([NAME]);
-    expect(await migrateUp(tdb.pool)).toEqual([NAME]);
+    await down();
+    await up();
   });
 });

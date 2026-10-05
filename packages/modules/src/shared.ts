@@ -1,8 +1,8 @@
 // Helpers shared by the modules: schemas, and the plain-text views Jarvis reads.
 import { formatDateTime, stripMentions } from "@hearth/core";
 import { type DbOrTx, entity } from "@hearth/db";
-import type { Caller, EntityRow } from "@hearth/kernel";
-import { and, eq, isNull } from "drizzle-orm";
+import { type Caller, type EntityRow, fromOutsideTool } from "@hearth/kernel";
+import { and, eq, isNull, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
 export const id = z.string().uuid();
@@ -11,12 +11,35 @@ export const body = z.string().max(200_000);
 /** An ISO date-time string. */
 export const isoDateTime = z.string().datetime({ offset: true });
 
+/** Record types a caller can't read; "all" for one that reads no records at all. */
+export type HiddenTypes = string[] | "all";
+
 /**
- * Record types an outside agent or integration can't read, even by id or search: memory steers
- * every turn, so it's only for you and Jarvis (D58).
+ * Record types a caller can't read, even by id or search. Memory steers every turn, so it's only
+ * for you, Jarvis and Hearth itself (D58). A Slack member reads no records at all, only what its
+ * own actions hand it (D62); so does any kind not named here, so a new one starts with nothing.
  */
-export const hiddenTypes = (caller: Pick<Caller, "kind">): string[] =>
-  caller.kind === "mcp_client" || caller.kind === "integration" ? ["memory_note"] : [];
+export function hiddenTypes(caller: Pick<Caller, "kind">): HiddenTypes {
+  switch (caller.kind) {
+    case "owner":
+    case "agent":
+    case "system":
+      return [];
+    case "mcp_client":
+    case "integration":
+      return ["memory_note"];
+    default:
+      return "all";
+  }
+}
+
+/** Whether `hidden` (from hiddenTypes) leaves out records of this type. */
+export const hides = (hidden: HiddenTypes, type: string) =>
+  hidden === "all" || hidden.includes(type);
+
+/** A condition leaving out the record types in `hidden`; none at all for "all". */
+export const visibleTypes = (hidden: HiddenTypes) =>
+  hidden === "all" ? sql`false` : hidden.length ? notInArray(entity.type, hidden) : undefined;
 
 /** "note · created 2026-10-01 9 a.m. · updated ..." */
 export function headerLine(row: EntityRow, extra: string[] = []): string {
@@ -54,9 +77,11 @@ export async function liveEntity(
   return row;
 }
 
-/** Written by an outside tool or integration, so its text is outside content (D25). */
-export const writtenOutside = (by: string) =>
-  by.startsWith("integration:") || by.startsWith("mcp:");
+/**
+ * Written by an outside tool, an integration or a Slack member, so its text is outside content
+ * (D25, D62). The kernel's own test, so the two can't drift apart.
+ */
+export const writtenOutside = fromOutsideTool;
 
 /** A record whose text is outside content: an outside tool wrote it, or a turn that had read
  * some (D58). For digests, whose items then say `outside`. */

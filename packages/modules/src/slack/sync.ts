@@ -62,6 +62,9 @@ async function channelFor(ctx: ActionContext, ws: WorkspaceRow, id: string) {
     backlogTs: null,
     backlogTop: null,
     threadsAt: null,
+    jarvisTier: "off" as const,
+    jarvisReplies: "review" as const,
+    jarvisCheckedAt: null,
   };
 }
 

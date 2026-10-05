@@ -1,8 +1,9 @@
 // Chat with Jarvis, and comment threads on any record. Jarvis answers chat messages and
 // @mentions wherever they appear.
-import { formatDateTime } from "@hearth/core";
+import { formatDateTime, MEMBER_CONVERSATION } from "@hearth/core";
 import { conversation, conversationLog, entity } from "@hearth/db";
 import {
+  ActionError,
   createEntity,
   defineAction,
   defineModule,
@@ -178,6 +179,13 @@ export const chatModule = defineModule({
             .from(conversation)
             .where(eq(conversation.entityId, conversationId));
           if (!deviceMay(ctx.caller.via, c?.startedVia)) throw notFound("Conversation");
+          // Your turn there would resume the member's agent session with your data in it, and
+          // their next turn would see it (D62). "Ask Jarvis about this" starts a new one.
+          if (c?.startedVia === MEMBER_CONVERSATION)
+            throw new ActionError(
+              "forbidden",
+              "This is a Slack member's conversation with Jarvis. Ask about it in a new conversation.",
+            );
         } else {
           const e = await createEntity(ctx, {
             type: "conversation",

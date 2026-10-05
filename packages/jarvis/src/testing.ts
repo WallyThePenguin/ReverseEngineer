@@ -1,6 +1,6 @@
 // A harness that runs the whole spine (scheduler, reflex engine, turn runner) against a test
 // database with a scripted brain and a manual clock.
-import { runDueSchedules } from "@hearth/kernel";
+import { type HearthModule, runDueSchedules } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { ALL_MODULES } from "@hearth/modules";
 import type { Brain } from "./brain.ts";
@@ -20,9 +20,14 @@ export interface JarvisHarness extends TestKernel {
 
 export async function createJarvisHarness(
   start?: string,
-  opts: { brain?: Brain; runner?: Pick<RunnerOptions, "limits" | "turnLog" | "stopCheckMs"> } = {},
+  opts: {
+    brain?: Brain;
+    runner?: Pick<RunnerOptions, "limits" | "turnLog" | "stopCheckMs">;
+    /** Test modules to load beside Hearth's own. */
+    modules?: HearthModule[];
+  } = {},
 ): Promise<JarvisHarness> {
-  const t = await createTestKernel(ALL_MODULES, start);
+  const t = await createTestKernel([...ALL_MODULES, ...(opts.modules ?? [])], start);
   const logs: string[] = [];
   const log = (m: string, e?: unknown) =>
     logs.push(`${m}${e ? ` ${e instanceof Error ? e.message : JSON.stringify(e)}` : ""}`);

@@ -1,7 +1,8 @@
 // The executor: every action from every surface runs through here, gets a policy decision,
 // an audit row and its events (PLAN.md section 5.4).
+import { memberWildcard } from "@hearth/core";
 import { type Db, principal, standingRule, type Tx } from "@hearth/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { requestApproval, resolveApproval } from "./approvals.ts";
 import { isAudited, writeAudit } from "./audit.ts";
@@ -15,7 +16,7 @@ import {
   stackFrames,
 } from "./errors.ts";
 import { appendEvents } from "./events.ts";
-import { guardAgentCall, isGuarded, withoutGiven } from "./guard.ts";
+import { guardAgentCall, guardsCaller, isGuarded, withoutGiven } from "./guard.ts";
 import { newId } from "./ids.ts";
 import { type RunHooks, runIo } from "./io.ts";
 import { decide } from "./policy.ts";
@@ -74,9 +75,10 @@ export class Kernel {
     const def = this.registry.action(name);
     if (!def)
       return { status: "error", code: "unknown_action", message: `No action named ${name}` };
-    // Calls made as Jarvis are checked against the page they open or act on, and capture what
-    // they'll do, before they run or wait for your yes (D25, D30, D58).
-    const guarded = caller.kind === "agent" && isGuarded(def);
+    // Calls made as Jarvis, or as a Slack member's turn, are checked against the page they open
+    // or act on, and capture what they'll do, before they run or wait for your yes (D25, D30,
+    // D58, D62).
+    const guarded = guardsCaller(caller) && isGuarded(def);
     const raw = guarded ? withoutGiven(def, rawInput ?? {}) : (rawInput ?? {});
     const parsed = def.input.safeParse(raw);
     if (!parsed.success) {
@@ -245,7 +247,7 @@ export class Kernel {
         const def = this.registry.action(name);
         if (!def) throw new ActionError("unknown_action", `No action named ${name}`);
         // A page to open or act on, or a send to show you, is checked as a call of its own (D58).
-        if (caller.kind === "agent" && isGuarded(def))
+        if (guardsCaller(caller) && isGuarded(def))
           throw new ActionError("forbidden", `${name} runs only as a step of its own.`);
         const parsed = def.input.safeParse(rawInput ?? {});
         if (!parsed.success) throw new ActionError("invalid_input", z.prettifyError(parsed.error));
@@ -270,12 +272,18 @@ export class Kernel {
     return ctx;
   }
 
+  /**
+   * Whether you've let this caller do this action without asking. A Slack member also has the
+   * rule you hold for every member of their team, member:slack:<team>:* (D62).
+   */
   async hasStandingRule(action: string, caller: Caller, db: Db | Tx = this.db): Promise<boolean> {
-    if (caller.kind !== "agent") return false;
+    if (caller.kind !== "agent" && caller.kind !== "member") return false;
+    const team = caller.kind === "member" ? memberWildcard(caller.principal) : null;
+    const holders = team ? [caller.principal, team] : [caller.principal];
     const rows = await db
       .select({ id: standingRule.id })
       .from(standingRule)
-      .where(and(eq(standingRule.action, action), eq(standingRule.principal, caller.principal)));
+      .where(and(eq(standingRule.action, action), inArray(standingRule.principal, holders)));
     return rows.length > 0;
   }
 
