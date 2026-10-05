@@ -33,10 +33,15 @@ function Fail([string]$Why) { throw "FAILED: $Why" }
 
 function Get-Head { return (git -C $Root rev-parse HEAD).Trim() }
 
-# The Jarvis processes, by command line (this step runs elevated, so it can read them).
+# The Jarvis processes: node running main.ts jarvis. Should Windows not show even this elevated
+# step a command line, a node that isn't one of the two services' counts as well.
 function Get-JarvisNodes {
-  return @(Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" |
-    Where-Object { $_.CommandLine -match 'main\.ts"?\s+jarvis' })
+  $all = @(Get-CimInstance Win32_Process)
+  $services = @($all | Where-Object { $_.Name -in "hearth-server.exe", "hearth-worker.exe" } | ForEach-Object { $_.ProcessId })
+  return @($all | Where-Object {
+      $_.Name -eq "node.exe" -and ($_.CommandLine -match 'main\.ts"?\s+jarvis' -or
+        (-not $_.CommandLine -and $services -notcontains $_.ParentProcessId))
+    })
 }
 
 # Hearth is up on $Sha since $Since (UTC): the services and Jarvis's task running, deep health as

@@ -17,7 +17,8 @@
 #>
 [CmdletBinding()]
 param(
-  [string]$Root = (Resolve-Path "$PSScriptRoot\..\..").Path,
+  # Hearth's folder; by default the one this script is in.
+  [string]$Root,
   [string]$BackupTime = "02:30",
   [switch]$SkipBackupTask,
   # Chrome's profile folder with the Hearth extension, like "Default" or "Profile 1". Chrome shows
@@ -27,6 +28,9 @@ param(
   [switch]$SkipChromeTask
 )
 $ErrorActionPreference = "Stop"
+# Not as the parameter's default: Windows PowerShell leaves $PSScriptRoot empty there for a script
+# run with -File (powershell -File install.ps1), and Hearth's folder would be the drive's root.
+if (-not $Root) { $Root = (Resolve-Path "$PSScriptRoot\..\..").Path }
 # Finding, stopping and waiting for Jarvis and the server, as update.ps1 does.
 . "$PSScriptRoot\control.ps1"
 
