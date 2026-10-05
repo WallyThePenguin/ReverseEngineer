@@ -56,7 +56,8 @@ function Assert-Up([string]$Sha, [datetime]$Since, [string]$What, [string[]]$Par
   $state = "$((Get-ScheduledTask -TaskName 'Hearth Jarvis').State)"
   if ($state -ne "Running") { Fail "${What}: the Hearth Jarvis task is $state" }
   $deep = (Get-DeepHealth).Body
-  $nodes = Get-JarvisNodes
+  # @(): a lone process comes back unwrapped, and a CIM object's Count is empty, not 1.
+  $nodes = @(Get-JarvisNodes)
   if ($nodes.Count -ne 1) {
     $all = @(Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" | ForEach-Object { "$($_.ProcessId): $($_.CommandLine)" })
     Fail "${What}: $($nodes.Count) Jarvis processes are running. All node.exe: $($all -join ' | ')"
