@@ -7,7 +7,7 @@ and an agent that both answers you and acts on its own.
 ## Status
 
 Lean versions of every milestone in [PLAN.md](PLAN.md) are built. The work now is making them
-dependable on the PC, reliability first (D57 is the deploy side). As of 2026-10-04:
+dependable on the PC, reliability first (D57 is the deploy side). As of 2026-10-05:
 
 | Milestone | Built | On the PC |
 | --- | --- | --- |
@@ -16,10 +16,10 @@ dependable on the PC, reliability first (D57 is the deploy side). As of 2026-10-
 | M1 Jarvis's day, tasks and calendar | Yes | Calendar sync running; Jarvis's turns failed from 2026-10-03 until #26 |
 | B2 Browser, steps 2 and 3 (click, type, submit, sign-ins) | Yes, narrower than Claude in Chrome | Not used live yet |
 | M2 Email (Gmail, both accounts) | Yes | Running |
-| M3 Voice (dictation, voice chat) | Yes, in the desktop app (D43) | Desktop app not installed |
+| M3 Voice (dictation, voice chat) | Yes, in the desktop app (D43) | Hearth for Windows 1.0.19 installed (`D:\HearthDesktop\hearth.exe`); starts hidden with Windows, `Ctrl+Alt+H` opens it |
 | M4 Docs (live notes, D38, not Macro's editor) | Yes | Running |
 | M5 People and meetings | Yes | People running; meeting recorder not installed |
-| M6 Phone (installed web app, push) | Yes | Push not connected |
+| M6 Phone (installed web app, push) | Yes | Notifications are turned on per device in Settings → Phone |
 | M7 Canvas, sheets, Notion import, Slack, GitHub | Yes | Canvas, sheets and import running; Slack and GitHub not connected |
 
 - [docs/setup-windows.md](docs/setup-windows.md): install it on your PC
