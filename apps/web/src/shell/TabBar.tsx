@@ -10,9 +10,12 @@ import { askToTalk, mic } from "../lib/speech.ts";
 /** Each tab is a sub-product's home (lib/apps.ts). */
 const TABS = phoneTabs();
 
-/** A tab: its icon over its name. The one you're on is in ink and bold. */
+/**
+ * A tab: its icon over its name. The one you're on is in ink and bold. Six share the screen's
+ * width, down to 320 px, so none is wider than its share (min-w-0).
+ */
 const tab = (active: boolean) =>
-  `relative flex min-h-12 flex-1 flex-col items-center justify-center gap-0.5 py-1 text-micro ${active ? "font-semibold text-ink" : "text-muted"}`;
+  `relative flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-1 text-micro ${active ? "font-semibold text-ink" : "text-muted"}`;
 
 /**
  * A tab's icon. On the tab you're on it sits on a pill of its sub-product's colour and takes
@@ -22,7 +25,7 @@ function TabIcon(props: { active: boolean; red?: boolean; children: JSX.Element 
   const on = () => (props.red ? "bg-bad/15 text-bad" : "bg-hue/15 text-hue");
   return (
     <span
-      class={`flex h-8 w-14 items-center justify-center rounded-full ${props.active ? on() : ""}`}
+      class={`flex h-8 w-full max-w-14 items-center justify-center rounded-full ${props.active ? on() : ""}`}
     >
       {props.children}
     </span>
@@ -68,7 +71,7 @@ export function TabBar(props: { waiting: number; onMenu: () => void }) {
         aria-current={jarvis.open() ? "page" : undefined}
         onClick={() => jarvis.toggle(!jarvis.open())}
       >
-        {/* A line mark like the other icons; how Jarvis is shows as the dot on its corner. */}
+        {/* A line mark like the others; a dot on its corner only when Jarvis is paused or down. */}
         <TabIcon active={jarvis.open()}>
           <JarvisStatusMark size={24} glyph />
         </TabIcon>

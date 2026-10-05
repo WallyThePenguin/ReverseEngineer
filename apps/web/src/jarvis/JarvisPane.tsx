@@ -49,7 +49,7 @@ export function JarvisStatusMark(props: { size?: number; glyph?: boolean }) {
   const state = () => (wrong() ? "down" : status.data?.jarvisPaused ? "paused" : "idle");
   return (
     <span class="inline-flex" title={wrong()}>
-      {/* The phone's tab bar draws it as a line icon with its state as a dot (JarvisGlyph). */}
+      {/* The phone's tab bar draws it as a line icon, dotted when paused or down (JarvisGlyph). */}
       <Show when={props.glyph} fallback={<JarvisMark size={props.size} state={state()} />}>
         <JarvisGlyph size={props.size} state={state()} />
       </Show>

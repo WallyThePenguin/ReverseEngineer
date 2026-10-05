@@ -71,19 +71,20 @@ export function JarvisMark(props: {
   );
 }
 
-/** How Jarvis is, as the small dot on its line mark. */
-const DOT: Record<JarvisState, string> = {
-  idle: "bg-jarvis",
-  thinking: "bg-jarvis animate-pulse",
-  listening: "bg-bad",
+/**
+ * The small dot on Jarvis's line mark, only when something isn't as usual: grey while you've
+ * paused it, red while it's down. Running as it should, it has none, so the tab bar's only dots
+ * are ones that ask for a look.
+ */
+const DOT: Partial<Record<JarvisState, string>> = {
   paused: "bg-faint",
   down: "bg-bad",
 };
 
 /**
  * Jarvis's mark drawn as a line icon, for the phone's tab bar: in the text's colour like the
- * other tabs' icons, so only the tab you're on stands out. How Jarvis is shows only as a small
- * dot on its corner: indigo while it runs, grey while you've paused it, red while it's down.
+ * other tabs' icons, so only the tab you're on stands out, with a dot on its corner only while
+ * Jarvis is paused or down.
  */
 export function JarvisGlyph(props: { state?: JarvisState; size?: number; class?: string }) {
   const size = () => props.size ?? 24;
@@ -102,9 +103,11 @@ export function JarvisGlyph(props: { state?: JarvisState; size?: number; class?:
         <circle cx="12" cy="12" r="9" />
         <circle cx="12" cy="12" r="3.25" fill="currentColor" stroke="none" />
       </svg>
-      <span
-        class={`absolute top-0 right-0 size-2 rounded-full ring-2 ring-panel ${DOT[props.state ?? "idle"]}`}
-      />
+      <Show when={DOT[props.state ?? "idle"]}>
+        {(dot) => (
+          <span class={`absolute top-0 right-0 size-2 rounded-full ring-2 ring-panel ${dot()}`} />
+        )}
+      </Show>
     </span>
   );
 }
