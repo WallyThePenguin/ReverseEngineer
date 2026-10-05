@@ -1,13 +1,16 @@
-// Saving a board or a spreadsheet, which are saved whole (D59). A change is saved a moment after
-// you stop, with the version it was made on. Until Hearth has it, a copy waits in IndexedDB, so a
-// closed tab, a crash or a dropped connection loses nothing: the next open sends it. A save that
-// fails for want of a connection is tried again with backoff; one Hearth turns down because
-// someone saved first (Jarvis adding cards, another screen) is merged piece by piece and sent again.
-// Changes made after it was deleted are kept too, and saved once it's restored.
+// Saving a board, a spreadsheet or meeting notes, which are saved whole (D59). A change is saved a
+// moment after you stop, with the version it was made on. Until Hearth has it, a copy waits in
+// IndexedDB, so a closed tab, a crash or a dropped connection loses nothing: the next open sends
+// it. A save that fails for want of a connection is tried again with backoff; one Hearth turns
+// down because someone saved first (Jarvis adding cards, another screen) is merged piece by piece
+// and sent again. Changes made after it was deleted are kept too. Each screen keeps its own copy,
+// so two tabs never replace each other's; the next open takes in every copy kept for it, and so
+// does an open one once it's restored. No change is taken before the first read (of Hearth's
+// copy, or of one kept here).
 
 import { createSignal } from "solid-js";
 import { ApiError, action } from "./api.ts";
-import { dropUnsaved, loadUnsaved, saveUnsaved } from "./docStore.ts";
+import { dropUnsaved, saveUnsaved, takeOverUnsaved, unsavedCopies } from "./docStore.ts";
 import { backoff, onLiveEvent } from "./live.ts";
 
 const SAVE_AFTER_MS = 700;
@@ -25,9 +28,9 @@ export interface Remote<T> {
 }
 
 export interface SaverOptions<T> {
-  /** The record it saves: restored from the trash, what was changed here meanwhile is saved. */
+  /** The record it saves: once it's restored from the trash, what was changed meanwhile is saved. */
   id: string;
-  /** Where its unsaved copy is kept: "canvas:<id>". */
+  /** Where its unsaved copies are kept: "canvas:<id>" (each screen's under "canvas:<id>#…"). */
   key: string;
   /** The action that saves it, and its input. */
   action: string;
@@ -35,8 +38,9 @@ export interface SaverOptions<T> {
   get(): Promise<Remote<T>>;
   merge(base: T, mine: T, theirs: T): T;
   /**
-   * One with nothing in it (a new board, a new spreadsheet's one empty sheet, no notes). Changes
-   * kept before Hearth's copy was first read are merged onto it, so they only add to Hearth's.
+   * One with nothing in it (a new board, a new spreadsheet's one empty sheet, no notes). A copy an
+   * older Hearth kept before the first read has no base, and is merged onto this as if everything
+   * in it had been added here.
    */
   empty(): T;
   /** A plain copy of what's on screen. */
@@ -74,9 +78,12 @@ export function createSaver<T>(o: SaverOptions<T>) {
   const [saving, setSaving] = createSignal(false);
   const [problem, setProblem] = createSignal<string | null>(null);
   const [gone, setGone] = createSignal(false);
+  /** Hearth's copy, or one kept here, has been read: until then it takes no change. */
+  const [loaded, setLoaded] = createSignal(false);
+  /** This screen's own copy: no other screen replaces it, nor it theirs. */
+  const own = `${o.key}#${crypto.randomUUID()}`;
   let version = 0;
   let base: T | null = null;
-  let loaded = false;
   let dirty = false;
   /** A new name that isn't saved yet. */
   let title: string | undefined;
@@ -97,14 +104,14 @@ export function createSaver<T>(o: SaverOptions<T>) {
   const stale = (err: unknown, heard: number) =>
     err instanceof ApiError && err.code === "not_found" && heard !== restores;
 
-  /** Writes the unsaved copy (once per tick, however many changes it held). */
+  const copy = () => ({ key: own, data: o.current(), base, baseVersion: version, title });
+  /** Writes this screen's copy (once per tick, however many changes it held). */
   const keep = () => {
     if (keeping) return;
     keeping = true;
     queueMicrotask(() => {
       keeping = false;
-      if (!unsaved()) return;
-      void saveUnsaved({ key: o.key, data: o.current(), base, baseVersion: version, title });
+      if (unsaved()) void saveUnsaved(copy());
     });
   };
 
@@ -113,7 +120,7 @@ export function createSaver<T>(o: SaverOptions<T>) {
       setGone(true);
       // Never read here (it opened from the trash): restoring it is what opens it.
       setProblem(
-        loaded
+        loaded()
           ? `This ${o.noun} was deleted. Restore it from the trash to save changes here.`
           : `This ${o.noun} is in the trash. Restore it to open it here.`,
       );
@@ -130,10 +137,7 @@ export function createSaver<T>(o: SaverOptions<T>) {
     if (!closed) retry = window.setTimeout(() => void save(), backoff(attempt++));
   };
 
-  /**
-   * Takes in what was saved elsewhere and puts this screen's changes on top. With no base (never
-   * read), what's here was made on nothing, so it's merged onto nothing: it adds, it can't delete.
-   */
+  /** Takes in what was saved elsewhere and puts this screen's changes on top. */
   const mergeWith = (theirs: Remote<T>) => {
     const merged = o.merge(base ?? o.empty(), o.current(), theirs.data);
     base = theirs.data;
@@ -144,7 +148,7 @@ export function createSaver<T>(o: SaverOptions<T>) {
   };
 
   function save(keepalive = false): Promise<void> {
-    if (!loaded || gone()) return Promise.resolve();
+    if (!loaded() || gone()) return Promise.resolve();
     if (running) {
       again = true;
       return running;
@@ -191,7 +195,7 @@ export function createSaver<T>(o: SaverOptions<T>) {
         }
       } while (again);
       // Everything here has reached Hearth: the copy kept in case it didn't can go.
-      if (!unsaved()) await dropUnsaved(o.key);
+      if (!unsaved()) await dropUnsaved(own);
     })().finally(() => {
       running = null;
       setSaving(false);
@@ -204,12 +208,12 @@ export function createSaver<T>(o: SaverOptions<T>) {
   }
 
   /**
-   * The first look: Hearth's copy (null when reading it failed, because of `why`) and any changes
+   * The first look: Hearth's copy (null when reading it failed, because of `why`) and every copy
    * kept here.
    */
   async function open(r: Remote<T> | null, why?: unknown): Promise<void> {
-    const kept = await loadUnsaved<T>(o.key);
-    if (!r && !kept) {
+    const copies = await unsavedCopies<T>(o.key);
+    if (!r && !copies.length) {
       setProblem(
         isOffline(why)
           ? `Can't open this ${o.noun} right now: can't reach Hearth. Trying again…`
@@ -219,28 +223,54 @@ export function createSaver<T>(o: SaverOptions<T>) {
       if (!closed) retry = window.setTimeout(() => void load(), backoff(attempt++));
       return;
     }
-    loaded = true;
+    setLoaded(true);
     setProblem(null);
-    if (r && !kept) {
+    if (r && !copies.length) {
       base = r.data;
       version = r.version;
       o.show(r.data, r.title);
       return;
     }
-    // Changes made here that never reached Hearth: the tab closed, or Hearth was out of reach.
-    // Ones kept before Hearth's copy was ever read have no base: whatever version they name,
-    // they're merged onto an empty one, so they add to what Hearth has and delete none of it (D59).
-    const k = kept!;
-    const unread = (k.base ?? null) === null;
-    base = k.base ?? o.empty();
-    version = k.baseVersion;
-    title = k.title !== r?.title ? k.title : undefined;
-    o.show(k.data, k.title ?? r?.title);
-    if (!r) dirty = true;
-    else if (unread || k.baseVersion !== r.version) mergeWith(r);
-    else dirty = !sameJson(k.data, r.data);
+    // Changes made here that never reached Hearth (a tab closed, Hearth was out of reach, it was
+    // in the trash), a copy per screen. Each is merged onto Hearth's copy (offline, onto the one
+    // made on the newest version) with what it was made on as its base, as a save that lost a
+    // race is. One without a base is merged onto an empty one (see `empty`).
+    const newest = copies.reduce((a, k) => (k.baseVersion > a.baseVersion ? k : a));
+    let data = r ? r.data : newest.data;
+    for (const k of copies)
+      if (r || k !== newest) data = o.merge(k.base ?? o.empty(), k.data, data);
+    base = r ? r.data : (newest.base ?? o.empty());
+    version = r ? r.version : newest.baseVersion;
+    const name = copies.find((k) => k.title !== undefined)?.title;
+    title = name !== r?.title ? name : undefined;
+    o.show(data, name ?? r?.title);
+    dirty = !r || !sameJson(data, r.data);
+    // This screen's copy holds them all now, so the others go (each unless its screen has kept a
+    // newer one since).
+    await takeOverUnsaved(unsaved() ? copy() : null, copies);
     if (unsaved()) void save();
-    else void dropUnsaved(o.key);
+  }
+
+  /**
+   * Takes in what other screens kept (one closed while it was in the trash): each is merged into
+   * this screen with what it was made on as its base, and goes (unless its screen has kept a newer
+   * one since), as this screen now holds it, in its own copy until Hearth has it.
+   */
+  async function absorb(): Promise<void> {
+    if (!loaded()) return;
+    const others = (await unsavedCopies<T>(o.key)).filter((k) => k.key !== own);
+    if (!others.length) return;
+    const now = o.current();
+    let data = now;
+    for (const k of others) data = o.merge(k.base ?? o.empty(), data, k.data);
+    const name = title ?? others.find((k) => k.title !== undefined)?.title;
+    if (!sameJson(data, now) || name !== title) {
+      o.show(data, name);
+      title = name;
+      dirty = true;
+      edits += 1;
+    }
+    await takeOverUnsaved(unsaved() ? copy() : null, others);
   }
 
   async function load(): Promise<void> {
@@ -256,10 +286,10 @@ export function createSaver<T>(o: SaverOptions<T>) {
     } catch (err) {
       if (stale(err, heard)) return load();
       if (err instanceof ApiError && err.code === "not_found") refused(err);
-      else if (!loaded && isTransient(err)) await open(null, err);
+      else if (!loaded() && isTransient(err)) await open(null, err);
       return;
     }
-    if (!loaded) return open(r);
+    if (!loaded()) return open(r);
     if (r.version <= version) return;
     if (!unsaved() && edits === at) {
       base = r.data;
@@ -271,12 +301,17 @@ export function createSaver<T>(o: SaverOptions<T>) {
     void save();
   }
 
-  /** Restored from the trash: read it again, and save what was changed here meanwhile. */
+  /**
+   * Restored from the trash: read it again if Hearth said it was gone, and save what was changed
+   * meanwhile, here and on other screens.
+   */
   async function restored(): Promise<void> {
-    if (!gone()) return;
-    setGone(false);
-    setProblem(null);
-    await load();
+    if (gone()) {
+      setGone(false);
+      setProblem(null);
+      await load();
+    }
+    await absorb();
     if (unsaved()) void save();
   }
   const stopLive = onLiveEvent((e) => {
@@ -314,9 +349,14 @@ export function createSaver<T>(o: SaverOptions<T>) {
     problem,
     /** Hearth said it's in the trash, and it hasn't been restored since. */
     gone,
+    loaded,
     load,
-    /** The screen changed it: save a moment after the last change. */
+    /**
+     * The screen changed it: save a moment after the last change. Before the first read there's
+     * no version it was made on, so it's ignored.
+     */
     changed() {
+      if (!loaded()) return;
       dirty = true;
       edits += 1;
       keep();
@@ -324,6 +364,7 @@ export function createSaver<T>(o: SaverOptions<T>) {
       timer = window.setTimeout(() => void save(), SAVE_AFTER_MS);
     },
     rename(name: string) {
+      if (!loaded()) return;
       title = name;
       keep();
       void save();

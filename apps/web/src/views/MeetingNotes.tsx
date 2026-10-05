@@ -23,7 +23,6 @@ export function MeetingNotes(props: { id: string; notes: string; revision: numbe
       return { title: r.title, data: r.notes, version: r.revision };
     },
     merge: mergeText,
-    // Typed before the first read, onto the page's copy: merged onto none, Hearth's lines all stay.
     empty: () => "",
     current: () => area?.value ?? "",
     show(notes) {
@@ -56,6 +55,9 @@ export function MeetingNotes(props: { id: string; notes: string; revision: numbe
         }}
         class="min-h-32 w-full resize-y rounded-md border border-line bg-panel px-3 py-2 text-sm outline-none"
         placeholder="What matters in this meeting…"
+        // Until the first read (Hearth's notes, or a copy kept here), what's here is the page's
+        // copy, which that read replaces.
+        readOnly={!saver.loaded()}
         onInput={() => saver.changed()}
       />
       <Show when={saver.problem()}>{(why) => <p class="mt-1 text-xs text-bad">{why()}</p>}</Show>

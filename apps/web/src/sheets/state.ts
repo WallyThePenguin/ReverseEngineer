@@ -1,6 +1,8 @@
 // One open spreadsheet: the workbook as typed, its results, undo and redo, and saving. Every change
 // is saved whole a moment after you stop, kept on this device until Hearth has it, and merged cell
-// by cell with anything saved elsewhere meanwhile (Jarvis, another screen): D59.
+// by cell with anything saved elsewhere meanwhile (Jarvis, another screen): D59. It takes no change
+// or new name until Hearth's copy has first been read: until then the screen holds a blank
+// workbook, not Hearth's, and its cells have the same names as Hearth's.
 
 import {
   emptyWorkbook,
@@ -89,6 +91,7 @@ export function createSheet(id: string) {
 
   /** Changes the workbook as one undoable step. */
   const change = (fn: (draft: Workbook) => void) => {
+    if (!loaded()) return;
     undo.push(copy(book));
     if (undo.length > MAX_UNDO) undo.shift();
     redo.length = 0;
@@ -111,8 +114,15 @@ export function createSheet(id: string) {
     title,
     loaded,
     saving: saver.saving,
-    /** Why the spreadsheet isn't saved, in plain words, or null. */
-    problem: saver.problem,
+    /** It's in the trash: the pane's header says so, and offers Restore. */
+    gone: saver.gone,
+    /** Why the spreadsheet isn't saved, in plain words, or null; in the trash, what that means. */
+    problem() {
+      if (!saver.gone()) return saver.problem();
+      return loaded()
+        ? "Changes made here are kept, and saved once it's restored."
+        : "There's nothing to show here until it's restored.";
+    },
     results,
     /** Reads it from Hearth, keeping what's unsaved here on top. */
     load: saver.load,
@@ -138,6 +148,7 @@ export function createSheet(id: string) {
     undo: () => swap(undo, redo),
     redo: () => swap(redo, undo),
     rename(t: string) {
+      if (!loaded()) return;
       setTitle(t);
       saver.rename(t);
     },

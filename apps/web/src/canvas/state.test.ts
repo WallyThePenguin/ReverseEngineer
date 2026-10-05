@@ -9,9 +9,17 @@ import type { LiveEvent } from "../lib/live.ts";
 /** The unsaved copies this device keeps, by key. */
 const kept = vi.hoisted(() => new Map<string, Unsaved<unknown>>());
 vi.mock("../lib/docStore.ts", () => ({
-  loadUnsaved: async (key: string) => structuredClone(kept.get(key)) ?? null,
+  unsavedCopies: async (key: string) =>
+    [...kept.values()]
+      .filter((k) => k.key === key || k.key.startsWith(`${key}#`))
+      .map((k) => structuredClone(k)),
   saveUnsaved: async (rec: Unsaved<unknown>) => void kept.set(rec.key, structuredClone(rec)),
   dropUnsaved: async (key: string) => void kept.delete(key),
+  takeOverUnsaved: async (rec: Unsaved<unknown> | null, held: Unsaved<unknown>[]) => {
+    for (const k of held)
+      if (JSON.stringify(kept.get(k.key)) === JSON.stringify(k)) kept.delete(k.key);
+    if (rec) kept.set(rec.key, structuredClone(rec));
+  },
 }));
 /** Who's listening to the live feed; the tests send its events. */
 const feed = vi.hoisted(() => new Set<(e: LiveEvent) => void>());

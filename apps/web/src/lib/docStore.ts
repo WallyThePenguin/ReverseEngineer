@@ -1,13 +1,14 @@
 // What this browser keeps in IndexedDB so nothing typed is lost (D38, D59): each note's saved copy,
 // the edits made since that it doesn't hold yet (written before they're sent anywhere), the peer
-// ids this device edits notes as, and the unsaved copy of a board or spreadsheet. Kept apart from
-// doc.ts so signing out can check and clear it without loading Loro, which only notes need.
+// ids this device edits notes as, and each screen's unsaved copy of a board, a spreadsheet or
+// meeting notes. Kept apart from doc.ts so signing out can check and clear it without loading
+// Loro, which only notes need.
 
 const DB = "hearth-docs";
 const DOCS = "docs";
 /** A note's edits that its saved copy doesn't hold yet, written before they're sent. */
 const UPDATES = "updates";
-/** Boards and spreadsheets with changes Hearth hasn't saved. */
+/** Boards, spreadsheets and meeting notes with changes Hearth hasn't saved, a copy per screen. */
 const UNSAVED = "unsaved";
 /** The Loro peer ids this device edits notes as, one per slot (see peer.ts). */
 const PEERS = "peers";
@@ -36,7 +37,10 @@ export interface PendingUpdate {
 }
 
 export interface Unsaved<T> {
-  /** "canvas:<id>" or "sheet:<id>". */
+  /**
+   * "canvas:<id>#<screen>", "sheet:<id>#<screen>" or "meeting:<id>#<screen>": each screen that
+   * has one open keeps its own. An older Hearth kept one per record, under the bare "canvas:<id>".
+   */
   key: string;
   data: T;
   /** The saved version the changes were made on, and what it held. */
@@ -228,8 +232,18 @@ export async function retirePeer(slot: number): Promise<void> {
   await within([PEERS], "readwrite", (tx) => tx.objectStore(PEERS).delete(slot), "strict");
 }
 
-export const loadUnsaved = <T>(key: string) =>
-  run<Unsaved<T> | undefined>(UNSAVED, "readonly", (s) => s.get(key));
+/** Every copy kept for one record ("canvas:<id>"): each screen's, and an older one's. */
+export async function unsavedCopies<T>(key: string): Promise<Unsaved<T>[]> {
+  let old: IDBRequest<Unsaved<T> | undefined> | undefined;
+  let screens: IDBRequest<Unsaved<T>[]> | undefined;
+  const ok = await within([UNSAVED], "readonly", (tx) => {
+    const s = tx.objectStore(UNSAVED);
+    old = s.get(key);
+    screens = s.getAll(IDBKeyRange.bound(`${key}#`, `${key}#\uffff`));
+  });
+  if (!ok) return [];
+  return [...(old?.result ? [old.result] : []), ...(screens?.result ?? [])];
+}
 
 export async function saveUnsaved<T>(rec: Unsaved<T>): Promise<void> {
   await run(UNSAVED, "readwrite", (s) => s.put(rec));
@@ -237,6 +251,23 @@ export async function saveUnsaved<T>(rec: Unsaved<T>): Promise<void> {
 
 export async function dropUnsaved(key: string): Promise<void> {
   await run(UNSAVED, "readwrite", (s) => s.delete(key));
+}
+
+/**
+ * Keeps `rec` (or nothing) as one screen's copy and deletes the other copies it now holds, in one
+ * go. Each is deleted only if it's still what was read: its screen may have kept a newer one since.
+ */
+export async function takeOverUnsaved<T>(rec: Unsaved<T> | null, held: Unsaved<T>[]) {
+  await within([UNSAVED], "readwrite", (tx) => {
+    const s = tx.objectStore(UNSAVED);
+    if (rec) s.put(rec);
+    for (const k of held) {
+      const req = s.get(k.key);
+      req.onsuccess = () => {
+        if (JSON.stringify(req.result) === JSON.stringify(k)) s.delete(k.key);
+      };
+    }
+  });
 }
 
 /** Whether anything typed here hasn't reached Hearth yet (checked before signing out). */
