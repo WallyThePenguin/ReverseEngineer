@@ -1,6 +1,6 @@
 // Mentions inside markdown bodies: <m-ref type="task" id="...">Label</m-ref>.
 // The server re-derives links from these on every save (PLAN.md section 5.3).
-import { isUuid } from "./ids.ts";
+import { isUuid, randomHex } from "./ids.ts";
 
 export interface Mention {
   type: string;
@@ -32,9 +32,7 @@ export function mentionAnchor(m: Pick<Mention, "occurrence" | "mid">): string {
 
 /** A new id for a mention tag the editor inserts. */
 export function newMentionId(): string {
-  // getRandomValues, unlike randomUUID, works on a page served over plain http too.
-  const bytes = crypto.getRandomValues(new Uint8Array(6));
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return randomHex(6);
 }
 
 const TAG = /<m-ref\s+([^>]*)>([\s\S]*?)<\/m-ref>/g;

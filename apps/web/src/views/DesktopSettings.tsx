@@ -2,23 +2,19 @@
 // voice commands and talking to Jarvis. "Connect Hearth on this PC" signs it in from this browser
 // (D53); pairing with a code still works too. Its token runs only the few actions it needs.
 
-import { createResource, createSignal, Show } from "solid-js";
+import { createQuery } from "@tanstack/solid-query";
+import { createSignal, Show } from "solid-js";
+import { QueryView } from "../components/QueryView.tsx";
 import { Button } from "../components/ui.tsx";
+import { request } from "../lib/api.ts";
 import { inDesktopApp } from "../lib/desktop.ts";
 import { ago } from "../lib/format.ts";
-import { reportError, toast } from "../lib/live.ts";
+import { queryClient, reportError, toast } from "../lib/live.ts";
 
 interface Device {
   name: string;
   pairedAt: string;
   lastSeenAt: string | null;
-}
-
-async function call<T>(path: string, method = "GET"): Promise<T> {
-  const res = await fetch(`/api/devices${path}`, { method, credentials: "same-origin" });
-  const body = (await res.json().catch(() => ({}))) as T & { error?: string };
-  if (!res.ok) throw new Error(body.error ?? "Couldn't reach Hearth.");
-  return body;
 }
 
 /** Asks Hearth for a one-minute connect link, and opens it: Windows hands it to the app. */
@@ -38,35 +34,40 @@ async function connectThisPc(): Promise<boolean> {
 }
 
 export function DesktopSettings() {
-  const [devices, { refetch }] = createResource(() =>
-    call<{ devices: Device[] }>("").then((b) => b.devices),
-  );
-  const desktop = () => devices()?.find((d) => d.name === "desktop");
+  const devices = createQuery(() => ({
+    queryKey: ["devices"],
+    queryFn: () => request<{ devices: Device[] }>("/api/devices").then((b) => b.devices),
+  }));
   const [code, setCode] = createSignal<string | null>(null);
   const [asked, setAsked] = createSignal(false);
+  // The set-up checklist counts a connected desktop app too.
+  const refresh = () => {
+    void devices.refetch();
+    void queryClient.invalidateQueries({ queryKey: ["system.status"] });
+  };
 
   const connect = async () => {
     try {
       setAsked(await connectThisPc());
       // The app pairs itself again; show it once it has.
-      window.setTimeout(() => void refetch(), 15_000);
+      window.setTimeout(refresh, 15_000);
     } catch (err) {
       reportError(err);
     }
   };
   const pair = async () => {
     try {
-      setCode((await call<{ token: string }>("/desktop/pair", "POST")).token);
-      void refetch();
+      setCode((await request<{ token: string }>("/api/devices/desktop/pair", "POST")).token);
+      refresh();
     } catch (err) {
       reportError(err);
     }
   };
   const unpair = async () => {
     try {
-      await call("/desktop", "DELETE");
+      await request("/api/devices/desktop", "DELETE");
       setCode(null);
-      void refetch();
+      refresh();
       toast.show("The desktop app is signed out.");
     } catch (err) {
       reportError(err);
@@ -80,26 +81,33 @@ export function DesktopSettings() {
         Hearth for Windows: Hearth in its own window, notifications, dictation into any app, and
         Jarvis a hotkey away. Install it on your PC, then connect it here.
       </p>
-      <div class="flex items-center gap-3 rounded-md bg-sunk px-3 py-3">
-        <div class="flex-1">
-          <p class="font-medium">{desktop() ? "Connected" : "Not connected"}</p>
-          <Show when={desktop()}>
-            {(d) => (
-              <p class="text-sm text-muted">
-                {d().lastSeenAt ? `Last used ${ago(d().lastSeenAt!)}.` : "Not used yet."}
-              </p>
-            )}
-          </Show>
-        </div>
-        <Show when={desktop()}>
-          <Button kind="danger" onClick={() => void unpair()}>
-            Disconnect
-          </Button>
-        </Show>
-        <Button kind="primary" onClick={() => void connect()}>
-          Connect Hearth on this PC
-        </Button>
-      </div>
+      <QueryView query={devices} what="the desktop app's connection">
+        {(list) => {
+          const desktop = () => list().find((d) => d.name === "desktop");
+          return (
+            <div class="flex items-center gap-3 rounded-md bg-sunk px-3 py-3">
+              <div class="flex-1">
+                <p class="font-medium">{desktop() ? "Connected" : "Not connected"}</p>
+                <Show when={desktop()}>
+                  {(d) => (
+                    <p class="text-sm text-muted">
+                      {d().lastSeenAt ? `Last used ${ago(d().lastSeenAt!)}.` : "Not used yet."}
+                    </p>
+                  )}
+                </Show>
+              </div>
+              <Show when={desktop()}>
+                <Button kind="danger" onClick={() => void unpair()}>
+                  Disconnect
+                </Button>
+              </Show>
+              <Button kind="primary" onClick={() => void connect()}>
+                Connect Hearth on this PC
+              </Button>
+            </div>
+          );
+        }}
+      </QueryView>
       <Show when={asked()}>
         <p class="text-sm text-muted">
           {inDesktopApp()

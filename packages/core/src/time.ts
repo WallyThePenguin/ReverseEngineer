@@ -34,6 +34,17 @@ export interface LocalParts {
   weekday: number;
 }
 
+/** An IANA zone this runtime knows ("America/New_York"); a typo ("America/New York") isn't. */
+export function isValidTimeZone(timeZone: string): boolean {
+  if (!timeZone) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function localParts(date: Date, timeZone: string): LocalParts {
   const d = new TZDate(date.getTime(), timeZone);
   return {

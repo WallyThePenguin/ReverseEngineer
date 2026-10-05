@@ -1,6 +1,6 @@
-// Hearth watching itself: disk space on every drive it uses, backups and whether Jarvis is alive.
-// Problems go through system.report, which tells you (system.alert_on_failure) even while Jarvis
-// is paused.
+// Hearth watching itself: disk space on every drive it uses, backups and whether Jarvis is alive
+// (the syncs are in sync-health.ts). Problems go through system.report, which tells you itself,
+// so it reaches you while Jarvis is paused or stopped.
 import { stat, statfs } from "node:fs/promises";
 import { parse, resolve } from "node:path";
 import { formatDateTime } from "@hearth/core";

@@ -1,9 +1,10 @@
 // One email conversation. HTML mail is shown in a sandboxed frame that runs no scripts and loads
 // nothing from the internet (so senders can't see you opened it) until you ask for images.
 
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For, Show, useContext } from "solid-js";
+import { ActionBar } from "../components/ActionBar.tsx";
 import { Backlinks } from "../components/Backlinks.tsx";
-import { Badge, Button, PaneHeader, Placeholder } from "../components/ui.tsx";
+import { Badge, Button, PaneContext, PaneHeader, Placeholder } from "../components/ui.tsx";
 import { ago } from "../lib/format.ts";
 import { useHotkeys } from "../lib/hotkeys.ts";
 import { toast } from "../lib/live.ts";
@@ -224,6 +225,7 @@ export function MailThreadPane(props: { id: string; pane: number }) {
     t.data && void act("mail.draft", { threadId: t.data.id, replyAll: all, text: "" });
   const [opened, setOpened] = createSignal<Set<string>>(new Set());
   const focused = () => layout.focused() === props.pane;
+  const pane = useContext(PaneContext);
   // The newest message and any unread ones start open.
   const isOpen = (m: MailMessage, last: boolean) => last || m.unread || opened().has(m.id);
   const toggle = (id: string) =>
@@ -259,7 +261,7 @@ export function MailThreadPane(props: { id: string; pane: number }) {
     { keys: "a", run: () => reply(true), when: focused, label: "Reply all" },
   ]);
   return (
-    <Show when={t.data} fallback={<Placeholder missing={t.isError} what="conversation" />}>
+    <Show when={t.data} fallback={<Placeholder query={t} what="conversation" />}>
       {(v) => (
         <div class="flex h-full flex-col">
           <PaneHeader
@@ -317,6 +319,36 @@ export function MailThreadPane(props: { id: string; pane: number }) {
             </div>
             <Backlinks id={v().id} />
           </div>
+          {/* On a phone: triage with the thumb, then back to the list. */}
+          <ActionBar
+            label="Conversation actions"
+            actions={[
+              {
+                label: v().inInbox ? "Archive" : "To inbox",
+                run: async () => {
+                  const archive = v().inInbox;
+                  const ok = await act(archive ? "mail.archive" : "mail.unarchive", {
+                    ids: [v().id],
+                  });
+                  if (ok && archive) pane.close?.();
+                },
+              },
+              {
+                label: v().starred ? "Unstar" : "Star",
+                on: v().starred,
+                run: () => void run("mail.star", { ids: [v().id], starred: !v().starred }),
+              },
+              { label: "Reply", run: () => reply(false) },
+              {
+                label: "Trash",
+                run: async () => {
+                  if (!(await act("mail.trash", { ids: [v().id] }))) return;
+                  toast.show("Moved to the trash.");
+                  pane.close?.();
+                },
+              },
+            ]}
+          />
         </div>
       )}
     </Show>

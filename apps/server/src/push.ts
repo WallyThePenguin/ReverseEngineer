@@ -1,9 +1,9 @@
 // Phone notifications (M6): approvals, the morning brief and interruptions Jarvis is allowed to
 // make are pushed to every device that turned notifications on. Messages are end-to-end
 // encrypted to the device (Web Push), so the push service only carries them.
-import { event, notification, pushSubscription, setting } from "@hearth/db";
-import { getSetting, type Kernel } from "@hearth/kernel";
-import { and, eq, gt, inArray, lte, max } from "drizzle-orm";
+import { consumerCursor, event, notification, pushSubscription, setting } from "@hearth/db";
+import { getSetting, type Kernel, latestSeq, setCursor } from "@hearth/kernel";
+import { and, eq, gt, inArray, lte } from "drizzle-orm";
 import webpush from "web-push";
 import type { EventHub } from "./hub.ts";
 
@@ -27,13 +27,18 @@ export type PushSend = (
 ) => Promise<boolean>;
 
 const SUBJECT = process.env.HEARTH_PUSH_SUBJECT ?? "mailto:hearth@example.com";
+/** A push service that hasn't answered by now isn't going to; the others still get theirs. */
+export const SEND_TIMEOUT_MS = 10_000;
+/** How long a push service keeps a message for a phone that's off; older ones aren't sent. */
+const TTL_S = 6 * 60 * 60;
 
 export const webPushSend: PushSend = async (sub, message, vapid) => {
   try {
     await webpush.sendNotification(sub, JSON.stringify(message), {
       vapidDetails: { subject: SUBJECT, ...vapid },
-      TTL: 6 * 60 * 60,
+      TTL: TTL_S,
       urgency: "high",
+      timeout: SEND_TIMEOUT_MS,
     });
     return true;
   } catch (err) {
@@ -85,68 +90,144 @@ export function messageFor(row: { id: string; kind: string; title: string; body:
   } satisfies PushMessage;
 }
 
-export async function pushToAll(kernel: Kernel, message: PushMessage, send: PushSend) {
+/** A send that gives up after `ms`, so one stuck push service can't hold up the rest. */
+function within<T>(ms: number, work: Promise<T>): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`no answer in ${ms / 1000} s`)), ms);
+  });
+  return Promise.race([work, late]).finally(() => clearTimeout(timer));
+}
+
+/** Sends to every device at once; resolves to how many took it. */
+export async function pushToAll(
+  kernel: Kernel,
+  message: PushMessage,
+  send: PushSend,
+  timeoutMs = SEND_TIMEOUT_MS,
+) {
   const subs = await kernel.db.select().from(pushSubscription);
   if (!subs.length) return 0;
   const vapid = await vapidKeys(kernel);
-  let sent = 0;
-  for (const s of subs) {
-    const sub = { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } };
-    try {
-      if (await send(sub, message, vapid)) {
-        sent++;
-        await kernel.db
-          .update(pushSubscription)
-          .set({ lastSentAt: new Date() })
-          .where(eq(pushSubscription.endpoint, s.endpoint));
-      } else {
+  const results = await Promise.allSettled(
+    subs.map(async (s) => {
+      const sub = { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } };
+      try {
+        if (await within(timeoutMs, send(sub, message, vapid))) {
+          await kernel.db
+            .update(pushSubscription)
+            .set({ lastSentAt: new Date() })
+            .where(eq(pushSubscription.endpoint, s.endpoint));
+          return true;
+        }
         await kernel.db.delete(pushSubscription).where(eq(pushSubscription.endpoint, s.endpoint));
+        return false;
+      } catch (err) {
+        console.warn(
+          `[push] couldn't send a notification to ${s.label}: ${(err as Error).message}`,
+        );
+        return false;
       }
-    } catch (err) {
-      console.warn(`Couldn't send a notification to ${s.label}: ${(err as Error).message}`);
-    }
-  }
-  return sent;
+    }),
+  );
+  return results.filter((r) => r.status === "fulfilled" && r.value).length;
 }
 
+/** Where the push watcher is in the event log, kept across restarts. */
+export const PUSH_CURSOR = "server.push";
+
 /**
- * Watches the event log for new inbox items and pushes the ones worth it. It starts from the
- * newest event, so a restart never re-sends old ones.
+ * Watches the event log for new inbox items and pushes the ones worth it. Where it got to is
+ * saved, so items raised while the server was down (an update, a crash) still go out when it's
+ * back, unless they're older than a push service would keep them, or already dealt with. The
+ * very first start begins at the newest event, so old items are never sent. The place moves on
+ * only once the sends were tried, so a database error means a retry, not a lost push.
  */
-export function startPush(kernel: Kernel, hub: EventHub, send: PushSend = webPushSend) {
+export function startPush(
+  kernel: Kernel,
+  hub: EventHub,
+  send: PushSend = webPushSend,
+  opts: { timeoutMs?: number } = {},
+) {
   let cursor: number | null = null;
-  let running = Promise.resolve();
-  const catchUp = async (upTo: number) => {
-    if (cursor === null) {
-      const [row] = await kernel.db.select({ seq: max(event.seq) }).from(event);
-      cursor = Math.min(row?.seq ?? 0, upTo - 1);
-    }
-    if (upTo <= cursor) return;
+  /** The newest seq known to be committed. */
+  let target = 0;
+  let pumping: Promise<void> | null = null;
+  let stopped = false;
+
+  const startAt = async () => {
+    const [saved] = await kernel.db
+      .select({ seq: consumerCursor.seq })
+      .from(consumerCursor)
+      .where(eq(consumerCursor.consumer, PUSH_CURSOR));
+    if (saved) return saved.seq;
+    const newest = await latestSeq(kernel.db);
+    await setCursor(kernel.db, PUSH_CURSOR, newest);
+    return newest;
+  };
+
+  const sendBatch = async (from: number, upTo: number) => {
     const created = await kernel.db
       .select({ seq: event.seq, payload: event.payload })
       .from(event)
-      .where(and(inArray(event.kind, PUSH_KINDS), gt(event.seq, cursor), lte(event.seq, upTo)));
-    cursor = upTo;
+      .where(and(inArray(event.kind, PUSH_KINDS), gt(event.seq, from), lte(event.seq, upTo)));
     const ids = created
       .filter((e) => worthPushing(e.payload))
       .map((e) => String(e.payload.notificationId));
     if (!ids.length) return;
+    const oldest = new Date(kernel.clock.now().getTime() - TTL_S * 1000);
     const rows = await kernel.db.select().from(notification).where(inArray(notification.id, ids));
-    for (const row of rows) await pushToAll(kernel, messageFor(row), send);
+    for (const row of rows) {
+      // Answered on another screen, or too old to be news.
+      if (row.state === "done" || (row.deliveredAt ?? row.createdAt) < oldest) continue;
+      await pushToAll(kernel, messageFor(row), send, opts.timeoutMs);
+    }
   };
-  const unsubscribe = hub.subscribe({
-    onEvents(seq) {
-      running = running
-        .then(() => catchUp(seq))
-        .catch((err) => {
-          console.warn(`Phone notifications: ${(err as Error).message}`);
-        });
-    },
-    onStream() {},
-  });
+
+  const pump = async () => {
+    if (cursor === null) {
+      cursor = await startAt();
+      // What came in while the server was down goes out now, not at the next event.
+      target = Math.max(target, await latestSeq(kernel.db));
+    }
+    while (!stopped && target > cursor) {
+      const upTo = target;
+      await sendBatch(cursor, upTo);
+      await setCursor(kernel.db, PUSH_CURSOR, upTo);
+      cursor = upTo;
+    }
+  };
+
+  // One pass at a time; events that arrive meanwhile only raise the target, so a burst is one
+  // read, not one chain link per event.
+  const wake = (seq: number) => {
+    target = Math.max(target, seq);
+    if (pumping || stopped) return;
+    pumping = pump().then(
+      () => {
+        pumping = null;
+        // Arrived just as the pass ended.
+        if (cursor !== null && target > cursor) wake(target);
+      },
+      (err) => {
+        pumping = null;
+        // Not retried at once (that would spin while the database is down): the next event or
+        // the catch-up after LISTEN comes back tries again from the same place.
+        console.warn(`[push] phone notifications: ${(err as Error).message}`);
+      },
+    );
+  };
+
+  const unsubscribe = hub.subscribe({ onEvents: wake, onStream() {} });
+  wake(0);
   return {
-    stop: unsubscribe,
+    stop() {
+      stopped = true;
+      unsubscribe();
+    },
     /** Resolves once everything seen so far is handled (for tests). */
-    idle: () => running,
+    async idle() {
+      while (pumping) await pumping;
+    },
   };
 }

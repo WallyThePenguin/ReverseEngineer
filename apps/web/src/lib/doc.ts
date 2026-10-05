@@ -4,8 +4,9 @@
 // hung connection loses nothing: the next open sends it. Other tabs with the note open get each
 // edit at once over a BroadcastChannel.
 
+import { randomHex } from "@hearth/core";
 import { LoroDoc, VersionVector } from "loro-crdt";
-import { ApiError, action } from "./api.ts";
+import { ApiError, action, isOffline, isTransient } from "./api.ts";
 import {
   appendUpdate,
   keepDoc,
@@ -17,7 +18,6 @@ import {
 } from "./docStore.ts";
 import { backoff, onLiveEvent } from "./live.ts";
 import { type Claim, claimPeer } from "./peer.ts";
-import { isOffline, isTransient } from "./wholeSave.ts";
 
 const SYNC_AFTER_MS = 500;
 /** Typing that never pauses still syncs this often. */
@@ -33,11 +33,6 @@ const b64 = (u: Uint8Array) => {
   return btoa(s);
 };
 const unb64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
-/** A short random key (getRandomValues works on plain http too; randomUUID needs https). */
-const randomKey = () =>
-  Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) =>
-    b.toString(16).padStart(2, "0"),
-  ).join("");
 
 /** Where this screen's edits stand. */
 export type DocStatus =
@@ -49,8 +44,14 @@ export type DocStatus =
   | { kind: "retrying" }
   /** Hearth turned them down, for this reason. */
   | { kind: "refused"; message: string }
-  /** The note was deleted; `unsent` if it held edits Hearth never got (kept here). */
+  /** Deleted, until it's restored; `unsent` if it held edits Hearth never got (kept here). */
   | { kind: "gone"; unsent: boolean };
+
+/**
+ * The note is in the trash, and this device has no saved copy of it to open until it's restored
+ * (edits written ahead here, if any, wait on disk for that).
+ */
+export class NoteGone extends Error {}
 
 export class LiveDoc {
   readonly id: string;
@@ -60,7 +61,7 @@ export class LiveDoc {
   onStatus: (status: DocStatus) => void = () => {};
   private server: string | null = null;
   /** This copy's own key for the edits it writes ahead, and how many it has written. */
-  private readonly tab = randomKey();
+  private readonly tab = randomHex(8);
   private n = 0;
   /** This copy's edits up to here are in the saved copy, and dropped. */
   private kept = 0;
@@ -80,6 +81,8 @@ export class LiveDoc {
   private running: Promise<void> | null = null;
   private again = false;
   private gone = false;
+  /** Restores heard: one heard while a sync was out makes its "not found" out of date. */
+  private restores = 0;
   private closed = false;
   private stops: (() => void)[] = [];
 
@@ -116,6 +119,7 @@ export class LiveDoc {
       await this.sync();
       if (this.server === null) {
         await this.close();
+        if (this.gone) throw new NoteGone("This note is in the trash.");
         throw new Error("This note isn't available offline yet.");
       }
       // Edits written ahead by a copy that never saved one: that first sync only fetched the
@@ -129,7 +133,9 @@ export class LiveDoc {
     this.stops.push(this.doc.subscribeLocalUpdates((data) => this.local(data)));
     this.stops.push(
       onLiveEvent((e) => {
-        if (e.entityId !== this.id || e.kind !== "entity.updated") return;
+        if (e.entityId !== this.id) return;
+        if (e.kind === "entity.restored") return this.restored();
+        if (e.kind !== "entity.updated") return;
         if (e.actor !== "owner") this.onRemote(e.actor);
         this.schedule(0);
       }),
@@ -159,9 +165,12 @@ export class LiveDoc {
     this.stops.push(() => window.clearInterval(tick));
   }
 
-  /** An edit made here: written ahead, passed to other tabs, then synced shortly. */
+  /**
+   * An edit made here: written ahead, passed to other tabs, then synced shortly. One made after
+   * the note was deleted (in the moment before the editor locks) is written ahead too, and sent
+   * if it's restored.
+   */
   private local(data: Uint8Array) {
-    if (this.gone) return;
     const entry: PendingUpdate = { doc: this.id, tab: this.tab, n: ++this.n, data };
     this.writing++;
     this.writes = this.writes
@@ -222,6 +231,7 @@ export class LiveDoc {
         await this.written();
         const from = this.server ? VersionVector.decode(unb64(this.server)) : null;
         const update = from && this.hasNew(from) ? this.doc.export({ mode: "update", from }) : null;
+        const heard = this.restores;
         try {
           const r = await action<{ update: string; version: string }>(
             "doc.sync",
@@ -238,7 +248,12 @@ export class LiveDoc {
           this.onStatus({ kind: "ok" });
           await this.keep();
         } catch (err) {
-          if (err instanceof ApiError && err.code === "not_found") return this.lost();
+          if (err instanceof ApiError && err.code === "not_found") {
+            // Restored while this was on its way: Hearth answered for the trash, so ask again.
+            if (this.restores === heard) return this.lost();
+            this.again = true;
+            continue;
+          }
           if (isTransient(err)) {
             this.onStatus({ kind: isOffline(err) ? "offline" : "retrying" });
             if (!this.closed)
@@ -298,22 +313,35 @@ export class LiveDoc {
     return c === 0 || c === 1;
   }
 
-  /** Deleted (or never a doc). What never reached Hearth stays here, in case it's put back. */
+  /**
+   * Deleted (or never a doc). Its saved copy stays, holding what never reached Hearth in case it's
+   * put back, and what an edit written ahead from now on (a key pressed as the editor locks) was
+   * made on, so an open before it's restored (Hearth starting, something else restored) can read
+   * that edit and keep it. Hearth has no permanent delete, only the trash, so the copy is kept
+   * like that of any note opened here, until signing out clears them all.
+   */
   private async lost() {
     this.gone = true;
     window.clearTimeout(this.timer);
     window.clearTimeout(this.retry);
-    const unsent = this.unsent();
-    await this.written();
-    const drop = [...this.adopted];
-    for (let n = this.kept + 1; n <= this.n; n++) drop.push([this.id, this.tab, n]);
-    await keepDoc(
-      this.id,
-      // Another tab's copy with edits this one hasn't seen stays too.
-      (saved) => (unsent ? this.copy(saved) : saved?.unsent && !this.holds(saved) ? saved : null),
-      drop,
-    );
-    this.onStatus({ kind: "gone", unsent });
+    // Never read from Hearth (it opened from the trash): there's no copy to keep, and edits an
+    // earlier copy wrote ahead stay on disk as they are, to go once it's restored.
+    if (this.server !== null) await this.keep();
+    if (this.gone) this.onStatus({ kind: "gone", unsent: this.unsent() });
+    // Restored meanwhile: the sync it asked for found this one running, so it goes now.
+    else this.schedule(0);
+  }
+
+  /**
+   * Restored from the trash: it takes edits again, and what Hearth never got goes now. This copy
+   * still holds every edit, and the version Hearth last had, so the next sync sends them all.
+   */
+  private restored() {
+    this.restores++;
+    if (!this.gone) return;
+    this.gone = false;
+    this.onStatus({ kind: "ok" });
+    this.schedule(0);
   }
 
   /** Whether this copy holds edits Hearth doesn't have. */

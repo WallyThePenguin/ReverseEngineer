@@ -2,12 +2,17 @@
 // and every earlier version with a way to go back.
 
 import { createSignal, For, lazy, Show } from "solid-js";
-import { Badge, Button, Empty, PaneHeader } from "../components/ui.tsx";
+import { Overflow, ROW_MENU } from "../components/Menu.tsx";
+import { NoRows } from "../components/QueryView.tsx";
+import { Badge, Button, PaneHeader } from "../components/ui.tsx";
 import { ago, who } from "../lib/format.ts";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
 import { toast } from "../lib/live.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
+import { quickAdd } from "../lib/quickadd.ts";
+import { createSelection } from "../lib/selection.ts";
+import { moveToTrash, trashKey } from "../lib/trash.ts";
 import type { MemoryNote, MemoryRevision } from "../lib/types.ts";
 
 // The live editor loads when a memory note opens, like a note's.
@@ -20,15 +25,21 @@ function ScopeBadge(props: { scope: MemoryNote["scope"] }) {
 export function Memory(props: { pane: number }) {
   const notes = useAction<MemoryNote[]>("memory.list");
   const [title, setTitle] = createSignal("");
-  const [index, setIndex] = createSignal(0);
   const list = () => notes.data ?? [];
+  const sel = createSelection(list, (n) => n.id);
   const focused = () => layout.focused() === props.pane;
   const open = (n: MemoryNote | undefined) =>
     n && layout.show({ view: "record", id: n.id }, props.pane);
 
   useHotkeys([
-    ...listKeys({ count: () => list().length, index, setIndex, when: focused }),
-    { keys: "enter", run: () => open(list()[index()]), when: focused, label: "Open memory" },
+    ...listKeys({
+      count: () => list().length,
+      index: sel.index,
+      setIndex: sel.select,
+      when: focused,
+    }),
+    { keys: "enter", run: () => open(sel.current()), when: focused, label: "Open memory" },
+    trashKey(sel.current, focused),
   ]);
 
   return (
@@ -38,13 +49,10 @@ export function Memory(props: { pane: number }) {
         class="border-b border-line px-4 py-2"
         onSubmit={async (e) => {
           e.preventDefault();
-          const t = title().trim();
-          if (!t) return;
-          const created = await act<MemoryNote>("memory.remember", { title: t, body: "" });
-          if (created) {
-            setTitle("");
-            layout.show({ view: "record", id: created.id }, props.pane);
-          }
+          const created = await quickAdd({ get: title, set: setTitle }, (t) =>
+            act<MemoryNote>("memory.remember", { title: t, body: "" }),
+          );
+          if (created) layout.show({ view: "record", id: created.id }, props.pane);
         }}
       >
         <input
@@ -58,19 +66,19 @@ export function Memory(props: { pane: number }) {
         <Show
           when={list().length > 0}
           fallback={
-            <Empty>
+            <NoRows query={notes} what="what Jarvis remembers">
               Nothing yet. Tell Jarvis about yourself in chat and it will keep notes here.
-            </Empty>
+            </NoRows>
           }
         >
           <ul>
             <For each={list()}>
               {(n, i) => (
                 <li
-                  class="flex cursor-pointer items-baseline gap-3 border-b border-line px-4 py-2"
-                  data-active={focused() && i() === index()}
+                  class="group flex cursor-pointer items-center gap-3 border-b border-line py-1 pr-2 pl-4 md:py-2"
+                  data-active={focused() && i() === sel.index()}
                   onClick={() => {
-                    setIndex(i());
+                    sel.select(i());
                     open(n);
                   }}
                 >
@@ -79,6 +87,13 @@ export function Memory(props: { pane: number }) {
                   <span class="text-xs text-faint">
                     {who(n.updatedBy)} · {ago(n.updatedAt)}
                   </span>
+                  <Overflow
+                    class={ROW_MENU}
+                    label={`Actions for ${n.title}`}
+                    items={[
+                      { label: "Move to trash", danger: true, run: () => void moveToTrash(n.id) },
+                    ]}
+                  />
                 </li>
               )}
             </For>

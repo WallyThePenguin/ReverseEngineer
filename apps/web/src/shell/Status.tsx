@@ -3,6 +3,7 @@
 
 import { createEffect, type JSX, onCleanup, Show } from "solid-js";
 import { Button } from "../components/ui.tsx";
+import { degraded } from "../lib/degraded.ts";
 import { backoff, live } from "../lib/live.ts";
 
 /**
@@ -94,6 +95,25 @@ export function PaneCrashed(props: { error: unknown; reset: () => void }) {
         Try again
       </Button>
     </div>
+  );
+}
+
+/**
+ * Shown while Hearth answers but can't reach its database: what's on screen may be out of date.
+ * It clears itself once a read works. (Hearth out of reach altogether is Reconnecting's.) The
+ * shell places it, with Reconnecting and the update notice.
+ */
+export function Degraded() {
+  return (
+    <Show when={degraded.on() && !live.reconnecting()}>
+      <div
+        class="max-w-[calc(100vw-2rem)] rounded-lg bg-ink px-4 py-1.5 text-center text-sm text-bg shadow-lg"
+        role="status"
+      >
+        Hearth can't reach its database right now, so this may be out of date. It catches up by
+        itself.
+      </div>
+    </Show>
   );
 }
 

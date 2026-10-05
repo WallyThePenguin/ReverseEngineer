@@ -1,4 +1,5 @@
-// A spreadsheet's sheet tabs: pick one, double-click to rename, + to add, × to remove.
+// A spreadsheet's sheet tabs: pick one, double-click to rename, + to add, × to remove. None of
+// that until the spreadsheet has first been read: until then its one tab is a blank workbook's.
 
 import { WorksheetSchema } from "@hearth/core";
 import { For, Show } from "solid-js";
@@ -24,6 +25,7 @@ export function Tabs(props: { sheet: Sheet; tab: number; onTab: (i: number) => v
     props.onTab(props.sheet.book.sheets.length - 1);
   };
   const rename = (i: number) => {
+    if (!props.sheet.loaded()) return;
     const now = props.sheet.book.sheets[i]!.name;
     const name = window.prompt("Sheet name", now)?.trim();
     if (!name || name === now) return;
@@ -74,7 +76,7 @@ export function Tabs(props: { sheet: Sheet; tab: number; onTab: (i: number) => v
           </span>
         )}
       </For>
-      <Show when={props.sheet.book.sheets.length < 20}>
+      <Show when={props.sheet.loaded() && props.sheet.book.sheets.length < 20}>
         <button
           type="button"
           class="px-2 text-muted hover:text-ink"

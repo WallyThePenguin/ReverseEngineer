@@ -26,10 +26,12 @@ import { LoroExtensions } from "loro-codemirror";
 import { UndoManager } from "loro-crdt";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { action } from "../lib/api.ts";
-import { type DocStatus, LiveDoc } from "../lib/doc.ts";
+import { type DocStatus, LiveDoc, NoteGone } from "../lib/doc.ts";
 import { TYPE_LABEL, who } from "../lib/format.ts";
+import { onLiveEvent } from "../lib/live.ts";
 import { layout, routeFor } from "../lib/panes.ts";
 import type { SearchHit } from "../lib/types.ts";
+import { editorLook } from "./editorLook.ts";
 import { remoteCaret } from "./remoteCaret.ts";
 
 const TAG = /<m-ref\s+([^>]*)>([\s\S]*?)<\/m-ref>/g;
@@ -71,12 +73,18 @@ class Checkbox extends WidgetType {
     const box = document.createElement("input");
     box.type = "checkbox";
     box.checked = this.checked;
+    box.setAttribute("aria-label", "Checklist item");
     box.className = "mx-0.5 align-middle";
     box.onmousedown = (e) => {
       e.preventDefault();
+      // CodeMirror's read-only stops typing, not a change dispatched here: a box ticked in a
+      // deleted note would be written ahead and saved once it's restored.
+      if (view.state.readOnly) return;
       const at = view.posAtDOM(box);
       view.dispatch({ changes: { from: at + 1, to: at + 2, insert: this.checked ? " " : "x" } });
     };
+    // Ticked or not as the note says, never by the click itself.
+    box.onclick = (e) => e.preventDefault();
     return box;
   }
   ignoreEvent() {
@@ -122,7 +130,8 @@ const chips = ViewPlugin.fromClass(
 
 const JARVIS: SearchHit = { id: JARVIS_ENTITY_ID, type: "agent", title: "Jarvis", updatedAt: "" };
 
-async function mentions(ctx: CompletionContext) {
+/** @ suggestions, never the note itself. */
+async function mentions(ctx: CompletionContext, self: string) {
   const word = ctx.matchBefore(/(^|\s)@[^@<>\n]{0,40}$/);
   if (!word) return null;
   const at = word.text.indexOf("@");
@@ -132,7 +141,7 @@ async function mentions(ctx: CompletionContext) {
     : await action<SearchHit[]>("entity.recent", { limit: 8 }).catch(() => []);
   const hits = [
     ...("jarvis".startsWith(query.toLowerCase()) ? [JARVIS] : []),
-    ...found.filter((h) => h.id !== JARVIS_ENTITY_ID && h.type !== "comment"),
+    ...found.filter((h) => h.id !== JARVIS_ENTITY_ID && h.id !== self && h.type !== "comment"),
   ];
   return {
     from: word.from + at,
@@ -161,12 +170,13 @@ const theme = EditorView.theme({
   ".cm-cursor": { borderLeftColor: "var(--color-ink)" },
 });
 
-/** A deleted note can still be read and copied, but not changed. */
+/** A deleted note can still be read and copied, but not changed until it's restored. */
 const READ_ONLY = [EditorState.readOnly.of(true), EditorView.editable.of(false)];
 
 export default function DocEditor(props: { id: string; placeholder?: string }) {
   let host!: HTMLDivElement;
-  const [state, setState] = createSignal<"opening" | "open" | "failed">("opening");
+  /** "trashed": it's in the trash, and this device has no saved copy of it to show. */
+  const [state, setState] = createSignal<"opening" | "open" | "failed" | "trashed">("opening");
   const [status, setStatus] = createSignal<DocStatus>({ kind: "ok" });
   const [editedBy, setEditedBy] = createSignal<string | null>(null);
   const [copied, setCopied] = createSignal(false);
@@ -175,6 +185,8 @@ export default function DocEditor(props: { id: string; placeholder?: string }) {
   let live: LiveDoc | undefined;
   let clear: number | undefined;
   let disposed = false;
+  /** Restores heard: one heard while it opened makes a failed open out of date. */
+  let restores = 0;
 
   const gone = () => {
     const s = status();
@@ -190,12 +202,18 @@ export default function DocEditor(props: { id: string; placeholder?: string }) {
       .then(() => setCopied(true))
       .catch(() => {});
 
-  onMount(async () => {
+  const start = async () => {
+    const heard = restores;
+    setState("opening");
+    setStatus({ kind: "ok" });
     const doc = new LiveDoc(props.id);
     live = doc;
     doc.onStatus = (s) => {
+      const locked = gone() !== null;
       setStatus(s);
-      if (s.kind === "gone") view?.dispatch({ effects: editable.reconfigure(READ_ONLY) });
+      // Read-only once it's deleted, and editable again once it's restored.
+      if ((s.kind === "gone") !== locked)
+        view?.dispatch({ effects: editable.reconfigure(s.kind === "gone" ? READ_ONLY : []) });
     };
     doc.onRemote = (actor) => {
       setEditedBy(actor);
@@ -204,8 +222,11 @@ export default function DocEditor(props: { id: string; placeholder?: string }) {
     };
     try {
       await doc.open();
-    } catch {
-      if (!disposed) setState("failed");
+    } catch (err) {
+      if (disposed) return;
+      // Restored while it opened: what it found is out of date.
+      if (restores !== heard) return void start();
+      setState(err instanceof NoteGone ? "trashed" : "failed");
       return;
     }
     // Closed while it opened: there's nowhere to show it any more.
@@ -227,14 +248,24 @@ export default function DocEditor(props: { id: string; placeholder?: string }) {
             const by = editedBy();
             return by ? who(by) : null;
           }),
-          autocompletion({ override: [mentions], icons: false }),
+          autocompletion({ override: [(ctx) => mentions(ctx, props.id)], icons: false }),
           placeholder(props.placeholder ?? ""),
           theme,
+          editorLook,
         ],
       }),
     });
     setState("open");
-  });
+  };
+  onMount(() => void start());
+  // Restored, here or anywhere, a note that couldn't open (it was in the trash) opens.
+  onCleanup(
+    onLiveEvent((e) => {
+      if (e.kind !== "entity.restored" || e.entityId !== props.id) return;
+      restores++;
+      if (state() === "trashed" || state() === "failed") void start();
+    }),
+  );
   onCleanup(() => {
     disposed = true;
     window.clearTimeout(clear);
@@ -244,13 +275,13 @@ export default function DocEditor(props: { id: string; placeholder?: string }) {
 
   return (
     <div>
-      <Show when={gone()}>
+      <Show when={state() === "open" && gone()}>
         {(g) => (
           <div class="mb-2 flex flex-wrap items-center gap-3 rounded-md border border-line bg-sunk px-3 py-2 text-sm">
             <span>
               {g().unsent
-                ? "This was deleted before your last changes reached Hearth. Copy the text to keep them."
-                : "This was deleted. You can still read it here."}
+                ? "This was deleted before your last changes reached Hearth. They're kept here: restore it from the trash to save them, or copy the text."
+                : "This was deleted. Restore it from the trash to edit it again; until then you can read it here."}
             </span>
             <button type="button" class="text-accent hover:underline" onClick={copy}>
               {copied() ? "Copied" : "Copy text"}
@@ -260,6 +291,8 @@ export default function DocEditor(props: { id: string; placeholder?: string }) {
       </Show>
       <div class="mb-1 flex h-5 items-center gap-3 text-xs text-faint">
         <Show when={state() === "opening"}>Opening…</Show>
+        {/* The note's pane header says it's in the trash, and offers Restore. */}
+        <Show when={state() === "trashed"}>There's nothing to read here until it's restored.</Show>
         <Show when={state() === "failed"}>
           <span class="text-bad">Couldn't open this note. Check that Hearth is running.</span>
         </Show>

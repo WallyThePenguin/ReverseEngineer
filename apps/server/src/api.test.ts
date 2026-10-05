@@ -143,7 +143,7 @@ describe("MCP", () => {
     expect(remembered.result.isError).toBe(true);
   });
 
-  it("can't read your memory notes by id, by search or among recent records", async () => {
+  it("can't read your memory notes by id, by search, among recent records or in the trash", async () => {
     const saved = await t.browser("/api/actions/memory.remember", {
       method: "POST",
       json: { title: "Banking", body: "The owner banks with First Union, account ending 4421." },
@@ -163,6 +163,27 @@ describe("MCP", () => {
     // Jarvis and you still can.
     const mine = await t.browser("/api/actions/entity.get", { method: "POST", json: { id } });
     expect(await mine.text()).toContain("First Union");
+
+    // Nor trash one, even with your yes: to it, there's no such record.
+    const deletedAt = async () => {
+      const res = await t.browser("/api/actions/entity.get", { method: "POST", json: { id } });
+      return ((await res.json()) as { result: { deletedAt: string | null } }).result.deletedAt;
+    };
+    const trash = (await call("entity_trash", { id })).content![0]!.text;
+    const approvalId = /approval ([0-9a-f-]{36})/.exec(trash)![1]!;
+    const decided = await t.browser(`/api/approvals/${approvalId}`, {
+      method: "POST",
+      json: { decision: "approve" },
+    });
+    expect(await decided.json()).toMatchObject({ status: "error", code: "not_found" });
+    expect(await deletedAt()).toBeNull();
+    // Nor see one you trashed, or bring it back.
+    await t.browser("/api/actions/entity.trash", { method: "POST", json: { id } });
+    expect((await call("entity_trashed", {})).content![0]!.text).not.toMatch(/Banking|First Union/);
+    const back = await call("entity_restore", { id });
+    expect(back.isError).toBe(true);
+    expect(back.content![0]!.text).toMatch(/^not_found/);
+    expect(await deletedAt()).not.toBeNull();
   });
 
   it("refuses revoked tokens and browser cookies", async () => {

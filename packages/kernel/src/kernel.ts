@@ -166,7 +166,7 @@ export class Kernel {
         const buffered: EmitEvent[] = [];
         const ctx = this.context(tx, caller, now, buffered);
         const r = await def.handler(input, ctx);
-        if (audited) {
+        if (audited && (hooks.approvalId !== undefined || (def.auditWhen?.(r) ?? true))) {
           await writeAudit(tx, {
             def,
             caller,
@@ -250,7 +250,7 @@ export class Kernel {
         if (d.kind !== "allow") throw new ActionError("forbidden", `${name}: ${d.reason}`);
         const started = performance.now();
         const result = (await def.handler(parsed.data, ctx)) as T;
-        if (isAudited(def, caller)) {
+        if (isAudited(def, caller) && (def.auditWhen?.(result) ?? true)) {
           await writeAudit(tx, {
             def,
             caller,

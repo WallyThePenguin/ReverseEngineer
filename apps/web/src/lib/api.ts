@@ -17,6 +17,25 @@ export class ApiError extends Error {
   }
 }
 
+/** Errors that say nothing about the save itself: try again later. */
+export const isTransient = (err: unknown) =>
+  !(err instanceof ApiError) || ["unreachable", "unavailable", "failed"].includes(err.code);
+
+/**
+ * Hearth (or its database) out of reach, as opposed to Hearth failing at the save: only then do
+ * messages say it can't be reached. A failure's own text is Hearth's internals, so it isn't shown.
+ */
+export const isOffline = (err: unknown) =>
+  err instanceof ApiError && (err.code === "unreachable" || err.code === "unavailable");
+
+/** Why a save that will be tried again hasn't happened yet, in plain words. */
+export function notYet(err: unknown): string {
+  if (isOffline(err)) return "Not saved yet: can't reach Hearth. Trying again…";
+  if (err instanceof ApiError && err.code === "conflict")
+    return "Not saved yet: it keeps changing elsewhere. Trying again…";
+  return "Not saved yet: Hearth hit a problem saving it. Trying again…";
+}
+
 /** Set by the app so a 401 anywhere sends you back to the sign-in screen. */
 let onSignedOut: () => void = () => {};
 export function setSignedOutHandler(fn: () => void) {
@@ -91,6 +110,29 @@ export async function action<T>(name: string, input: unknown = {}, opts?: SendOp
 /** Approves or denies. Throws, like runAction, when Hearth can't give an answer. */
 export async function decideApproval(id: string, decision: "approve" | "deny") {
   return resultOf<unknown>(await post(`/api/approvals/${id}`, { decision }));
+}
+
+/**
+ * Calls one of Hearth's own endpoints outside the actions (/api/devices, /api/push). Fails the way
+ * actions do: out of reach, signed out, or Hearth's own words for what went wrong.
+ */
+export async function request<T>(path: string, method = "GET", json?: unknown): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method,
+      credentials: "same-origin",
+      headers: json === undefined ? {} : { "content-type": "application/json" },
+      body: json === undefined ? undefined : JSON.stringify(json),
+    });
+  } catch {
+    throw new ApiError(0, "unreachable", UNREACHABLE);
+  }
+  if (res.status === 401) onSignedOut();
+  const body = (await res.json().catch(() => null)) as (T & { error?: string }) | null;
+  if (res.ok) return (body ?? {}) as T;
+  if (!body?.error && res.status >= 502) throw new ApiError(res.status, "unreachable", UNREACHABLE);
+  throw new ApiError(res.status, "failed", body?.error || res.statusText || "That didn't work.");
 }
 
 export async function authPost<T>(path: string, body: unknown = {}): Promise<T> {

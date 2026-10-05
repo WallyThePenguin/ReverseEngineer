@@ -2,7 +2,8 @@
 // it's watching for you, and what it noted for the next brief.
 
 import { For, Show } from "solid-js";
-import { Badge, Button, Empty, PaneHeader } from "../components/ui.tsx";
+import { NoRows } from "../components/QueryView.tsx";
+import { Badge, Button, PaneHeader } from "../components/ui.tsx";
 import { ago } from "../lib/format.ts";
 import { layout, routeFor } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
@@ -86,7 +87,11 @@ export function Activity() {
           <h3 class="mb-2 text-xs font-medium uppercase tracking-wide text-faint">Turns</h3>
           <Show
             when={(turns.data ?? []).length > 0}
-            fallback={<Empty>Jarvis hasn't done anything yet.</Empty>}
+            fallback={
+              <NoRows query={turns} what="Jarvis's activity">
+                Jarvis hasn't done anything yet.
+              </NoRows>
+            }
           >
             <ul class="divide-y divide-line">
               <For each={turns.data}>

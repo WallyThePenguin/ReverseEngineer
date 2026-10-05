@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Canvas } from "./canvas.ts";
 import { mergeCanvas, mergeRecord, mergeText, mergeWorkbook } from "./merge.ts";
-import type { Workbook } from "./sheet.ts";
+import { emptyWorkbook, type Workbook } from "./sheet.ts";
 
 const card = (id: string, text: string, y = 0) =>
   ({ id, type: "text", text, x: 0, y, width: 200, height: 80 }) as const;
@@ -102,5 +102,34 @@ describe("merging text", () => {
     expect(mergeText("a", "a", "a c")).toBe("a c");
     expect(mergeText("intro\n", "intro\nmine\n", "intro\ntheirs\n")).toBe("intro\nmine\ntheirs");
     expect(mergeText("x", "y", "y")).toBe("y");
+  });
+});
+
+// A screen's changes kept before it ever read the saved copy have no base: the saver merges them
+// onto an empty one (D59), which must only add to what was saved.
+describe("merging onto an empty base", () => {
+  it("adds this screen's cards to the board and deletes none", () => {
+    const out = mergeCanvas(
+      { nodes: [], edges: [] },
+      { nodes: [card("n", "Added")], edges: [] },
+      { nodes: [card("a", "Original")], edges: [] },
+    );
+    expect(out.nodes.map((n) => n.id)).toEqual(["a", "n"]);
+  });
+
+  it("adds cells typed in a new sheet, keeping the saved sheet's name and cells", () => {
+    const mine = emptyWorkbook();
+    mine.sheets[0]!.cells.A1 = "typed";
+    const theirs: Workbook = {
+      sheets: [{ id: "s1", name: "Budget", cells: { B2: "1250" }, widths: {} }],
+    };
+    const out = mergeWorkbook(emptyWorkbook(), mine, theirs).sheets;
+    expect(out).toEqual([
+      { id: "s1", name: "Budget", cells: { B2: "1250", A1: "typed" }, widths: {} },
+    ]);
+  });
+
+  it("keeps every saved line of notes", () => {
+    expect(mergeText("", "agenda\nmine", "agenda\ntheirs")).toBe("agenda\nmine\ntheirs");
   });
 });

@@ -15,6 +15,8 @@ export interface Binding {
 }
 
 const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+/** What "mod" is called on this computer, for hints: ⌘ on a Mac, Ctrl elsewhere. */
+export const MOD = IS_MAC ? "⌘" : "Ctrl";
 const stack: Binding[][] = [];
 let pending: string | null = null;
 let pendingTimer: number | undefined;
@@ -83,7 +85,7 @@ export function listHotkeys(): { keys: string; label: string }[] {
     for (const b of group) {
       if (!b.label || seen.has(b.keys + b.label)) continue;
       seen.add(b.keys + b.label);
-      out.push({ keys: b.keys.replace("mod", IS_MAC ? "⌘" : "Ctrl"), label: b.label });
+      out.push({ keys: b.keys.replace("mod", MOD), label: b.label });
     }
   }
   return out;

@@ -1,13 +1,18 @@
 // The live connection: every committed event refreshes the screens it affects, Jarvis's reply
 // text streams in as it's written, and a dropped connection comes back by itself.
 
-import { QueryClient } from "@tanstack/solid-query";
+import { QueryCache, QueryClient } from "@tanstack/solid-query";
 import { createRoot, createSignal } from "solid-js";
 import { getMe, signedOut } from "./api.ts";
+import { degraded } from "./degraded.ts";
 import { affectedBy, type Rule, touches, union } from "./invalidate.ts";
+import { retryRead } from "./readState.ts";
 
 export const queryClient = new QueryClient({
-  defaultOptions: { queries: { staleTime: 30_000, retry: 1, refetchOnWindowFocus: true } },
+  // Every read says whether Hearth is well (the degraded banner).
+  queryCache: new QueryCache({ onError: degraded.failed, onSuccess: degraded.worked }),
+  // One more try for a failure that might pass; none for "not found" and the like.
+  defaultOptions: { queries: { staleTime: 30_000, retry: retryRead, refetchOnWindowFocus: true } },
 });
 
 export interface LiveEvent {
@@ -250,20 +255,24 @@ export interface Toast {
   id: number;
   text: string;
   tone: "info" | "error";
+  /** A button on the toast, like Undo. */
+  action?: { label: string; run: () => void };
 }
 
 function createToasts() {
   const [toasts, setToasts] = createSignal<Toast[]>([]);
   let next = 1;
+  const dismiss = (id: number) => setToasts((t) => t.filter((x) => x.id !== id));
   return {
     toasts,
-    show(text: string, tone: Toast["tone"] = "info") {
+    dismiss,
+    /** The newest toast with a button (Undo), while it shows. */
+    latestAction: () => toasts().findLast((t) => t.action),
+    show(text: string, tone: Toast["tone"] = "info", action?: Toast["action"]) {
       const id = next++;
-      setToasts((t) => [...t, { id, text, tone }]);
-      window.setTimeout(
-        () => setToasts((t) => t.filter((x) => x.id !== id)),
-        tone === "error" ? 6000 : 3500,
-      );
+      setToasts((t) => [...t, { id, text, tone, action }]);
+      // One with a button stays long enough to reach for it.
+      window.setTimeout(() => dismiss(id), action ? 8000 : tone === "error" ? 6000 : 3500);
     },
   };
 }

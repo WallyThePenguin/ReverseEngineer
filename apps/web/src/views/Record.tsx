@@ -32,12 +32,13 @@ export function RecordView(props: { id: string; pane: number }) {
     return r;
   };
   return (
-    <Show when={redirect()} fallback={<Placeholder missing={rec.isError} what="record" />}>
+    <Show when={redirect()} fallback={<Placeholder query={rec} what="record" />}>
       {(r) => (
         <div class="flex h-full flex-col">
           <PaneHeader
             title={r().title || "Untitled"}
             sub={`${TYPE_LABEL[r().type] ?? r().type} · ${who(r().createdBy)} · ${ago(r().updatedAt)}`}
+            record={{ id: r().id, type: r().type, trashed: r().deletedAt !== null }}
           />
           <div class="flex-1 space-y-5 overflow-auto px-5 py-4">
             <Show when={r().type === "event"}>

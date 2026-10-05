@@ -10,13 +10,16 @@ import {
   requireEntity,
   updateEntity,
 } from "@hearth/kernel";
-import { and, asc, desc, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, ilike, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { body, describeRow, id, liveEntity, preview } from "../shared.ts";
 import { appendLog, routeLane } from "./log.ts";
 import { answerMention } from "./mention.ts";
 
 const lane = z.enum(["fast", "deep"]);
+
+/** Words to find in a title as typed: % and _ match themselves, not anything. */
+const likeText = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 
 /** A paired device (the desktop app) only sees the conversations it started (D42). */
 const deviceMay = (via: string, startedVia: string | null | undefined) =>
@@ -84,8 +87,12 @@ export const chatModule = defineModule({
     }),
     defineAction({
       name: "conversation.list",
-      description: "List conversations with Jarvis, most recent first.",
-      input: z.object({ limit: z.number().int().min(1).max(100).default(30) }),
+      description:
+        "List conversations with Jarvis, most recent first, optionally those whose title has some words.",
+      input: z.object({
+        limit: z.number().int().min(1).max(100).default(30),
+        query: z.string().trim().max(200).optional(),
+      }),
       risk: "read",
       async handler(i, ctx) {
         return ctx.tx
@@ -98,9 +105,28 @@ export const chatModule = defineModule({
           })
           .from(entity)
           .innerJoin(conversation, eq(conversation.entityId, entity.id))
-          .where(isNull(entity.deletedAt))
+          .where(
+            and(
+              isNull(entity.deletedAt),
+              i.query ? ilike(entity.title, `%${likeText(i.query)}%`) : undefined,
+            ),
+          )
           .orderBy(desc(entity.updatedAt))
           .limit(i.limit);
+      },
+    }),
+    defineAction({
+      name: "conversation.rename",
+      description: "Rename a conversation with Jarvis.",
+      input: z.object({ id, title: z.string().trim().min(1).max(200) }),
+      risk: "internal",
+      async handler(i, ctx) {
+        const [c] = await ctx.tx
+          .select({ startedVia: conversation.startedVia })
+          .from(conversation)
+          .where(eq(conversation.entityId, i.id));
+        if (!c || !deviceMay(ctx.caller.via, c.startedVia)) throw notFound("Conversation");
+        return updateEntity(ctx, i.id, { title: i.title }, { type: "conversation" });
       },
     }),
     defineAction({

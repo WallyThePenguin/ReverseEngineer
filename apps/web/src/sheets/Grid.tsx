@@ -205,10 +205,12 @@ export function SheetGrid(props: { id: string; pane: number }) {
             aria-label="Spreadsheet name"
             value={s.title()}
             placeholder="Untitled spreadsheet"
+            readOnly={!s.loaded()}
             onChange={(e) => void s.rename(e.currentTarget.value.trim() || "Untitled spreadsheet")}
             onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
           />
         }
+        record={{ id: props.id, type: "spreadsheet", trashed: s.gone() }}
         sub={
           s.problem() ??
           (s.saving() ? "Saving…" : "Type to fill a cell · = starts a formula · F2 edits")
@@ -221,14 +223,21 @@ export function SheetGrid(props: { id: string; pane: number }) {
           class="min-w-0 flex-1 rounded bg-sunk px-2 py-1 font-mono text-xs outline-none"
           aria-label="Cell contents"
           value={editing() ? draft() : raw(curRef())}
-          onFocus={() => editing() !== "bar" && startEdit("bar", editing() ? draft() : undefined)}
+          // Before the first read the screen is a blank workbook, not Hearth's: nothing to edit.
+          readOnly={!s.loaded()}
+          onFocus={() =>
+            s.loaded() && editing() !== "bar" && startEdit("bar", editing() ? draft() : undefined)
+          }
           onInput={(e) => setDraft(e.currentTarget.value)}
           onKeyDown={onKey}
           onBlur={() => editing() === "bar" && commit()}
         />
       </div>
       <div ref={scroller} class="relative flex-1 overflow-auto" data-sheet-grid>
-        <Show when={s.loaded()} fallback={<p class="p-4 text-sm text-muted">Loading…</p>}>
+        <Show
+          when={s.loaded()}
+          fallback={<p class="p-4 text-sm text-muted">{s.gone() ? "" : "Loading…"}</p>}
+        >
           <table
             class="border-separate border-spacing-0 text-sm"
             style={{ "table-layout": "fixed" }}

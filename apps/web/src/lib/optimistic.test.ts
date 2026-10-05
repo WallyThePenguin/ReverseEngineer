@@ -94,6 +94,21 @@ describe("changes that show at once", () => {
     expect(client.getQueryData(PAGED)).toEqual(pages);
   });
 
+  it("takes a trashed record out of every list it's in, and puts it back if that fails", () => {
+    const TASKS = ["task.list", { limit: 200 }];
+    const RECENT = ["entity.recent", {}];
+    client.setQueryData(TASKS, [{ id: "t1" }, { id: "t2" }]);
+    client.setQueryData(RECENT, [{ id: "t2" }, { id: "n1" }]);
+    client.setQueryData(LIVE, [row("t2")]);
+    const undo = applyOptimistic(client, "entity.trash", { id: "t2" });
+    expect(ids(TASKS)).toEqual(["t1"]);
+    expect(ids(RECENT)).toEqual(["n1"]);
+    // An inbox row's id is the notification's, not the record's.
+    expect(ids(LIVE)).toEqual(["t2"]);
+    undo!();
+    expect(ids(TASKS)).toEqual(["t1", "t2"]);
+  });
+
   it("leaves reads it doesn't know alone, and has nothing to undo for other actions", () => {
     client.setQueryData(["task.list", {}], [{ id: "t1" }]);
     expect(applyOptimistic(client, "task.update", { id: "t1", title: "x" })).toBeNull();

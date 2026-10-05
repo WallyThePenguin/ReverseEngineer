@@ -95,18 +95,34 @@ export async function setCursor(db: DbOrTx, consumer: string, seq: number): Prom
     .onConflictDoUpdate({ target: consumerCursor.consumer, set: { seq, updatedAt: new Date() } });
 }
 
+export interface ListenOptions {
+  /**
+   * LISTEN is in place: at first, and again after a lost connection (`again`). Anything
+   * NOTIFYed while it was down was missed, so a listener catches up from its own cursor here.
+   */
+  onListening?: (again: boolean) => void;
+  /** Where to say the connection was lost, and when it's back: once each, not every retry. */
+  log?: (line: string) => void;
+}
+
 /**
- * Calls `onNotify` for every notification on the given channels. Reconnects on failure.
- * Returns a stop function.
+ * Calls `onNotify` for every notification on the given channels. Reconnects every second on
+ * failure. Returns a stop function.
  */
 export function listenChannels(
   pool: pg.Pool,
   channels: string[],
   onNotify: (channel: string, payload: string) => void,
+  opts: ListenOptions = {},
 ): () => Promise<void> {
+  const log = opts.log ?? ((line: string) => console.warn(line));
+  const what = `LISTEN ${channels.join(", ")}`;
   let stopped = false;
   let client: pg.PoolClient | null = null;
   let retry: NodeJS.Timeout | null = null;
+  let listened = false;
+  /** When the connection was lost; null while it's up (or before it first came up). */
+  let lostAt: number | null = null;
 
   const connect = async () => {
     if (stopped) return;
@@ -116,11 +132,21 @@ export function listenChannels(
       c.on("notification", (msg) => {
         if (channels.includes(msg.channel)) onNotify(msg.channel, msg.payload ?? "");
       });
-      c.on("error", () => reconnect());
+      // An old client's late error mustn't tear down the one that replaced it.
+      c.on("error", (err) => {
+        if (client === c) reconnect(err);
+      });
       for (const ch of channels) await c.query(`LISTEN ${ch}`);
-      if (stopped) await release();
-    } catch {
-      reconnect();
+      if (stopped) return await release();
+      if (lostAt !== null) {
+        log(`[listen] ${what}: back after ${Math.round((Date.now() - lostAt) / 1000)} s`);
+        lostAt = null;
+      }
+      const again = listened;
+      listened = true;
+      opts.onListening?.(again);
+    } catch (err) {
+      reconnect(err);
     }
   };
   const release = async () => {
@@ -130,11 +156,18 @@ export function listenChannels(
     await c.query("UNLISTEN *").catch(() => {});
     c.release();
   };
-  const reconnect = () => {
+  const reconnect = (err: unknown) => {
     const c = client;
     client = null;
     c?.release(true);
-    if (!stopped && !retry) {
+    if (stopped) return;
+    if (lostAt === null) {
+      lostAt = Date.now();
+      const why = err instanceof Error ? err.message : String(err);
+      const state = listened ? "connection lost" : "couldn't connect";
+      log(`[listen] ${what}: ${state} (${why}); trying again every second`);
+    }
+    if (!retry) {
       retry = setTimeout(() => {
         retry = null;
         void connect();

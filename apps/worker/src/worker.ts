@@ -2,10 +2,12 @@
 // Google Calendar, mail, Slack and GitHub, and keeps an eye on Hearth's health.
 
 import { githubAccount, googleAccount, slackWorkspace } from "@hearth/db";
-import { integrationCaller, type Kernel, startScheduler } from "@hearth/kernel";
+import { integrationCaller, type Kernel, pruneAudit, startScheduler } from "@hearth/kernel";
 import { checkHealth, type HealthOptions, reportHealth } from "./health.ts";
 import { jarvisWatchdog } from "./jarvis-watchdog.ts";
 import { type MailRoundOptions, mailRound } from "./mail-loop.ts";
+import { scheduleWatch } from "./schedule-health.ts";
+import { checkSyncs, ErrorClock } from "./sync-health.ts";
 import { checkDueWatches } from "./watches.ts";
 
 export interface WorkerOptions extends HealthOptions {
@@ -29,12 +31,27 @@ export function startWorker(opts: WorkerOptions) {
     log: (err) => log("running schedules failed", err),
   });
   const watchdog = jarvisWatchdog(kernel, { log });
+  const syncErrors = new ErrorClock();
+  const healthEvery = opts.healthIntervalMs ?? 60_000;
+  const schedulesNow = scheduleWatch(kernel, healthEvery);
   let checking = false;
   const health = async () => {
     if (checking) return;
     checking = true;
     try {
-      await reportHealth(kernel, await checkHealth(kernel, opts));
+      // A problem reading the syncs mustn't stop the worker's own check-in.
+      const syncs = await checkSyncs(kernel, syncErrors).catch((err) => {
+        log("checking the syncs failed", err);
+        return [];
+      });
+      const schedules = await schedulesNow().then(
+        (r) => [r],
+        (err) => {
+          log("checking the schedules failed", err);
+          return [];
+        },
+      );
+      await reportHealth(kernel, [...(await checkHealth(kernel, opts)), ...schedules, ...syncs]);
       await watchdog();
     } catch (err) {
       log("health check failed", err);
@@ -42,7 +59,7 @@ export function startWorker(opts: WorkerOptions) {
       checking = false;
     }
   };
-  const timer = setInterval(health, opts.healthIntervalMs ?? 60_000);
+  const timer = setInterval(health, healthEvery);
   void health();
 
   let watching = false;
@@ -142,8 +159,21 @@ export function startWorker(opts: WorkerOptions) {
   const githubTimer = setInterval(github, opts.githubIntervalMs ?? 2 * 60_000);
   void github();
 
+  // Routine audit rows (reads, check-ins, syncs) are let go after a while (AUDIT_KEEP).
+  const prune = async () => {
+    try {
+      const n = await pruneAudit(kernel.db, kernel.clock.now());
+      if (n) log(`let go of ${n} old routine audit rows`);
+    } catch (err) {
+      log("pruning the audit log failed", err);
+    }
+  };
+  const pruneTimer = setInterval(prune, 6 * 3_600_000);
+  void prune();
+
   return {
     health,
+    prune,
     slack,
     github,
     watches,
@@ -157,6 +187,7 @@ export function startWorker(opts: WorkerOptions) {
       clearInterval(mailTimer);
       clearInterval(slackTimer);
       clearInterval(githubTimer);
+      clearInterval(pruneTimer);
       scheduler.stop();
     },
   };

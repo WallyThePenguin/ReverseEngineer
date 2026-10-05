@@ -49,11 +49,13 @@ export function CanvasBoard(props: { id: string; pane: number }) {
       { defer: true },
     ),
   );
-  onMount(async () => {
-    await b.load();
-    setCam(fit(b.board, el.getBoundingClientRect()));
+  onMount(() => {
+    void b.load();
     el.addEventListener("wheel", wheel, { passive: false });
   });
+  // Fitted to what's on it once it's first read: as it opens, or once it's restored if it opened
+  // from the trash (until then there's nothing to fit).
+  createEffect(on(b.loaded, (ok) => ok && setCam(fit(b.board, el.getBoundingClientRect()))));
   onCleanup(() => {
     el?.removeEventListener("wheel", wheel);
     void b.flush();
@@ -276,10 +278,12 @@ export function CanvasBoard(props: { id: string; pane: number }) {
             aria-label="Board name"
             value={b.title()}
             placeholder="Untitled board"
+            readOnly={!b.loaded()}
             onChange={(e) => void b.rename(e.currentTarget.value.trim() || "Untitled board")}
             onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
           />
         }
+        record={{ id: props.id, type: "canvas", trashed: b.gone() }}
         sub={
           b.problem() ??
           "Double-click to write · drag the background to move around · Ctrl+scroll to zoom"

@@ -1,11 +1,14 @@
 // Settings for the phone: put Hearth on its home screen, and turn on notifications for
 // approvals, the morning brief and the interruptions Jarvis is allowed to make.
 
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createQuery } from "@tanstack/solid-query";
+import { createSignal, For, Show } from "solid-js";
+import { QueryView } from "../components/QueryView.tsx";
 import { Button } from "../components/ui.tsx";
+import { request } from "../lib/api.ts";
 import { inDesktopApp } from "../lib/desktop.ts";
 import { ago } from "../lib/format.ts";
-import { reportError, toast } from "../lib/live.ts";
+import { queryClient, reportError, toast } from "../lib/live.ts";
 
 interface PushDevice {
   endpoint: string;
@@ -14,17 +17,8 @@ interface PushDevice {
   lastSentAt: string | null;
 }
 
-async function call<T>(path: string, method = "GET", json?: unknown): Promise<T> {
-  const res = await fetch(`/api/push${path}`, {
-    method,
-    credentials: "same-origin",
-    headers: json === undefined ? {} : { "content-type": "application/json" },
-    body: json === undefined ? undefined : JSON.stringify(json),
-  });
-  const body = (await res.json().catch(() => ({}))) as T & { error?: string };
-  if (!res.ok) throw new Error(body.error ?? "Couldn't reach Hearth.");
-  return body;
-}
+const call = <T,>(path: string, method = "GET", json?: unknown) =>
+  request<T>(`/api/push${path}`, method, json);
 
 const keyBytes = (base64url: string) => {
   const b64 = base64url.replace(/-/g, "+").replace(/_/g, "/");
@@ -51,13 +45,22 @@ async function currentSubscription() {
 }
 
 export function PhoneSettings() {
-  const [state, { refetch }] = createResource(async () => {
-    const [{ publicKey, devices }, mine] = await Promise.all([
-      call<{ publicKey: string; devices: PushDevice[] }>(""),
-      currentSubscription(),
-    ]);
-    return { publicKey, devices, mine: mine?.endpoint ?? null };
-  });
+  const query = createQuery(() => ({
+    queryKey: ["push.devices"],
+    queryFn: async () => {
+      const [{ publicKey, devices }, mine] = await Promise.all([
+        call<{ publicKey: string; devices: PushDevice[] }>(""),
+        currentSubscription(),
+      ]);
+      return { publicKey, devices, mine: mine?.endpoint ?? null };
+    },
+  }));
+  const state = () => query.data;
+  // The set-up checklist counts a phone that gets alerts too.
+  const refetch = () => {
+    void query.refetch();
+    void queryClient.invalidateQueries({ queryKey: ["system.status"] });
+  };
   const [busy, setBusy] = createSignal(false);
   // In Hearth's Windows app, its own notifications take the place of the browser's.
   const desktopApp = inDesktopApp();
@@ -117,50 +120,56 @@ export function PhoneSettings() {
           app, and on an iPhone that's also what lets it show notifications.
         </p>
       </Show>
-      <div class="flex items-center gap-3 rounded-md bg-sunk px-3 py-3">
-        <div class="flex-1">
-          <p class="font-medium">
-            Notifications{" "}
-            {desktopApp
-              ? "here come from the Windows app"
-              : supported
-                ? on()
-                  ? "on here"
-                  : "off here"
-                : "aren't available here"}
-          </p>
-          <p class="text-sm text-muted">
-            Approvals, your morning brief, and the interruptions Jarvis is allowed to make.
-          </p>
-        </div>
-        <Show when={supported && !on()}>
-          <Button kind="primary" disabled={busy() || !state()} onClick={() => void turnOn()}>
-            Turn on here
-          </Button>
-        </Show>
-        <Show when={(state()?.devices.length ?? 0) > 0}>
-          <Button onClick={() => void test()}>Send a test</Button>
-        </Show>
-      </div>
-      <ul class="space-y-1 text-sm">
-        <For each={state()?.devices ?? []}>
-          {(d) => (
-            <li class="flex items-center gap-2">
-              <span class="flex-1">
-                {d.label}
-                {d.endpoint === state()?.mine ? " (this one)" : ""}
-                <span class="text-faint">
-                  {" "}
-                  · {d.lastSentAt ? `last notified ${ago(d.lastSentAt)}` : "nothing sent yet"}
-                </span>
-              </span>
-              <Button small kind="danger" onClick={() => void remove(d.endpoint)}>
-                Remove
-              </Button>
-            </li>
-          )}
-        </For>
-      </ul>
+      <QueryView query={query} what="this device's notifications">
+        {(s) => (
+          <>
+            <div class="flex items-center gap-3 rounded-md bg-sunk px-3 py-3">
+              <div class="flex-1">
+                <p class="font-medium">
+                  Notifications{" "}
+                  {desktopApp
+                    ? "here come from the Windows app"
+                    : supported
+                      ? on()
+                        ? "on here"
+                        : "off here"
+                      : "aren't available here"}
+                </p>
+                <p class="text-sm text-muted">
+                  Approvals, your morning brief, and the interruptions Jarvis is allowed to make.
+                </p>
+              </div>
+              <Show when={supported && !on()}>
+                <Button kind="primary" disabled={busy()} onClick={() => void turnOn()}>
+                  Turn on here
+                </Button>
+              </Show>
+              <Show when={s().devices.length > 0}>
+                <Button onClick={() => void test()}>Send a test</Button>
+              </Show>
+            </div>
+            <ul class="space-y-1 text-sm">
+              <For each={s().devices}>
+                {(d) => (
+                  <li class="flex items-center gap-2">
+                    <span class="flex-1">
+                      {d.label}
+                      {d.endpoint === s().mine ? " (this one)" : ""}
+                      <span class="text-faint">
+                        {" "}
+                        · {d.lastSentAt ? `last notified ${ago(d.lastSentAt)}` : "nothing sent yet"}
+                      </span>
+                    </span>
+                    <Button small kind="danger" onClick={() => void remove(d.endpoint)}>
+                      Remove
+                    </Button>
+                  </li>
+                )}
+              </For>
+            </ul>
+          </>
+        )}
+      </QueryView>
     </section>
   );
 }

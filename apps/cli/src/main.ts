@@ -4,7 +4,15 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { connect, databaseUrl, migrateUp } from "@hearth/db";
-import { guardProcess, Kernel, ownerCaller, Registry, systemCaller } from "@hearth/kernel";
+import {
+  fileLog,
+  guardProcess,
+  Kernel,
+  ownerCaller,
+  Registry,
+  systemCaller,
+  teeConsole,
+} from "@hearth/kernel";
 import { ALL_MODULES, secretMigrations, vaultFromEnv } from "@hearth/modules";
 import {
   createApiToken,
@@ -116,6 +124,19 @@ async function main(argv: string[]): Promise<number> {
       // A stray failure in a background task is logged, not the end of Hearth. (Jarvis's own
       // process installs its own.)
       if (command !== "jarvis") guardProcess(command);
+      // What the server and worker print is also kept as timed JSON lines in the data folder's
+      // logs (server.jsonl, worker.jsonl), rolled over by size. Jarvis keeps its own (D54).
+      if (command !== "jarvis") {
+        const name = command === "serve" ? "server" : command;
+        const dataDir = process.env.HEARTH_DATA_DIR ?? process.cwd();
+        teeConsole(
+          name,
+          fileLog(join(dataDir, "logs", `${name}.jsonl`), {
+            onError: (err) =>
+              console.warn(`Couldn't write ${name}.jsonl: ${(err as Error).message}`),
+          }),
+        );
+      }
       const stops: (() => Promise<void>)[] = [];
       if (command === "dev")
         await withDatabase(({ pool }) => migrateUp(pool, undefined, migrationCode()));

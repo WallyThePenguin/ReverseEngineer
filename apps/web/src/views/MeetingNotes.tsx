@@ -10,6 +10,7 @@ import { createSaver } from "../lib/wholeSave.ts";
 export function MeetingNotes(props: { id: string; notes: string; revision: number }) {
   let area: HTMLTextAreaElement | undefined;
   const saver = createSaver<string>({
+    id: props.id,
     key: `meeting:${props.id}`,
     noun: "meeting",
     action: "meeting.update",
@@ -22,6 +23,7 @@ export function MeetingNotes(props: { id: string; notes: string; revision: numbe
       return { title: r.title, data: r.notes, version: r.revision };
     },
     merge: mergeText,
+    empty: () => "",
     current: () => area?.value ?? "",
     show(notes) {
       if (!area || area.value === notes) return;
@@ -53,6 +55,9 @@ export function MeetingNotes(props: { id: string; notes: string; revision: numbe
         }}
         class="min-h-32 w-full resize-y rounded-md border border-line bg-panel px-3 py-2 text-sm outline-none"
         placeholder="What matters in this meeting…"
+        // Until the first read (Hearth's notes, or a copy kept here), what's here is the page's
+        // copy, which that read replaces. One that fails or is turned down says so below.
+        readOnly={!saver.loaded()}
         onInput={() => saver.changed()}
       />
       <Show when={saver.problem()}>{(why) => <p class="mt-1 text-xs text-bad">{why()}</p>}</Show>

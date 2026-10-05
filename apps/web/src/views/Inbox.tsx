@@ -1,35 +1,32 @@
 // One inbox: Jarvis's results, approvals, due dates and alerts, split into Signal and Noise.
 // j/k to move, Enter to open, e done, s snooze, a/d approve or deny. An approval waiting for
-// you can't be put away with e or s: it needs a yes or a no.
+// you can't be put away with e, s or its menu: it needs a yes or a no.
 
 import { createSignal, For, Match, Show, Switch } from "solid-js";
 import { Body } from "../components/Body.tsx";
+import { Overflow, ROW_MENU } from "../components/Menu.tsx";
+import { NoRows } from "../components/QueryView.tsx";
+import { SetupChecklist } from "../components/SetupChecklist.tsx";
 import { Badge, Button, Empty, Kbd, PaneHeader } from "../components/ui.tsx";
-import { approvalStateText, decide, deciding, isDecided } from "../lib/approvals.ts";
+import { approvalStateText, decide, deciding } from "../lib/approvals.ts";
 import { ago, due, snoozeOptions, who } from "../lib/format.ts";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
+import { type InboxView, NEEDS_DECISION, rowMenu, waitingOnYou } from "../lib/inbox.ts";
 import { toast } from "../lib/live.ts";
 import { layout, routeFor } from "../lib/panes.ts";
 import { act, inboxInput, useAction } from "../lib/query.ts";
+import { createSelection } from "../lib/selection.ts";
 import type { InboxRow } from "../lib/types.ts";
 
-type View = "live" | "snoozed" | "done";
-
-/** An approval card still waiting for your yes or no (and not decided here a moment ago). */
-const waitingOnYou = (row: InboxRow | undefined) =>
-  !!row?.notification.approvalId &&
-  row.approvalStatus === "pending" &&
-  !isDecided(row.notification.approvalId);
-const NEEDS_DECISION = "This one needs a yes or a no first: press a or d.";
-
 export function Inbox(props: { pane: number }) {
-  const [view, setView] = createSignal<View>("live");
+  const [view, setView] = createSignal<InboxView>("live");
   const [lane, setLane] = createSignal<"signal" | "noise">("signal");
-  const [index, setIndex] = createSignal(0);
   const [snoozing, setSnoozing] = createSignal<string | null>(null);
   const rows = useAction<InboxRow[]>("inbox.list", () => inboxInput(view(), lane()));
   const list = () => rows.data ?? [];
-  const current = () => list()[Math.min(index(), list().length - 1)];
+  // Kept by id: a new arrival above it doesn't move the keys onto a different row.
+  const sel = createSelection(list, (r) => r.notification.id);
+  const current = sel.current;
   const focused = () => layout.focused() === props.pane;
 
   const open = (row: InboxRow | undefined, beside = false) => {
@@ -59,7 +56,12 @@ export function Inbox(props: { pane: number }) {
   };
 
   useHotkeys([
-    ...listKeys({ count: () => list().length, index, setIndex, when: focused }),
+    ...listKeys({
+      count: () => list().length,
+      index: sel.index,
+      setIndex: sel.select,
+      when: focused,
+    }),
     { keys: "enter", run: () => open(current()), when: focused, label: "Open" },
     { keys: "o", run: () => open(current()), when: focused },
     { keys: "e", run: () => done(current()), when: focused, label: "Done" },
@@ -89,27 +91,32 @@ export function Inbox(props: { pane: number }) {
     { keys: "escape", run: () => setSnoozing(null), when: () => snoozing() !== null },
   ]);
 
+  const pickLane = (l: "signal" | "noise") => {
+    setLane(l);
+    sel.reset();
+  };
   const tab = (active: boolean) =>
-    `rounded-md px-2 py-1 text-sm ${active ? "bg-sunk font-medium" : "text-muted hover:text-ink"}`;
+    `min-h-11 rounded-md px-2 py-1 text-sm md:min-h-0 ${active ? "bg-sunk font-medium" : "text-muted hover:text-ink"}`;
 
   return (
     <div class="flex h-full flex-col">
       <PaneHeader title="Inbox">
         <Show when={view() === "live"}>
-          <button type="button" class={tab(lane() === "signal")} onClick={() => setLane("signal")}>
+          <button type="button" class={tab(lane() === "signal")} onClick={() => pickLane("signal")}>
             Signal
           </button>
-          <button type="button" class={tab(lane() === "noise")} onClick={() => setLane("noise")}>
+          <button type="button" class={tab(lane() === "noise")} onClick={() => pickLane("noise")}>
             Noise
           </button>
           <span class="mx-1 h-4 w-px bg-line" />
         </Show>
         <select
-          class="rounded-md border border-line bg-panel px-2 py-1 text-sm"
+          class="min-h-11 rounded-md border border-line bg-panel px-2 py-1 text-sm md:min-h-0"
+          aria-label="Which items"
           value={view()}
           onChange={(e) => {
-            setView(e.currentTarget.value as View);
-            setIndex(0);
+            setView(e.currentTarget.value as InboxView);
+            sel.reset();
           }}
         >
           <option value="live">Live</option>
@@ -118,15 +125,27 @@ export function Inbox(props: { pane: number }) {
         </select>
       </PaneHeader>
       <div class="flex-1 overflow-auto">
-        <Show when={!rows.isLoading} fallback={<Empty>Loading…</Empty>}>
+        <Show
+          when={rows.data !== undefined}
+          fallback={
+            <NoRows query={rows} what="the inbox">
+              {null}
+            </NoRows>
+          }
+        >
           <Show
             when={list().length > 0}
             fallback={
-              <Empty>
-                {view() === "live"
-                  ? "Nothing needs you. Jarvis will put things here."
-                  : "Nothing here."}
-              </Empty>
+              <>
+                <Show when={view() === "live"}>
+                  <SetupChecklist pane={props.pane} />
+                </Show>
+                <Empty>
+                  {view() === "live"
+                    ? "Nothing needs you. Jarvis will put things here."
+                    : "Nothing here."}
+                </Empty>
+              </>
             }
           >
             <ul>
@@ -136,10 +155,10 @@ export function Inbox(props: { pane: number }) {
                   const deadline = () => due(n.deadline, false);
                   return (
                     <li
-                      class="cursor-pointer border-b border-line px-4 py-3"
-                      data-active={focused() && i() === index()}
+                      class="group cursor-pointer border-b border-line py-3 pr-2 pl-4"
+                      data-active={focused() && i() === sel.index()}
                       onClick={(e) => {
-                        setIndex(i());
+                        sel.select(i());
                         open(row, e.shiftKey);
                       }}
                     >
@@ -227,6 +246,15 @@ export function Inbox(props: { pane: number }) {
                             </div>
                           </Show>
                         </div>
+                        {/* What e and s do, for a finger. */}
+                        <Overflow
+                          class={ROW_MENU}
+                          label={`Actions for ${n.title}`}
+                          items={rowMenu(row, view(), {
+                            done: () => done(row),
+                            snooze: () => startSnooze(row),
+                          })}
+                        />
                       </div>
                     </li>
                   );

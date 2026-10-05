@@ -157,6 +157,10 @@ try {
     await runAction(p, "inbox.notify", { title });
     // Arrives over the live feed.
     await inboxRow(p, title).waitFor();
+    // The selection stays on the row it was on when another arrives, so move it up to this one:
+    // the newest, at the top (the inbox may hold earlier items).
+    const rows = await p.locator("main li").count();
+    for (let i = 0; i < rows; i++) await p.keyboard.press("k");
     let release: () => void = () => {};
     const held = new Promise<void>((r) => {
       release = r;

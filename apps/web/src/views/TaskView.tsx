@@ -9,6 +9,7 @@ import { ago, PRIORITY_LABEL, STATUS_LABEL, who } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
+import { quickAdd } from "../lib/quickadd.ts";
 import type { Task } from "../lib/types.ts";
 import { TaskRow } from "./Tasks.tsx";
 
@@ -46,19 +47,19 @@ export function TaskView(props: { id: string; pane: number }) {
     return r !== null;
   };
 
-  const addSubtask = async () => {
-    const title = subtask().trim();
-    if (!title) return;
-    if (await act("task.create", { title, parentId: props.id })) setSubtask("");
-  };
+  const addSubtask = () =>
+    quickAdd({ get: subtask, set: setSubtask }, (title) =>
+      act("task.create", { title, parentId: props.id }),
+    );
 
   return (
-    <Show when={task.data} fallback={<Placeholder missing={task.isError} what="task" />}>
+    <Show when={task.data} fallback={<Placeholder query={task} what="task" />}>
       {(t) => (
         <div class="flex h-full flex-col">
           <PaneHeader
             title={<span class="font-mono text-sm text-muted">{t().key}</span>}
             sub={`Created by ${who(t().createdBy)} ${ago(t().createdAt)}`}
+            record={{ id: t().id, type: "task" }}
           >
             <Show
               when={t().assignee !== "jarvis"}

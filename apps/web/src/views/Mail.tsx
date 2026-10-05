@@ -11,6 +11,7 @@ import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
 import { toast } from "../lib/live.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
+import { createSelection } from "../lib/selection.ts";
 import type { MailAccount, MailAddress, MailDraft, MailThread } from "../lib/types.ts";
 import { Composer } from "./MailCompose.tsx";
 import { PAGE, useThreadPages, whenSeen } from "./MailPages.ts";
@@ -24,7 +25,6 @@ export function Mail(props: { pane: number }) {
   const [view, setView] = createSignal<View>("inbox");
   const [lane, setLane] = createSignal<"signal" | "noise" | "reply" | "waiting">("signal");
   const [query, setQuery] = createSignal("");
-  const [index, setIndex] = createSignal(0);
   const accounts = useAction<MailAccount[]>("mail.accounts");
   // What's searched for: what's typed, once typing pauses.
   const term = debounced(query);
@@ -49,15 +49,17 @@ export function Mail(props: { pane: number }) {
   };
   const list = () => threads.data ?? [];
   const paging = () => !searching() && listed.query.hasNextPage;
-  // Moving down with j: the next page comes before you reach the end.
-  createEffect(() => {
-    if (paging() && index() >= list().length - 5) listed.more();
-  });
   const drafts = useAction<MailDraft[]>("mail.drafts");
   // New messages (not replies) are written here, above the list.
   const fresh = () => (drafts.data ?? []).filter((d) => !d.threadId).map((d) => d.id);
   const compose = () => void act("mail.draft", { text: "" });
-  const current = () => list()[Math.min(index(), list().length - 1)];
+  // Kept by id: new mail arriving above doesn't move e or # onto a different conversation.
+  const sel = createSelection(list, (t) => t.id);
+  const current = sel.current;
+  // Moving down with j: the next page comes before you reach the end.
+  createEffect(() => {
+    if (paging() && sel.index() >= list().length - 5) listed.more();
+  });
   const focused = () => layout.focused() === props.pane;
 
   const open = (t: MailThread | undefined, beside = false) => {
@@ -82,7 +84,12 @@ export function Mail(props: { pane: number }) {
   };
 
   useHotkeys([
-    ...listKeys({ count: () => list().length, index, setIndex, when: focused }),
+    ...listKeys({
+      count: () => list().length,
+      index: sel.index,
+      setIndex: sel.select,
+      when: focused,
+    }),
     { keys: "enter", run: () => open(current()), when: focused, label: "Open" },
     { keys: "o", run: () => open(current()), when: focused },
     {
@@ -165,7 +172,7 @@ export function Mail(props: { pane: number }) {
           value={view()}
           onChange={(e) => {
             setView(e.currentTarget.value as View);
-            setIndex(0);
+            sel.reset();
           }}
         >
           <option value="inbox">Inbox</option>
@@ -185,7 +192,7 @@ export function Mail(props: { pane: number }) {
           value={query()}
           onInput={(e) => {
             setQuery(e.currentTarget.value);
-            setIndex(0);
+            sel.reset();
           }}
         />
       </PaneHeader>
@@ -220,9 +227,9 @@ export function Mail(props: { pane: number }) {
                   {(t, i) => (
                     <li
                       class="cursor-pointer border-b border-line px-4 py-2.5"
-                      data-active={focused() && i() === index()}
+                      data-active={focused() && i() === sel.index()}
                       onClick={(e) => {
-                        setIndex(i());
+                        sel.select(i());
                         open(t, e.shiftKey);
                       }}
                     >

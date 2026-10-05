@@ -1,8 +1,11 @@
 // End-to-end check that a closed tab loses nothing (D59): in each editor (a note, a board, a
 // spreadsheet, meeting notes) make an edit while Hearth takes the save and never answers, close
 // the tab mid-save, open it again, and the edit reaches Hearth. Then a board edit made while Jarvis
-// adds a card keeps both. Runs its own server (development login, on HEARTH_E2E_PORT) against
-// HEARTH_DATABASE_URL, and its own browser with the service worker off so saves can be held.
+// adds a card keeps both, a note deleted while open saves what was typed in it once restored and
+// its checklist boxes can't be ticked meanwhile, one opened from the trash opens once it's
+// restored, and so does a board opened from the trash, with every card it had.
+// Runs its own server (development login, on HEARTH_E2E_PORT) against HEARTH_DATABASE_URL, and its
+// own browser with the service worker off so saves can be held.
 //
 //   pnpm build:web
 //   HEARTH_DATABASE_URL=postgres://... HEARTH_E2E_PORT=4690 node apps/web/e2e/integrity.ts
@@ -204,8 +207,11 @@ try {
     const typed = `Ship on Friday ${tag}`;
     const p = await killTab(context, {
       path: `/record/${meeting.id}`,
+      // It takes typing once Hearth's notes have been read.
       ready: (p) =>
-        p.getByPlaceholder("What matters in this meeting…").waitFor({ timeout: 20_000 }),
+        p
+          .locator('textarea[placeholder="What matters in this meeting…"]:not([readonly])')
+          .waitFor({ timeout: 20_000 }),
       action: "meeting.update",
       edit: async (p) => {
         await p.getByPlaceholder("What matters in this meeting…").click();
@@ -254,7 +260,7 @@ try {
     throw new Error("a card was lost");
   });
 
-  await step("a note deleted while open turns read-only and offers its text", async () => {
+  await step("a note deleted while open goes read-only until it's restored", async () => {
     const note = await act<{ id: string }>(home, "note.create", { title: `Gone ${tag}`, body: "" });
     const p = await context.newPage();
     await p.goto(`${base}/note/${note.id}`);
@@ -267,8 +273,112 @@ try {
     await p.getByRole("button", { name: "Copy text" }).waitFor();
     if ((await editor.getAttribute("contenteditable")) !== "false")
       throw new Error("the deleted note can still be edited");
+    // Restored, it takes edits again, and what was typed while it was gone reaches Hearth too.
+    await p.getByRole("button", { name: "Restore", exact: true }).click();
+    await p.locator('.cm-content[contenteditable="true"]').waitFor();
+    await editor.click();
+    await p.keyboard.press("End");
+    await p.keyboard.type(" and back");
+    for (let i = 0; ; i++) {
+      const { body } = await act<{ body: string | null }>(p, "entity.get", { id: note.id });
+      if (body?.startsWith("t") && body.endsWith(" and back")) break;
+      if (i === 50) throw new Error("the restored note didn't save what was typed in it");
+      await p.waitForTimeout(200);
+    }
     await p.close();
   });
+
+  await step("a note opened from the trash opens once it's restored", async () => {
+    const note = await act<{ id: string }>(home, "note.create", { title: `Bin ${tag}`, body: "" });
+    await act(home, "entity.trash", { id: note.id });
+    // Never opened in this browser, so there's no copy of it here to read.
+    const p = await context.newPage();
+    await p.goto(`${base}/note/${note.id}`);
+    await p
+      .getByText("There's nothing to read here until it's restored.")
+      .waitFor({ timeout: 20_000 });
+    if (await p.getByText("Couldn't open this note").count())
+      throw new Error("a note in the trash says Hearth isn't running");
+    // The header says it's in the trash, with Restore; the editor doesn't say it again.
+    if ((await p.getByText(/in the trash/).count()) !== 1)
+      throw new Error("a note opened from the trash says it's in the trash more than once");
+    await p.getByRole("button", { name: "Restore", exact: true }).click();
+    const editor = p.locator('.cm-content[contenteditable="true"]');
+    await editor.waitFor();
+    await editor.click();
+    await p.keyboard.type("back from the bin");
+    for (let i = 0; ; i++) {
+      const { body } = await act<{ body: string | null }>(p, "entity.get", { id: note.id });
+      if (body === "back from the bin") break;
+      if (i === 50) throw new Error("the note restored after it opened didn't save");
+      await p.waitForTimeout(200);
+    }
+    await p.close();
+  });
+
+  await step("a box in a deleted note can't be ticked until it's restored", async () => {
+    const note = await act<{ id: string }>(home, "note.create", {
+      title: `Pack ${tag}`,
+      body: "- [ ] Passports",
+    });
+    const p = await context.newPage();
+    await p.goto(`${base}/note/${note.id}`);
+    const box = p.getByRole("checkbox", { name: "Checklist item" });
+    await box.waitFor({ timeout: 20_000 });
+    await act(p, "entity.trash", { id: note.id });
+    // Typing finds out it went, and the editor locks.
+    await p.locator(".cm-content").click();
+    await p.keyboard.press("End");
+    await p.keyboard.type(" and visas");
+    await p.getByText("This was deleted before your last changes reached Hearth").waitFor();
+    await box.click();
+    await p.waitForTimeout(500);
+    if (await box.isChecked()) throw new Error("a box in a deleted note was ticked");
+    await p.getByRole("button", { name: "Restore", exact: true }).click();
+    await p.locator('.cm-content[contenteditable="true"]').waitFor();
+    for (let i = 0; ; i++) {
+      const { body } = await act<{ body: string | null }>(p, "entity.get", { id: note.id });
+      if (body === "- [ ] Passports and visas") break;
+      if (i === 50) throw new Error(`the restored note holds ${JSON.stringify(body)}`);
+      await p.waitForTimeout(200);
+    }
+    await p.close();
+  });
+
+  await step(
+    "a board opened from the trash takes no cards, and opens whole once restored",
+    async () => {
+      const board = await act<{ id: string }>(home, "canvas.create", { title: `Bin ${tag}` });
+      await act(home, "canvas.add", { id: board.id, cards: [{ text: `Original ${tag}` }] });
+      await act(home, "entity.trash", { id: board.id });
+      const p = await context.newPage();
+      await p.goto(`${base}/canvas/${board.id}`);
+      await p
+        .getByText("There's nothing to show here until it's restored.")
+        .waitFor({ timeout: 20_000 });
+      // A card put on the empty screen would be made on nothing, and saved over the real board.
+      const area = (await p.locator("[data-toolbar]").locator("..").boundingBox())!;
+      await p.mouse.dblclick(area.x + 300, area.y + 300);
+      if (await p.locator("[data-node]").count())
+        throw new Error("a board opened from the trash took a card before it was read");
+      // Restored in place, from the pane's header.
+      await p.getByRole("button", { name: "Restore", exact: true }).click();
+      await p.getByText(`Original ${tag}`).waitFor();
+      // Read now, it takes them (well clear of the card, fitted to the middle).
+      await p.mouse.dblclick(area.x + 200, area.y + 200);
+      await p.keyboard.type(`Added ${tag}`);
+      await p.keyboard.press("Escape");
+      for (let i = 0; ; i++) {
+        const saved = JSON.stringify(
+          (await act<{ board: unknown }>(p, "canvas.get", { id: board.id })).board,
+        );
+        if (saved.includes(`Original ${tag}`) && saved.includes(`Added ${tag}`)) break;
+        if (i === 50) throw new Error(`the restored board holds ${saved}`);
+        await p.waitForTimeout(200);
+      }
+      await p.close();
+    },
+  );
 
   if (problems.length) throw new Error(problems.join("\n"));
   console.log("Integrity checks passed.");
