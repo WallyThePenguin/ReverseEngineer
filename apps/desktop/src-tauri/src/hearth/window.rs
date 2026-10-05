@@ -7,75 +7,19 @@
 // windows named in capabilities/*.json ("main" and "recording_overlay") call into the app, and
 // remote pages never without a "remote" entry there. Keep it that way.
 //
-// Hearth's main window comes up once its page is there, never as an empty white frame: it's
-// Hearth's own background until then, and when the app starts with Windows it loads out of sight
-// so the first open is warm.
+// How the main window comes into sight and goes out of it is sight.rs.
 
 use super::links::{self, Nav};
 use super::offline::{self, is_waiting, stop_waiting};
-use super::{deeplink, tell, toast};
+use super::{deeplink, sight, tell, toast};
 use crate::settings::get_settings;
-use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
-use std::time::Duration;
-use tauri::webview::{DownloadEvent, NewWindowResponse, PageLoadEvent};
-use tauri::window::Color;
+use std::time::Instant;
+use tauri::webview::{DownloadEvent, NewWindowResponse};
 use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
-use tauri_plugin_window_state::{StateFlags, WindowExt};
 
 pub const MAIN: &str = "hearth";
 pub const CAPTURE: &str = "hearth_capture";
 pub const ASK: &str = "hearth_ask";
-
-/// Opened while its page is still loading, the main window comes up after this anyway.
-const SHOW_WITHIN: Duration = Duration::from_millis(300);
-
-/// Set while the main window hasn't come up since it was made. It goes back where you left it
-/// as it's made, but maximized only as it comes up: maximizing a window shows it, so loading out
-/// of sight at login it would blink up and take focus.
-static MAXIMIZE_ON_SHOW: AtomicBool = AtomicBool::new(false);
-
-/// The window-state plugin's name (lib.rs), to take it out when quitting.
-const WINDOW_STATE: &str = "window-state";
-
-/// Each window's page, by label.
-static PAGES: Mutex<BTreeMap<&'static str, Page>> = Mutex::new(BTreeMap::new());
-
-/// Whether a window's page is still loading, and whether you're waiting to see it.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct Page {
-    loading: bool,
-    wanted: bool,
-}
-
-impl Page {
-    fn start(&mut self) {
-        self.loading = true;
-    }
-
-    /// You opened the window. True when it can come up now; else it waits for the page.
-    fn ask(&mut self) -> bool {
-        self.wanted = self.loading;
-        !self.loading
-    }
-
-    /// The page is there. True when you're waiting for it.
-    fn loaded(&mut self) -> bool {
-        self.loading = false;
-        std::mem::take(&mut self.wanted)
-    }
-
-    /// You've waited long enough. True when the window hasn't come up yet.
-    fn waited(&mut self) -> bool {
-        std::mem::take(&mut self.wanted)
-    }
-}
-
-fn page<T>(label: &'static str, f: impl FnOnce(&mut Page) -> T) -> T {
-    let mut pages = PAGES.lock().unwrap_or_else(|e| e.into_inner());
-    f(pages.entry(label).or_default())
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Which {
@@ -100,12 +44,19 @@ pub fn open(app: &AppHandle, path: &str) {
 }
 
 /// Loads Hearth into its window without showing it, for a start with Windows: the app waits in
-/// the tray, and Hearth is already there the first time you open it.
+/// the tray, and Hearth is already there the first time you open it. Its page knows it's out of
+/// sight, so it rests until then.
 pub fn preload(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        if home(&app).is_some() {
-            ready(&app, Which::Main, "/").await;
+        if home(&app).is_none() {
+            return;
+        }
+        if let Some((window, to)) = ready(&app, Which::Main, "/") {
+            sight::out_of_sight(&window);
+            if let Some(to) = to {
+                offline::load(&app, &window, to).await;
+            }
         }
     });
 }
@@ -141,20 +92,7 @@ pub fn close_all(app: &AppHandle) {
             let _ = w.destroy();
         }
         stop_waiting(label);
-        PAGES
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(label);
-    }
-    MAXIMIZE_ON_SHOW.store(false, Ordering::SeqCst);
-}
-
-/// The app is quitting. A main window that never came up was never maximized (see
-/// MAXIMIZE_ON_SHOW), so the window-state plugin doesn't get to save it: it would forget that you
-/// left Hearth maximized. What it saved last time stays.
-pub fn quitting(app: &AppHandle) {
-    if MAXIMIZE_ON_SHOW.load(Ordering::SeqCst) && !app.remove_plugin(WINDOW_STATE) {
-        log::warn!("No {WINDOW_STATE} plugin to take out before quitting");
+        sight::forget(label);
     }
 }
 
@@ -164,53 +102,29 @@ pub fn home(app: &AppHandle) -> Option<Url> {
 }
 
 fn spawn(app: &AppHandle, which: Which, path: &str) {
+    // The window comes up within a moment of this, however slow Hearth's server is (sight::show).
+    let asked = Instant::now();
     let app = app.clone();
     let path = path.to_string();
     // Off the main thread: making a WebView2 window from inside an event handler can deadlock.
     tauri::async_runtime::spawn(async move {
-        if let Some(window) = ready(&app, which, &path).await {
-            show(window, which).await;
-        }
-    });
-}
-
-/// Brings the window up. The main one waits for its page (see on_page_load in build), but
-/// never longer than SHOW_WITHIN; the small ones come up at once, since you're about to type.
-async fn show(window: WebviewWindow, which: Which) {
-    let label = which.label();
-    let waits = which == Which::Main && !window.is_visible().unwrap_or(false);
-    if waits && !page(label, Page::ask) {
-        tokio::time::sleep(SHOW_WITHIN).await;
-        if !page(label, Page::waited) {
-            // It came up when the page loaded.
+        let Some((window, to)) = ready(&app, which, &path) else {
             return;
+        };
+        let up = sight::show(window.clone(), asked);
+        match to {
+            // Loading alongside: offline::load waits a few seconds for the server first.
+            Some(to) => {
+                futures_util::future::join(offline::load(&app, &window, to), up).await;
+            }
+            None => up.await,
         }
-    }
-    bring_up(&window);
-}
-
-fn bring_up(window: &WebviewWindow) {
-    if window.label() == MAIN && MAXIMIZE_ON_SHOW.swap(false, Ordering::SeqCst) {
-        restore(window, StateFlags::MAXIMIZED);
-    }
-    // Windows may have changed between light and dark since the window was made.
-    let _ = window.set_background_color(Some(background(dark())));
-    let _ = window.unminimize();
-    let _ = window.show();
-    let _ = window.set_focus();
-}
-
-/// Puts the main window back as you left it, from the window-state plugin's record. On the main
-/// thread, as the plugin does: it holds its lock across calls that wait for that thread.
-fn restore(window: &WebviewWindow, flags: StateFlags) {
-    let w = window.clone();
-    let _ = window.run_on_main_thread(move || {
-        let _ = w.restore_state(flags);
     });
 }
 
-/// Hearth's window at a page: made if need be, and loading it, but not shown.
-async fn ready(app: &AppHandle, which: Which, path: &str) -> Option<WebviewWindow> {
+/// Hearth's window for a page, made (out of sight) if need be, and the page it's to load: none
+/// when it keeps the one it has.
+fn ready(app: &AppHandle, which: Which, path: &str) -> Option<(WebviewWindow, Option<Url>)> {
     let Some(home) = home(app) else {
         tell(app, "Set Hearth's address in voice settings first.");
         crate::show_main_window(app);
@@ -252,37 +166,11 @@ async fn ready(app: &AppHandle, which: Which, path: &str) -> Option<WebviewWindo
             }
         },
     };
-    if !keep {
-        page(label, Page::start);
-        offline::load(app, &window, to).await;
+    if keep {
+        return Some((window, None));
     }
-    Some(window)
-}
-
-/// Hearth's page background (--color-bg in apps/web/src/index.css), which the window shows until
-/// the page paints.
-fn background(dark: bool) -> Color {
-    if dark {
-        Color(0x15, 0x13, 0x0f, 0xff)
-    } else {
-        Color(0xfa, 0xf8, 0xf5, 0xff)
-    }
-}
-
-/// Whether Windows has apps in dark mode, which Hearth's pages follow.
-fn dark() -> bool {
-    #[cfg(windows)]
-    {
-        use winreg::enums::HKEY_CURRENT_USER;
-        use winreg::RegKey;
-
-        RegKey::predef(HKEY_CURRENT_USER)
-            .open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize")
-            .and_then(|k| k.get_value::<u32, _>("AppsUseLightTheme"))
-            .is_ok_and(|light| light == 0)
-    }
-    #[cfg(not(windows))]
-    false
+    sight::loading(label);
+    Some((window, Some(to)))
 }
 
 fn build(app: &AppHandle, which: Which, home: &Url) -> tauri::Result<WebviewWindow> {
@@ -290,25 +178,12 @@ fn build(app: &AppHandle, which: Which, home: &Url) -> tauri::Result<WebviewWind
     let blank: Url = "about:blank".parse().expect("about:blank");
     let mut b = WebviewWindowBuilder::new(app, label, WebviewUrl::External(blank))
         .visible(false)
-        .background_color(background(dark()))
+        .background_color(sight::backdrop())
         // Files dragged onto Hearth reach the page (attachments, imports).
         .disable_drag_drop_handler();
 
-    // A page has loaded: the "isn't running" page counts. If you opened the window while it was
-    // loading, it comes up now. Every window starts on about:blank, which doesn't count.
-    b = b.on_page_load(move |window, load| {
-        if load.url().scheme() == "about" {
-            return;
-        }
-        match load.event() {
-            PageLoadEvent::Started => page(label, Page::start),
-            PageLoadEvent::Finished => {
-                if page(label, Page::loaded) {
-                    tauri::async_runtime::spawn(async move { bring_up(&window) });
-                }
-            }
-        }
-    });
+    // It comes up once its page is there, if you're waiting for it.
+    b = b.on_page_load(move |window, load| sight::page_load(label, window, load));
 
     let (nav_app, nav_home) = (app.clone(), home.clone());
     b = b.on_navigation(move |to| match links::navigation(to, &nav_home) {
@@ -408,9 +283,7 @@ fn build(app: &AppHandle, which: Which, home: &Url) -> tauri::Result<WebviewWind
     let window = b.build()?;
     mark_user_agent(&window, &app.package_info().version.to_string());
     if which == Which::Main {
-        // Where you left it, and maximized as it comes up (see MAXIMIZE_ON_SHOW).
-        MAXIMIZE_ON_SHOW.store(true, Ordering::SeqCst);
-        restore(&window, StateFlags::SIZE | StateFlags::POSITION);
+        sight::made(&window);
     }
     Ok(window)
 }
@@ -422,6 +295,9 @@ fn from_page(app: &AppHandle, label: &str, link: &str) {
         Ok(links::Link::Close) => {
             if let Some(w) = app.get_webview_window(label) {
                 let _ = w.hide();
+                if label == MAIN {
+                    sight::out_of_sight(&w);
+                }
             }
         }
         Ok(links::Link::Retry) => offline::retry(app),
@@ -469,58 +345,4 @@ fn mark_user_agent(window: &WebviewWindow, version: &str) {
     }
     #[cfg(not(windows))]
     let _ = (window, version);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn comes_up_once_its_page_is_there() {
-        let mut p = Page::default();
-        // Nothing loading: at once.
-        assert!(p.ask());
-        // Opened while loading: when it loads, and only then.
-        p.start();
-        assert!(!p.ask());
-        assert!(p.loaded());
-        assert!(!p.waited());
-        assert!(!p.loaded());
-        assert!(p.ask());
-    }
-
-    #[test]
-    fn comes_up_anyway_when_the_page_is_slow() {
-        let mut p = Page::default();
-        p.start();
-        assert!(!p.ask());
-        assert!(p.waited());
-        // Already up: the page arriving later doesn't bring it up again.
-        assert!(!p.loaded());
-    }
-
-    #[test]
-    fn loading_out_of_sight_never_brings_it_up() {
-        let mut p = Page::default();
-        p.start();
-        assert!(!p.loaded());
-        assert!(!p.waited());
-        assert!(p.ask());
-    }
-
-    #[test]
-    fn background_is_hearths_own() {
-        let css = std::fs::read_to_string(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../web/src/index.css"
-        ))
-        .expect("Hearth's web app beside the desktop app");
-        let set: Vec<&str> = css
-            .lines()
-            .filter_map(|l| l.trim().strip_prefix("--color-bg:"))
-            .map(|v| v.trim().trim_end_matches(';'))
-            .collect();
-        let hex = |c: Color| format!("#{:02x}{:02x}{:02x}", c.0, c.1, c.2);
-        assert_eq!(set, [hex(background(false)), hex(background(true))]);
-    }
 }

@@ -938,7 +938,7 @@ pub fn run(cli_args: CliArgs) {
             Some(vec!["--start-hidden"]),
         ))
         // Hearth's window opens where you left it. Only that window: the others place themselves.
-        // It puts itself back (hearth/window.rs), so loading out of sight at login it isn't
+        // It puts itself back (hearth/sight.rs), so loading out of sight at login it isn't
         // maximized, which would show it.
         .plugin(
             tauri_plugin_window_state::Builder::new()
@@ -1139,6 +1139,8 @@ pub fn run(cli_args: CliArgs) {
             tauri::WindowEvent::CloseRequested { api, .. } => {
                 api.prevent_close();
                 let _res = window.hide();
+                // Hearth's page rests out of sight, as in a background tab.
+                hearth::sight::hidden(window);
 
                 #[cfg(target_os = "macos")]
                 {
@@ -1192,8 +1194,8 @@ pub fn run(cli_args: CliArgs) {
             }
             show_main_window(app);
         }
-        // Before the window-state plugin saves Hearth's window on the way out (hearth/window.rs).
-        tauri::RunEvent::ExitRequested { .. } => hearth::window::quitting(app),
+        // Before the window-state plugin saves Hearth's window on the way out (hearth/sight.rs).
+        tauri::RunEvent::ExitRequested { .. } => hearth::sight::quitting(app),
         // Teardown transcribe.cpp before exit
         tauri::RunEvent::Exit => {
             if let Some(tm) = app.try_state::<Arc<TranscriptionManager>>() {
