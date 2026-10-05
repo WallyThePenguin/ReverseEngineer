@@ -4,6 +4,7 @@
 // and reach Gmail within a minute. Older conversations load as you scroll down to them.
 
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
+import { Icon } from "../components/icons.tsx";
 import { Badge, Button, Empty, PaneHeader } from "../components/ui.tsx";
 import { debounced } from "../lib/debounce.ts";
 import { ago } from "../lib/format.ts";
@@ -253,8 +254,8 @@ export function Mail(props: { pane: number }) {
                           <span class="text-muted"> · {t.snippet}</span>
                         </span>
                         <Show when={t.starred}>
-                          <span class="text-warn" title="Starred">
-                            ★
+                          <span class="self-center text-warn" title="Starred">
+                            <Icon name="star" size={14} filled label="Starred" />
                           </span>
                         </Show>
                         <Show when={view() !== "inbox" && t.inInbox}>

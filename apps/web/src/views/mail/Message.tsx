@@ -3,6 +3,7 @@
 // from the internet (so senders can't see you opened it) until you ask for images.
 
 import { createSignal, For, Show } from "solid-js";
+import { Icon } from "../../components/icons.tsx";
 import { ago } from "../../lib/format.ts";
 import type { MailAddress, MailMessage } from "../../lib/types.ts";
 import { named } from "../Mail.tsx";
@@ -102,8 +103,13 @@ export function Message(props: { m: MailMessage; open: boolean; onToggle: () => 
               <For each={files()}>
                 {(a) => (
                   <li class="rounded border border-line bg-sunk px-2 py-1">
-                    <a href={`/api/mail/attachment/${props.m.id}/${a.index}`} download={a.filename}>
-                      📎 {a.filename}
+                    <a
+                      class="inline-flex items-center gap-1 align-bottom"
+                      href={`/api/mail/attachment/${props.m.id}/${a.index}`}
+                      download={a.filename}
+                    >
+                      <Icon name="paperclip" size={14} class="text-muted" />
+                      {a.filename}
                     </a>{" "}
                     <span class="text-faint">({Math.max(1, Math.round(a.size / 1024))} KB)</span>
                   </li>

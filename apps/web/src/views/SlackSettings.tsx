@@ -2,6 +2,7 @@
 // which channels are read in. Hearth only reads; it never posts.
 
 import { createSignal, For, Show } from "solid-js";
+import { Icon, type IconName } from "../components/icons.tsx";
 import { Button } from "../components/ui.tsx";
 import { ago } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
@@ -38,7 +39,13 @@ function manifestUrl(scopes: string[]) {
   return `https://api.slack.com/apps?new_app=1&manifest_json=${encodeURIComponent(JSON.stringify(manifest))}`;
 }
 
-const KIND = { channel: "#", private: "🔒 ", group: "👥 ", dm: "@" } as const;
+/** What kind of conversation a channel is, by its icon and in words for a screen reader. */
+const KIND: Record<Channel["kind"], { icon: IconName; label: string }> = {
+  channel: { icon: "hash", label: "channel" },
+  private: { icon: "lock", label: "private channel" },
+  group: { icon: "users", label: "group message" },
+  dm: { icon: "at-sign", label: "direct message" },
+};
 
 export function SlackSettings() {
   const status = useAction<Status>("slack.status");
@@ -151,9 +158,10 @@ export function SlackSettings() {
                             })
                           }
                         />
-                        <span>
-                          {KIND[c.kind]}
+                        <span class="flex min-w-0 items-center gap-1.5">
+                          <Icon name={KIND[c.kind].icon} size={14} class="text-muted" />
                           {c.name}
+                          <span class="sr-only">, {KIND[c.kind].label}</span>
                         </span>
                       </label>
                     </li>

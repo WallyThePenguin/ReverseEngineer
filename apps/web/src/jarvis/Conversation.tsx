@@ -3,6 +3,7 @@
 
 import { foldConversation, fromEditForm } from "@hearth/core";
 import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js";
+import { Icon } from "../components/icons.tsx";
 import { MentionEditor } from "../components/MentionEditor.tsx";
 import { Button, PaneHeader } from "../components/ui.tsx";
 import { MOD } from "../lib/hotkeys.ts";
@@ -196,10 +197,11 @@ export function Conversation(props: {
         <div class="pointer-events-none relative">
           <button
             type="button"
-            class="pointer-events-auto absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full border border-line bg-panel px-3 py-1 text-xs font-medium shadow"
+            class="pointer-events-auto absolute bottom-2 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-line bg-panel px-3 py-1 text-xs font-medium shadow-pop"
             onClick={toBottom}
           >
-            ↓ Latest
+            <Icon name="arrow-down" size={14} />
+            Latest
           </button>
         </div>
       </Show>
@@ -220,6 +222,7 @@ export function Conversation(props: {
           <Button
             small
             kind={mic.state() === "listening" ? "danger" : "plain"}
+            icon={mic.state() === "listening" ? "square" : "mic"}
             disabled={mic.state() === "working"}
             title="Talk to Jarvis: tap, speak, tap again. The answer is read aloud."
             onClick={() => void talk()}

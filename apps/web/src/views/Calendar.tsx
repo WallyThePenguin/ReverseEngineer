@@ -1,6 +1,7 @@
 // Your calendar as a list: the next week, day by day, with focus blocks and answers marked.
 
 import { createSignal, For, Show } from "solid-js";
+import { Icon } from "../components/icons.tsx";
 import { Badge, Button, Empty, PaneHeader } from "../components/ui.tsx";
 import { layout } from "../lib/panes.ts";
 import { useAction } from "../lib/query.ts";
@@ -11,6 +12,8 @@ const DAY_MS = 24 * 3600_000;
 const dayLabel = (d: Date) =>
   d.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
 const time = (d: Date) => d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+/** The tick or cross after the name of someone who has answered an invitation. */
+const ANSWERED = "ml-0.5 inline align-[-2px]";
 
 export function Calendar(props: { pane: number }) {
   const [offset, setOffset] = createSignal(0);
@@ -125,13 +128,20 @@ export function EventPanel(props: { id: string }) {
           <Show when={e().attendees.filter((a) => !a.self).length > 0}>
             <p class="text-muted">
               With{" "}
-              {e()
-                .attendees.filter((a) => !a.self)
-                .map(
-                  (a) =>
-                    `${a.name ?? a.email}${a.response === "accepted" ? " ✓" : a.response === "declined" ? " ✗" : ""}`,
-                )
-                .join(", ")}
+              <For each={e().attendees.filter((a) => !a.self)}>
+                {(a, i) => (
+                  <>
+                    {i() > 0 ? ", " : ""}
+                    {a.name ?? a.email}
+                    <Show when={a.response === "accepted"}>
+                      <Icon name="check" size={14} label="(going)" class={`${ANSWERED} text-ok`} />
+                    </Show>
+                    <Show when={a.response === "declined"}>
+                      <Icon name="x" size={14} label="(not going)" class={`${ANSWERED} text-bad`} />
+                    </Show>
+                  </>
+                )}
+              </For>
             </p>
           </Show>
           <p class="flex gap-3 pt-1">

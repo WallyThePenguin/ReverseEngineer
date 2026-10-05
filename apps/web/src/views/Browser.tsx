@@ -2,6 +2,7 @@
 // the ones you handed it, and take over with your mouse and keyboard at any time.
 
 import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js";
+import { Icon } from "../components/icons.tsx";
 import { Button, Empty, PaneHeader } from "../components/ui.tsx";
 import { createLiveBrowser, type LiveBrowser, openChrome } from "../lib/browser.ts";
 import { layout } from "../lib/panes.ts";
@@ -121,14 +122,14 @@ export function Browser() {
             go(false);
           }}
         >
-          <Button small onClick={() => b.send({ type: "back" })} title="Back">
-            ←
+          <Button small onClick={() => b.send({ type: "back" })} title="Back" label="Back">
+            <Icon name="arrow-left" size={14} class="my-0.5" />
           </Button>
-          <Button small onClick={() => b.send({ type: "forward" })} title="Forward">
-            →
+          <Button small onClick={() => b.send({ type: "forward" })} title="Forward" label="Forward">
+            <Icon name="arrow-right" size={14} class="my-0.5" />
           </Button>
-          <Button small onClick={() => b.send({ type: "reload" })} title="Reload">
-            ⟳
+          <Button small onClick={() => b.send({ type: "reload" })} title="Reload" label="Reload">
+            <Icon name="rotate-cw" size={14} class="my-0.5" />
           </Button>
           <input
             class="min-w-40 flex-1 rounded-md border border-line bg-panel px-2 py-1 font-mono text-xs"
