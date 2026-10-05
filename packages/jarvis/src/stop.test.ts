@@ -1,24 +1,24 @@
 // Stop means stop, and a retry never does a thing twice (D54): a Stop pressed while Jarvis was
 // stuck survives the restart, a tool still running when the model fails rules out a retry, a
-// brain that carries on after Stop can't run anything, and one stopped first never starts.
+// brain that carries on after Stop can't run anything, and one stopped first (or between tries)
+// never starts.
 import { jarvisTurn, task } from "@hearth/db";
 import { type Caller, ownerCaller } from "@hearth/kernel";
 import { asc } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { FaultyBrain } from "./brains/faulty.ts";
+import { FaultyBrain, rejectTool } from "./brains/faulty.ts";
 import { ScriptedBrain } from "./brains/scripted.ts";
 import { createJarvisHarness, type JarvisHarness } from "./testing.ts";
 
 let h: JarvisHarness;
 let script: ScriptedBrain;
+let brain: FaultyBrain;
 afterEach(() => h.destroy());
 
 async function start() {
   script = new ScriptedBrain();
-  h = await createJarvisHarness("2026-10-01T14:00:00Z", {
-    brain: new FaultyBrain(script),
-    runner: { stopCheckMs: 20 },
-  });
+  brain = new FaultyBrain(script);
+  h = await createJarvisHarness("2026-10-01T14:00:00Z", { brain, runner: { stopCheckMs: 20 } });
 }
 async function ok<T>(name: string, input: unknown): Promise<T> {
   const res = await h.kernel.execute<T>(name, input, ownerCaller());
@@ -29,16 +29,19 @@ const turns = () => h.tdb.db.select().from(jarvisTurn).orderBy(asc(jarvisTurn.qu
 const tasks = () => h.tdb.db.select().from(task);
 const chat = (text: string) => ok<{ conversationId: string }>("chat.send", { text });
 
-/** Makes one action slow, as a real send or sync can be. */
-function slow(action: string, ms: number) {
+/** Does `first` each time an action runs, just before it runs. */
+function before(action: string, first: () => unknown) {
   const real = h.kernel.execute.bind(h.kernel);
   vi.spyOn(h.kernel, "execute").mockImplementation(
     async (name: string, input: unknown, caller: Caller) => {
-      if (name === action) await new Promise((r) => setTimeout(r, ms));
+      if (name === action) await first();
       return real(name, input, caller);
     },
   );
 }
+/** Makes one action slow, as a real send or sync can be. */
+const slow = (action: string, ms: number) =>
+  before(action, () => new Promise((r) => setTimeout(r, ms)));
 
 describe("Stop", () => {
   it("still holds after a restart when Jarvis was stuck at the time", async () => {
@@ -86,8 +89,12 @@ describe("Stop", () => {
     await h.engine.processAvailable();
     const draining = h.runner.drain();
     // Stop once the brain is running: pressed while the turn is still being set up, the brain
-    // never starts (below), and there'd be nothing carrying on to test.
-    await started;
+    // never starts (below), and there'd be nothing carrying on to test. A turn that ends before
+    // the brain starts (a setup error, say) fails here at once, not at the test's timeout.
+    if ((await Promise.race([started, draining.then(() => "ended")])) === "ended") {
+      const [t] = await turns();
+      throw new Error(`The turn ended before the brain started (${t?.status}: ${t?.error})`);
+    }
     await ok("jarvis.cancel_turn", { conversationId });
     await draining;
     expect(await later).toMatch(/^Not run/);
@@ -105,6 +112,20 @@ describe("Stop", () => {
     expect(h.runner.cancel(turn!.id)).toBe(true);
     await running;
     expect(script.requests).toHaveLength(0);
+    expect((await turns())[0]).toMatchObject({ status: "canceled", errorKind: "canceled" });
+  });
+
+  it("doesn't start the brain again once the turn is stopped between tries", async () => {
+    await start();
+    // Claude rejects a tool, and Stop lands while Jarvis raises the alert about it, before it
+    // tries again without the tool.
+    brain.fail(rejectTool("task_create"));
+    await chat("hi");
+    await h.engine.processAvailable();
+    const turn = await h.runner.claimNext();
+    before("inbox.notify", () => h.runner.cancel(turn!.id));
+    await h.runner.run(turn!);
+    expect(brain.requests).toHaveLength(1);
     expect((await turns())[0]).toMatchObject({ status: "canceled", errorKind: "canceled" });
   });
 });
