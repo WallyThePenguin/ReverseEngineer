@@ -120,11 +120,13 @@ describe("the browser bridge", () => {
     await viewer.opened;
     expect(await viewer.next("state")).toMatchObject({ connected: true });
     viewer.send({ type: "view", tabId: 3 });
-    await new Promise((r) => setTimeout(r, 100));
-    const started = ext.calls.map((c) =>
-      c.method === "cdp" ? (c.params as Msg).method : c.method,
-    );
-    expect(started).toEqual([
+    // Each call waits for Chrome's answer to the one before: wait for the last, not a set time.
+    const started = () =>
+      ext.calls.map((c) => (c.method === "cdp" ? (c.params as Msg).method : c.method));
+    await vi.waitFor(() => expect(started()).toContain("Page.startScreencast"), {
+      timeout: 10_000,
+    });
+    expect(started()).toEqual([
       "tabs.show",
       "Emulation.setFocusEmulationEnabled",
       "Page.startScreencast",
@@ -147,11 +149,15 @@ describe("the browser bridge", () => {
       clickCount: 1,
     });
     viewer.send({ type: "key", kind: "keyDown", key: "Enter", code: "Enter" });
-    await new Promise((r) => setTimeout(r, 100));
-    const input = ext.calls
-      .filter((c) => String((c.params as Msg).method).startsWith("Input."))
-      .map((c) => (c.params as Msg).params);
-    expect(input).toEqual([
+    const input = () =>
+      ext.calls
+        .filter((c) => String((c.params as Msg).method).startsWith("Input."))
+        .map((c) => (c.params as Msg).params);
+    await vi.waitFor(
+      () => expect(input()).toContainEqual(expect.objectContaining({ type: "keyDown" })),
+      { timeout: 10_000 },
+    );
+    expect(input()).toEqual([
       { type: "mousePressed", x: 10, y: 20, button: "left", clickCount: 1, modifiers: 0 },
       expect.objectContaining({
         type: "keyDown",
@@ -235,7 +241,9 @@ describe("the live view", () => {
     const enter = { type: "key", kind: "keyDown", key: "Enter", code: "Enter" };
     viewer.send({ type: "view", tabId: 3 });
     viewer.send(enter);
-    for (let i = 0; i < 150 && keys() === 0; i++) await new Promise((r) => setTimeout(r, 20));
+    // Not vi.waitFor: that would move the re-check's pretend clock as it waits.
+    for (const end = Date.now() + 10_000; keys() === 0 && Date.now() < end; )
+      await new Promise((r) => setTimeout(r, 20));
     expect(keys()).toBe(1);
 
     // A client of its own that never answers the close: ws waits 30 s for it before hanging up.

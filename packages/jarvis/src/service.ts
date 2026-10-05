@@ -17,6 +17,12 @@ import { ReflexEngine } from "./engine.ts";
 import { HEARTBEAT } from "./heartbeat.ts";
 import { type RunnerOptions, TurnRunner } from "./runner.ts";
 
+/**
+ * How long a stopping Jarvis waits for tools still running. Well inside the 15 seconds an update
+ * gives Jarvis to stop by itself (ops/windows/control.ps1) and the CLI's own stop limit.
+ */
+const TOOLS_SETTLE_MS = 8_000;
+
 export interface JarvisServiceOptions {
   kernel: Kernel;
   pool: pg.Pool;
@@ -123,14 +129,21 @@ export async function startJarvis(opts: JarvisServiceOptions) {
   return {
     engine,
     runner,
+    /**
+     * Stops for a restart or an update (D63). A turn still running ends the way Stop ends it,
+     * at once rather than up to its lane's 30 minutes later, and is left for the next start to
+     * run again or report as cut short. A tool it had running gets a few seconds to finish.
+     */
     async stop() {
       stopped = true;
+      runner.stops.interruptAll();
       clearInterval(poll);
       clearInterval(heartbeat);
       await unlisten();
       await unlistenStop();
       for (const w of [...waiters]) w();
       await Promise.allSettled(workers);
+      await runner.stops.settled(TOOLS_SETTLE_MS);
     },
   };
 }

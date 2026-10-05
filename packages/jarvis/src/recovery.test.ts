@@ -66,7 +66,7 @@ describe("Stop", () => {
     const { conversationId } = await chat("write me an essay");
     await h.engine.processAvailable();
     const draining = h.runner.drain();
-    await vi.waitFor(() => expect(brain.requests).toHaveLength(1));
+    await vi.waitFor(() => expect(brain.requests).toHaveLength(1), { timeout: 10_000 });
     expect(await ok("jarvis.cancel_turn", { conversationId })).toEqual({
       canceled: 0,
       stopping: 1,
@@ -84,7 +84,7 @@ describe("Stop", () => {
     await chat("hi");
     await h.engine.processAvailable();
     const draining = h.runner.drain();
-    await vi.waitFor(() => expect(brain.requests).toHaveLength(1));
+    await vi.waitFor(() => expect(brain.requests).toHaveLength(1), { timeout: 10_000 });
     const [t] = await turns();
     expect(h.runner.cancel(t!.id)).toBe(true);
     await draining;

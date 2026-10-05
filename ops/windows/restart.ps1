@@ -4,9 +4,10 @@
 
 .DESCRIPTION
   `pnpm hearth restart [server|worker|jarvis|all]` runs this. It uses the rights install.ps1 gave
-  your account and the same stop logic as update.ps1 (Jarvis's pid file, then the task), starts
-  what it stopped, and waits until that reports in: the server answering with its database fitting
-  the code, the worker and Jarvis checking in. Exit code 0 means it's back.
+  your account and the same stop logic as update.ps1 (asking Jarvis to stop, then ending its task,
+  then waiting for it to go), starts what it stopped, and waits until that reports in: the server
+  answering with its database fitting the code, the worker and Jarvis checking in. A Jarvis that
+  won't stop leaves everything as it was, with the pid to end. Exit code 0 means it's back.
 #>
 [CmdletBinding()]
 param(
@@ -35,7 +36,10 @@ try {
   Start-Hearth $parts
 } catch {
   Write-Host "Couldn't restart ${name}: $_"
-  Write-Host "If Windows said access is denied, run ops\windows\install.ps1 again as administrator: it lets your account restart Hearth."
+  # A Jarvis that won't stop (Stop-Jarvis) says what to do itself.
+  if ("$_" -notmatch "older Jarvis|Jarvis's log") {
+    Write-Host "If Windows said access is denied, run ops\windows\install.ps1 again as administrator: it lets your account restart Hearth."
+  }
   exit 1
 }
 

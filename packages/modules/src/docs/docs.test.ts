@@ -1,4 +1,5 @@
 import { docPeer, docState, docUpdate, entity } from "@hearth/db";
+import { budget, fastest } from "@hearth/db/testing";
 import { type Caller, jarvisCaller, ownerCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { count, eq, sql } from "drizzle-orm";
@@ -154,13 +155,26 @@ describe("live docs", () => {
     const note = await ok<{ id: string }>("note.create", { title: "Long", body: prose(50_000, 1) });
     const a = new Screen(note.id);
     await a.sync();
-    const rewritten = prose(50_000, 7);
-    const revision = await revisionOf(note.id);
-    const t0 = performance.now();
-    await ok("note.update", { id: note.id, body: rewritten, revision }, jarvisCaller("agent"));
-    expect(performance.now() - t0).toBeLessThan(500);
+    // A different rewrite each time, so each is a whole-note diff.
+    const rewrites = [7, 11, 13].map((seed) => prose(50_000, seed));
+    let revision = await revisionOf(note.id);
+    // The precise diff gets 200 ms of the clock on any machine (DIFF_MS in store.ts) before the
+    // line diff takes over; that and the writes take 25 to 50 ms more on a developer's PC, and
+    // only that part is scaled for a slower machine. Without the limit the diff takes seconds.
+    const best = await fastest(
+      async (n) => {
+        const body = rewrites[n]!;
+        ({ revision } = await ok<{ revision: number }>(
+          "note.update",
+          { id: note.id, body, revision },
+          jarvisCaller("agent"),
+        ));
+      },
+      { runs: 3, warmup: 0 },
+    );
+    expect(best).toBeLessThan(200 + budget(300));
     await a.sync();
-    expect(a.text).toBe(rewritten);
+    expect(a.text).toBe(rewrites.at(-1));
   });
 
   it("writes as one peer per writer, so the version doesn't grow with every edit", async () => {

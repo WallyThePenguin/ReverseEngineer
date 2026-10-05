@@ -309,6 +309,17 @@ foreach ($f in "update.ps1", "control.ps1") {
 
 `-Root` says where Hearth is, since that copy isn't in its folder.
 
+**Stopping Jarvis (D63).** Your account can't end the task's Jarvis, so updates and
+`hearth restart` ask it to stop and wait for it. A Hearth from before D63 doesn't stop when asked,
+so the first update to D63 ends at "Making sure Jarvis has stopped". It names the old Jarvis's pid
+and rolls back with that Jarvis left running. Then:
+
+1. In an administrator PowerShell, run the `taskkill /F /PID <pid>` it printed.
+2. Run `.\ops\windows\update.ps1` again within about three minutes. After that, the old Hearth's
+   worker starts its Jarvis again, and the old update would leave that one running too.
+
+Restarting the PC doesn't help: the old Jarvis starts again at boot, in the same state.
+
 ### Restoring from a backup
 
 `hearth restore` brings a backup back into a **new** database next to the one Hearth runs on,

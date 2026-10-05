@@ -1857,3 +1857,45 @@ happens once even on a PC that sleeps, restarts and deploys. The owner's answers
 the starting points: DM replies go out on their own from day one, channel replies wait for a yes,
 `schedule` is given person by person, your own DM gets only fixed replies, and the app keeps its
 user write scopes.
+
+## D63. Jarvis stops when asked; one that won't is named, never worked around (2026-10-05)
+
+**Decision:** Updates and restarts stop Jarvis by asking it, from your own account, and don't
+start another until it has gone. When it won't go, they say so, with the pid to end.
+
+- **Jarvis stops itself.** As the task (`HEARTH_AS_SERVICE=1`), Jarvis checks every second for
+  `hearth-jarvis.stop` next to its pid file. It stops for one written after it started, if the
+  file belongs to your account, the Administrators group or SYSTEM. Any local account can create
+  files in that folder, so the owner is checked, once per request. Jarvis also stops when the
+  task's cmd.exe has gone, which is what ending the task does. It exits 0, so the task's
+  restart-on-failure doesn't bring it back mid-update.
+- **Turns end truthfully.** A turn cut short this way isn't recorded as stopped by you. It's left
+  running for the next Jarvis to pick up again (D54). Tools already under way get 8 seconds to
+  finish. Your own Stop is still recorded as stopped.
+- **Updates and restarts wait for it.** `Stop-Jarvis` writes the request, ends the task run, and
+  waits up to 15 seconds for Jarvis's pid to go and its log to open again. Then it ends what it's
+  sure is Jarvis, which only works elevated, and waits 15 seconds more.
+- **One that won't go is named.** A Jarvis still there, or a log still held, ends the update or
+  restart before anything else is stopped. Hearth says which pid to end with `taskkill` as
+  administrator. A rollback starts the server and worker and leaves that Jarvis as it was. The
+  gate names the pid of a Jarvis that last reported in before the update.
+- **The task is unchanged.** Its cmd.exe opens the log before any of Hearth's code runs, so no
+  change inside Jarvis can let the task start while an older Jarvis holds the log. Instead, no
+  Jarvis since this outlives its task run.
+
+**Alternatives:**
+- Ending Jarvis from your account. Windows refuses: it runs in session 0, and your unelevated
+  account can neither open it nor read its start time.
+- Elevated updates. install.ps1's grants exist so updates don't need administrator rights.
+- A log per run, or no redirect in the task. Either changes the task, which means running
+  install.ps1 again as administrator. The stop file needs no reinstall.
+- Offering to restart the PC. At boot, the Hearth you update from starts its old Jarvis again,
+  and that Hearth's update orphans it again.
+- A services folder only you can write to. That needs install.ps1 elevated. The owner check
+  covers it meanwhile, apart from LocalService, which may modify the folder for the services'
+  logs.
+
+**Why:** On 2026-10-05 an update from the owner's account couldn't stop the old Jarvis.
+Stop-Process said "Access is denied" and the start time came back blank, which was taken for a
+reused pid. Ending the task ended only cmd.exe. The old Jarvis kept running with its log open, so
+every later start of the task failed at once, and the gate only said Jarvis hadn't checked in.
