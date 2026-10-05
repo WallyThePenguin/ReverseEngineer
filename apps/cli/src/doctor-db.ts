@@ -36,7 +36,7 @@ export function checkTurns(turns: TurnStats): Check {
   return { name, mark: "ok", detail: `${turns.total} in the last 24 hours, none failed` };
 }
 
-/** One check per health component, stale ones failing (D57). */
+/** One check per health component, stale ones failing (D57), someone else's service warning. */
 export function checkComponents(report: DeepHealth): Check[] {
   const checks: Check[] = [];
   if (!report.components.backup)
@@ -46,7 +46,9 @@ export function checkComponents(report: DeepHealth): Check[] {
       detail: "No backup has run yet. See docs/setup-windows.md.",
     });
   for (const [name, h] of Object.entries(report.components)) {
-    const mark: Mark = MARK[h.status];
+    // Slack dropping Jarvis's socket is a warning, not a fail: an update can't fix it, so the
+    // update's before-and-after doctor mustn't roll one back over it (D62).
+    const mark: Mark = h.external && h.status === "failing" ? "warn" : MARK[h.status];
     checks.push({ name, mark, detail: h.detail || h.status });
   }
   return checks;

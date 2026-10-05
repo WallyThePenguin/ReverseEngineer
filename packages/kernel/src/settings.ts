@@ -37,6 +37,11 @@ export interface Settings {
   "push.vapid": { publicKey: string; privateKey: string } | null;
   /** When the Jarvis process last said it's alive (every 30 s), and since when it's been up. */
   "jarvis.alive": { at: string; since: string; pid: number } | null;
+  /**
+   * Whether people in your Slack workspace can talk to Jarvis's bot at all (D62). Everything a
+   * member can do waits behind it, and it starts off.
+   */
+  "slack.bot.membersOn": boolean;
 }
 
 export const SETTING_DEFAULTS: Settings = {
@@ -57,6 +62,7 @@ export const SETTING_DEFAULTS: Settings = {
   ],
   "push.vapid": null,
   "jarvis.alive": null,
+  "slack.bot.membersOn": false,
 };
 
 export async function getSetting<K extends keyof Settings>(

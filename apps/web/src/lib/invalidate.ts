@@ -75,6 +75,8 @@ const AFTER_CHANGE: Record<string, Rule> = {
   routine: ["system.status"],
   approval: ["inbox.list", "conversation."],
   standing_rule: ["approval.list"],
+  // Jarvis's Slack bot holds the standing rule that lets its replies to members go out (D62).
+  slack: ["standing_rule.list"],
 };
 
 const moduleOf = (name: string) => name.split(".", 1)[0] ?? "";

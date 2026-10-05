@@ -1,0 +1,67 @@
+// How Jarvis's Slack socket is doing (D62), kept on slack_bot the way the pollers keep theirs
+// (connector-health.ts, D61) and reported as sync.slack_bot. A round here is a connection: the
+// socket says it's connected, and keeps saying so while it is, or that it couldn't connect. It
+// counts as failing only after 30 minutes without a connection, longer than an update's restart
+// takes, and at once when Slack has revoked it; either way you're told once a day (D60).
+import { type DbOrTx, slackBot } from "@hearth/db";
+import { eq } from "drizzle-orm";
+import { type Health, type NextHealth, nextHealth, type Trouble } from "../../connector-health.ts";
+import type { BotRow } from "./tokens.ts";
+
+/**
+ * Slack's words for "this bot can't connect again until you act": a socket's disconnect reason
+ * or an API error. The socket and the sender stop, and wait for new tokens (D62).
+ */
+export const REVOKED_CODES: ReadonlySet<string> = new Set([
+  "link_disabled",
+  "invalid_auth",
+  "token_revoked",
+  "account_inactive",
+  "app_uninstalled",
+  "tokens_revoked",
+]);
+
+const MESSAGES: Record<string, string> = {
+  link_disabled: "Slack turned off Socket Mode for Jarvis's app.",
+  invalid_auth: "Slack doesn't accept Jarvis's tokens any more.",
+  token_revoked: "Jarvis's Slack token was revoked.",
+  account_inactive: "Jarvis's Slack app was deactivated.",
+  app_uninstalled: "Jarvis's app was uninstalled from the workspace.",
+  tokens_revoked: "Jarvis's Slack tokens were revoked.",
+};
+
+/** What a code from Slack means for the socket's health. */
+export function botTrouble(code: string): Trouble {
+  if (REVOKED_CODES.has(code))
+    return {
+      kind: "revoked",
+      message: `${MESSAGES[code]} Paste new tokens in Settings → Slack → Jarvis's bot.`,
+    };
+  return { kind: "transient", message: `Jarvis's Slack socket is down: ${code}.` };
+}
+
+/** The row's health. A bot whose socket hasn't connected yet counts from when you connected it. */
+export const botHealth = (row: BotRow): Health => ({
+  syncState: row.syncState,
+  failures: row.failures,
+  failingSince: row.failingSince,
+  syncedAt: row.syncedAt ?? row.connectedAt,
+});
+
+/**
+ * Saves how the socket is doing: `trouble` null while it's connected. Returns what changed, or
+ * null when there's no bot or it's revoked: then nothing changes until slack.bot_replace_tokens
+ * takes new tokens, whatever the socket says.
+ */
+export async function saveBotHealth(
+  db: DbOrTx,
+  teamId: string,
+  now: Date,
+  trouble: Trouble | null,
+): Promise<NextHealth | null> {
+  const [row] = await db.select().from(slackBot).where(eq(slackBot.teamId, teamId));
+  if (!row || row.syncState === "revoked") return null;
+  const next = nextHealth(botHealth(row), now, trouble, trouble === null);
+  await db.update(slackBot).set(next.values).where(eq(slackBot.teamId, teamId));
+  return next;
+}

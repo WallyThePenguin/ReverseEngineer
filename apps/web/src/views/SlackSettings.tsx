@@ -1,5 +1,6 @@
-// Settings for Slack: make a small Slack app from a ready-made manifest, paste its token, and pick
-// which channels are read in. Hearth only reads; it never posts.
+// Settings for Slack: set up your Slack app from the manifest Hearth makes, paste your token, and
+// pick which channels are read in. Your token only reads; Jarvis posts as its own bot, set up
+// below once Slack is connected (D62).
 
 import { createSignal, For, Show } from "solid-js";
 import { Button } from "../components/ui.tsx";
@@ -7,6 +8,7 @@ import { ago } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
 import { act, useAction } from "../lib/query.ts";
 import { ReplaceToken } from "./ReplaceToken.tsx";
+import { SlackBotSettings, SlackManifest } from "./SlackBotSettings.tsx";
 
 interface Status {
   connected: boolean;
@@ -16,6 +18,8 @@ interface Status {
   /** "revoked": the token stopped working, and nothing new comes in until it's replaced. */
   state?: "ok" | "failing" | "revoked";
   scopes: string[];
+  /** The manifest for your Slack app: your token's reading list and Jarvis's bot (D62). */
+  manifest: string;
 }
 
 interface Channel {
@@ -23,19 +27,6 @@ interface Channel {
   name: string;
   kind: "channel" | "private" | "group" | "dm";
   ingest: boolean;
-}
-
-/** Opens Slack's "create an app" page with Hearth's app already filled in. */
-function manifestUrl(scopes: string[]) {
-  const manifest = {
-    display_information: {
-      name: "Hearth",
-      description: "Reads your Slack into Hearth. Never posts.",
-    },
-    oauth_config: { scopes: { user: scopes } },
-    settings: { org_deploy_enabled: false, socket_mode_enabled: false },
-  };
-  return `https://api.slack.com/apps?new_app=1&manifest_json=${encodeURIComponent(JSON.stringify(manifest))}`;
 }
 
 const KIND = { channel: "#", private: "🔒 ", group: "👥 ", dm: "@" } as const;
@@ -67,8 +58,9 @@ export function SlackSettings() {
     <section class="space-y-3">
       <h2 class="font-semibold">Slack</h2>
       <p class="text-sm text-muted">
-        Your team's Slack, read in: @mentions and direct messages land in the inbox, and Jarvis can
-        look things up. Hearth never posts. What people write there is treated as outside content.
+        Your team's Slack, read in with your own token: @mentions and direct messages land in the
+        inbox, and Jarvis can look things up. Hearth never posts as you. What people write there is
+        treated as outside content.
       </p>
       <Show when={status.data}>
         {(s) => (
@@ -76,17 +68,12 @@ export function SlackSettings() {
             when={s().connected}
             fallback={
               <form class="space-y-2 rounded-md bg-sunk px-3 py-3 text-sm" onSubmit={connect}>
+                <SlackManifest text={s().manifest} />
                 <ol class="list-decimal space-y-1 pl-5">
                   <li>
-                    <a
-                      class="text-accent underline"
-                      href={manifestUrl(s().scopes)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      Create Hearth's Slack app
-                    </a>{" "}
-                    in your workspace (it's filled in already), then press Install to Workspace.
+                    In your Slack app, open App Manifest, switch to YAML and merge this in, keeping
+                    your app id and redirect settings. Then install or reinstall it to the
+                    workspace.
                   </li>
                   <li>Copy its User OAuth Token (it starts with xoxp-) and paste it here.</li>
                 </ol>
@@ -164,6 +151,7 @@ export function SlackSettings() {
                 Unticked channels aren't read in, but mentions of you there still come through.
               </p>
             </Show>
+            <SlackBotSettings manifest={s().manifest} />
           </Show>
         )}
       </Show>

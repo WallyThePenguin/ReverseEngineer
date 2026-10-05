@@ -2,7 +2,7 @@
 // anything that @mentions you. A mention or a direct message lands in the inbox once the first
 // sync is done. How the round went is saved on the workspace (D61): a token that stops working
 // stops the polling until you paste a new one, and failing is told once, when it starts.
-import { slackChannel, slackWorkspace } from "@hearth/db";
+import { slackBot, slackChannel, slackWorkspace } from "@hearth/db";
 import { type ActionContext, savepoint } from "@hearth/kernel";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { closeAlerts, nextHealth, type Trouble, worst } from "../connector-health.ts";
@@ -37,10 +37,12 @@ async function refreshChannels(ctx: ActionContext, ws: WorkspaceRow, token: stri
   for (const c of await slackApi(ctx).conversations(token)) {
     const dmUser = c.kind === "dm" && c.user ? await userName(ctx, ws, token, c.user) : null;
     const name = (dmUser?.name ?? c.name ?? c.id).slice(0, 200);
+    // Your DM with Jarvis isn't read in: Jarvis hears it over its own socket (D62).
+    const off = c.id === ws.jarvis?.ownerIm ? { ingest: false } : {};
     await ctx.tx
       .insert(slackChannel)
-      .values({ id: c.id, teamId: ws.teamId, name, kind: c.kind, dmUser: c.user ?? null })
-      .onConflictDoUpdate({ target: slackChannel.id, set: { name, kind: c.kind } });
+      .values({ id: c.id, teamId: ws.teamId, name, kind: c.kind, dmUser: c.user ?? null, ...off })
+      .onConflictDoUpdate({ target: slackChannel.id, set: { name, kind: c.kind, ...off } });
   }
   await ctx.tx
     .update(slackWorkspace)
@@ -115,8 +117,13 @@ export interface SlackSyncResult {
 /** One round: the channel list now and then, your mentions, the least recently read channels. */
 export async function syncSlack(ctx: ActionContext): Promise<SlackSyncResult> {
   const result: SlackSyncResult = { added: 0, mentions: 0, channels: 0, replies: 0 };
-  const [ws] = await ctx.tx.select().from(slackWorkspace).limit(1);
-  if (!ws) return result;
+  const [row] = await ctx.tx.select().from(slackWorkspace).limit(1);
+  if (!row) return result;
+  const [jarvis] = await ctx.tx
+    .select({ ownerIm: slackBot.ownerIm, botId: slackBot.botId, botUserId: slackBot.botUserId })
+    .from(slackBot)
+    .where(eq(slackBot.teamId, row.teamId));
+  const ws: WorkspaceRow = { ...row, jarvis: jarvis ?? null };
   // A token that stopped working isn't tried again until you paste a new one.
   if (ws.syncState === "revoked") return { ...result, error: ws.lastError ?? undefined };
   const troubles: Trouble[] = [];

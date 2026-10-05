@@ -19,7 +19,13 @@ import { z } from "zod";
 import { alertBackupFailed, alertFailing } from "./alerts.ts";
 import { judgeHealth } from "./staleness.ts";
 
-export { type JudgedHealth, judgeHealth, REPORT_EVERY_MS, roughly } from "./staleness.ts";
+export {
+  EXTERNAL_COMPONENTS,
+  type JudgedHealth,
+  judgeHealth,
+  REPORT_EVERY_MS,
+  roughly,
+} from "./staleness.ts";
 
 const STATUS = z.enum(["ok", "degraded", "failing"]);
 export type HealthStatus = z.infer<typeof STATUS>;

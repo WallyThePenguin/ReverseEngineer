@@ -11,6 +11,7 @@ const LABELS: Readonly<Record<string, string>> = {
   "sync.google": "Google sync",
   "sync.slack": "Slack sync",
   "sync.github": "GitHub sync",
+  "sync.slack_bot": "Jarvis's Slack bot",
   worker: "Hearth's worker",
   server: "Hearth's server",
   disk: "Disk space",

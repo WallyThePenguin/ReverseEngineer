@@ -6,22 +6,11 @@ import { eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { closeAlerts } from "../connector-health.ts";
 import { SlackError } from "./api.ts";
+import { slackManifest, USER_SCOPES } from "./bot/manifest.ts";
 import { sealToken, slackApi, type WorkspaceRow } from "./save.ts";
 
 /** What a Slack app for Hearth needs (user token scopes), shown in Settings. */
-export const SLACK_SCOPES = [
-  "channels:history",
-  "channels:read",
-  "groups:history",
-  "groups:read",
-  "im:history",
-  "im:read",
-  "mpim:history",
-  "mpim:read",
-  "users:read",
-  "users:read.email",
-  "search:read",
-];
+export const SLACK_SCOPES: string[] = [...USER_SCOPES];
 
 const token = z
   .string()
@@ -110,7 +99,8 @@ export const connectActions = [
   }),
   defineAction({
     name: "slack.status",
-    description: "Whether Slack is connected, which workspace, and how syncing is going.",
+    description:
+      "Whether Slack is connected, which workspace, how syncing is going, and the manifest for your Slack app.",
     input: z.object({}),
     risk: "read",
     callers: ["owner"],
@@ -125,12 +115,24 @@ export const connectActions = [
         })
         .from(slackWorkspace)
         .limit(1);
-      return { connected: Boolean(ws), ...(ws ?? {}), scopes: SLACK_SCOPES };
+      // Your name as Slack shows it, when it's been read in, says whose assistant Jarvis is.
+      const [me] = await ctx.tx
+        .select({ name: slackUser.name })
+        .from(slackUser)
+        .innerJoin(slackWorkspace, eq(slackWorkspace.userId, slackUser.id))
+        .limit(1);
+      return {
+        connected: Boolean(ws),
+        ...(ws ?? {}),
+        scopes: SLACK_SCOPES,
+        manifest: slackManifest(me?.name ?? null),
+      };
     },
   }),
   defineAction({
     name: "slack.disconnect",
-    description: "Forget the Slack workspace: its token, channels and messages leave Hearth.",
+    description:
+      "Forget the Slack workspace: its token, channels and messages leave Hearth, and so does Jarvis's bot.",
     input: z.object({}),
     risk: "internal",
     callers: ["owner"],

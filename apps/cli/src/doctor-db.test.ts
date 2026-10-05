@@ -3,6 +3,7 @@ import { connect, jarvisTurn, loadMigrations } from "@hearth/db";
 import { systemCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { ALL_MODULES } from "@hearth/modules";
+import { deepHealth } from "@hearth/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Check } from "./doctor.ts";
 import { checkDatabase, checkTurns } from "./doctor-db.ts";
@@ -51,6 +52,34 @@ describe("hearth doctor, what the database says", () => {
       mark: "fail",
       detail: "No report for 11 min (last: Connected (extension 1.2.0)).",
     });
+  });
+
+  it("warns about Jarvis's Slack socket, never fails on it, so Slack's trouble can't roll an update back (D62)", async () => {
+    const report = (component: string, status: string, detail: string) =>
+      t.kernel.execute("system.report", { component, status, detail }, systemCaller());
+    const revoked = "Jarvis in Acme: Jarvis's Slack tokens were revoked.";
+    await report("worker", "ok", "Running");
+    await report("sync.slack_bot", "failing", revoked);
+    expect(find(await checkDatabase(t.tdb, t.clock.now()), "sync.slack_bot")).toMatchObject({
+      mark: "warn",
+      detail: revoked,
+    });
+    const deep = () =>
+      deepHealth({
+        db: t.tdb.db,
+        now: t.clock.now(),
+        version: null,
+        startedAt: null,
+        browser: null,
+      });
+    const told = await deep();
+    expect(told.status).toBe("degraded");
+    expect(told.problems).toEqual([`sync.slack_bot: ${revoked}`]);
+    expect(told.components["sync.slack_bot"]).toMatchObject({ status: "failing", external: true });
+    // Hearth's own syncs still fail as before.
+    await report("sync.slack", "failing", "Acme: invalid_auth");
+    expect((await deep()).status).toBe("failing");
+    expect(find(await checkDatabase(t.tdb, t.clock.now()), "sync.slack")?.mark).toBe("fail");
   });
 
   it("fails when Jarvis's turns keep failing", async () => {

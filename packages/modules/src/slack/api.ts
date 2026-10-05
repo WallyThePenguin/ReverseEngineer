@@ -1,8 +1,30 @@
 // What Hearth needs from Slack's Web API, read with your own user token (PLAN.md section 8.3).
 // Hearth runs on your PC with no public address, so it asks Slack for news instead of being
-// told: one channel at a time, within Slack's rate limits.
+// told: one channel at a time, within Slack's rate limits. With your token it only ever reads
+// (USER_TOKEN_METHODS); Jarvis posts as its own bot (bot/api.ts, D62).
 
 export const SLACK_SERVICE = "slack";
+
+/**
+ * The only Web API methods Hearth calls with your own token, all of them reads. Your app keeps the
+ * user write scopes it already had (chat:write, im:write, reactions:write) because something else
+ * of yours may use them, so Slack would accept a post made with your token. This list is what
+ * keeps Hearth from ever making one (D62).
+ */
+export const USER_TOKEN_METHODS: ReadonlySet<string> = new Set([
+  "auth.test",
+  "users.conversations",
+  "conversations.history",
+  "conversations.replies",
+  "users.info",
+  "search.messages",
+]);
+
+/** Refuses, before anything is sent, any call with your own token that isn't one of those reads. */
+export function assertUserRead(method: string): void {
+  if (!USER_TOKEN_METHODS.has(method))
+    throw new Error(`Hearth never calls ${method} with your own Slack token: it only reads (D62).`);
+}
 
 export interface SlackMessage {
   ts: string;
@@ -44,8 +66,10 @@ export interface SlackMatch extends SlackMessage {
 }
 
 export interface SlackApi {
-  /** Who the token belongs to. */
-  whoami(token: string): Promise<{ teamId: string; team: string; url: string; userId: string }>;
+  /** Who the token belongs to, and the scopes Slack says it has (x-oauth-scopes). */
+  whoami(
+    token: string,
+  ): Promise<{ teamId: string; team: string; url: string; userId: string; scopes: string[] }>;
   conversations(token: string): Promise<SlackConversation[]>;
   /**
    * A page of a channel's messages after `oldest` and before `latest` (Slack ts), newest first;
@@ -102,9 +126,44 @@ const SLACK_ERRORS: Record<string, string> = {
   ratelimited: "Slack asked Hearth to slow down; it will carry on in a minute.",
 };
 
-type Raw = Record<string, unknown>;
+export type Raw = Record<string, unknown>;
 
-const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+export const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+
+/** The scopes Slack says a token has, from the header it sends back with every answer. */
+export const scopesOf = (headers: Headers): string[] =>
+  (headers.get("x-oauth-scopes") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+/**
+ * One Web API call: the parameters in the address, or posted as a form. Slack's answer, and the
+ * scopes it says the token has.
+ */
+export async function slackRequest(
+  base: string,
+  token: string,
+  method: string,
+  params: Record<string, string>,
+  post = false,
+): Promise<{ body: Raw; scopes: string[] }> {
+  const form = new URLSearchParams(params);
+  const res = await fetch(post ? `${base}/${method}` : `${base}/${method}?${form}`, {
+    method: post ? "POST" : "GET",
+    headers: {
+      authorization: `Bearer ${token}`,
+      ...(post ? { "content-type": "application/x-www-form-urlencoded" } : {}),
+    },
+    ...(post ? { body: form } : {}),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (res.status === 429)
+    throw new SlackError("ratelimited", Number(res.headers.get("retry-after") ?? 60));
+  const body = (await res.json().catch(() => ({ ok: false, error: `http_${res.status}` }))) as Raw;
+  if (!body.ok) throw new SlackError(String(body.error ?? "unknown_error"));
+  return { body, scopes: scopesOf(res.headers) };
+}
 
 function message(m: Raw): SlackMessage {
   return {
@@ -124,29 +183,24 @@ const nextCursor = (r: Raw): string | undefined =>
   (r.has_more ? str((r.response_metadata as Raw | undefined)?.next_cursor) : undefined) ||
   undefined;
 
-/** Slack's real Web API, over HTTPS. */
+/** Slack's real Web API, over HTTPS, with your own token: reads only. */
 export function httpSlack(base = "https://slack.com/api"): SlackApi {
-  async function call(token: string, method: string, params: Record<string, string>) {
-    const res = await fetch(`${base}/${method}?${new URLSearchParams(params)}`, {
-      headers: { authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(20_000),
-    });
-    if (res.status === 429)
-      throw new SlackError("ratelimited", Number(res.headers.get("retry-after") ?? 60));
-    const body = (await res
-      .json()
-      .catch(() => ({ ok: false, error: `http_${res.status}` }))) as Raw;
-    if (!body.ok) throw new SlackError(String(body.error ?? "unknown_error"));
-    return body;
-  }
+  // Every call with your token goes through here, so nothing but a read is ever sent (D62).
+  const read = (token: string, method: string, params: Record<string, string>) => {
+    assertUserRead(method);
+    return slackRequest(base, token, method, params);
+  };
+  const call = async (token: string, method: string, params: Record<string, string>) =>
+    (await read(token, method, params)).body;
   return {
     async whoami(token) {
-      const r = await call(token, "auth.test", {});
+      const { body: r, scopes } = await read(token, "auth.test", {});
       return {
         teamId: String(r.team_id),
         team: String(r.team ?? ""),
         url: String(r.url ?? ""),
         userId: String(r.user_id),
+        scopes,
       };
     },
     async conversations(token) {

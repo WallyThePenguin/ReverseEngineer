@@ -4,12 +4,14 @@ import {
   googleAccount,
   mailAccount,
   notification,
+  slackBot,
   slackWorkspace,
 } from "@hearth/db";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
-import { ALL_MODULES } from "@hearth/modules";
+import { ALL_MODULES, botTrouble, saveBotHealth } from "@hearth/modules";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { HealthReport } from "./health.ts";
 import { reportHealth } from "./health.ts";
 import { checkSyncs, ErrorClock, judgeSync } from "./sync-health.ts";
 
@@ -241,5 +243,88 @@ describe("checkSyncs", () => {
     await t.tdb.db.update(mailAccount).set({ syncState: "failing", failures: 3 });
     [google] = await checkSyncs(t.kernel, clock);
     expect(google).toMatchObject({ status: "failing" });
+  });
+});
+
+describe("Jarvis's Slack socket (D62)", () => {
+  let t: TestKernel;
+  beforeEach(async () => {
+    t = await createTestKernel(ALL_MODULES);
+  });
+  afterEach(() => t.destroy());
+
+  const at = () => t.kernel.clock.now();
+  async function connectBot() {
+    await t.tdb.db.insert(slackWorkspace).values({ ...ACME, syncedAt: at() });
+    await t.tdb.db.insert(slackBot).values({
+      teamId: "T1",
+      appId: "A0C0RPY4WKV",
+      botUserId: "UJARVIS",
+      botId: "BJARVIS",
+      ownerIm: "DUME",
+      installId: "install-live",
+      botToken: "sealed-bot",
+      appToken: "sealed-app",
+      connectedAt: at(),
+    });
+  }
+  /** The socket's word on itself, as it would give it, `minutes` from now. */
+  async function socket(minutes: number, code: string | null) {
+    t.clock.advance(minutes * 60_000);
+    return saveBotHealth(t.kernel.db, "T1", at(), code ? botTrouble(code) : null);
+  }
+  const bot = (reports: HealthReport[]) => reports.find((r) => r.component === "sync.slack_bot");
+  const check = () => checkSyncs(t.kernel, new ErrorClock());
+
+  it("fails only after half an hour without a connection, longer than an update's restart, and tells you once a day", async () => {
+    await connectBot();
+    await socket(0, null);
+    expect(bot(await check())).toEqual({
+      component: "sync.slack_bot",
+      status: "ok",
+      detail: "Syncing (Jarvis in Acme)",
+    });
+    // Down for a restart: tries keep failing for a few minutes. Worth a look, not an alert.
+    for (const m of [1, 1, 3, 4]) await socket(m, "socket_unreachable");
+    let reports = await check();
+    expect(bot(reports)).toMatchObject({
+      status: "degraded",
+      detail:
+        "Jarvis in Acme: the last sync failed: Jarvis's Slack socket is down: socket_unreachable.",
+    });
+    await reportHealth(t.kernel, reports);
+    expect(await alerts(t)).toEqual([]);
+
+    // Still down 30 minutes after it was last connected.
+    await socket(21, "socket_unreachable");
+    reports = await check();
+    expect(bot(reports)).toMatchObject({ status: "failing" });
+    await reportHealth(t.kernel, reports);
+    expect(await alerts(t)).toMatchObject([
+      { title: "Jarvis's Slack bot is failing", urgency: "interrupt" },
+    ]);
+
+    // Back, then down for another half hour the same day: no second alert.
+    await socket(1, null);
+    await reportHealth(t.kernel, await check());
+    for (const m of [1, 1, 1, 30]) await socket(m, "socket_unreachable");
+    reports = await check();
+    expect(bot(reports)).toMatchObject({ status: "failing" });
+    await reportHealth(t.kernel, reports);
+    expect(await alerts(t)).toHaveLength(1);
+  });
+
+  it("calls a revoked bot failing at once, and leaves it revoked until it has new tokens", async () => {
+    await connectBot();
+    await socket(0, null);
+    await socket(1, "link_disabled");
+    const reports = await check();
+    expect(bot(reports)).toMatchObject({ status: "failing" });
+    expect(bot(reports)?.detail).toMatch(/Slack turned off Socket Mode for Jarvis's app/);
+    await reportHealth(t.kernel, reports);
+    expect(await alerts(t)).toHaveLength(1);
+    // Nothing the socket says changes that; slack.bot_replace_tokens does.
+    expect(await socket(1, null)).toBeNull();
+    expect((await t.tdb.db.select().from(slackBot))[0]?.syncState).toBe("revoked");
   });
 });

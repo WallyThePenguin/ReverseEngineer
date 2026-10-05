@@ -37,6 +37,7 @@ const PART: Record<string, string> = {
   "sync.google": "Google",
   "sync.slack": "Slack",
   "sync.github": "GitHub",
+  "sync.slack_bot": "Slack bot",
   browser: "Chrome",
 };
 
