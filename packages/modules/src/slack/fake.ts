@@ -51,8 +51,11 @@ export class FakeSlack {
   pageSize = 1000;
   /** Set to an error code (token_revoked) to have every call fail with it. */
   failWith: string | null = null;
-  /** Error codes for some calls only, by what `calls` would note: "replies C1", "history C2". */
-  failCalls = new Map<string, string>();
+  /**
+   * Error codes for some calls only, by what `calls` would note: "replies C1", "history C2". A
+   * ratelimited one can say how long to wait.
+   */
+  failCalls = new Map<string, string | { code: string; retryAfter?: number }>();
   /** Every call Hearth made, of any kind. */
   requests = 0;
   /** What your own token may do, as x-oauth-scopes says: the reading list and the kept writes. */
@@ -95,8 +98,9 @@ export class FakeSlack {
   }
 
   private failIf(call: string) {
-    const code = this.failCalls.get(call);
-    if (code) throw new SlackError(code);
+    const fail = this.failCalls.get(call);
+    if (typeof fail === "string") throw new SlackError(fail);
+    if (fail) throw new SlackError(fail.code, fail.retryAfter);
   }
 
   private page(list: SlackMessage[], cursor: string | undefined, limit: number): SlackPage {

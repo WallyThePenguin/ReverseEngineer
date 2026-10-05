@@ -80,15 +80,16 @@ const ago = (now: Date, ms: number) => new Date(now.getTime() - ms);
 /**
  * The next post to make, marked `sending` (committed) before Slack is called. A row left
  * `sending` for a minute comes back as `recovering`: it may have gone out, so it's read back
- * before it's posted again.
+ * before it's posted again. One whose read-back Slack asked to wait waits until `notBefore` too.
  */
 export function claimNext(db: Db, teamId: string, now: Date): Promise<Claim> {
   return db.transaction(async (tx) => {
     const team = eq(slackOutbox.teamId, teamId);
     const due = and(
       team,
+      lte(slackOutbox.notBefore, now),
       or(
-        and(eq(slackOutbox.state, "queued"), lte(slackOutbox.notBefore, now)),
+        eq(slackOutbox.state, "queued"),
         and(
           eq(slackOutbox.state, "sending"),
           lte(slackOutbox.sendingAt, ago(now, SENDING_STALE_MS)),
@@ -133,8 +134,11 @@ export type Settle =
   | { state: "failed" | "expired" | "unknown"; error: string }
   /** Not posted: try again after `notBefore`. */
   | { state: "queued"; notBefore: Date; error: string }
-  /** Maybe posted: read back once it's been a minute. */
-  | { state: "sending"; error: string };
+  /**
+   * Maybe posted: read back once it's been a minute, and not before `notBefore` when Slack asked
+   * the read-back to wait. Never queued again, which would post it without looking (D62).
+   */
+  | { state: "sending"; error: string; notBefore?: Date };
 
 /** Saves how a claimed post went, unless something else closed it meanwhile. */
 export async function settle(db: Db, row: OutboxRow, s: Settle, now: Date): Promise<boolean> {
@@ -163,6 +167,30 @@ export async function holdQueued(db: Db, teamId: string, until: Date) {
         lt(slackOutbox.notBefore, until),
       ),
     );
+}
+
+/**
+ * Posts that may have gone out, still not looked for a day later because Slack has the bot
+ * revoked and nothing can read them back: given up on as "may not have gone out" rather than
+ * waiting for new tokens however long that takes. Returns them, for you to be told (D62).
+ */
+export function giveUpLooking(db: Db, teamId: string, now: Date): Promise<OutboxRow[]> {
+  return db
+    .update(slackOutbox)
+    .set({
+      state: "unknown",
+      error: "It waited a day: Jarvis's Slack bot couldn't look for it.",
+      finishedAt: now,
+    })
+    .where(
+      and(
+        eq(slackOutbox.teamId, teamId),
+        eq(slackOutbox.state, "sending"),
+        lte(slackOutbox.expiresAt, now),
+        lte(slackOutbox.sendingAt, ago(now, SENDING_STALE_MS)),
+      ),
+    )
+    .returning();
 }
 
 /** Posts still waiting a day later expire. Returns them, for you to be told. */

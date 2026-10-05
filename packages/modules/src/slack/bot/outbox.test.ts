@@ -187,3 +187,125 @@ describe("sending Jarvis's posts", () => {
     ]);
   });
 });
+
+// Until a read-back has looked, a post that may have gone out is neither posted again nor said
+// not to have gone (D62): whatever stops the look, it's looked for again or you're told it may not.
+describe("a post that may have gone out", () => {
+  const botState = async () => (await k.t.tdb.db.select().from(slackBot))[0]!.syncState;
+  const readBacks = (call: string) => k.s.calls.filter((c) => c === call).length;
+  /** A post Slack took without answering, a minute on: due to be read back. */
+  const lost = async (channelId: string, text: string) => {
+    await k.queue({ channelId, text });
+    k.s.postFaults.push("lost_answer");
+    expect(await k.round()).toMatchObject({ unsure: 1 });
+    k.t.clock.advance(SENDING_STALE_MS);
+  };
+
+  it("is looked for again once Slack lets it when a read-back must wait, never posted blind", async () => {
+    await lost("CGEN", "once");
+    k.s.failCalls.set("readback CGEN", { code: "ratelimited", retryAfter: 120 });
+    // Your own token's reads are limited apart from the bot's posts: the one behind still goes.
+    await k.queue({ channelId: "USAM", text: "behind it" });
+    expect(await k.round()).toMatchObject({ unsure: 1, sent: 1, waiting: 0 });
+    expect((await k.rows())[0]).toMatchObject({ state: "sending" });
+    k.s.failCalls.clear();
+    k.t.clock.advance(SENDING_STALE_MS);
+    expect(await k.round()).toMatchObject({ sent: 0, unsure: 0 });
+    expect(readBacks("readback CGEN")).toBe(1);
+    k.t.clock.advance(60_000);
+    expect(await k.round()).toMatchObject({ sent: 1 });
+    expect(readBacks("readback CGEN")).toBe(2);
+    expect(texts()).toEqual(["once", "behind it"]);
+    expect((await k.rows())[0]).toMatchObject({ state: "sent", sentTs: tsIn("CGEN") });
+  });
+
+  it("is looked for again when the bot's own read-back must wait", async () => {
+    await lost("USAM", "once");
+    k.s.failCalls.set("bot readback DUSAM", "ratelimited");
+    expect(await k.round()).toMatchObject({ unsure: 1, sent: 0 });
+    k.s.failCalls.clear();
+    k.t.clock.advance(SENDING_STALE_MS);
+    expect(await k.round()).toMatchObject({ sent: 1 });
+    expect(texts()).toEqual(["once"]);
+  });
+
+  it("doesn't take your own token failing a read-back for the bot's", async () => {
+    await lost("CGEN", "Hello all");
+    k.s.failCalls.set("readback CGEN", "invalid_auth");
+    await k.queue({ channelId: "USAM", text: "still goes" });
+    expect(await k.round()).toMatchObject({ unknown: 1, sent: 1, held: false });
+    expect(await botState()).not.toBe("revoked");
+    expect(texts()).toEqual(["Hello all", "still goes"]);
+    expect((await k.rows())[0]).toMatchObject({ state: "unknown" });
+    expect(await k.told()).toEqual([
+      {
+        title: "Jarvis's Slack message to #general may not have gone out",
+        body: "Your own Slack token isn't working, so Hearth couldn't look.\n\nHello all",
+      },
+    ]);
+  });
+
+  it("says it may not have gone out, not that it didn't, when Slack refuses the read-back", async () => {
+    await lost("USAM", "See you at 3");
+    k.s.failCalls.set("bot readback DUSAM", "missing_scope");
+    expect(await k.round()).toMatchObject({ unknown: 1, failed: 0 });
+    expect((await k.rows())[0]).toMatchObject({
+      state: "unknown",
+      error: "Slack said missing_scope. Hearth couldn't look for it.",
+    });
+    expect(await k.told()).toEqual([
+      {
+        title: "Jarvis's Slack message to Sam Lee may not have gone out",
+        body: "Slack said missing_scope. Hearth couldn't look for it.\n\nSee you at 3",
+      },
+    ]);
+    expect(texts()).toEqual(["See you at 3"]);
+  });
+
+  it("is given up on after six tries when the read-back keeps failing, and you're told", async () => {
+    await lost("USAM", "See you at 3");
+    k.s.failCalls.set("bot readback DUSAM", "internal_error");
+    const rounds = [];
+    for (let i = 0; i < 6; i++) {
+      rounds.push(await k.round());
+      k.t.clock.advance(SENDING_STALE_MS);
+    }
+    expect(rounds.map((r) => [r.unsure, r.unknown])).toEqual([
+      [1, 0],
+      [1, 0],
+      [1, 0],
+      [1, 0],
+      [0, 1],
+      [0, 0],
+    ]);
+    expect(readBacks("bot readback DUSAM")).toBe(5);
+    expect((await k.rows())[0]).toMatchObject({ state: "unknown", attempts: 6 });
+    expect(await k.told()).toEqual([
+      {
+        title: "Jarvis's Slack message to Sam Lee may not have gone out",
+        body: "Hearth couldn't look for it: Slack answered internal_error.\n\nSee you at 3",
+      },
+    ]);
+    expect(texts()).toEqual(["See you at 3"]);
+  });
+
+  it("waits for new tokens while the bot is revoked, and a day on you're told", async () => {
+    await lost("USAM", "See you at 3");
+    k.s.failCalls.set("bot readback DUSAM", "token_revoked");
+    expect(await k.round()).toMatchObject({ held: true, unknown: 0 });
+    expect(await botState()).toBe("revoked");
+    expect((await k.rows())[0]).toMatchObject({ state: "sending" });
+    k.t.clock.advance(OUTBOX_EXPIRES_MS - SENDING_STALE_MS - 1);
+    expect(await k.round()).toMatchObject({ held: true, unknown: 0 });
+    k.t.clock.advance(1);
+    expect(await k.round()).toMatchObject({ held: true, unknown: 1, expired: 0 });
+    expect((await k.rows())[0]).toMatchObject({ state: "unknown" });
+    expect(await k.told()).toEqual([
+      {
+        title: "Jarvis's Slack message to Sam Lee may not have gone out",
+        body: "It waited a day: Jarvis's Slack bot couldn't look for it.\n\nSee you at 3",
+      },
+    ]);
+    expect(texts()).toEqual(["See you at 3"]);
+  });
+});
