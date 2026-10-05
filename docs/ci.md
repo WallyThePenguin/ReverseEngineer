@@ -176,30 +176,28 @@ with their labels, so a job with none left stays queued.
 `desktop.yml` stays on `windows-latest` and runs only when billing allows. The CI jobs can go back
 by changing their `runs-on`; the guard is only needed on this PC.
 
-PR #45's `windows-install` job runs the real `install.ps1` as administrator: services, Jarvis's
-task, the backup task, then updates and a rollback. That must never run on this PC, where it would
-install over the live Hearth. When it lands, it moves out of `ci.yml` into its own workflow,
-`.github/workflows/windows-install.yml`:
+The real Windows install runs `install.ps1` as administrator: services, Jarvis's task, the backup
+task, then updates and a rollback. That must never run on this PC, where it would install over the
+live Hearth, so it isn't in `ci.yml`. It's `.github/workflows/windows-install.yml`:
 
-- `runs-on: windows-latest` only: GitHub's disposable machines, never a self-hosted label.
-- On pull requests and pushes to the deploy branch that change `ops/windows/**` (and the workflow
-  file itself), plus `workflow_dispatch`.
+- `runs-on: windows-latest` only: GitHub's disposable machines, never a self-hosted label. Its first
+  step refuses to go on unless `RUNNER_ENVIRONMENT` is `github-hosted`.
+- On pull requests and pushes to the deploy branch that change `ops/windows/**`, Jarvis
+  (`apps/jarvis/src/**`, `packages/jarvis/src/service.ts`), the CLI (`apps/cli/src/**`) or the
+  workflow file itself, plus `workflow_dispatch`.
 - It runs when GitHub's billing allows. Until then its runs fail to start, which doesn't hold up
   merges: it isn't a required check.
-- `ops/windows/test-install.ps1` gets a first check that refuses to go on where `hearth-server` is
-  already a service or `D:\Hearth` exists, so even a wrong label can't install over the live
-  Hearth.
+- `ops/windows/test-install.ps1` refuses too: on anything but a GitHub-hosted runner, where
+  `D:\Hearth` exists, or, for the install, where `hearth-server` is already a service.
 
-Not everything in #45 moves. Its `test-control.ps1` dot-sources `test-control-update.ps1`, which
-runs the real `update.ps1` (in a Windows PowerShell of its own, through `test-update-fakes.ps1`)
-with git, pnpm, the services, Jarvis's task and its processes faked. That stays in `ci.yml`'s
-`windows` job, here on the PC, so its fence stays and gets tighter when #45 is rebased on this:
+`test-control.ps1` stays in `ci.yml`'s `windows` job, here on the PC. It dot-sources:
 
-- `test-update-fakes.ps1` keeps ProgramData in its own work folder and keeps refusing to start
-  `update.ps1` until every command that could reach Hearth is a fake. Its check asks only that
-  each be a function, which Windows' own `Stop-ScheduledTask`, `Start-ScheduledTask`,
-  `Register-ScheduledTask` and the rest already are: it must also ask that each be defined in
-  `test-update-fakes.ps1` (the function's `ScriptBlock.File`), as `test-fence.ps1` does.
-- #45 moves the `Stop-Jarvis` tests into `test-control-jarvis.ps1`: `Assert-Fenced` moves with
-  them, called before the first stop with that file as the fakes' file, and its `Start-Service`
-  and `Start-ScheduledTask` fakes listed in `-Faked`.
+- `test-control-jarvis.ps1`, the `Stop-Jarvis`, `Stop-Hearth` and `Start-Hearth` tests. It calls
+  `Assert-Fenced` before its first stop, with every fake that stops or starts something listed in
+  `-Faked`.
+- `test-control-update.ps1`, which runs the real `update.ps1` (in a Windows PowerShell of its own,
+  through `test-update-fakes.ps1`) with git, pnpm, the services, Jarvis's task and its processes
+  faked. `test-update-fakes.ps1` keeps ProgramData in its own work folder, and won't start
+  `update.ps1` until every command that could reach Hearth is a function defined in that file (its
+  `ScriptBlock.File`) or one of its refusals. Being a function isn't enough: Windows' own
+  `Stop-ScheduledTask`, `Start-ScheduledTask`, `Register-ScheduledTask` and the rest already are.

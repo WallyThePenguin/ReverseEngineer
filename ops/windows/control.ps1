@@ -1,8 +1,9 @@
 <#
   Stopping, starting and checking Hearth, shared by update.ps1 and restart.ps1, which dot-source
-  this file; it only defines functions. They run unelevated once install.ps1 has given your
-  account the rights to Hearth's two services and the "Hearth Jarvis" task. They read $Root, the
-  Hearth folder, from the script that dot-sources them.
+  this file; it only defines functions (Jarvis's are in control-jarvis.ps1, which it dot-sources).
+  They run unelevated once install.ps1 has given your account the rights to Hearth's two services
+  and the "Hearth Jarvis" task. They read $Root, the Hearth folder, from the script that
+  dot-sources them.
 #>
 
 function Get-EnvValue([string]$Name) {
@@ -24,136 +25,8 @@ function Resolve-HearthParts([string]$Which) {
   return @($Which)
 }
 
-# Hearth's services folder: the services' logs, and Jarvis's log, pid file and stop request.
-function Get-ServiceDir { return "$env:ProgramData\Hearth\services" }
-
-# Whether $Proc is the Jarvis that wrote its pid file at $Written: "jarvis" when it is, $null when
-# it isn't, "unverified" when it's a node.exe whose start time Windows won't tell this account.
-# The file outlives a Jarvis that was killed or crashed, and Windows reuses pids; a process that
-# got the pid later started after the file was written, so it isn't Jarvis. But the task's Jarvis
-# runs in session 0, and from your unelevated account its start time comes back blank
-# (2026-10-05): it may well be Jarvis, so it's neither ended nor taken for stopped.
-function Resolve-JarvisPid($Proc, [datetime]$Written) {
-  if (-not $Proc -or $Proc.ProcessName -ne "node") { return $null }
-  try { $started = $Proc.StartTime } catch { return "unverified" }
-  if ($null -eq $started) { return "unverified" }
-  if ($started -le $Written.AddSeconds(5)) { return "jarvis" }
-  return $null
-}
-
-# The processes that may be Jarvis: the pid Jarvis wrote at startup, and every node child of the
-# task's running process (Jarvis runs under cmd in the task, and an unelevated account can't read
-# session-0 command lines). Verified says it's surely Jarvis.
-function Find-Jarvis([string]$Dir) {
-  $found = @{}
-  $pidFile = "$Dir\hearth-jarvis.pid"
-  $id = 0
-  if ((Test-Path $pidFile) -and [int]::TryParse("$(Get-Content $pidFile -Raw)".Trim(), [ref]$id)) {
-    $proc = Get-Process -Id $id -ErrorAction SilentlyContinue
-    $kind = Resolve-JarvisPid $proc (Get-Item $pidFile).LastWriteTime
-    if ($kind) { $found[$id] = $kind -eq "jarvis" }
-  }
-  $scheduler = New-Object -ComObject Schedule.Service
-  $scheduler.Connect()
-  $task = $scheduler.GetFolder("\").GetTask("Hearth Jarvis")
-  foreach ($run in @($task.GetInstances(0))) {
-    Get-CimInstance Win32_Process -Filter "ParentProcessId = $($run.EnginePID)" |
-      Where-Object { $_.Name -eq "node.exe" } | ForEach-Object { $found[[int]$_.ProcessId] = $true }
-  }
-  return @($found.Keys | ForEach-Object { [pscustomobject]@{ Id = $_; Verified = $found[$_] } })
-}
-
-# Asks Jarvis to stop (D63): it checks for this file every second, and stops for one newer than
-# itself that's yours or an administrator's (apps/jarvis/src/stop-request.ts). Made afresh, so the
-# file is yours whoever made it first.
-function Request-JarvisStop([string]$Dir) {
-  if (-not (Test-Path $Dir)) { return }
-  $file = "$Dir\hearth-jarvis.stop"
-  try {
-    Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
-    [IO.File]::WriteAllText($file, [datetime]::UtcNow.ToString("o"))
-  } catch {
-    Write-Warning "Couldn't ask Jarvis to stop ($file): $($_.Exception.Message)"
-  }
-}
-
-# Whether the task could open Jarvis's log now. Its cmd.exe opens the log for append before it
-# starts node, and every Jarvis it started keeps it open; while one does, the next task run's cmd
-# exits 1 at once, with nothing logged (2026-10-05).
-function Test-LogFree([string]$Path) {
-  if (-not (Test-Path -LiteralPath $Path)) { return $true }
-  try { [IO.File]::Open($Path, "Append", "Write", "ReadWrite").Dispose(); return $true } catch { return $false }
-}
-
-# Only an administrator can end a Jarvis that won't stop. (Restarting the PC isn't offered: when
-# the Hearth you update from predates D63, its update leaves the restarted Jarvis running too.)
-function Format-StuckJarvis([int[]]$Ids) {
-  $which = if ($Ids.Count -gt 1) { "pids $($Ids -join ', ')" } else { "pid $Ids" }
-  $kill = ($Ids | ForEach-Object { "/PID $_" }) -join " "
-  return "An older Jarvis ($which) is still running and Hearth can't stop it from your account: run taskkill /F $kill as administrator, then try again right away"
-}
-
-# Whether Jarvis has stopped: $null when it has, otherwise what to tell you. $Alive are those of
-# Find-Jarvis still running. A held log means a Jarvis is still running even when this account
-# can't tell which; an unverified pid still there while the log is free is some other node.exe
-# that got Jarvis's old pid.
-function Get-JarvisVerdict($Alive, [bool]$LogFree, [string]$Log) {
-  $sure = @($Alive | Where-Object { $_.Verified } | ForEach-Object { $_.Id })
-  if ($sure.Count) { return Format-StuckJarvis $sure }
-  if ($LogFree) { return $null }
-  $maybe = @($Alive | ForEach-Object { $_.Id })
-  if ($maybe.Count) { return Format-StuckJarvis $maybe }
-  return "Something still holds Jarvis's log ($Log) open, most likely an older Jarvis that Hearth can't stop or name from your account: end it as administrator (Task Manager, Details: the node.exe in session 0 running as you), then try again right away"
-}
-
-# Checks every half second, up to $Sec, until Jarvis has stopped: $null then, or what's wrong.
-function Wait-JarvisGone($Found, [string]$Log, [int]$Sec) {
-  for ($i = 0; ; $i++) {
-    $alive = @($Found | Where-Object { Get-Process -Id $_.Id -ErrorAction SilentlyContinue })
-    $why = Get-JarvisVerdict $alive (Test-LogFree $Log) $Log
-    if (-not $why -or $i -ge $Sec * 2) { return $why }
-    Start-Sleep -Milliseconds 500
-  }
-}
-
-# Stops Jarvis: $null once it has, otherwise what to tell you, and Hearth mustn't start another
-# (the task can't while the old one holds the log). Your unelevated account can neither end the
-# task's Jarvis nor read its start time, so it asks Jarvis (Request-JarvisStop) and ends the task
-# run, which a Jarvis since D63 also stops for. After $AskSec it ends what it's sure is Jarvis,
-# which works when this runs elevated. A Jarvis from before D63 ignores both: the update that
-# brings D63 can only say so, with the pid to end.
-function Stop-Jarvis([int]$AskSec = 15, [int]$KillSec = 15) {
-  $dir = Get-ServiceDir
-  $log = "$dir\hearth-jarvis.log"
-  # Before the task stops: its children are found through it.
-  $found = @(Find-Jarvis $dir)
-  Request-JarvisStop $dir
-  Stop-ScheduledTask -TaskName "Hearth Jarvis" -ErrorAction SilentlyContinue
-  $why = Wait-JarvisGone $found $log $AskSec
-  if ($why) {
-    foreach ($j in @($found | Where-Object { $_.Verified })) {
-      $proc = Get-Process -Id $j.Id -ErrorAction SilentlyContinue
-      if ($proc -and $proc.ProcessName -eq "node") { Stop-Process -Id $j.Id -Force -ErrorAction SilentlyContinue }
-    }
-    $why = Wait-JarvisGone $found $log $KillSec
-  }
-  $null = Wait-TaskStopped "Hearth Jarvis"
-  return $why
-}
-
-# A Jarvis an earlier Stop-Jarvis couldn't stop, as what to tell you, or $null.
-function Get-StuckJarvis {
-  $dir = Get-ServiceDir
-  return Wait-JarvisGone @(Find-Jarvis $dir) "$dir\hearth-jarvis.log" 0
-}
-
-# What a rollback starts again: all of Hearth, or all but Jarvis while an older one that wouldn't
-# stop holds its log (its task can't start another), with why.
-function Get-RollbackParts {
-  $stuck = Get-StuckJarvis
-  if ($stuck) { return [pscustomobject]@{ Parts = @("server", "worker"); Stuck = $stuck } }
-  return [pscustomobject]@{ Parts = @("server", "worker", "jarvis"); Stuck = $null }
-}
+# Finding, stopping and waiting for Jarvis (D63).
+. "$PSScriptRoot\control-jarvis.ps1"
 
 # Until Windows no longer counts a task as running, up to $TimeoutSec. The task ignores a start
 # while a run is still counted (IgnoreNew), so `hearth restart jarvis`, which starts it again
@@ -169,19 +42,33 @@ function Wait-TaskStopped([string]$Name, [int]$TimeoutSec = 15) {
 }
 
 # Jarvis first: one that won't stop throws, leaving the rest as it was, unless -Anyway (a rollback
-# has to stop the rest whatever Jarvis does).
+# has to stop the rest whatever Jarvis does, even when stopping Jarvis fails outright: the code on
+# disk changes next).
 function Stop-Hearth([string[]]$Parts = @("server", "worker", "jarvis"), [switch]$Anyway) {
   Write-Host "== Stopping Hearth ($($Parts -join ', '))"
   $stuck = $null
-  if ($Parts -contains "jarvis") { $stuck = Stop-Jarvis }
+  if ($Parts -contains "jarvis") {
+    try { $stuck = Stop-Jarvis } catch {
+      if (-not $Anyway) { throw }
+      $stuck = "Stopping Jarvis failed: $($_.Exception.Message)"
+    }
+  }
   if ($stuck -and -not $Anyway) { throw "$stuck." }
-  if ($stuck) { Write-Host "$stuck." }
+  if ($stuck) { Write-Host "$($stuck.TrimEnd('.'))." }
   $services = @($Parts | Where-Object { $_ -ne "jarvis" } | ForEach-Object { "hearth-$_" })
   if ($services.Count) { Stop-Service $services }
 }
 
+# Refuses before it starts anything when a Jarvis is left over: the task couldn't start another
+# while that one holds the log, and an update rolling back would then find the services already
+# running the new code.
 function Start-Hearth([string[]]$Parts = @("server", "worker", "jarvis")) {
   Write-Host "== Starting Hearth ($($Parts -join ', '))"
+  if ($Parts -contains "jarvis") {
+    $stuck = Get-StuckJarvis
+    if ($stuck) { throw "$stuck." }
+    Clear-JarvisStopRequest (Get-ServiceDir)
+  }
   $services = @($Parts | Where-Object { $_ -ne "jarvis" } | ForEach-Object { "hearth-$_" })
   if ($services.Count) { Start-Service $services }
   if ($Parts -contains "jarvis") { Start-ScheduledTask -TaskName "Hearth Jarvis" }

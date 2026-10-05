@@ -18,6 +18,7 @@ import {
   checkDiskSpace,
   checkServices,
   checkTailscale,
+  judgeJarvisTask,
   probeServer,
 } from "./doctor-host.ts";
 
@@ -50,8 +51,8 @@ export async function runDoctor(opts: DoctorOptions = {}): Promise<DoctorResult>
   ];
 
   const services = await checkServices(platform, run);
-  checks.push(...services.checks);
   const server = await probeServer(env, opts.fetch ?? fetch, services.installed);
+  checks.push(...services.checks.map((c) => judgeJarvisTask(c, server.report, opts.now)));
   checks.push(server.check);
   const link = checkChromeLink(server.report);
   if (link) checks.push(link);
