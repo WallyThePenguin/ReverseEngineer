@@ -64,8 +64,10 @@ afterEach(async () => {
   await new Promise((r) => http.close(r));
 });
 
+/** Waits for something to be so, up to 10 s: whatever's asserted next fails if it isn't. */
 async function until(fn: () => Promise<boolean>) {
-  for (let i = 0; i < 100 && !(await fn()); i++) await new Promise((r) => setTimeout(r, 20));
+  for (const end = Date.now() + 10_000; !(await fn()) && Date.now() < end; )
+    await new Promise((r) => setTimeout(r, 20));
 }
 
 async function rpc(method: string, params: Record<string, unknown> = {}) {
@@ -163,6 +165,8 @@ describe("opening Chrome when it's closed", () => {
     old = await pairAgain();
     const began = Date.now();
     expect((await rpc("tabs.open", { url: "https://a.example/" })).body.error).toBe(OLD_CODE);
+    // Well past oldCodeMs, well short of connectMs. A bound between two timers isn't scaled for
+    // a slow machine.
     expect(Date.now() - began).toBeLessThan(5000);
   });
 

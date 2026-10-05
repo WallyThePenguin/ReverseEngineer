@@ -6,6 +6,8 @@
   install.ps1 lets your account stop and start Hearth's two services and the "Hearth Jarvis" task,
   so this runs unelevated. It asks hearth doctor how things are, takes a safety dump, stops Hearth,
   moves to the latest commit of the branch, installs, builds, migrates and starts everything again.
+  Your account can't end the task's Jarvis, so it's asked to stop (D63) and waited for: one that
+  won't go ends the update there, saying which pid an administrator has to end.
   Then the update has to prove itself (D57), or it's rolled back:
 
   - The server reports the new commit through /api/health/deep, its database has every migration
@@ -160,6 +162,14 @@ try {
     Invoke-Native "Moving to $($new.Substring(0, 7))" { git merge --ff-only $new }
   } elseif ((git rev-parse HEAD).Trim() -ne $new) {
     throw "The Hearth folder isn't on $($new.Substring(0, 7)), where the update left off."
+  } else {
+    # The copy that started this one stopped Hearth with its own Stop-Jarvis, which before D63
+    # could miss Jarvis without a word (2026-10-05). Make sure, before anything is installed.
+    Write-Host "== Making sure Jarvis has stopped"
+    $stuck = Stop-Jarvis
+    if ($stuck) {
+      throw "$stuck. (The Hearth you're updating from stops Jarvis the old way: if its worker starts that Jarvis again first, in about three minutes, the next update will leave it running too.)"
+    }
   }
   $needsInstall = @(git diff --name-only $old $new -- ops/windows/install.ps1 "ops/windows/*.xml").Count -gt 0
   # This script was read before the merge; an update that changes it (or control.ps1) is carried
@@ -207,7 +217,7 @@ try {
 } catch {
   Write-Host "UPDATE FAILED: $_"
   if ((git rev-parse HEAD).Trim() -ne $old) {
-    if (-not $stopped) { Stop-Hearth; $stopped = $true }
+    if (-not $stopped) { Stop-Hearth -Anyway; $stopped = $true }
     if ($applied.Count) { Write-Host "This update applied $($applied -join ', ')." }
     if (Undo-Migrations $applied) {
       Write-Host "== Putting the previous code back ($($old.Substring(0, 7)))"
@@ -228,12 +238,17 @@ try {
   if ($stopped) {
     # Hearth was stopped above, maybe only seconds ago: no margin, so only the restart counts.
     $since = [datetime]::UtcNow
-    try { Start-Hearth } catch { Write-Host "Couldn't start Hearth again: $_" }
+    # An older Jarvis that wouldn't stop is left running, as it was before the update: its task
+    # couldn't start another, and waiting three minutes to find that out would say less.
+    $restart = Get-RollbackParts
+    try { Start-Hearth $restart.Parts } catch { Write-Host "Couldn't start Hearth again: $_" }
     $running = (git rev-parse HEAD).Trim()
-    $why = Wait-Hearth -Since $since -Sha $running -TimeoutSec $HealthTimeoutSec -AllowOld `
+    $why = Wait-Hearth -Since $since -Sha $running -Parts $restart.Parts -TimeoutSec $HealthTimeoutSec -AllowOld `
       -Failed (Get-FailingChecks $before)
     if ($why) {
       Write-Host "HEARTH ISN'T BACK UP on $(Format-Sha $running): $why. Run pnpm hearth doctor to see why."
+    } elseif ($restart.Stuck) {
+      Write-Host "== Hearth is back up on $(Format-Sha $running), with Jarvis left as it was. $($restart.Stuck)."
     } else {
       Write-Host "== Hearth is back up on $(Format-Sha $running)."
     }

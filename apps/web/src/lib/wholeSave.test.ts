@@ -267,7 +267,11 @@ describe("saving a board whole", () => {
     let answer!: () => void;
     late = new Promise((r) => (answer = r));
     edit((b) => b.nodes.push(card("b", "two")));
-    await vi.waitFor(() => expect(held).toBe(1));
+    // The save goes out once the pretend clock passes the pause after an edit, and is held. The
+    // clock is moved here, not by vi.waitFor: that moves it 50 ms per real 50 ms and gives up
+    // after a real second, and getting through the pause took 0.8 s idle, over 1 on a busy runner.
+    await vi.advanceTimersByTimeAsync(700);
+    expect(held).toBe(1);
     trashed = false;
     late = null;
     hear("entity.restored");
@@ -282,7 +286,9 @@ describe("saving a board whole", () => {
     let answer!: () => void;
     late = new Promise((r) => (answer = r));
     const opening = openBoard();
-    await vi.waitFor(() => expect(held).toBe(1));
+    // Its first read is held as it arrives, once the modules have loaded: that takes real time,
+    // so it gets a deadline far beyond it.
+    await vi.waitFor(() => expect(held).toBe(1), { timeout: 10_000 });
     trashed = false;
     late = null;
     hear("entity.restored");
