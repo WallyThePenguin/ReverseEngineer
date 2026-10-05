@@ -165,7 +165,8 @@ export function JarvisPane() {
               title="Your conversations"
               aria-expanded={picking()}
             >
-              <span class="truncate">{current()?.title ?? "New conversation"}</span>
+              {/* Two lines before it's cut short, as a pane's title does. */}
+              <span class="line-clamp-2 break-words">{current()?.title ?? "New conversation"}</span>
               <Icon
                 name="chevron-down"
                 size={14}

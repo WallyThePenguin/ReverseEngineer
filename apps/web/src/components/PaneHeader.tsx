@@ -81,7 +81,9 @@ export function PaneHeader(props: {
       <header class="flex min-h-12 items-start gap-2 border-b border-line px-4 py-2">
         <div class="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
           <div class="min-w-24 flex-1">
-            <h1 class="truncate text-title">{props.title}</h1>
+            {/* A long title wraps to a second line before it's cut short: a pane beside another,
+                or a phone, has room for a few words a line. */}
+            <h1 class="line-clamp-2 text-title break-words">{props.title}</h1>
             <Show when={props.sub}>
               {(sub) => <p class="truncate text-meta text-muted">{sub()}</p>}
             </Show>
