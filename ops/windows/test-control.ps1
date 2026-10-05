@@ -219,7 +219,10 @@ function Get-ScheduledTask {
   if (-not $next) { return $null }
   return [pscustomobject]@{ TaskName = $TaskName; State = $next }
 }
-function Start-Sleep { param([int]$Milliseconds, [int]$Seconds) }
+# Time faked from here: a wait moves this clock instead of waiting, and Get-Date reads it.
+$script:clock = [datetime]::new(2026, 10, 4, 12, 0, 0)
+function Get-Date { $script:clock }
+function Start-Sleep { param([int]$Milliseconds, [int]$Seconds) $script:clock = $script:clock.AddMilliseconds($Milliseconds + 1000 * $Seconds) }
 $script:states = @("Running", "Running", "Ready")
 Assert-Equal (Wait-TaskStopped "Hearth Jarvis" 5) $true "waits for the task to stop"
 Assert-Equal $script:states.Count 1 "asked until it stopped"

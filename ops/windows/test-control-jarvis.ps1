@@ -1,7 +1,8 @@
 <#
   control.ps1's tests for Jarvis (control-jarvis.ps1): finding, stopping and waiting for it, and
   starting and stopping Hearth around it. Part of test-control.ps1, which dot-sources this file
-  after its own tests (it defines Assert-Equal, and fakes Start-Sleep and Get-DeepHealth): run that.
+  after its own tests (it defines Assert-Equal, fakes Get-DeepHealth, and fakes time: Start-Sleep
+  moves the clock Get-Date reads): run that.
   Touches nothing: the processes, the task, the services, the request and the log are all faked.
 #>
 
@@ -147,6 +148,18 @@ $script:starts[999999] = $written.AddSeconds(-20)
 Assert-Equal (Test-StillJarvis $found) $true "Jarvis itself, still running"
 $found.Started = $null
 Assert-Equal (Test-StillJarvis $found) $true "a node.exe with its pid is taken for it when Windows didn't say when it started"
+
+# Waiting for Jarvis ends when its time is up, however long each check takes: asking Windows when
+# a process started took 390 ms on a busy PC, and counting checks made a 10 s wait take 19
+# (2026-10-05), so Stop-Jarvis's 40 + 15 could take 100.
+Set-Jarvis @{ 999999 = (& $node $written.AddSeconds(-20)) } -Holders 999999
+$found.Started = $written.AddSeconds(-20)
+function Get-ProcessStart { param([int]$Id) Start-Sleep -Milliseconds 390; $written.AddSeconds(-20) }
+$from = Get-Date
+Assert-Equal (Wait-JarvisGone @($found) $log 10) (& $stuck @(999999)) "a Jarvis still running after 10 s is named"
+$took = ((Get-Date) - $from).TotalSeconds
+Assert-Equal ($took -ge 10 -and $took -lt 11) $true "after 10 s, with each check taking 390 ms ($took s)"
+function Get-ProcessStart { param([int]$Id) $script:starts[$Id] }
 
 # Start-Hearth refuses before it starts anything when a Jarvis is left over: an update would roll
 # back with the services already on the new code (and the task can't start another anyway).

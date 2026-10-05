@@ -11,19 +11,26 @@
                    trigger, say) and holds its log: Start-Hearth must refuse before anything starts
     service-fails  hearth-worker won't start on the new code, after hearth-server has
     jarvis-throws  the new code isn't healthy, and stopping Jarvis then fails outright
+  force-leftover and force-service-fails are the first two with -Force on the commit Hearth is
+  already on: nothing to roll back, but Hearth must start again (hearth-worker never will there).
+
+  Time is faked too: Get-Date reads a clock that only Start-Sleep moves, so a wait ends at once,
+  once the time it was given has passed on that clock.
 #>
 param(
   [Parameter(Mandatory = $true)][string]$Work,
-  [Parameter(Mandatory = $true)][ValidateSet("leftover", "service-fails", "jarvis-throws")][string]$Case
+  [Parameter(Mandatory = $true)]
+  [ValidateSet("leftover", "service-fails", "jarvis-throws", "force-leftover", "force-service-fails")][string]$Case
 )
 $ErrorActionPreference = "Stop"
 if (-not (Test-Path "$Work\fake-update")) { throw "Only test-control-update.ps1 runs this." }
 # Jarvis's log, pid file and stop request go here, never in the real services folder.
 $env:ProgramData = "$Work\ProgramData"
 $global:dir = "$env:ProgramData\Hearth\services"
-$global:case = $Case
+$force = $Case -like "force-*"
+$global:case = $Case -replace "^force-", ""
 $global:old = "1111111111111111111111111111111111111111"
-$global:new = "2222222222222222222222222222222222222222"
+$global:new = $(if ($force) { $global:old } else { "2222222222222222222222222222222222222222" })
 $global:head = $global:old
 $global:running = @{}
 $global:jarvis = @{}
@@ -31,6 +38,7 @@ $global:taskOn = $false
 $global:held = $null
 $global:schedulerDown = $false
 $global:sleeps = 0
+$global:clock = [datetime]::Now
 
 # What happened, with the services running then and the commit each runs.
 function global:Write-Event([string]$What) {
@@ -51,7 +59,7 @@ function global:Update-Log {
 # A Jarvis: one since D63 stops when its task run ends; one from before doesn't.
 function global:Start-FakeJarvis([int]$Id, [bool]$SinceD63, [bool]$FromTask) {
   $global:jarvis[$Id] = [pscustomobject]@{
-    Id = $Id; ProcessName = "node"; StartTime = (Get-Date).AddSeconds(-2); SinceD63 = $SinceD63; FromTask = $FromTask
+    Id = $Id; ProcessName = "node"; StartTime = [datetime]::Now.AddSeconds(-2); SinceD63 = $SinceD63; FromTask = $FromTask
   }
   Set-Content -Path "$global:dir\hearth-jarvis.pid" -Value $Id -NoNewline
   Update-Log
@@ -149,26 +157,39 @@ function global:pnpm {
   }
 }
 function global:pg_dump { $global:LASTEXITCODE = 0 }
-# The server's deep health, from what runs: the new code doesn't fit the database when it shouldn't.
+# The server's deep health, from what runs: the worker and Jarvis report in only while they run,
+# and the new code doesn't fit the database when it shouldn't.
 function global:Invoke-RestMethod {
   $sha = $global:running["hearth-server"]
   if (-not $sha) { throw "Unable to connect to the remote server" }
   $now = [datetime]::UtcNow.AddSeconds(5).ToString("o")
-  $ok = [pscustomobject]@{ status = "ok"; detail = "Running"; at = $now }
+  $long = [datetime]::UtcNow.AddHours(-1).ToString("o")
+  $worker = $(if ($global:running["hearth-worker"]) { $now } else { $long })
+  $jarvis = $(if ($global:jarvis.Count) { $now } else { $long })
   return [pscustomobject]@{
     sha = $sha
     startedAt = $now
     db = [pscustomobject]@{ ok = $true }
     migrations = [pscustomobject]@{ ok = -not ($sha -eq $global:new -and $global:case -eq "jarvis-throws") }
     problems = @("0999_fake")
-    components = [pscustomobject]@{ worker = $ok; jarvis = $ok }
-    jarvisAlive = [pscustomobject]@{ at = $now; since = $now; pid = 999992 }
+    components = [pscustomobject]@{
+      worker = [pscustomobject]@{ status = "ok"; detail = "Running"; at = $worker }
+      jarvis = [pscustomobject]@{ status = "ok"; detail = "Running"; at = $jarvis }
+    }
+    jarvisAlive = [pscustomobject]@{ at = $jarvis; since = $jarvis; pid = @($global:jarvis.Keys)[0] }
   }
 }
-# Faked waits: each loop under test ends by count or at once, so this only guards against one that doesn't.
+# Faked time: a wait moves the clock instead of waiting. The count guards against a loop that never
+# ends.
 function global:Start-Sleep {
   param([int]$Milliseconds, [int]$Seconds)
   if (++$global:sleeps -gt 1000) { throw "update.ps1 waited too often: a loop that never ends?" }
+  $global:clock = $global:clock.AddMilliseconds($Milliseconds + 1000 * $Seconds)
+}
+function global:Get-Date {
+  param([string]$Format)
+  if ($Format) { return $global:clock.ToString($Format) }
+  return $global:clock
 }
 foreach ($name in "Invoke-WebRequest", "node", "psql", "taskkill", "schtasks", "Restart-Service", "Set-Service",
   "Register-ScheduledTask", "Unregister-ScheduledTask", "Enable-ScheduledTask", "Disable-ScheduledTask") {
@@ -188,7 +209,7 @@ $global:running["hearth-server"] = $global:old
 $global:running["hearth-worker"] = $global:old
 $global:taskOn = $true
 Start-FakeJarvis 999988 $true $true
-& "$PSScriptRoot\update.ps1" -Root "$Work\root" -HealthTimeoutSec 0
+& "$PSScriptRoot\update.ps1" -Root "$Work\root" -HealthTimeoutSec 0 -Force:$force
 $code = $LASTEXITCODE
 if ($global:held) { $global:held.Dispose() }
 exit $code

@@ -110,13 +110,18 @@ function Get-JarvisVerdict($Alive, [bool]$LogFree, [string]$Log) {
   return "Something still holds Jarvis's log ($Log) open, most likely an older Jarvis that Hearth can't stop or name from your account: end it as administrator (Task Manager, Details: the node.exe in session 0 running as you), then try again right away"
 }
 
-# Checks every half second, up to $Sec, until Jarvis has stopped: $null then, or what's wrong.
+# Checks every half second until Jarvis has stopped, or $Sec seconds have passed: $null then, or
+# what's wrong. By the clock, not by counting checks: each asks Windows when a process started,
+# which took 390 ms on a busy PC, and counting checks made a 10 s wait take 19 (2026-10-05).
 function Wait-JarvisGone($Found, [string]$Log, [int]$Sec) {
-  for ($i = 0; ; $i++) {
+  $deadline = (Get-Date).AddSeconds($Sec)
+  while ($true) {
     $alive = @($Found | Where-Object { Test-StillJarvis $_ })
     $why = Get-JarvisVerdict $alive (Test-LogFree $Log) $Log
-    if (-not $why -or $i -ge $Sec * 2) { return $why }
-    Start-Sleep -Milliseconds 500
+    if (-not $why) { return $null }
+    $left = ($deadline - (Get-Date)).TotalMilliseconds
+    if ($left -le 0) { return $why }
+    Start-Sleep -Milliseconds ([Math]::Min(500, [Math]::Ceiling($left)))
   }
 }
 

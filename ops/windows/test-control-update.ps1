@@ -96,3 +96,33 @@ Assert-Equal (Format-AfterMerge $run) (@(
     "start hearth-worker [running: hearth-server@1 hearth-worker@1]"
   ) -join "`n") "Stop-Jarvis throwing in a rollback still stops the services first"
 Assert-Equal ($run.Out -match "Stopping Jarvis failed: The RPC server is unavailable") $true "and it says stopping Jarvis failed"
+
+# -Force on the commit Hearth is already on: nothing to roll back, but a start that fails must
+# still start Hearth again, or the update leaves it down without a word.
+$run = Invoke-FakeUpdate "force-leftover"
+Assert-Equal $run.Code 1 "-Force with a left-over Jarvis fails"
+Assert-Equal (Format-AfterMerge $run) (@(
+    "merge [running: ]",
+    "pnpm install --frozen-lockfile [running: ]",
+    "jarvis 999996 starts, from before D63 [running: ]",
+    "pnpm build:web [running: ]",
+    "pnpm --silent hearth migrate [running: ]",
+    "start hearth-server [running: hearth-server@1]",
+    "start hearth-worker [running: hearth-server@1 hearth-worker@1]"
+  ) -join "`n") "and starts all but that Jarvis again, with nothing reset"
+Assert-Equal ($run.Out -match "Hearth is back up on 1111111, with Jarvis left as it was\. An older Jarvis \(pid 999996\)") $true `
+  "and says which Jarvis to end"
+
+$run = Invoke-FakeUpdate "force-service-fails"
+Assert-Equal $run.Code 1 "-Force with a worker that won't start fails"
+Assert-Equal (Format-AfterMerge $run) (@(
+    "merge [running: ]",
+    "pnpm install --frozen-lockfile [running: ]",
+    "pnpm build:web [running: ]",
+    "pnpm --silent hearth migrate [running: ]",
+    "start hearth-server [running: hearth-server@1]",
+    "start hearth-server [running: hearth-server@1]"
+  ) -join "`n") "and tries to start Hearth again, with nothing reset"
+Assert-Equal ($run.Out -match "Couldn't start Hearth again: Service 'hearth-worker' cannot be started") $true "and says it couldn't"
+Assert-Equal ($run.Out -match "HEARTH ISN'T BACK UP on 1111111: the worker hasn't reported in since it started") $true `
+  "and that Hearth isn't back up"

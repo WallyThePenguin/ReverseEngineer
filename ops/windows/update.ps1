@@ -124,7 +124,11 @@ function Assert-Healthy([string]$Sha, [datetime]$Since, $Before) {
 
 $exit = 1
 $applied = @()
+# $stopped: nothing runs the code on disk, so it can change. $startAgain: this run stopped Hearth
+# and hasn't started it all again, so the catch does. They differ once a start fails partway: on
+# the same commit (-Force) there's nothing to roll back, but Hearth must still start again.
 $stopped = $false
+$startAgain = $false
 if ($Relaunched) {
   # Where the run that started this one left off: Hearth stopped, the new commit merged. Deleting
   # the file says this copy has taken over, rollback included.
@@ -134,6 +138,7 @@ if ($Relaunched) {
   $new = $state.New
   $before = $state.Before
   $stopped = $true
+  $startAgain = $true
   Write-Host "== Carrying on with the updated update.ps1"
 } else {
   $old = (git rev-parse HEAD).Trim()
@@ -160,6 +165,7 @@ try {
 
     Stop-Hearth
     $stopped = $true
+    $startAgain = $true
     Invoke-Native "Moving to $($new.Substring(0, 7))" { git merge --ff-only $new }
   } elseif ((git rev-parse HEAD).Trim() -ne $new) {
     throw "The Hearth folder isn't on $($new.Substring(0, 7)), where the update left off."
@@ -210,9 +216,11 @@ try {
     if ($code -ne 0) { throw "Migrating the database failed (exit $code)." }
     $since = [datetime]::UtcNow
     # From here the new code may be running, even when Start-Hearth fails partway: a rollback
-    # stops it before anything on disk changes.
+    # stops it before anything on disk changes. Until Start-Hearth returns, the rollback (or, on
+    # the same commit with -Force, the catch) starts Hearth again.
     $stopped = $false
     Start-Hearth
+    $startAgain = $false
     Assert-Healthy $new $since $before
     if ($needsInstall) {
       Write-Warning "This update changed how the services are installed. Run ops\windows\install.ps1 again from an elevated PowerShell."
@@ -227,7 +235,15 @@ try {
   Write-Host "UPDATE FAILED: $_"
   if ((git rev-parse HEAD).Trim() -ne $old) {
     if (-not $stopped) {
-      try { Stop-Hearth -Anyway; $stopped = $true } catch { Write-Host "Couldn't stop Hearth: $_" }
+      try {
+        Stop-Hearth -Anyway
+        $stopped = $true
+        $startAgain = $true
+      } catch {
+        Write-Host "Couldn't stop Hearth: $_"
+        # Left as it is, on the new code, for you to see why.
+        $startAgain = $false
+      }
     }
     if ($applied.Count) { Write-Host "This update applied $($applied -join ', ')." }
     if (-not $stopped) {
@@ -249,7 +265,7 @@ try {
       }
     }
   }
-  if ($stopped) {
+  if ($startAgain) {
     # Hearth was stopped above, maybe only seconds ago: no margin, so only the restart counts.
     $since = [datetime]::UtcNow
     # An older Jarvis that wouldn't stop is left running, as it was before the update: its task

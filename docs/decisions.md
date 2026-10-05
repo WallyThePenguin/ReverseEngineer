@@ -1557,7 +1557,9 @@ start another until it has gone. When it won't go, they say so, with the pid to 
   last reported in before the update, and the doctor one still running outside its idle task.
 - **A rollback never changes code under running services.** It stops them first, even when
   stopping Jarvis fails outright, and even when starting them failed partway. Should they not
-  stop, the new code stays and the update says so.
+  stop, the new code stays and the update says so. With -Force on the commit Hearth is already
+  on there's nothing to roll back, but a failed start is still tried again, without a Jarvis
+  that wouldn't stop, and the update says whether Hearth came back.
 - **The task is unchanged.** Its cmd.exe opens the log before any of Hearth's code runs, so no
   change inside Jarvis can let the task start while an older Jarvis holds the log. Instead, no
   Jarvis since this outlives its task run.
