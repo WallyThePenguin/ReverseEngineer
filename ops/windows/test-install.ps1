@@ -25,6 +25,14 @@ param(
 )
 $ErrorActionPreference = "Stop"
 if ($env:GITHUB_ACTIONS -ne "true") { throw "test-install.ps1 reinstalls Hearth's services; it only runs on CI." }
+# CI also runs on the owner's PC (D66), as a self-hosted runner, where this would install over the
+# live Hearth: only GitHub's own machines, and never where Hearth is already installed.
+if ($env:RUNNER_ENVIRONMENT -ne "github-hosted") {
+  throw "test-install.ps1 reinstalls Hearth's services; it only runs on GitHub's own machines, not a $env:RUNNER_ENVIRONMENT runner."
+}
+if ((Test-Path "D:\Hearth") -or ($Phase -eq "install" -and (Get-Service -Name "hearth-server" -ErrorAction SilentlyContinue))) {
+  throw "Hearth is already installed here; test-install.ps1 won't install over it."
+}
 $Root = (Resolve-Path "$PSScriptRoot\..\..").Path
 Set-Location $Root
 . "$PSScriptRoot\control.ps1"

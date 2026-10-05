@@ -1,5 +1,13 @@
 name: CI
 
+# Both jobs run on the owner's PC, which is also the live Hearth's (D66, docs/ci.md): the Linux one
+# in a container (ops/ci-runner/linux), the Windows one as the owner, at below-normal priority.
+# Everything they touch is CI's own: Postgres on 5499 (the live one is 5432), a database named for
+# the run, ports 4480-4499 (the live server is 4400, Tailscale serves it on 4443), folders under
+# RUNNER_TEMP, an empty rclone config, no .env and no Chrome but Playwright's. Hearth's defaults
+# point at the live install, so each is set here, at the job, and ops/ci-runner/guard.ts refuses
+# to go on without them: first in each job, then before each server, backup and restore.
+
 on:
   # The deploy branch (what update.ps1 pulls): every merge is tested again, as merged.
   push:
@@ -16,31 +24,65 @@ concurrency:
 
 jobs:
   check:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: hearth
-          POSTGRES_PASSWORD: hearth
-          POSTGRES_DB: hearth
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U hearth"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+    # Never a fork's code on the owner's PC.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, Linux, hearth-ci]
+    timeout-minutes: 30
     env:
-      HEARTH_DATABASE_URL: postgres://hearth:hearth@localhost:5432/hearth
-      HEARTH_TEST_DATABASE_URL: postgres://hearth:hearth@localhost:5432/postgres
+      HEARTH_CI_DB: hearth_ci_${{ github.run_id }}_${{ github.run_attempt }}
+      HEARTH_DATABASE_URL: postgres://hearth@127.0.0.1:5499/hearth_ci_${{ github.run_id }}_${{ github.run_attempt }}
+      HEARTH_TEST_DATABASE_URL: postgres://hearth@127.0.0.1:5499/postgres
+      PGHOST: 127.0.0.1
+      PGPORT: "5499"
+      PGUSER: hearth
+      PGDATABASE: postgres
+      HEARTH_HOST: 127.0.0.1
+      HEARTH_PORT: "4480"
+      HEARTH_ORIGIN: http://localhost:4480
+      # The end-to-end tests' own defaults are the live server (4400) and ports outside CI's.
+      HEARTH_E2E_URL: http://localhost:4480
+      HEARTH_E2E_PORT: "4484"
+      HEARTH_CHROME_LAUNCH: "off"
+      # The container gets 4 of the PC's 16 cores, which the live Hearth shares, and its CPU quota
+      # stalls a busy moment where a GitHub runner wouldn't: timed tests get three times a
+      # developer's PC's budget (packages/db/src/testing/timing.ts), as on the Windows job.
+      HEARTH_PERF_SLACK: "3"
+      # Kept in the work volume, so they survive the job (and a new image).
+      npm_config_store_dir: /home/runner/_work/_cache/pnpm-store
+      PLAYWRIGHT_BROWSERS_PATH: /home/runner/_work/_cache/ms-playwright
     steps:
+      - name: CI's folders, under RUNNER_TEMP
+        run: |
+          T="$RUNNER_TEMP"
+          mkdir -p "$T/hearth-data" "$T/tmp"
+          : > "$T/rclone-empty.conf"
+          {
+            echo "HEARTH_DATA_DIR=$T/hearth-data"
+            echo "HEARTH_BACKUP_DIR=$T/hearth-data/backups"
+            echo "RESTIC_CACHE_DIR=$T/restic-cache"
+            echo "RCLONE_CONFIG=$T/rclone-empty.conf"
+            echo "TMPDIR=$T/tmp"
+          } >> "$GITHUB_ENV"
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v5
         with:
           node-version: 24
-          cache: pnpm
+          package-manager-cache: false
+      - name: Guard (nothing here may reach the live Hearth)
+        run: node ops/ci-runner/guard.ts
+      - uses: pnpm/action-setup@v4
+      # In the image (ops/ci-runner/linux/Dockerfile): a cluster of the job's own in RUNNER_TEMP,
+      # gone with it. Nothing on it outlives the job, so it skips flushing to disk.
+      - name: PostgreSQL 16 in this container (port 5499), and a database for this run
+        run: |
+          bin=/usr/lib/postgresql/16/bin
+          "$bin/initdb" -D "$RUNNER_TEMP/pg" -U hearth --auth=trust -E UTF8 --locale=C.UTF-8 > /dev/null
+          "$bin/pg_ctl" -D "$RUNNER_TEMP/pg" -l "$RUNNER_TEMP/pg.log" -w start -o "-p 5499 \
+            -c listen_addresses=localhost -k $RUNNER_TEMP -c fsync=off -c synchronous_commit=off \
+            -c full_page_writes=off"
+          "$bin/psql" -X -v ON_ERROR_STOP=1 -c "CREATE DATABASE $HEARTH_CI_DB"
       - run: pnpm install --frozen-lockfile
       - name: Postgres client tools (backups use pg_dump and pg_restore)
         run: pg_dump --version && pg_restore --version
@@ -50,102 +92,176 @@ jobs:
         run: pnpm typecheck
       - name: File size limit
         run: pnpm check:size
-      - name: Chromium (page tests and the browser smoke test)
-        run: pnpm --filter @hearth/web exec playwright install --with-deps chromium
+      - name: Chromium (page tests and the browser smoke test; its libraries are in the image)
+        run: pnpm --filter @hearth/web exec playwright install chromium
       - name: Tests
-        run: pnpm test
+        # Four test files at a time, one per core the container has.
+        run: pnpm test --maxWorkers=4
       - name: Build the web app
         run: pnpm build:web
       - name: Main bundle size, and no Loro or WebAssembly in it
         run: pnpm check:bundle
       - name: Browser smoke test
-        env:
-          HEARTH_ORIGIN: http://localhost:4400
         run: |
+          node ops/ci-runner/guard.ts
           export HEARTH_WEB_DIST="$PWD/apps/web/dist"
           CODE=$(pnpm -s hearth setup | grep -oE '^    [0-9A-F]{10}$' | tr -d ' ')
           pnpm -s hearth serve > server.log 2>&1 &
-          for i in $(seq 1 30); do curl -sf localhost:4400/api/health > /dev/null && break; sleep 1; done
-          HEARTH_E2E_URL=http://localhost:4400 HEARTH_E2E_SETUP_CODE="$CODE" pnpm --filter @hearth/web e2e
+          for i in $(seq 1 30); do curl -sf "localhost:$HEARTH_PORT/api/health" > /dev/null && break; sleep 1; done
+          HEARTH_E2E_SETUP_CODE="$CODE" pnpm --filter @hearth/web e2e
       - name: Browser extension end-to-end
+        env:
+          HEARTH_DEV_AUTH: "1"
+          HEARTH_PORT: "4481"
+          HEARTH_ORIGIN: http://localhost:4481
+          HEARTH_E2E_URL: http://localhost:4481
         run: |
+          node ops/ci-runner/guard.ts
           export HEARTH_WEB_DIST="$PWD/apps/web/dist"
-          HEARTH_DEV_AUTH=1 HEARTH_PORT=4401 HEARTH_ORIGIN=http://localhost:4401 HEARTH_CHROME_LAUNCH=off \
-            pnpm -s hearth serve > server-dev.log 2>&1 &
-          for i in $(seq 1 30); do curl -sf localhost:4401/api/health > /dev/null && break; sleep 1; done
-          HEARTH_E2E_URL=http://localhost:4401 pnpm --filter @hearth/web e2e:browser
+          pnpm -s hearth serve > server-dev.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf "localhost:$HEARTH_PORT/api/health" > /dev/null && break; sleep 1; done
+          pnpm --filter @hearth/web e2e:browser
       - name: Hearth opens Chrome by itself, end-to-end
+        # The one server that may open a browser: Playwright's Chromium, in a profile in RUNNER_TEMP.
+        env:
+          HEARTH_DEV_AUTH: "1"
+          HEARTH_PORT: "4482"
+          HEARTH_ORIGIN: http://localhost:4482
+          HEARTH_E2E_URL: http://localhost:4482
         run: |
-          PROFILE=$(mktemp -d) EXT="$PWD/apps/extension"
+          PROFILE=$(mktemp -d "$RUNNER_TEMP/chrome-profile.XXXXXX") EXT="$PWD/apps/extension"
           CHROME=$(cd apps/web && node -e "import('playwright').then((p) => console.log(p.chromium.executablePath()))")
-          HEARTH_DEV_AUTH=1 HEARTH_PORT=4402 HEARTH_ORIGIN=http://localhost:4402 HEARTH_CHROME_PATH="$CHROME" \
-            HEARTH_CHROME_ARGS="--headless=new --no-sandbox --user-data-dir=$PROFILE --disable-extensions-except=$EXT --load-extension=$EXT" \
-            pnpm -s hearth serve > server-launch.log 2>&1 &
-          for i in $(seq 1 30); do curl -sf localhost:4402/api/health > /dev/null && break; sleep 1; done
-          HEARTH_E2E_URL=http://localhost:4402 HEARTH_E2E_PROFILE="$PROFILE" HEARTH_E2E_CHROME="$CHROME" \
-            pnpm --filter @hearth/web e2e:chrome-launch
+          export HEARTH_CHROME_LAUNCH=direct HEARTH_CHROME_PATH="$CHROME"
+          export HEARTH_CHROME_ARGS="--headless=new --no-sandbox --user-data-dir=$PROFILE --disable-extensions-except=$EXT --load-extension=$EXT"
+          export HEARTH_E2E_PROFILE="$PROFILE" HEARTH_E2E_CHROME="$CHROME"
+          node ops/ci-runner/guard.ts
+          pnpm -s hearth serve > server-launch.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf "localhost:$HEARTH_PORT/api/health" > /dev/null && break; sleep 1; done
+          pnpm --filter @hearth/web e2e:chrome-launch
       - name: The app rides through outages, end-to-end
+        env:
+          HEARTH_DEV_AUTH: "1"
+          HEARTH_PORT: "4483"
+          HEARTH_ORIGIN: http://localhost:4483
+          HEARTH_E2E_URL: http://localhost:4483
         run: |
+          node ops/ci-runner/guard.ts
           export HEARTH_WEB_DIST="$PWD/apps/web/dist"
-          HEARTH_DEV_AUTH=1 HEARTH_PORT=4403 HEARTH_ORIGIN=http://localhost:4403 HEARTH_CHROME_LAUNCH=off \
-            pnpm -s hearth serve > server-resilience.log 2>&1 &
-          for i in $(seq 1 30); do curl -sf localhost:4403/api/health > /dev/null && break; sleep 1; done
-          HEARTH_E2E_URL=http://localhost:4403 pnpm --filter @hearth/web e2e:resilience
+          pnpm -s hearth serve > server-resilience.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf "localhost:$HEARTH_PORT/api/health" > /dev/null && break; sleep 1; done
+          pnpm --filter @hearth/web e2e:resilience
       - name: The app opens while Hearth is stopped or not answering, end-to-end
-        # Starts and stops its own server on this port.
-        run: HEARTH_E2E_PORT=4404 pnpm --filter @hearth/web e2e:offline
-      - name: Split panes, the trash and triage by touch, end-to-end
+        # Starts and stops its own server, on the job's HEARTH_E2E_PORT (4484).
         run: |
+          node ops/ci-runner/guard.ts
+          pnpm --filter @hearth/web e2e:offline
+      - name: Split panes, the trash and triage by touch, end-to-end
+        env:
+          HEARTH_DEV_AUTH: "1"
+          HEARTH_PORT: "4485"
+          HEARTH_ORIGIN: http://localhost:4485
+          HEARTH_E2E_URL: http://localhost:4485
+        run: |
+          node ops/ci-runner/guard.ts
           export HEARTH_WEB_DIST="$PWD/apps/web/dist"
-          HEARTH_DEV_AUTH=1 HEARTH_PORT=4405 HEARTH_ORIGIN=http://localhost:4405 HEARTH_CHROME_LAUNCH=off \
-            pnpm -s hearth serve > server-daily.log 2>&1 &
-          for i in $(seq 1 30); do curl -sf localhost:4405/api/health > /dev/null && break; sleep 1; done
-          HEARTH_E2E_URL=http://localhost:4405 pnpm --filter @hearth/web e2e:daily
+          pnpm -s hearth serve > server-daily.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf "localhost:$HEARTH_PORT/api/health" > /dev/null && break; sleep 1; done
+          pnpm --filter @hearth/web e2e:daily
       - name: Server log
         if: failure()
-        run: cat server.log server-dev.log server-launch.log server-resilience.log server-daily.log || true
+        run: cat server.log server-dev.log server-launch.log server-resilience.log server-daily.log "$RUNNER_TEMP/pg.log" || true
+      # The runner ends what a job leaves running, but a server left up holds its port until then.
+      - name: Clean up (CI's servers, and the job's Postgres with its databases)
+        if: always()
+        run: |
+          pkill -f "apps/cli/src/main.ts serve" || true
+          if [ -d "$RUNNER_TEMP/pg" ]; then /usr/lib/postgresql/16/bin/pg_ctl -D "$RUNNER_TEMP/pg" -m fast stop || true; fi
 
   # Hearth runs on Windows, so it's checked there too: Node 22 (what the PC runs), PostgreSQL 17
-  # (what the PC runs), a real server start, and a backup restored into a fresh database.
-  # The extension and Chrome-launch end-to-end tests stay on Linux: the extension's session
-  # restore fails under Windows Chromium (stream F's work), and chrome-launch drives Chrome the
-  # Linux way. The Windows "task" launch is covered by unit tests with a fake runner.
+  # (the PC's CI cluster, on 5499), a real server start, and a backup restored into a fresh
+  # database. The extension and Chrome-launch end-to-end tests stay on Linux: the extension's
+  # session restore fails under Windows Chromium (stream F's work), and chrome-launch drives Chrome
+  # the Linux way. The Windows "task" launch is covered by unit tests with a fake runner.
   windows:
-    runs-on: windows-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, Windows, hearth-ci]
     timeout-minutes: 45
     env:
-      HEARTH_DATABASE_URL: postgres://hearth:hearth@127.0.0.1:5432/hearth
-      HEARTH_TEST_DATABASE_URL: postgres://hearth:hearth@127.0.0.1:5432/postgres
+      HEARTH_CI_DB: hearth_ci_${{ github.run_id }}_${{ github.run_attempt }}
+      HEARTH_DATABASE_URL: postgres://hearth@127.0.0.1:5499/hearth_ci_${{ github.run_id }}_${{ github.run_attempt }}
+      HEARTH_TEST_DATABASE_URL: postgres://hearth@127.0.0.1:5499/postgres
+      PGHOST: 127.0.0.1
+      PGPORT: "5499"
+      PGUSER: hearth
+      PGDATABASE: postgres
+      HEARTH_HOST: 127.0.0.1
+      HEARTH_PORT: "4480"
+      HEARTH_ORIGIN: http://localhost:4480
+      # The end-to-end tests' own defaults are the live server (4400) and ports outside CI's.
+      HEARTH_E2E_URL: http://localhost:4480
+      HEARTH_E2E_PORT: "4484"
       HEARTH_CHROME_LAUNCH: "off"
+      # Timed tests get three times a developer's PC's budget (packages/db/src/testing/timing.ts).
+      # This PC is that developer's PC, but CI runs at below-normal priority beside the live
+      # Hearth and the Linux job, and shares the cluster on 5499 with other test runs: a timed run
+      # can wait its turn. Three still fails a tenfold slowdown, as on GitHub's Windows runner.
+      HEARTH_PERF_SLACK: "3"
+      # On D:, next to the runner: C: has little room, and these are CI's, not the owner's.
+      npm_config_store_dir: D:\hearth-ci\pnpm-store
+      PLAYWRIGHT_BROWSERS_PATH: D:\hearth-ci\ms-playwright
     defaults:
       run:
         shell: bash
     steps:
+      # First: the PC's PATH finds WSL's bash (System32) before Git's, so Git's goes ahead of it.
+      - name: CI's folders under RUNNER_TEMP, and Git's bash
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $git = "C:\Program Files\Git\bin"
+          if (-not (Test-Path "$git\bash.exe")) { throw "Git's bash isn't in $git." }
+          # .NET writes UTF-8 without a byte-order mark, which Windows PowerShell's Out-File can't.
+          [IO.File]::AppendAllText($env:GITHUB_PATH, "$git`n")
+          $t = $env:RUNNER_TEMP -replace '\\', '/'
+          New-Item -ItemType Directory -Force "$t/hearth-data", "$t/tmp" | Out-Null
+          [IO.File]::WriteAllText("$t/rclone-empty.conf", "")
+          $vars = @(
+            "HEARTH_DATA_DIR=$t/hearth-data",
+            "HEARTH_BACKUP_DIR=$t/hearth-data/backups",
+            "RESTIC_CACHE_DIR=$t/restic-cache",
+            "RCLONE_CONFIG=$t/rclone-empty.conf",
+            "TEMP=$t/tmp",
+            "TMP=$t/tmp"
+          )
+          [IO.File]::AppendAllText($env:GITHUB_ENV, (($vars -join "`n") + "`n"))
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-          cache: pnpm
-      # The runner image has PostgreSQL installed as a stopped service (user postgres, password
-      # root). Start it and add the role Hearth's tests and server use.
-      - name: PostgreSQL 17
-        shell: pwsh
+          package-manager-cache: false
+      - name: Guard (nothing here may reach the live Hearth)
         run: |
-          $ErrorActionPreference = "Stop"
-          $bin = if ($env:PGBIN) { $env:PGBIN } else { "C:\Program Files\PostgreSQL\17\bin" }
-          $version = & "$bin\postgres.exe" --version
-          if ($version -notmatch " 17\.") { throw "Expected PostgreSQL 17 on the runner, found: $version" }
-          $svc = Get-Service -Name "postgresql*" | Select-Object -First 1
-          Set-Service -Name $svc.Name -StartupType Manual
-          Start-Service -Name $svc.Name
-          Add-Content $env:GITHUB_PATH $bin
-          $env:PGPASSWORD = "root"
-          & "$bin\psql.exe" -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 `
-            -c "CREATE ROLE hearth LOGIN SUPERUSER PASSWORD 'hearth'" `
-            -c "CREATE DATABASE hearth OWNER hearth"
-          if ($LASTEXITCODE -ne 0) { throw "Couldn't create the hearth role and database." }
-          Write-Host $version
+          case "$(uname -s)" in MINGW*|MSYS*) ;; *) echo "bash here isn't Git's: $(uname -a)"; exit 1 ;; esac
+          node ops/ci-runner/guard.ts
+      - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
+      # The PC's CI cluster (PostgreSQL 17, as the live one; user hearth, no password), never the
+      # live one on 5432. restic and the PostgreSQL tools are installed on the PC.
+      - name: PostgreSQL 17 on 5499, a database for this run, pg_dump and restic
+        run: |
+          for tool in psql pg_isready pg_dump pg_restore restic; do
+            command -v "$tool" > /dev/null || { echo "$tool isn't on the runner's PATH."; exit 1; }
+          done
+          pg_isready -q || { echo "CI's Postgres isn't answering on $PGHOST:$PGPORT."; exit 1; }
+          version=$(psql -XAtc "SHOW server_version")
+          case "$version" in 17.*) ;; *) echo "Expected PostgreSQL 17 on $PGPORT, found $version"; exit 1 ;; esac
+          psql -X -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS $HEARTH_CI_DB WITH (FORCE)" \
+            -c "CREATE DATABASE $HEARTH_CI_DB"
+          echo "PostgreSQL $version, database $HEARTH_CI_DB"
+          pg_dump --version && restic version
       - run: pnpm install --frozen-lockfile
       - name: Lint and format
         run: pnpm lint
@@ -153,118 +269,103 @@ jobs:
         run: pnpm typecheck
       - name: File size limit
         run: pnpm check:size
+      # It runs control.ps1's stops and starts with Windows faked, as you, on the PC whose live
+      # services and Jarvis task your account may stop. ops/windows/test-fence.ps1 refuses to run
+      # them unless every command they reach is a fake or only reads; Hearth's services folder,
+      # where a stop request ends the live Jarvis, is found through ProgramData, moved here too.
       - name: The update and restart scripts (they parse; the update gate's logic)
+        env:
+          ProgramData: ${{ runner.temp }}\ProgramData
         run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ops/windows/test-control.ps1
+      - name: The CI runner's scripts parse
+        shell: powershell
+        run: |
+          foreach ($f in Get-ChildItem ops\ci-runner\*.ps1) {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errors) | Out-Null
+            if ($errors.Count) { throw "$($f.Name): $($errors[0].Message)" }
+            Write-Host "ok    $($f.Name) parses"
+          }
       - name: Chromium (page tests and the browser smoke test)
         run: pnpm --filter @hearth/web exec playwright install chromium
-      # restic, as on the PC: the restore drill test and the backup step below use it.
-      - name: restic
-        shell: pwsh
-        run: |
-          choco install restic -y --no-progress
-          if ($LASTEXITCODE -ne 0) { throw "Couldn't install restic." }
-          restic version
       - name: Tests
-        run: pnpm test
+        # Four test files at a time (as many as GitHub's runner had cores): the rest of the PC is
+        # the live Hearth's. `pnpm test -- --maxWorkers=4` would pass the -- on, and vitest would
+        # ignore what follows it.
+        run: pnpm test --maxWorkers=4
       - name: Build the web app
         run: pnpm build:web
+      # The doctor judges only the CI server here: HEARTH_PORT points its probe at 4480, and the
+      # database at this run's. It also reads Windows' view of the live services and tasks, which
+      # only asks; nothing it runs changes anything.
       - name: Server starts and reports this commit, the doctor agrees, then the browser smoke test
-        env:
-          HEARTH_ORIGIN: http://localhost:4400
         run: |
+          node ops/ci-runner/guard.ts
           export HEARTH_WEB_DIST="$PWD/apps/web/dist"
           CODE=$(pnpm -s hearth setup | grep -oE '^    [0-9A-F]{10}$' | tr -d ' ')
           pnpm -s hearth serve > server.log 2>&1 &
-          for i in $(seq 1 60); do curl -sf 127.0.0.1:4400/api/health > /dev/null && break; sleep 1; done
-          curl -sf 127.0.0.1:4400/api/health
+          for i in $(seq 1 60); do curl -sf "127.0.0.1:$HEARTH_PORT/api/health" > /dev/null && break; sleep 1; done
+          curl -sf "127.0.0.1:$HEARTH_PORT/api/health"
           # What update.ps1 waits for: this commit, with the database fitting it.
-          curl -sf 127.0.0.1:4400/api/health/deep > deep.json
+          curl -sf "127.0.0.1:$HEARTH_PORT/api/health/deep" > deep.json
           HEAD=$(git rev-parse HEAD) node -e '
             const d = require("./deep.json");
             if (d.sha !== process.env.HEAD || !d.db.ok || !d.migrations.ok) { console.error(d); process.exit(1); }
             console.log(`Deep health: ${d.status}, build ${d.sha.slice(0, 7)}, ${d.migrations.applied} migrations`);'
-          # The doctor runs on Windows and sees the same; whether the runner's disks are full isn't ours.
           pnpm -s hearth doctor --json > doctor.json || true
           node -e '
             const { checks } = require("./doctor.json");
             const mark = (n) => checks.find((c) => c.name === n)?.mark;
             for (const c of checks) console.log(c.mark.padEnd(5), c.name.padEnd(14), c.detail);
             if (mark("Server") !== "ok" || mark("Build") !== "ok" || mark("Migrations") !== "ok") process.exit(1);'
-          HEARTH_E2E_URL=http://localhost:4400 HEARTH_E2E_SETUP_CODE="$CODE" pnpm --filter @hearth/web e2e
+          HEARTH_E2E_SETUP_CODE="$CODE" pnpm --filter @hearth/web e2e
       - name: Back up, then restore into a fresh database
-        run: pnpm -s hearth backup
-      - name: Back up off-site with the stored files, lose them, restore everything
         run: |
-          T=$(cygpath -m "$RUNNER_TEMP")
-          export RESTIC_PASSWORD=ci-only HEARTH_DATA_DIR="$T/hearth-data"
-          export HEARTH_BACKUP_REPOSITORY="$T/restic-repo" HEARTH_BACKUP_DIR="$T/hearth-data/backups"
+          node ops/ci-runner/guard.ts
+          pnpm -s hearth backup
+      - name: Back up off-site with the stored files, lose them, restore everything
+        # "Off-site" is a restic repository in RUNNER_TEMP with a throwaway password.
+        env:
+          HEARTH_BACKUP_REPOSITORY: ${{ runner.temp }}/restic-repo
+          RESTIC_PASSWORD: ci-only
+        run: |
+          node ops/ci-runner/guard.ts
           mkdir -p "$HEARTH_DATA_DIR/voice-samples" && echo hello > "$HEARTH_DATA_DIR/voice-samples/one.txt"
           restic --repo "$HEARTH_BACKUP_REPOSITORY" init
           pnpm -s hearth backup
           rm -rf "$HEARTH_DATA_DIR/voice-samples"
-          pnpm -s hearth restore --into hearth_restored_ci
+          pnpm -s hearth restore --into "${HEARTH_CI_DB}_restored"
           test "$(cat "$HEARTH_DATA_DIR/voice-samples/one.txt")" = hello
       - name: Server log
         if: failure()
         run: cat server.log || true
-
-  # The real Windows install, as on the PC: install.ps1 as administrator (the runner is one), with
-  # its services, Jarvis's task and the backup task; then update.ps1 and `hearth restart jarvis`
-  # from the same account as a Limited task like Jarvis's own (UAC is off on the runner, so that
-  # still has a full token), and Jarvis ending when only its task is stopped; then an update that
-  # hands over to a new update.ps1, and one rolled back by a failing migration. Each checks the
-  # services, deep health on the right commit and exactly one Jarvis, the one checking in. Its own
-  # job, so a failing unit test in the windows job doesn't skip it. No Chrome task (-SkipChromeTask)
-  # and no Claude login: see ops/windows/test-install.ps1.
-  windows-install:
-    runs-on: windows-latest
-    timeout-minutes: 50
-    env:
-      HEARTH_DATABASE_URL: postgres://hearth:hearth@127.0.0.1:5432/hearth
-    defaults:
-      run:
-        shell: pwsh
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          # update.ps1 merges and resets between commits.
-          fetch-depth: 0
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: pnpm
-      - name: PostgreSQL 17
+      # Only what this job started: programs from D:\hearth-ci (its Node, its Chromium) listening
+      # on CI's ports, and this run's databases on 5499. The live server's Node isn't from there.
+      - name: Clean up (CI's servers and this run's databases)
+        if: always()
+        shell: powershell
         run: |
-          $ErrorActionPreference = "Stop"
-          $bin = if ($env:PGBIN) { $env:PGBIN } else { "C:\Program Files\PostgreSQL\17\bin" }
-          $svc = Get-Service -Name "postgresql*" | Select-Object -First 1
-          Set-Service -Name $svc.Name -StartupType Manual
-          Start-Service -Name $svc.Name
-          Add-Content $env:GITHUB_PATH $bin
-          $env:PGPASSWORD = "root"
-          & "$bin\psql.exe" -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 `
-            -c "CREATE ROLE hearth LOGIN SUPERUSER PASSWORD 'hearth'" `
-            -c "CREATE DATABASE hearth OWNER hearth"
-          if ($LASTEXITCODE -ne 0) { throw "Couldn't create the hearth role and database." }
-      - run: pnpm install --frozen-lockfile
-      - name: Build the web app
-        run: pnpm build:web
-      - name: install.ps1 as administrator, then the services, the tasks, deep health and the doctor
-        timeout-minutes: 10
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File ops/windows/test-install.ps1 -Phase install
-      - name: update.ps1 as a Limited task, to the same commit (-Force)
-        timeout-minutes: 12
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File ops/windows/test-install.ps1 -Phase update
-      - name: Jarvis ends with its task, then hearth restart jarvis as a Limited task
-        timeout-minutes: 6
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File ops/windows/test-install.ps1 -Phase restart
-      - name: update.ps1 to a commit that changes update.ps1, whose new copy takes over
-        timeout-minutes: 12
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File ops/windows/test-install.ps1 -Phase update-new
-      - name: update.ps1 to a commit whose migration fails, rolled back
-        timeout-minutes: 14
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File ops/windows/test-install.ps1 -Phase rollback
-      - name: Tasks, services, Jarvis, deep health and the logs
-        if: failure()
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File ops/windows/test-install.ps1 -Phase logs
+          $listening = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue |
+            Where-Object { $_.LocalPort -ge 4480 -and $_.LocalPort -le 4499 }
+          $ids = @($listening | ForEach-Object { $_.OwningProcess }) + @(
+            Get-CimInstance Win32_Process -Filter "Name = 'chrome.exe' OR Name = 'chrome-headless-shell.exe'" |
+              Where-Object { $_.ExecutablePath -like "D:\hearth-ci\ms-playwright\*" } |
+              ForEach-Object { $_.ProcessId })
+          foreach ($id in ($ids | Sort-Object -Unique)) {
+            $p = Get-CimInstance Win32_Process -Filter "ProcessId = $id"
+            if ($p -and $p.ExecutablePath -like "D:\hearth-ci\*") {
+              Write-Host "Stopping $($p.Name) ($id)"
+              Stop-Process -Id $id -Force -ErrorAction SilentlyContinue
+            }
+          }
+          $db = $env:HEARTH_CI_DB
+          if ($env:PGPORT -ne "5499" -or $env:PGHOST -ne "127.0.0.1" -or $db -notmatch '^hearth_ci_\d+_\d+$') {
+            throw "Not CI's cluster or not a CI database name; dropping nothing."
+          }
+          $names = psql -X -At -c "SELECT datname FROM pg_database WHERE datname = '$db' OR datname LIKE '${db}\_%'"
+          foreach ($name in $names) {
+            if ($name -match "^${db}(_[a-z0-9_]+)?$") {
+              Write-Host "Dropping $name"
+              psql -X -q -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS $name WITH (FORCE)"
+            }
+          }

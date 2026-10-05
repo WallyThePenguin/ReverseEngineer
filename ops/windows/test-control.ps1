@@ -1,11 +1,15 @@
 <#
   Tests for the update gate's logic in control.ps1, and that every script in ops\windows parses.
-  Touches nothing: no services, no tasks, no network. CI runs it on Windows:
+  Touches nothing: no services, no tasks, no network. CI runs it on Windows, on the PC that is also
+  the live Hearth's (D66), so test-fence.ps1 checks the fakes before anything is stopped:
     powershell -NoProfile -ExecutionPolicy Bypass -File ops\windows\test-control.ps1
 #>
 $ErrorActionPreference = "Stop"
 $Root = "C:\nowhere"
 . "$PSScriptRoot\control.ps1"
+. "$PSScriptRoot\test-fence.ps1"
+# Hearth's services folder, where a stop request ends the live Jarvis, is found through this.
+$env:ProgramData = Join-Path ([IO.Path]::GetTempPath()) "hearth-test-control\ProgramData"
 $failures = 0
 
 function Assert-Equal($Actual, $Expected, [string]$What) {

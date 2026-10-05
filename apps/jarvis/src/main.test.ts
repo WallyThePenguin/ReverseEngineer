@@ -91,9 +91,12 @@ describe("the Jarvis process", () => {
     it("starts, says it's alive, and keeps Claude's sessions in its own folder", async () => {
       const stop = await runJarvis({ ownProcess: false });
       try {
-        await vi.waitFor(async () => {
-          expect(await getSetting(db.db, "jarvis.alive")).toMatchObject({ pid: process.pid });
-        });
+        await vi.waitFor(
+          async () => {
+            expect(await getSetting(db.db, "jarvis.alive")).toMatchObject({ pid: process.pid });
+          },
+          { timeout: 10_000 },
+        );
         expect(existsSync(join(dataDir, "jarvis"))).toBe(true);
       } finally {
         await stop();

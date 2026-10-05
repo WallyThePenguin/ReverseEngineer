@@ -132,6 +132,8 @@ try {
     const t0 = Date.now();
     await page.reload({ timeout: 15_000 });
     const took = Date.now() - t0;
+    // The service worker's 3 s wait (NAVIGATE_TIMEOUT_MS) and 3 s to spare; waiting on Hearth
+    // instead runs to the reload's 15 s. A bound between two timers isn't scaled for a slow PC.
     if (took > 6_000) throw new Error(`the page took ${took} ms`);
     await page.getByRole("heading", unreachable).waitFor({ timeout: 20_000 });
     await endSilence();

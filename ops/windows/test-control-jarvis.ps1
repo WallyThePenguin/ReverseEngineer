@@ -86,6 +86,17 @@ function Set-Jarvis([hashtable]$Running, [int[]]$Holders = @(), [switch]$Honours
   $script:states = @("")
   $script:starts = @{}
 }
+function Stop-Service { param($Name) $script:did += "stop $($Name -join ' ')" }
+function Start-Service { param($Name) $script:did += "start $($Name -join ' ')" }
+function Start-ScheduledTask { $script:did += "start task" }
+function Clear-JarvisStopRequest { $script:did += "clear request" }
+# Nothing below reaches the real thing: every command these can reach is one of the fakes above, or
+# test-control.ps1's (its clock), and ProgramData isn't the real one (test-fence.ps1).
+Assert-Fenced -Entry "Stop-Jarvis", "Stop-Hearth", "Start-Hearth", "Get-RollbackParts", "Test-StillJarvis",
+  "Wait-JarvisGone" -Fakes $PSCommandPath, "$PSScriptRoot\test-control.ps1" `
+  -Code "$PSScriptRoot\control.ps1", "$PSScriptRoot\control-jarvis.ps1" `
+  -Faked "Stop-Service", "Start-Service", "Stop-ScheduledTask", "Start-ScheduledTask", "Stop-Process",
+  "Request-JarvisStop", "Clear-JarvisStopRequest", "Get-ServiceDir", "New-Object", "Get-CimInstance", "Get-ProcessStart"
 
 Set-Jarvis @{ 999999 = (& $node $written.AddSeconds(-20)) } -Holders 999999 -Honours
 Assert-Equal (Stop-Jarvis) "" "a Jarvis since D63 stops when asked"
@@ -120,7 +131,6 @@ Assert-Equal (Stop-Jarvis) "" "the task's own node child, found before the task 
 Assert-Equal ($script:did -join ", ") "ask, end task, kill 999988" "and ended when elevated"
 
 # A Jarvis that won't stop leaves the services alone, unless it's a rollback (-Anyway).
-function Stop-Service { param($Name) $script:did += "stop $($Name -join ' ')" }
 Set-Jarvis @{ 999996 = (& $sessionZero 999996) } -Holders 999996 -InFile 999996
 $threw = ""
 try { Stop-Hearth | Out-Null } catch { $threw = "$_" }
@@ -163,9 +173,6 @@ function Get-ProcessStart { param([int]$Id) $script:starts[$Id] }
 
 # Start-Hearth refuses before it starts anything when a Jarvis is left over: an update would roll
 # back with the services already on the new code (and the task can't start another anyway).
-function Start-Service { param($Name) $script:did += "start $($Name -join ' ')" }
-function Start-ScheduledTask { $script:did += "start task" }
-function Clear-JarvisStopRequest { $script:did += "clear request" }
 Set-Jarvis @{ 999996 = (& $sessionZero 999996) } -Holders 999996 -InFile 999996
 $threw = ""
 try { Start-Hearth | Out-Null } catch { $threw = "$_" }

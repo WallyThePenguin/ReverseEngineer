@@ -191,18 +191,23 @@ function global:Get-Date {
   if ($Format) { return $global:clock.ToString($Format) }
   return $global:clock
 }
+$refusal = { param($name) "throw '$name isn''t faked'" }
 foreach ($name in "Invoke-WebRequest", "node", "psql", "taskkill", "schtasks", "Restart-Service", "Set-Service",
   "Register-ScheduledTask", "Unregister-ScheduledTask", "Enable-ScheduledTask", "Disable-ScheduledTask") {
-  Set-Item "function:global:$name" -Value ([scriptblock]::Create("throw '$name isn''t faked'"))
+  Set-Item "function:global:$name" -Value ([scriptblock]::Create((& $refusal $name)))
 }
 
-# Never the real thing: every command that could reach a real Hearth must be a fake by now.
+# Never the real thing: every command that could reach a real Hearth must be a fake from this file
+# by now, or one of the refusals above. Being a function isn't enough: Windows' own
+# Stop-ScheduledTask and Start-ScheduledTask are functions too (the ScheduledTasks module's).
 foreach ($name in "Get-Process", "Get-CimInstance", "New-Object", "Get-ScheduledTask", "Stop-ScheduledTask",
   "Start-ScheduledTask", "Stop-Process", "Start-Service", "Stop-Service", "git", "pnpm", "pg_dump",
   "Invoke-RestMethod", "Invoke-WebRequest", "node", "psql", "taskkill", "schtasks", "Restart-Service",
   "Set-Service", "Register-ScheduledTask", "Unregister-ScheduledTask", "Enable-ScheduledTask", "Disable-ScheduledTask") {
   $command = Get-Command $name -ErrorAction SilentlyContinue | Select-Object -First 1
-  if ("$($command.CommandType)" -ne "Function") { throw "$name isn't faked" }
+  $fake = "$($command.CommandType)" -eq "Function" -and
+    ($command.ScriptBlock.File -eq $PSCommandPath -or "$($command.ScriptBlock)".Trim() -eq (& $refusal $name))
+  if (-not $fake) { throw "$name isn't faked" }
 }
 
 $global:running["hearth-server"] = $global:old
