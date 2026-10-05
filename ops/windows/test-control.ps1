@@ -234,17 +234,28 @@ $denied | Add-Member -MemberType ScriptProperty -Name StartTime -Value { throw "
 Assert-Equal (Test-JarvisPid $denied $written) $false "a node.exe that won't say when it started"
 Assert-Equal (Test-JarvisPid ([pscustomobject]@{ ProcessName = "chrome"; StartTime = $written.AddSeconds(-20) }) $written) $false "not node"
 Assert-Equal (Test-JarvisPid $null $written) $false "no process with that pid"
+# Unelevated, Windows won't open the task's Jarvis to say when it started; its process list does.
+function Get-CimInstance { param($ClassName, $Filter) [pscustomobject]@{ CreationDate = $written.AddSeconds(-20) } }
+Assert-Equal (Test-JarvisPid $denied $written) $true "the task's Jarvis, which this account may not open"
+Remove-Item function:Get-CimInstance
 
 # Stop-Jarvis itself, with the pid file, the processes and the task faked. 999999 can't be a real
 # pid (Windows' are multiples of 4), and Stop-Process is faked anyway.
 $script:found = $null
 $script:killed = @()
+$script:denied = $false
+$script:endsWithTask = $false
 function Test-Path { param($Path) $true }
 function Get-Content { param($Path, [switch]$Raw) "999999`r`n" }
-function Get-Item { param($Path) [pscustomobject]@{ LastWriteTime = $written } }
+function Get-Item { param($Path) [pscustomobject]@{ LastWriteTime = $written; LastWriteTimeUtc = $written } }
 function Get-Process { param($Id) $script:found }
-function Stop-Process { param($Id, [switch]$Force) $script:killed += $Id }
-function Stop-ScheduledTask {}
+function Stop-Process {
+  param($Id, [switch]$Force)
+  if ($script:denied) { throw "Cannot stop process: Access is denied" }
+  $script:killed += $Id
+  $script:found = $null
+}
+function Stop-ScheduledTask { if ($script:endsWithTask) { $script:found = $null } }
 function New-Object {
   $task = [pscustomobject]@{}
   $task | Add-Member -MemberType ScriptMethod -Name GetInstances -Value { @() }
@@ -262,7 +273,44 @@ Assert-Equal "$script:killed" "" "Stop-Jarvis leaves a later node.exe with Jarvi
 $script:found = & $node $written.AddSeconds(-20)
 Stop-Jarvis
 Assert-Equal "$script:killed" "999999" "Stop-Jarvis stops the Jarvis that wrote the pid file"
-foreach ($f in "Test-Path", "Get-Content", "Get-Item", "Get-Process", "Stop-Process", "Stop-ScheduledTask", "New-Object") {
+# Unelevated: Windows refuses to stop the task's Jarvis, which stops itself once its task's cmd ends.
+$script:killed = @()
+$script:denied = $true
+$script:endsWithTask = $true
+$script:found = & $node $written.AddSeconds(-20)
+Stop-Jarvis -TimeoutSec 0
+Assert-Equal "$script:found" "" "Stop-Jarvis: the Jarvis that stops with its task"
+# A Jarvis from before that, or one that hangs, keeps running: say so, and how to end it.
+$script:endsWithTask = $false
+$script:found = & $node $written.AddSeconds(-20)
+$threw = ""
+try { Stop-Jarvis -TimeoutSec 0 } catch { $threw = "$_" }
+Assert-Equal ($threw -match "^Jarvis \(pid 999999\) is still running.*Stop-Process -Id 999999 -Force") $true "Stop-Jarvis says when a Jarvis won't stop"
+# Starting it again then would fail on its log: Start-Hearth says the same instead.
+$script:started = @()
+function Start-Service { param($Name) $script:started += $Name }
+function Start-ScheduledTask { param($TaskName) $script:started += $TaskName }
+$threw = ""
+try { Start-Hearth } catch { $threw = "$_" }
+Assert-Equal "$($script:started -join ', ')|$($threw -match 'still running')" "hearth-server, hearth-worker|True" "Start-Hearth starts the services, not a second Jarvis"
+$script:found = $null
+$script:started = @()
+Start-Hearth
+Assert-Equal ($script:started -join ", ") "hearth-server, hearth-worker, Hearth Jarvis" "Start-Hearth starts all three"
+
+# Waiting for a new Jarvis to check in: its pid file, or the server's word.
+function Get-Item { param($Path) [pscustomobject]@{ LastWriteTimeUtc = $script:pidWritten } }
+$script:pidWritten = $since.AddMinutes(-5)
+$script:answers = @([pscustomobject]@{ Status = 200; Body = (New-Deep) })
+Assert-Equal (Wait-JarvisCheckIn $since "x.pid" 0).ToString("o") "2026-10-04T12:00:15.0000000Z" "Jarvis checked in, says the server"
+$script:answers = @([pscustomobject]@{ Status = 0; Body = $null })
+$script:pidWritten = $since.AddSeconds(30)
+Assert-Equal (Wait-JarvisCheckIn $since "x.pid" 0).ToString("o") "2026-10-04T12:00:30.0000000Z" "Jarvis wrote its pid file, with the server down"
+$script:pidWritten = $since.AddMinutes(-5)
+Assert-Equal (Wait-JarvisCheckIn $since "x.pid" 0) "" "only an old pid file: not checked in"
+$script:answers = @([pscustomobject]@{ Status = 200; Body = $survivor })
+Assert-Equal (Wait-JarvisCheckIn $since "x.pid" 0) "" "only an old Jarvis checking in: not the new one"
+foreach ($f in "Test-Path", "Get-Content", "Get-Item", "Get-Process", "Stop-Process", "Stop-ScheduledTask", "New-Object", "Start-Service", "Start-ScheduledTask") {
   Remove-Item "function:$f"
 }
 

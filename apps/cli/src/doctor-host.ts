@@ -60,6 +60,21 @@ export function judgeTask(task: string, state: string | null | undefined): Check
 }
 
 /**
+ * The Jarvis task idle while a Jarvis still checks in (every 30 seconds): one that outlived its
+ * task's stop, still on the code it started with. While it holds its log, each start of the task
+ * fails at once, so `hearth restart jarvis` can't help; only an elevated account can end it.
+ */
+export function judgeJarvisTask(task: Check, report: DeepHealth | null, now = new Date()): Check {
+  const alive = report?.jarvisAlive;
+  if (task.name !== "Jarvis task" || !task.detail.startsWith("Not running") || !alive) return task;
+  if (now.getTime() - new Date(alive.at).getTime() > 2 * 60_000) return task;
+  return {
+    ...task,
+    detail: `Not running, but a Jarvis it didn't start is (pid ${alive.pid}, since ${alive.since}), on the code it started with, and the task can't start another while it runs. From an elevated PowerShell: Stop-Process -Id ${alive.pid} -Force, then pnpm hearth restart jarvis`,
+  };
+}
+
+/**
  * hearth-server, hearth-worker and the Jarvis, Chrome and backup tasks, as Windows sees them;
  * `installed` says whether the server is installed as a service (so it should be up).
  */

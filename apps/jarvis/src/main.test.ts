@@ -1,10 +1,11 @@
+import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTestDatabase, type TestDatabase } from "@hearth/db/testing";
 import { getSetting } from "@hearth/kernel";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runJarvis } from "./main.ts";
+import { isRunning, runJarvis, whenParentEnds } from "./main.ts";
 
 let dataDir: string;
 const saved = { url: process.env.HEARTH_DATABASE_URL, dir: process.env.HEARTH_DATA_DIR };
@@ -51,5 +52,23 @@ describe("the Jarvis process", () => {
         await stop();
       }
     });
+  });
+
+  // As the "Hearth Jarvis" task: stopping the task ends the cmd Jarvis runs under, and only that.
+  it("notices when the process it runs under has ended", async () => {
+    const parent = spawn(process.execPath, ["-e", "setTimeout(() => {}, 300)"]);
+    const ended = new Promise((resolve) => parent.once("exit", resolve));
+    const pid = parent.pid!;
+    expect(isRunning(pid)).toBe(true);
+    const gone = vi.fn();
+    const unwatch = whenParentEnds(pid, gone, 50);
+    try {
+      expect(gone).not.toHaveBeenCalled();
+      await ended;
+      await vi.waitFor(() => expect(gone).toHaveBeenCalledOnce());
+      expect(isRunning(pid)).toBe(false);
+    } finally {
+      unwatch();
+    }
   });
 });

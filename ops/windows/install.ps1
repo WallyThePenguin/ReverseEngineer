@@ -27,6 +27,8 @@ param(
   [switch]$SkipChromeTask
 )
 $ErrorActionPreference = "Stop"
+# Finding, stopping and waiting for Jarvis and the server, as update.ps1 does.
+. "$PSScriptRoot\control.ps1"
 
 $WinSWVersion = "v2.12.0"
 $WinSWSha256 = "05B82D46AD331CC16BDC00DE5C6332C1EF818DF8CEEFCD49C726553209B3A0DA"
@@ -120,11 +122,16 @@ if ((Test-Path $oldJarvis) -and (Get-Service hearth-jarvis -ErrorAction Silently
   & $oldJarvis stopwait | Out-Null
   & $oldJarvis uninstall | Out-Null
 }
-Remove-Item (Join-Path $ServiceDir "hearth-jarvis.*") -ErrorAction SilentlyContinue
+# Only that service's files: hearth-jarvis.log and hearth-jarvis.pid are the task's.
+foreach ($ext in "exe", "xml", "out.log", "err.log", "wrapper.log") {
+  Remove-Item (Join-Path $ServiceDir "hearth-jarvis.$ext") -ErrorAction SilentlyContinue
+}
 
 # Jarvis: as you (S4U: no password, no window), restarted if it stops.
-# HEARTH_AS_SERVICE tells it to open Chrome through the "Hearth Chrome" task, on your desktop.
+# HEARTH_AS_SERVICE tells it to open Chrome through the "Hearth Chrome" task, on your desktop,
+# and to stop when its task is stopped (it watches the cmd that writes its log).
 $jarvisLog = Join-Path $ServiceDir "hearth-jarvis.log"
+$jarvisPidFile = Join-Path $ServiceDir "hearth-jarvis.pid"
 $action = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\cmd.exe" -WorkingDirectory $Root `
   -Argument "/d /c set HEARTH_AS_SERVICE=1&& `"$node`" --env-file-if-exists=`"$Root\.env`" `"$Root\apps\cli\src\main.ts`" jarvis >> `"$jarvisLog`" 2>&1"
 # At boot, so Jarvis is back after Windows restarts on its own (an update overnight) without
@@ -134,17 +141,26 @@ $atBoot = New-ScheduledTaskTrigger -AtStartup
 $atBoot.Delay = "PT2M"
 $atSignIn = New-ScheduledTaskTrigger -AtLogOn -User $me
 $atSignIn.Delay = "PT30S"
+# Priority 4, like "Hearth Chrome" below: normal CPU, disk and memory priority. Without it the
+# task runs at 7, below normal, and on a busy PC Jarvis took two minutes to start.
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
   -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -StartWhenAvailable `
-  -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)
+  -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -Priority 4
 $user = New-ScheduledTaskPrincipal -UserId $me -LogonType S4U -RunLevel Limited
 if (Get-ScheduledTask -TaskName "Hearth Jarvis" -ErrorAction SilentlyContinue) {
   Stop-ScheduledTask -TaskName "Hearth Jarvis"
 }
-# Stopping the task ends cmd, not always the node under it: never leave two Jarvises running.
-Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" |
-  Where-Object { $_.CommandLine -match 'main\.ts"?\s+jarvis' } |
-  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+# Stopping the task ends cmd; a Jarvis from before it stopped with its task may run on. Never leave
+# two Jarvises running, nor one holding its log, which the new one's cmd couldn't then open.
+$strays = @(Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" |
+  Where-Object { $_.CommandLine -match 'main\.ts"?\s+jarvis' } | ForEach-Object { $_.ProcessId })
+foreach ($p in $strays) { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue }
+$left = @(Wait-JarvisGone $strays 15)
+if ($left.Count) { Write-Warning "Couldn't stop the Jarvis already running (pid $($left -join ', '))." }
+# Its log carries on from install to install; one over 10 MB is kept as hearth-jarvis.old.log.
+if ((Test-Path $jarvisLog) -and (Get-Item $jarvisLog).Length -gt 10MB) {
+  Move-Item -Force $jarvisLog (Join-Path $ServiceDir "hearth-jarvis.old.log") -ErrorAction SilentlyContinue
+}
 Register-ScheduledTask -TaskName "Hearth Jarvis" -TaskPath "\" -Action $action -Trigger $atBoot, $atSignIn `
   -Settings $settings -Principal $user -Force `
   -Description "Runs Jarvis, Hearth's agent, as you so it can use your Claude login." | Out-Null
@@ -163,14 +179,24 @@ try {
 } catch {
   Write-Warning "Couldn't let you and the worker run the Hearth Jarvis task ($_). Updates will need an administrator."
 }
+# While Windows still counts the stopped run, IgnoreNew would drop this start without a word.
+if (-not (Wait-TaskStopped "Hearth Jarvis")) { Write-Warning "The Hearth Jarvis task hasn't stopped yet." }
+$jarvisSince = [datetime]::UtcNow
 Start-ScheduledTask -TaskName "Hearth Jarvis"
-Start-Sleep -Seconds 5
-$running = Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" |
-  Where-Object { $_.CommandLine -match 'main\.ts"?\s+jarvis' }
-if ($running) {
-  Write-Host "Started Jarvis (the `"Hearth Jarvis`" task). Its log: $jarvisLog"
+Write-Host "Started the Hearth Jarvis task; waiting for Jarvis to check in..."
+$checkedIn = Wait-JarvisCheckIn $jarvisSince $jarvisPidFile
+if ($checkedIn) {
+  Write-Host "Jarvis is running (it checked in at $($checkedIn.ToLocalTime().ToString('HH:mm:ss'))). Its log: $jarvisLog"
 } else {
-  Write-Warning "Jarvis didn't stay running. Its log says why: $jarvisLog"
+  $task = Get-ScheduledTask -TaskName "Hearth Jarvis"
+  $result = ($task | Get-ScheduledTaskInfo).LastTaskResult
+  Write-Warning ("Jarvis hasn't checked in 3 minutes after its task started. The task is {0} (last result 0x{1:X})." -f $task.State, $result)
+  if ("$($task.State)" -ne "Running") {
+    Write-Warning "Its cmd ended. Exit 1 at once, with nothing new in the log, usually means another process holds the log."
+  }
+  # Read, not listed: while Jarvis has the log open, Windows' folder listing shows it as empty.
+  Write-Host "The end of $jarvisLog`:"
+  Get-Content -Tail 20 $jarvisLog -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
 }
 
 function Find-Chrome {

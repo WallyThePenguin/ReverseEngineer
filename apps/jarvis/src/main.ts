@@ -90,11 +90,50 @@ export async function runJarvis(opts: RunJarvisOptions = {}): Promise<() => Prom
   }
   log("Jarvis is running: reacting to you and watching for things to handle.");
   const pidFile = writePidFile();
+  const unwatch = asTask() ? whenParentEnds(process.ppid, stopWithTask) : () => {};
   return async () => {
+    unwatch();
     await service.stop();
     await database.close();
     if (pidFile) rmSync(pidFile, { force: true });
   };
+}
+
+/** Jarvis as the "Hearth Jarvis" task (install.ps1), under the cmd that writes its log. */
+const asTask = () => process.env.HEARTH_AS_SERVICE === "1" && process.platform === "win32";
+
+/** Whether process `pid` is running. One this account may not signal is still running. */
+export function isRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * Calls `onGone` once process `parent` has ended. As the task, Jarvis runs under cmd (for its
+ * log), and stopping the task ends cmd only. Your own account, which stops it for updates and
+ * restarts, can't end Jarvis itself: it runs in the task's logon session, where an unelevated
+ * account may not open it. A Jarvis left running keeps the old code going and holds its log
+ * open, and while it does, every start of the task fails on that log.
+ */
+export function whenParentEnds(parent: number, onGone: () => void, everyMs = 2000): () => void {
+  const timer = setInterval(() => {
+    if (isRunning(parent)) return;
+    clearInterval(timer);
+    onGone();
+  }, everyMs);
+  timer.unref();
+  return () => clearInterval(timer);
+}
+
+/** Its task was stopped: stop as if asked to (SIGTERM), and in any case within 20 seconds. */
+function stopWithTask(): void {
+  log("Its task was stopped, so Jarvis is stopping.");
+  setTimeout(() => process.exit(0), 20_000).unref();
+  process.emit("SIGTERM", "SIGTERM");
 }
 
 let watching = false;

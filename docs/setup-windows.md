@@ -263,6 +263,10 @@ What to expect:
   `worker`, or `jarvis`). It waits until what it restarted reports in, and says if it doesn't.
   It needs no administrator once `install.ps1` has run. Jarvis's log is `hearth-jarvis.log` in
   the same folder as the services'.
+- If a restart or an update says Jarvis is still running and your account can't stop it, that
+  Jarvis is from before Jarvis stopped along with its task. While it runs, the task can't start
+  a new one. Stop it from an elevated PowerShell with the `Stop-Process` line it prints (or run
+  `install.ps1` again), then `pnpm hearth restart jarvis`.
 - If a service log says `EPERM`, its account can't read `node_modules`: run
   `Remove-Item -Recurse -Force node_modules`, then `pnpm install`, then `pnpm hearth restart`.
 - If a service log says it "won't start" because the database is missing updates, run

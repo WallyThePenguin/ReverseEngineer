@@ -207,3 +207,63 @@ jobs:
       - name: Server log
         if: failure()
         run: cat server.log || true
+
+  # The real Windows install, as on the PC: install.ps1 as administrator (the runner is one), with
+  # its services, Jarvis's task and the backup task; then update.ps1 and `hearth restart jarvis`
+  # from the same account unelevated, as a Limited task like Jarvis's own; then an update that
+  # hands over to a new update.ps1, and one rolled back by a failing migration. Each checks the
+  # services, deep health on the right commit and exactly one Jarvis, the one checking in. Its own
+  # job, so a failing unit test in the windows job doesn't skip it. No Chrome task (-SkipChromeTask)
+  # and no Claude login: see ops/windows/test-install.ps1.
+  windows-install:
+    runs-on: windows-latest
+    timeout-minutes: 50
+    env:
+      HEARTH_DATABASE_URL: postgres://hearth:hearth@127.0.0.1:5432/hearth
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # update.ps1 merges and resets between commits.
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: PostgreSQL 17
+        run: |
+          $ErrorActionPreference = "Stop"
+          $bin = if ($env:PGBIN) { $env:PGBIN } else { "C:\Program Files\PostgreSQL\17\bin" }
+          $svc = Get-Service -Name "postgresql*" | Select-Object -First 1
+          Set-Service -Name $svc.Name -StartupType Manual
+          Start-Service -Name $svc.Name
+          Add-Content $env:GITHUB_PATH $bin
+          $env:PGPASSWORD = "root"
+          & "$bin\psql.exe" -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 `
+            -c "CREATE ROLE hearth LOGIN SUPERUSER PASSWORD 'hearth'" `
+            -c "CREATE DATABASE hearth OWNER hearth"
+          if ($LASTEXITCODE -ne 0) { throw "Couldn't create the hearth role and database." }
+      - run: pnpm install --frozen-lockfile
+      - name: Build the web app
+        run: pnpm build:web
+      - name: install.ps1 as administrator, then the services, the tasks, deep health and the doctor
+        timeout-minutes: 10
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ops/windows/test-install.ps1 -Phase install
+      - name: update.ps1 unelevated, to the same commit (-Force)
+        timeout-minutes: 12
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ops/windows/test-install.ps1 -Phase update
+      - name: hearth restart jarvis, unelevated
+        timeout-minutes: 6
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ops/windows/test-install.ps1 -Phase restart
+      - name: update.ps1 to a commit that changes update.ps1, whose new copy takes over
+        timeout-minutes: 12
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ops/windows/test-install.ps1 -Phase update-new
+      - name: update.ps1 to a commit whose migration fails, rolled back
+        timeout-minutes: 14
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ops/windows/test-install.ps1 -Phase rollback
+      - name: Tasks, services, Jarvis, deep health and the logs
+        if: failure()
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ops/windows/test-install.ps1 -Phase logs
