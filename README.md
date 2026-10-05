@@ -81,6 +81,10 @@ $env:HEARTH_TEST_DATABASE_URL = "postgres://hearth@localhost:5499/postgres"
 
 Each checkout gets its own template database, so test runs in two worktrees don't collide.
 
+Timed tests (a 3,000-cell sheet worked out in under 50 ms, say) have budgets for a developer's PC.
+On a slower machine, set `HEARTH_PERF_SLACK` to how many times slower it is: CI sets 2 on Linux and
+3 on Windows (see `packages/db/src/testing/timing.ts`).
+
 ## Layout
 
 | Path | What |

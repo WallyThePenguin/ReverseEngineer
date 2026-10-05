@@ -163,6 +163,8 @@ describe("opening Chrome when it's closed", () => {
     old = await pairAgain();
     const began = Date.now();
     expect((await rpc("tabs.open", { url: "https://a.example/" })).body.error).toBe(OLD_CODE);
+    // Well past oldCodeMs, well short of connectMs. A bound between two timers isn't scaled for
+    // a slow machine.
     expect(Date.now() - began).toBeLessThan(5000);
   });
 

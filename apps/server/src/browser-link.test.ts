@@ -91,7 +91,9 @@ describe("the link to Chrome", () => {
 
     const lively = await chrome();
     await lively.next("welcome");
-    await new Promise((r) => setTimeout(r, 200));
+    // A third ping means it heard the answers: otherwise it drops the link instead. Counting
+    // pings rather than waiting a set time holds however slowly the timers run.
+    for (let n = 0; n < 3; n++) await lively.next("ping");
     expect(await status()).toMatchObject({ connected: true });
   });
 

@@ -1,5 +1,6 @@
 import { DEFAULT_DAY_RULES, mergeWorkbook, renameSheetRefs, type Workbook } from "@hearth/core";
 import { entity } from "@hearth/db";
+import { budget, fastest } from "@hearth/db/testing";
 import { type Caller, jarvisCaller, ownerCaller, setSetting } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { eq } from "drizzle-orm";
@@ -107,25 +108,20 @@ describe("spreadsheets", () => {
       expect(results(renameSheetRefs(book, 0, name))[1]!.A1).toBe("18000");
   });
 
-  it("works out a 3,000-cell sheet in under 50 ms", () => {
+  it("works out a 3,000-cell sheet in under 50 ms", async () => {
     // Nine formulas to a value, as the audit measured it: 2.7 s before evaluation was paused.
     const cells: Record<string, string> = {};
     for (let r = 1; r <= 300; r++)
       for (let c = 0; c < 10; c++)
         cells[`${"ABCDEFGHIJ"[c]}${r}`] = c === 0 ? String(r * 3) : `=A${r}*${c + 1}`;
     const book = { sheets: [{ id: "s1", name: "Big", cells, widths: {} }] };
+    expect(results(book)[0]!.J300).toBe("9000");
     // The first few runs are slow while V8 compiles IronCalc's WebAssembly fully (100+ ms), so
     // they don't count: a server works out sheets all day. The best of ten then allows for a
-    // machine busy with other work.
-    for (let n = 0; n < 3; n++) results(book);
-    let best = Number.POSITIVE_INFINITY;
-    for (let n = 0; n < 10; n++) {
-      const t0 = performance.now();
-      const out = results(book);
-      best = Math.min(best, performance.now() - t0);
-      expect(out[0]!.J300).toBe("9000");
-    }
-    expect(best).toBeLessThan(50);
+    // machine busy with other work. It's about 20 ms on a developer's PC, so 50 still fails a
+    // 10x slowdown; budget() gives slower machines more.
+    const best = await fastest(() => results(book), { runs: 10, warmup: 3 });
+    expect(best).toBeLessThan(budget(50));
   });
 
   it("works out NOW() and TODAY() in the owner's time zone", async () => {

@@ -34,6 +34,9 @@ jobs:
     env:
       HEARTH_DATABASE_URL: postgres://hearth:hearth@localhost:5432/hearth
       HEARTH_TEST_DATABASE_URL: postgres://hearth:hearth@localhost:5432/postgres
+      # Timed tests' budgets are set for a developer's PC; a shared runner gets twice the time
+      # (packages/db/src/testing/timing.ts).
+      HEARTH_PERF_SLACK: "2"
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
@@ -117,6 +120,9 @@ jobs:
       HEARTH_DATABASE_URL: postgres://hearth:hearth@127.0.0.1:5432/hearth
       HEARTH_TEST_DATABASE_URL: postgres://hearth:hearth@127.0.0.1:5432/postgres
       HEARTH_CHROME_LAUNCH: "off"
+      # This runner runs the tests 2.5 times slower than Linux, and its PostgreSQL flushes every
+      # commit to disk: timed tests get three times a developer's PC's budget.
+      HEARTH_PERF_SLACK: "3"
     defaults:
       run:
         shell: bash
