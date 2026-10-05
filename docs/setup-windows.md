@@ -251,6 +251,32 @@ What to expect:
 - **Settings → Pause** stops Jarvis acting on its own. It still answers you, and deadline and
   failure alerts still arrive.
 
+## Hearth for Windows
+
+The desktop app (`D:\HearthDesktop\hearth.exe`) starts hidden when you sign in to Windows and
+waits in the system tray. `Ctrl+Alt+H` opens Hearth's window, and so does clicking the tray icon.
+
+Right-click the tray icon for its menu. The top line says how the server, the worker and Jarvis
+are doing. Below it: **Open Hearth**, **Quick capture**, **Record a meeting** (**Stop recording
+the meeting** while it records), **Voice settings...**, and **Restart Hearth services** and
+**Update Hearth…** for when something's wrong.
+
+Its shortcuts work in any program. Change them in **Voice settings...**.
+
+| Keys | What it does |
+| --- | --- |
+| `Ctrl+Alt+H` | Opens Hearth's window. |
+| `Ctrl+Alt+N` | Quick capture: a small box to jot down a task. |
+| `Ctrl+Alt+K` | Ask Jarvis: a small window to ask by typing. |
+| `Ctrl+Alt+J` | Hold and ask Jarvis anything; it answers out loud. |
+| `Ctrl+Alt+Space` | Select text, hold and say what to do with it; Jarvis's answer replaces it. |
+| `Ctrl+Space` | Hold and talk: what you say is typed where you are. |
+| `Ctrl+Shift+Space` | The same, run through post-processing first (set up under **Post Process**). |
+
+Talking to Jarvis and dictation need a speech model on the PC, downloaded once: open **Voice
+settings...**, go to **Models** and download one (Parakeet V3 is the one D13 chose). Until then
+the voice shortcuts do nothing.
+
 ## When something's wrong
 
 - `pnpm hearth doctor` first.

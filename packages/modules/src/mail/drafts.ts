@@ -1,5 +1,6 @@
 // Drafts. Anyone may write one (you, or Jarvis drafting a reply); sending one is `mail.send`
 // (send.ts), which is outward and waits for your yes.
+import { PRINCIPAL } from "@hearth/core";
 import {
   type DbOrTx,
   entity,
@@ -7,6 +8,7 @@ import {
   mailAccount,
   mailDraft,
   mailMessage,
+  mailThread,
 } from "@hearth/db";
 import {
   type ActionContext,
@@ -65,6 +67,8 @@ export interface DraftView {
   subject: string;
   text: string;
   updatedAt: Date;
+  /** Who started it: Jarvis, or you (yourself, or a tool working for you). */
+  by: "jarvis" | "owner";
 }
 
 export async function loadDraft(db: DbOrTx, draftId: string): Promise<DraftView | null> {
@@ -85,6 +89,7 @@ export async function loadDraft(db: DbOrTx, draftId: string): Promise<DraftView 
     subject: row.e.title,
     text: row.e.body ?? "",
     updatedAt: row.e.updatedAt,
+    by: row.e.createdBy === PRINCIPAL.jarvis ? "jarvis" : "owner",
   };
 }
 
@@ -199,6 +204,12 @@ export const draftActions = [
         refs: reply?.refs ?? [],
         messageId: newMessageId(account.address),
       });
+      // Remembered on the conversation, so one you throw away isn't written again (waiting.ts).
+      if (i.threadId && ctx.caller.principal === PRINCIPAL.jarvis)
+        await ctx.tx
+          .update(mailThread)
+          .set({ draftedAt: ctx.now })
+          .where(eq(mailThread.entityId, i.threadId));
       return loadDraft(ctx.tx, draft.id);
     },
   }),

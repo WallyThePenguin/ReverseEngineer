@@ -201,6 +201,24 @@ describe("drafts and sending", () => {
     expect((await ok<DraftView[]>("mail.drafts")).map((d) => d.id)).toEqual([draft.id]);
   });
 
+  it("says whether Jarvis or you started a draft, even after you edit it", async () => {
+    const thread = await lunch();
+    const jarvis = await ok<DraftView>(
+      "mail.draft",
+      { threadId: thread.id, text: "Friday works." },
+      jarvisCaller("untrusted"),
+    );
+    expect(jarvis.by).toBe("jarvis");
+    await ok("mail.draft_update", { id: jarvis.id, text: "Friday works, see you then." });
+    const mine = await ok<DraftView>("mail.draft", { to: ["bo@x.example"], text: "Hi" });
+    expect(mine.by).toBe("owner");
+    const all = await ok<DraftView[]>("mail.drafts");
+    expect(Object.fromEntries(all.map((d) => [d.id, d.by]))).toEqual({
+      [jarvis.id]: "jarvis",
+      [mine.id]: "owner",
+    });
+  });
+
   it("keeps names from adding recipients or hiding addresses", async () => {
     const draft = await ok<DraftView>("mail.draft", {
       to: ['"leak@evil.example, Ana" <ana@x.example>', "Bo\u202eLee <bo@x.example>"],
