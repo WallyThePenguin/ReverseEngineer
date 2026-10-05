@@ -1,6 +1,8 @@
 // Jarvis on every screen: a chat pane on the right (Ctrl+J), with your recent conversations.
 
 import { createRoot, createSignal, For, Show } from "solid-js";
+import { Icon } from "../components/icons.tsx";
+import { JarvisMark } from "../components/Mark.tsx";
 import { Overflow } from "../components/Menu.tsx";
 import { Badge, Button } from "../components/ui.tsx";
 import { debounced } from "../lib/debounce.ts";
@@ -31,16 +33,26 @@ function when(d: Date): string {
   return at.endsWith(".") ? at : `${at}.`;
 }
 
-/** A red dot for Jarvis's button while it isn't running or its turns are failing. */
-export function JarvisDot() {
-  const { liveness } = useLiveness();
+/**
+ * Jarvis's mark on its buttons: greyed while you've paused it, and with a red dot while it isn't
+ * running or its turns are failing. What's wrong is its tooltip, which a screen reader reads with
+ * the button's name, as it did the red dot's.
+ */
+export function JarvisStatusMark(props: { size?: number }) {
+  const { status, liveness } = useLiveness();
+  const wrong = () =>
+    liveness().unwell
+      ? liveness().downSince
+        ? "Jarvis isn't running"
+        : "Jarvis's turns are failing"
+      : undefined;
   return (
-    <Show when={liveness().unwell}>
-      <span
-        class="ml-1.5 inline-block size-2 rounded-full bg-bad align-middle"
-        title={liveness().downSince ? "Jarvis isn't running" : "Jarvis's turns are failing"}
+    <span class="inline-flex" title={wrong()}>
+      <JarvisMark
+        size={props.size}
+        state={wrong() ? "down" : status.data?.jarvisPaused ? "paused" : "idle"}
       />
-    </Show>
+    </span>
   );
 }
 
@@ -135,6 +147,7 @@ export function JarvisPane() {
       }
     >
       <header class="flex min-h-12 items-center gap-2 border-b border-line px-3">
+        <JarvisMark size={18} state={status.data?.jarvisPaused ? "paused" : "idle"} />
         <span class="font-semibold text-jarvis">Jarvis</span>
         <Show when={status.data?.jarvisPaused}>
           <Badge tone="warn">Paused</Badge>
@@ -144,12 +157,17 @@ export function JarvisPane() {
           fallback={
             <button
               type="button"
-              class="min-h-11 min-w-0 flex-1 truncate rounded px-2 py-1 text-left text-sm text-muted hover:bg-sunk md:min-h-0"
+              class="flex min-h-11 min-w-0 flex-1 items-center gap-1 rounded px-2 py-1 text-left text-sm text-muted hover:bg-sunk md:min-h-0"
               onClick={() => setPicking(!picking())}
               title="Your conversations"
               aria-expanded={picking()}
             >
-              {current()?.title ?? "New conversation"} ▾
+              <span class="truncate">{current()?.title ?? "New conversation"}</span>
+              <Icon
+                name="chevron-down"
+                size={14}
+                class={`transition-transform ${picking() ? "rotate-180" : ""}`}
+              />
             </button>
           }
         >
@@ -167,7 +185,7 @@ export function JarvisPane() {
               layout.open({ view: "chat", id: jarvis.conversationId()! }, { beside: true })
             }
           >
-            ⤢
+            <Icon name="open-beside" size={14} class="my-0.5" />
           </Button>
         </Show>
         <Show when={current()}>

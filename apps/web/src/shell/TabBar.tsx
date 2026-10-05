@@ -1,18 +1,21 @@
 // The phone's bottom bar: the places you go most, Jarvis, and the rest of the menu.
 
 import { For, Show } from "solid-js";
-import { JarvisDot, jarvis } from "../jarvis/JarvisPane.tsx";
-import { phoneTabs } from "../lib/apps.ts";
+import { Icon } from "../components/icons.tsx";
+import { JarvisStatusMark, jarvis } from "../jarvis/JarvisPane.tsx";
+import { phoneTabs, productOf } from "../lib/apps.ts";
 import { layout } from "../lib/panes.ts";
 import { askToTalk, mic } from "../lib/speech.ts";
 
 /** Each tab is a sub-product's home (lib/apps.ts). */
 const TABS = phoneTabs();
 
+/** A tab: its icon over its name. The one you're on has its icon in its sub-product's colour. */
+const tab = (active: boolean) =>
+  `relative flex min-h-12 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-micro ${active ? "font-semibold text-ink" : "text-muted"}`;
+
 export function TabBar(props: { waiting: number; onMenu: () => void }) {
   const current = () => (jarvis.open() ? null : layout.panes()[layout.focused()]?.view);
-  const tab = (active: boolean) =>
-    `flex min-h-12 flex-1 flex-col items-center justify-center gap-0.5 py-2 text-xs ${active ? "font-semibold text-accent" : "text-muted"}`;
   return (
     <nav
       class="flex shrink-0 border-t border-line bg-panel pb-[env(safe-area-inset-bottom)]"
@@ -22,37 +25,38 @@ export function TabBar(props: { waiting: number; onMenu: () => void }) {
         {(t) => (
           <button
             type="button"
+            data-product={productOf(t.view)}
             class={tab(current() === t.view)}
             onClick={() => {
               jarvis.toggle(false);
               layout.reset({ view: t.view });
             }}
           >
-            <span class="relative">
-              {t.label}
-              <Show when={t.view === "inbox" && props.waiting > 0}>
-                <span class="absolute -top-1.5 -right-4 rounded-full bg-accent px-1 text-micro text-on-fill">
-                  {props.waiting}
-                </span>
-              </Show>
-            </span>
+            <Icon name={t.icon} size={24} class={current() === t.view ? "text-hue" : ""} />
+            {t.label}
+            {/* On the icon's corner, after the name for a screen reader, as it always was. */}
+            <Show when={t.view === "inbox" && props.waiting > 0}>
+              <span class="absolute top-0.5 left-1/2 ml-1.5 min-w-4 rounded-full bg-accent px-1 text-center text-micro text-on-fill tabular-nums">
+                {props.waiting}
+              </span>
+            </Show>
           </button>
         )}
       </For>
       <button
         type="button"
-        class={`${tab(jarvis.open())} ${jarvis.open() ? "!text-jarvis" : ""}`}
+        class={tab(jarvis.open())}
         onClick={() => jarvis.toggle(!jarvis.open())}
       >
-        <span>
-          Jarvis
-          <JarvisDot />
+        <span class="flex size-6 items-center justify-center">
+          <JarvisStatusMark size={20} />
         </span>
+        Jarvis
       </button>
       <button
         type="button"
         class={tab(mic.state() !== "idle")}
-        classList={{ "!text-red-600": mic.state() === "listening" }}
+        classList={{ "!text-bad": mic.state() === "listening" }}
         aria-label={mic.state() === "listening" ? "Stop and send" : "Talk to Jarvis"}
         disabled={mic.state() === "working"}
         onClick={() => {
@@ -61,9 +65,23 @@ export function TabBar(props: { waiting: number; onMenu: () => void }) {
           askToTalk();
         }}
       >
-        {mic.state() === "listening" ? "● Stop" : mic.state() === "working" ? "…" : "🎙 Talk"}
+        <Show
+          when={mic.state() === "idle"}
+          fallback={
+            <Show
+              when={mic.state() === "listening"}
+              fallback={<Icon name="loader-circle" size={24} class="animate-spin" />}
+            >
+              <Icon name="square" size={24} filled />
+            </Show>
+          }
+        >
+          <Icon name="mic" size={24} />
+        </Show>
+        {mic.state() === "listening" ? "Stop" : mic.state() === "working" ? "…" : "Talk"}
       </button>
       <button type="button" class={tab(false)} onClick={props.onMenu}>
+        <Icon name="menu" size={24} />
         More
       </button>
     </nav>

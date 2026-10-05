@@ -2,6 +2,7 @@
 // of them, and of the places you go: the sidebar, the phone's tab bar, Cmd+K, the g-keys and
 // where a pane lands when its record goes to the trash all read it from here.
 
+import type { IconName } from "../components/icons.tsx";
 import type { ListView, RecordView } from "./routes.ts";
 
 export type AppId =
@@ -18,8 +19,8 @@ export type AppId =
 export interface App {
   id: AppId;
   label: string;
-  /** Its icon: a Lucide name, or "mark" for Jarvis's own mark. */
-  icon: string;
+  /** Its icon (components/icons.tsx), or "mark" for Jarvis's own mark. */
+  icon: IconName | "mark";
   /**
    * Its colour token in index.css. A pane or row marked `data-product="<id>"` takes it as
    * `--color-hue`. Settings has none, so it keeps the accent.
@@ -112,6 +113,8 @@ export interface Place {
   view: ListView;
   /** Its name in the sidebar and on the phone's tab bar. */
   label: string;
+  /** Its icon in the sidebar and on the phone's tab bar. */
+  icon: IconName;
   /** The keys that go there. */
   keys: string;
   /** What follows "Go to" in the shortcuts sheet and Cmd+K, when it isn't the label. */
@@ -124,28 +127,62 @@ export interface Place {
 
 /** In the sidebar's order. */
 export const PLACES: readonly Place[] = [
-  { view: "inbox", label: "Inbox", keys: "g i" },
-  { view: "mail", label: "Mail", keys: "g e" },
-  { view: "tasks", label: "Tasks", keys: "g t", lists: ["task"] },
-  { view: "notes", label: "Notes", keys: "g n", lists: ["note"] },
-  { view: "calendar", label: "Calendar", keys: "g c" },
-  { view: "canvases", label: "Canvas", keys: "g w", about: "boards", lists: ["canvas"] },
-  { view: "sheets", label: "Spreadsheets", keys: "g x", lists: ["spreadsheet"] },
-  { view: "people", label: "People", keys: "g p", lists: ["person", "company"] },
+  { view: "inbox", label: "Inbox", icon: "inbox", keys: "g i" },
+  { view: "mail", label: "Mail", icon: "mail", keys: "g e" },
+  { view: "tasks", label: "Tasks", icon: "tasks", keys: "g t", lists: ["task"] },
+  { view: "notes", label: "Notes", icon: "docs", keys: "g n", lists: ["note"] },
+  { view: "calendar", label: "Calendar", icon: "calendar", keys: "g c" },
+  {
+    view: "canvases",
+    label: "Canvas",
+    icon: "board",
+    keys: "g w",
+    about: "boards",
+    lists: ["canvas"],
+  },
+  {
+    view: "sheets",
+    label: "Spreadsheets",
+    icon: "sheet",
+    keys: "g x",
+    lists: ["spreadsheet"],
+  },
+  {
+    view: "people",
+    label: "People",
+    icon: "people",
+    keys: "g p",
+    lists: ["person", "company"],
+  },
   {
     view: "memory",
     label: "Memory",
+    icon: "memory",
     keys: "g m",
     about: "what Jarvis remembers",
     lists: ["memory_note"],
   },
-  { view: "voice", label: "Voice", keys: "g v", about: "dictation history, dictionary, snippets" },
-  { view: "browser", label: "Browser", keys: "g b", go: "the browser", about: "your Chrome, live" },
-  { view: "activity", label: "Jarvis's activity", keys: "g a" },
-  { view: "settings", label: "Settings", keys: "g s" },
+  {
+    view: "voice",
+    label: "Voice",
+    icon: "dictation",
+    keys: "g v",
+    about: "dictation history, dictionary, snippets",
+  },
+  {
+    view: "browser",
+    label: "Browser",
+    icon: "browser",
+    keys: "g b",
+    go: "the browser",
+    about: "your Chrome, live",
+  },
+  { view: "activity", label: "Jarvis's activity", icon: "activity", keys: "g a" },
+  { view: "settings", label: "Settings", icon: "settings", keys: "g s" },
   {
     view: "trash",
     label: "Trash",
+    icon: "trash-2",
     keys: "g d",
     go: "the trash",
     about: "restore what you deleted",
@@ -163,6 +200,15 @@ export function appOf(view: ListView | RecordView): App {
   const app = APPS.find((a) => [...a.views, ...a.records].includes(view));
   if (!app) throw new Error(`No app owns the view "${view}"`);
   return app;
+}
+
+/**
+ * What a pane or row showing this view sets as `data-product`, so it takes its sub-product's
+ * colour: none for Settings, which keeps the accent.
+ */
+export function productOf(view: ListView | RecordView): AppId | undefined {
+  const app = appOf(view);
+  return app.hue ? app.id : undefined;
 }
 
 /** The place for a list view. */

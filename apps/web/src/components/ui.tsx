@@ -6,6 +6,7 @@ import { listFor } from "../lib/apps.ts";
 import { layout } from "../lib/panes.ts";
 import { failedMessage, isMissing } from "../lib/readState.ts";
 import { moveToTrash, restore, TRASHABLE } from "../lib/trash.ts";
+import { Icon, type IconName } from "./icons.tsx";
 import { type MenuItem, Overflow } from "./Menu.tsx";
 
 /** The record a pane shows, so its header can offer to move it to the trash. */
@@ -45,7 +46,7 @@ export function PaneHeader(props: {
   title: JSX.Element;
   children?: JSX.Element;
   sub?: JSX.Element;
-  /** More actions, behind a ⋯ button. */
+  /** More actions, behind a "more" button. */
   menu?: MenuItem[];
   /** The record this pane shows: the menu offers to move it to the trash. */
   record?: PaneRecord | undefined;
@@ -110,7 +111,7 @@ function PaneClose() {
     <Show when={pane.close}>
       <button
         type="button"
-        class="-mr-2 rounded px-1.5 text-lg leading-none text-faint hover:bg-sunk hover:text-ink"
+        class="-mr-2 flex min-h-11 min-w-11 items-center justify-center rounded text-faint hover:bg-sunk hover:text-ink md:min-h-7 md:min-w-7"
         title="Close pane (Alt+W)"
         aria-label="Close pane"
         onClick={(e) => {
@@ -118,7 +119,7 @@ function PaneClose() {
           pane.close?.();
         }}
       >
-        ×
+        <Icon name="x" size={18} />
       </button>
     </Show>
   );
@@ -182,6 +183,8 @@ export function Button(props: {
   title?: string;
   /** What a screen reader says, when the button shows only a symbol. */
   label?: string;
+  /** Drawn before its text. */
+  icon?: IconName;
   small?: boolean;
 }) {
   const tone = () =>
@@ -195,12 +198,13 @@ export function Button(props: {
     <button
       type={props.submit ? "submit" : "button"}
       // A fingertip needs 44 px; a pointer doesn't.
-      class={`min-h-11 rounded-md font-medium disabled:opacity-50 md:min-h-0 ${props.small ? "px-3 text-sm md:px-2 md:py-0.5 md:text-xs" : "px-3 py-1 text-sm"} ${tone()}`}
+      class={`inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md font-medium disabled:opacity-50 md:min-h-0 ${props.small ? "px-3 text-sm md:px-2 md:py-0.5 md:text-xs" : "px-3 py-1 text-sm"} ${tone()}`}
       disabled={props.disabled}
       title={props.title}
       aria-label={props.label}
       onClick={(e) => props.onClick?.(e)}
     >
+      <Show when={props.icon}>{(name) => <Icon name={name()} size={props.small ? 14 : 16} />}</Show>
       {props.children}
     </button>
   );

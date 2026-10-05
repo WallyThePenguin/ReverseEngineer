@@ -1,7 +1,17 @@
 // The registry of sub-products (D65): every view belongs to exactly one, every place keeps its
 // g-key, and no view name a link might carry ever stops opening.
 import { describe, expect, it } from "vitest";
-import { APPS, appOf, goLabel, listFor, PLACES, paletteLabel, phoneTabs, placeOf } from "./apps.ts";
+import {
+  APPS,
+  appOf,
+  goLabel,
+  listFor,
+  PLACES,
+  paletteLabel,
+  phoneTabs,
+  placeOf,
+  productOf,
+} from "./apps.ts";
 import { decodePath, decodeRoute, LIST_VIEWS, RECORD_VIEWS } from "./routes.ts";
 
 const ID = "01a0f976-b334-7462-a9ca-bd9b458c8a2c";
@@ -43,6 +53,15 @@ describe("the sub-products", () => {
       if (app.utility) expect(app.hue, app.id).toBeUndefined();
       else expect(app.hue, app.id).toBe(`--color-${app.id}`);
     }
+  });
+
+  it("colour a view by its sub-product, and leave Settings' views the accent", () => {
+    for (const view of [...LIST_VIEWS, ...RECORD_VIEWS]) {
+      const app = appOf(view);
+      expect(productOf(view), view).toBe(app.utility ? undefined : app.id);
+    }
+    expect(productOf("canvases")).toBe("docs");
+    expect(productOf("trash")).toBeUndefined();
   });
 });
 
