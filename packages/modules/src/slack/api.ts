@@ -59,11 +59,20 @@ export interface SlackUser {
   name: string;
   email?: string;
   bot: boolean;
+  /** A guest (single- or multi-channel): never answered by Jarvis (D62). */
+  guest?: boolean;
+  /** Deactivated. */
+  deleted?: boolean;
+  /** Their own workspace: another org's for a Slack Connect user. */
+  teamId?: string;
 }
 
 export interface SlackMatch extends SlackMessage {
   channel: string;
 }
+
+/** How many matches a page of search holds. */
+export const SEARCH_PAGE = 50;
 
 export interface SlackApi {
   /** Who the token belongs to, and the scopes Slack says it has (x-oauth-scopes). */
@@ -88,8 +97,11 @@ export interface SlackApi {
     page: { oldest: string; cursor?: string; limit: number },
   ): Promise<SlackPage>;
   user(token: string, id: string): Promise<SlackUser | null>;
-  /** Recent messages that @mention this user, anywhere, thread replies included. */
-  mentions(token: string, userId: string): Promise<SlackMatch[]>;
+  /**
+   * Recent messages that @mention this user, anywhere, thread replies included: newest first, a
+   * page of SEARCH_PAGE at a time (page 1 is the newest).
+   */
+  mentions(token: string, userId: string, page?: number): Promise<SlackMatch[]>;
 }
 
 /** Slack said no. `retryAfter` is set when it asks Hearth to slow down. */
@@ -256,18 +268,22 @@ export function httpSlack(base = "https://slack.com/api"): SlackApi {
           name: str(profile.display_name) || str(u.real_name) || str(u.name) || id,
           email: str(profile.email),
           bot: Boolean(u.is_bot),
+          guest: Boolean(u.is_restricted || u.is_ultra_restricted),
+          deleted: Boolean(u.deleted),
+          teamId: str(u.team_id),
         };
       } catch (err) {
         if (err instanceof SlackError && err.code === "user_not_found") return null;
         throw err;
       }
     },
-    async mentions(token, userId) {
+    async mentions(token, userId, page = 1) {
       const r = await call(token, "search.messages", {
         query: `<@${userId}>`,
         sort: "timestamp",
         sort_dir: "desc",
-        count: "50",
+        count: String(SEARCH_PAGE),
+        page: String(page),
       });
       const matches = ((r.messages as Raw | undefined)?.matches as Raw[]) ?? [];
       return matches.map((m) => {

@@ -17,7 +17,7 @@ import {
   slackWorkspace,
 } from "@hearth/db";
 import { getSetting, type Kernel } from "@hearth/kernel";
-import { roughly } from "@hearth/modules";
+import { holdsSocket, INSTALL_SERVICE, type Install, roughly } from "@hearth/modules";
 import { eq } from "drizzle-orm";
 import type { HealthReport } from "./health.ts";
 
@@ -149,12 +149,18 @@ async function slack(kernel: Kernel): Promise<SyncSource[]> {
 
 // Jarvis's Slack socket keeps its verdict the same way (D62): failing after 30 minutes without a
 // connection, which a restart for an update never reaches, and at once when Slack revoked it.
+// It's judged only where the socket is held: with members off, or on another install, nothing
+// listens, so a quiet socket there isn't a failure.
 async function slackBotSource(kernel: Kernel): Promise<SyncSource[]> {
   const rows = await kernel.db
     .select({ bot: slackBot, team: slackWorkspace.teamName })
     .from(slackBot)
     .innerJoin(slackWorkspace, eq(slackWorkspace.teamId, slackBot.teamId));
-  return rows.map(({ bot, team }) => ({
+  const membersOn = await getSetting(kernel.db, "slack.bot.membersOn");
+  const install = kernel.services[INSTALL_SERVICE] as Install | undefined;
+  const here = install?.id() ?? null;
+  const held = rows.filter(({ bot }) => holdsSocket(bot, membersOn, here));
+  return held.map(({ bot, team }) => ({
     name: `Jarvis in ${team}`,
     error: bot.lastError,
     failing: bot.syncState !== "ok",

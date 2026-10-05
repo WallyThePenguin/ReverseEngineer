@@ -12,7 +12,12 @@ import {
   googleFromEnv,
   httpGithub,
   httpSlack,
+  httpSlackBot,
+  INSTALL_SERVICE,
+  inboundStore,
+  installFromEnv,
   internalBrowserClient,
+  SLACK_BOT_SERVICE,
   SLACK_SERVICE,
   VAULT_SERVICE,
   vaultFromEnv,
@@ -21,6 +26,9 @@ import { startWorker } from "./worker.ts";
 
 export async function runWorker(): Promise<() => Promise<void>> {
   const database = connect(databaseUrl(), { max: 4 });
+  // Jarvis's Slack socket stores what it hears on a connection of its own, so a sync holding the
+  // pool can't keep Slack waiting for its ack (D62).
+  const slackInbound = inboundStore(databaseUrl());
   const kernel = new Kernel({
     db: database.db,
     registry: new Registry(ALL_MODULES),
@@ -30,14 +38,23 @@ export async function runWorker(): Promise<() => Promise<void>> {
       [GOOGLE_SERVICE]: googleFromEnv(database.db),
       [VAULT_SERVICE]: vaultFromEnv(),
       [SLACK_SERVICE]: httpSlack(),
+      // The worker is the one process that opens Jarvis's bot and app tokens, and only on the
+      // install that connected them (D62).
+      [SLACK_BOT_SERVICE]: httpSlackBot(),
+      [INSTALL_SERVICE]: installFromEnv(),
       [GITHUB_SERVICE]: httpGithub(),
       [BLOB_SERVICE]: blobsFromEnv(),
     },
   });
-  const worker = startWorker({ kernel, dataDir: process.env.HEARTH_DATA_DIR ?? process.cwd() });
+  const worker = startWorker({
+    kernel,
+    dataDir: process.env.HEARTH_DATA_DIR ?? process.cwd(),
+    slackInbound,
+  });
   console.log("Hearth worker running: schedules and health checks.");
   return async () => {
     worker.stop();
+    await slackInbound.close();
     await database.close();
   };
 }

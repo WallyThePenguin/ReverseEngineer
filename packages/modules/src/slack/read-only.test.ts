@@ -74,9 +74,51 @@ describe("your own Slack token", () => {
     await expect(bot.openDm(XOXP, "U1")).rejects.toThrow(/Only a xoxb- token/);
     await expect(bot.openSocket(XOXP)).rejects.toThrow(/Only a xapp- token/);
     await expect(bot.openSocket(XOXB)).rejects.toThrow(/Only a xapp- token/);
+    // Catching up on the bot's DMs reads with the bot's token, never yours (D62).
+    await expect(bot.ims(XOXP)).rejects.toThrow(/Only a xoxb- token/);
+    await expect(bot.history(XOXP, "D1", { oldest: "0", limit: 10 })).rejects.toThrow(
+      /Only a xoxb- token/,
+    );
     expect(seen).toEqual([]);
     // The bot's own token goes through.
     expect(await bot.openDm(XOXB, "UME")).toBe("D1");
-    expect(seen).toEqual([{ method: "conversations.open", token: `Bearer ${XOXB}` }]);
+    await bot.ims(XOXB);
+    await bot.history(XOXB, "D1", { oldest: "0", limit: 10 });
+    expect(seen).toEqual([
+      { method: "conversations.open", token: `Bearer ${XOXB}` },
+      { method: "users.conversations", token: `Bearer ${XOXB}` },
+      { method: "conversations.history", token: `Bearer ${XOXB}` },
+    ]);
+  });
+});
+
+describe("who a Slack user is (users.info, with your token)", () => {
+  it("says whether they're a guest, deactivated, or from another org", async () => {
+    vi.stubGlobal(
+      "fetch",
+      async () =>
+        new Response(
+          JSON.stringify({
+            ok: true,
+            user: {
+              id: "UEXT",
+              team_id: "T9",
+              real_name: "Sam Lee",
+              is_restricted: true,
+              deleted: true,
+              profile: { email: "sam@example.com" },
+            },
+          }),
+        ),
+    );
+    expect(await httpSlack(BASE).user(XOXP, "UEXT")).toEqual({
+      id: "UEXT",
+      name: "Sam Lee",
+      email: "sam@example.com",
+      bot: false,
+      guest: true,
+      deleted: true,
+      teamId: "T9",
+    });
   });
 });

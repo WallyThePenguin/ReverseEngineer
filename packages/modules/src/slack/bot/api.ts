@@ -2,6 +2,7 @@
 // token (xapp), never with your own. Your token can only read (api.ts USER_TOKEN_METHODS); this
 // client takes only the bot's and the app's tokens, so nothing Jarvis posts can go out as you.
 import { type Raw, SlackError, slackRequest, str } from "../api.ts";
+import { type Heard, heardOf } from "./socket.ts";
 
 export const SLACK_BOT_SERVICE = "slack_bot";
 
@@ -27,6 +28,17 @@ export interface SlackBotApi {
   hello(url: string): Promise<{ appId: string }>;
   /** conversations.open with one person: the bot's DM with them. */
   openDm(botToken: string, userId: string): Promise<string>;
+  /** users.conversations types=im: the bot's DMs, and who each is with. For catch-up. */
+  ims(botToken: string): Promise<{ id: string; user: string }[]>;
+  /**
+   * conversations.history in one of the bot's DMs, after `oldest`, newest first; the next page is
+   * older. Your own token can't see these DMs, so catch-up reads them with the bot's (D62).
+   */
+  history(
+    botToken: string,
+    channel: string,
+    page: { oldest: string; cursor?: string; limit: number },
+  ): Promise<{ messages: Heard[]; next?: string }>;
 }
 
 /** How long Slack has to say hello on a new socket. */
@@ -110,6 +122,46 @@ export function httpSlackBot(base = "https://slack.com/api"): SlackBotApi {
         true,
       );
       return String((r.channel as Raw | undefined)?.id ?? "");
+    },
+    async ims(botToken) {
+      const out: { id: string; user: string }[] = [];
+      let cursor = "";
+      for (let page = 0; page < 20; page++) {
+        const { body: r } = await slackRequest(
+          base,
+          only("xoxb-", botToken),
+          "users.conversations",
+          {
+            types: "im",
+            exclude_archived: "true",
+            limit: "200",
+            ...(cursor ? { cursor } : {}),
+          },
+        );
+        for (const c of (r.channels as Raw[]) ?? [])
+          out.push({ id: String(c.id), user: str(c.user) ?? "" });
+        cursor = str((r.response_metadata as Raw | undefined)?.next_cursor) ?? "";
+        if (!cursor) break;
+      }
+      return out;
+    },
+    async history(botToken, channel, page) {
+      const { body: r } = await slackRequest(
+        base,
+        only("xoxb-", botToken),
+        "conversations.history",
+        {
+          channel,
+          oldest: page.oldest,
+          ...(page.cursor ? { cursor: page.cursor } : {}),
+          limit: String(page.limit),
+          inclusive: "false",
+        },
+      );
+      const next = r.has_more
+        ? str((r.response_metadata as Raw | undefined)?.next_cursor) || undefined
+        : undefined;
+      return { messages: ((r.messages as Raw[]) ?? []).map((m) => heardOf(m, channel)), next };
     },
   };
 }

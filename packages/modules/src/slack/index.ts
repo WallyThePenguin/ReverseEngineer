@@ -11,10 +11,38 @@ import { botActions } from "./bot/connect.ts";
 import { connectActions } from "./connect.ts";
 import { syncSlack } from "./sync.ts";
 
-export { httpSlack, SLACK_SERVICE, type SlackApi, USER_TOKEN_METHODS } from "./api.ts";
+export {
+  httpSlack,
+  SLACK_SERVICE,
+  type SlackApi,
+  SlackError,
+  USER_TOKEN_METHODS,
+} from "./api.ts";
 export { httpSlackBot, SLACK_BOT_SERVICE, type SlackBotApi } from "./bot/api.ts";
-export { botTrouble, REVOKED_CODES, saveBotHealth } from "./bot/health.ts";
+export { CATCH_UP_EVERY_MS, type CatchUp, catchUp } from "./bot/catchup.ts";
+export { botTrouble, holdsSocket, REVOKED_CODES, saveBotHealth } from "./bot/health.ts";
+export {
+  clearOldInbound,
+  INBOUND_POOL,
+  type InboundStore,
+  inboundStore,
+  receive,
+  storeInbound,
+} from "./bot/inbound.ts";
 export { JARVIS_APP_ID, slackManifest } from "./bot/manifest.ts";
+export {
+  ackOf,
+  BACKOFF_RESET_MS,
+  BACKOFF_S,
+  backoffMs,
+  type Frame,
+  type Hearing,
+  type InboundRow,
+  type Ours,
+  onDisconnect,
+  parseFrame,
+  slackTs,
+} from "./bot/socket.ts";
 export { type BotRow, openBotToken } from "./bot/tokens.ts";
 export { SLACK_SCOPES } from "./connect.ts";
 export { FakeSlack } from "./fake.ts";

@@ -40,6 +40,16 @@ export function botTrouble(code: string): Trouble {
   return { kind: "transient", message: `Jarvis's Slack socket is down: ${code}.` };
 }
 
+/**
+ * Whether this copy of Hearth holds Jarvis's socket (D62): only once members can talk to it
+ * (slack.bot.membersOn), and only the install that connected the bot, so a dev copy on a restored
+ * database can't take the live events. Only there is the socket's health worth judging. A
+ * process that can't tell which install it is (`installId` null) judges it anyway. The socket
+ * also waits while Slack has it revoked; its health still says so.
+ */
+export const holdsSocket = (row: BotRow, membersOn: boolean, installId: string | null) =>
+  membersOn && (installId === null || row.installId === installId);
+
 /** The row's health. A bot whose socket hasn't connected yet counts from when you connected it. */
 export const botHealth = (row: BotRow): Health => ({
   syncState: row.syncState,

@@ -1,12 +1,15 @@
 // The worker: fires schedules (routines, reminders, checks), checks watched pages, syncs
-// Google Calendar, mail, Slack and GitHub, and keeps an eye on Hearth's health.
+// Google Calendar, mail, Slack and GitHub, holds Jarvis's Slack socket, and keeps an eye on
+// Hearth's health.
 
 import { githubAccount, googleAccount, slackWorkspace } from "@hearth/db";
 import { integrationCaller, type Kernel, pruneAudit, startScheduler } from "@hearth/kernel";
+import { clearOldInbound, type InboundStore } from "@hearth/modules";
 import { checkHealth, type HealthOptions, reportHealth } from "./health.ts";
 import { jarvisWatchdog } from "./jarvis-watchdog.ts";
 import { type MailRoundOptions, mailRound } from "./mail-loop.ts";
 import { scheduleWatch } from "./schedule-health.ts";
+import { type SlackBot, startSlackBot } from "./slack-bot.ts";
 import { checkSyncs, ErrorClock } from "./sync-health.ts";
 import { checkDueWatches } from "./watches.ts";
 
@@ -20,6 +23,11 @@ export interface WorkerOptions extends HealthOptions {
   mailRound?: Omit<MailRoundOptions, "log">;
   slackIntervalMs?: number;
   githubIntervalMs?: number;
+  /**
+   * Where Jarvis's Slack socket stores what it hears, on a connection of its own (D62). Without
+   * it the worker doesn't hold the socket.
+   */
+  slackInbound?: InboundStore;
   log?: (msg: string, err?: unknown) => void;
 }
 
@@ -159,13 +167,21 @@ export function startWorker(opts: WorkerOptions) {
   const githubTimer = setInterval(github, opts.githubIntervalMs ?? 2 * 60_000);
   void github();
 
-  // Routine audit rows (reads, check-ins, syncs) are let go after a while (AUDIT_KEEP).
+  // Jarvis's Slack socket: it listens once members are on, on the install that connected it.
+  const slackBot: SlackBot | null = opts.slackInbound
+    ? startSlackBot({ kernel, inbound: opts.slackInbound, log: (m, e) => log(m, e) })
+    : null;
+
+  // Routine audit rows (reads, check-ins, syncs) are let go after a while (AUDIT_KEEP), and what
+  // Slack members wrote to Jarvis after 30 days (D62).
   const prune = async () => {
     try {
       const n = await pruneAudit(kernel.db, kernel.clock.now());
       if (n) log(`let go of ${n} old routine audit rows`);
+      const cleared = await clearOldInbound(kernel.db, kernel.clock.now());
+      if (cleared) log(`cleared the text of ${cleared} Slack messages to Jarvis over 30 days old`);
     } catch (err) {
-      log("pruning the audit log failed", err);
+      log("pruning old rows failed", err);
     }
   };
   const pruneTimer = setInterval(prune, 6 * 3_600_000);
@@ -179,8 +195,10 @@ export function startWorker(opts: WorkerOptions) {
     watches,
     calendars,
     mail,
+    slackBot,
     tick: scheduler.tick,
     stop() {
+      slackBot?.stop();
       clearInterval(timer);
       clearInterval(watchTimer);
       clearInterval(calendarTimer);

@@ -7,8 +7,9 @@ import {
   slackBot,
   slackWorkspace,
 } from "@hearth/db";
+import { setSetting } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
-import { ALL_MODULES, botTrouble, saveBotHealth } from "@hearth/modules";
+import { ALL_MODULES, botTrouble, INSTALL_SERVICE, saveBotHealth } from "@hearth/modules";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { HealthReport } from "./health.ts";
@@ -267,6 +268,9 @@ describe("Jarvis's Slack socket (D62)", () => {
       appToken: "sealed-app",
       connectedAt: at(),
     });
+    // The socket is held only once members are on, on the install that connected it.
+    await setSetting(t.tdb.db, "slack.bot.membersOn", true);
+    t.kernel.services[INSTALL_SERVICE] = { id: () => "install-live" };
   }
   /** The socket's word on itself, as it would give it, `minutes` from now. */
   async function socket(minutes: number, code: string | null) {
@@ -326,5 +330,17 @@ describe("Jarvis's Slack socket (D62)", () => {
     // Nothing the socket says changes that; slack.bot_replace_tokens does.
     expect(await socket(1, null)).toBeNull();
     expect((await t.tdb.db.select().from(slackBot))[0]?.syncState).toBe("revoked");
+  });
+
+  it("isn't judged where nothing listens: members off, or another install's bot", async () => {
+    await connectBot();
+    await socket(0, null);
+    await socket(45, "socket_unreachable");
+    expect(bot(await check())).toMatchObject({ status: "degraded" });
+    t.kernel.services[INSTALL_SERVICE] = { id: () => "a-dev-copy" };
+    expect(bot(await check())).toBeUndefined();
+    t.kernel.services[INSTALL_SERVICE] = { id: () => "install-live" };
+    await setSetting(t.tdb.db, "slack.bot.membersOn", false);
+    expect(bot(await check())).toBeUndefined();
   });
 });

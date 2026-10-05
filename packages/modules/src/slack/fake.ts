@@ -1,7 +1,9 @@
 // A Slack workspace in memory, for tests. Like Slack, it pages: history newest first, a thread's
 // replies oldest first, at most `pageSize` a page. Jarvis's bot is in it too (D62): its tokens,
-// what they may do, and the hello its socket gets.
+// what they may do, the hello its socket gets, and its DMs, which only its own token reads. Users
+// can be guests, deactivated or from another org, as users.info says.
 import {
+  SEARCH_PAGE,
   type SlackApi,
   type SlackConversation,
   SlackError,
@@ -12,6 +14,7 @@ import {
 } from "./api.ts";
 import type { SlackBotApi } from "./bot/api.ts";
 import { BOT_SCOPES, JARVIS_APP_ID, KEPT_USER_SCOPES, USER_SCOPES } from "./bot/manifest.ts";
+import type { Heard } from "./bot/socket.ts";
 
 const after = (ts: string, oldest: string) => Number(ts) > Number(oldest);
 
@@ -47,6 +50,8 @@ export class FakeSlack {
   };
   /** The bot's DMs, by who they're with. */
   ims = new Map<string, string>();
+  /** How many times search.messages was asked. */
+  searches = 0;
 
   /** `extra`: what else the message carries, like the bot_id of a bot's post. */
   post(
@@ -84,6 +89,24 @@ export class FakeSlack {
     return { ...m, threadTs: m.ts, replyCount: replies.length, latestReply: replies.at(-1)!.ts };
   }
 
+  /** A page of a place's history, whoever's token reads it. */
+  private historyOf(
+    channel: string,
+    p: { oldest: string; latest?: string; cursor?: string; limit: number },
+  ): SlackPage {
+    // Like Slack: thread replies aren't in a channel's history.
+    const list = (this.messages.get(channel) ?? [])
+      .filter(
+        (m) =>
+          after(m.ts, p.oldest) &&
+          (!p.latest || Number(m.ts) < Number(p.latest)) &&
+          (!m.threadTs || m.threadTs === m.ts),
+      )
+      .map((m) => this.withReplies(channel, m))
+      .reverse();
+    return this.page(list, p.cursor, p.limit);
+  }
+
   api(): SlackApi {
     const check = (token: string) => {
       this.requests++;
@@ -109,17 +132,7 @@ export class FakeSlack {
         check(token);
         this.calls.push(`history ${channel}`);
         this.failIf(`history ${channel}`);
-        // Like Slack: thread replies aren't in a channel's history.
-        const list = (this.messages.get(channel) ?? [])
-          .filter(
-            (m) =>
-              after(m.ts, p.oldest) &&
-              (!p.latest || Number(m.ts) < Number(p.latest)) &&
-              (!m.threadTs || m.threadTs === m.ts),
-          )
-          .map((m) => this.withReplies(channel, m))
-          .reverse();
-        return this.page(list, p.cursor, p.limit);
+        return this.historyOf(channel, p);
       },
       replies: async (token, channel, threadTs, p) => {
         check(token);
@@ -134,12 +147,15 @@ export class FakeSlack {
         check(token);
         return this.users.get(id) ?? null;
       },
-      mentions: async (token, userId) => {
+      mentions: async (token, userId, page = 1) => {
         check(token);
+        this.searches++;
+        this.failIf(`search <@${userId}>`);
         const out: SlackMatch[] = [];
         for (const [channel, list] of this.messages)
           for (const m of list) if (m.text.includes(`<@${userId}>`)) out.push({ ...m, channel });
-        return out.reverse();
+        out.sort((a, b) => Number(b.ts) - Number(a.ts));
+        return out.slice((page - 1) * SEARCH_PAGE, page * SEARCH_PAGE);
       },
     };
   }
@@ -174,6 +190,28 @@ export class FakeSlack {
         this.ims.set(userId, id);
         return id;
       },
+      ims: async (token) => {
+        check(token, this.bot.token, "users.conversations");
+        return [...this.ims].map(([user, id]) => ({ id, user }));
+      },
+      history: async (token, channel, p) => {
+        check(token, this.bot.token, `history ${channel}`);
+        this.failIf(`bot history ${channel}`);
+        const page = this.historyOf(channel, p);
+        return { messages: page.messages.map((m) => heard(channel, m)), next: page.next };
+      },
     };
   }
 }
+
+/** A stored message as the bot's history gives it. */
+const heard = (channel: string, m: SlackMessage): Heard => ({
+  channel,
+  ts: m.ts,
+  user: m.user,
+  botId: m.botId,
+  subtype: m.subtype,
+  text: m.text,
+  threadTs: m.threadTs,
+  teams: [],
+});

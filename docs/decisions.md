@@ -1723,7 +1723,9 @@ process only writes outbox rows. The client uses `ws`, as the server does.
 - **Revoked:** `link_disabled`, `invalid_auth`, `token_revoked`, `account_inactive`,
   `app_uninstalled` or `tokens_revoked` sets the state to `revoked`. The socket and the sender
   stop and you get one alert. Nothing resumes until `slack.bot_replace_tokens` takes new tokens.
-- **Store, then ack.** Check the envelope; `INSERT … ON CONFLICT DO NOTHING` into
+- **Store, then ack.** Check the envelope (a message also needs an authorization naming the bot
+  user, so an event for a user's install of the app, such as your DM with someone else, never
+  counts); `INSERT … ON CONFLICT DO NOTHING` into
   `slack_inbound`, on a dedicated database connection (`max: 1`, 2 s statement timeout) so syncs
   can't starve it; then send `{envelope_id}`. There are no network calls before the ack. If the
   insert fails, Hearth doesn't ack and Slack retries. `(channel_id, ts)` is the key, so each of
@@ -1766,11 +1768,15 @@ process only writes outbox rows. The client uses `ws`, as the server does.
   catches up: the bot's DMs, with `conversations.history` since each place's mark (bot token;
   your xoxp can't see them); @mentions of the bot in channels that are on, with your xoxp's
   `search.messages`, which includes thread replies. Marks move only past what was read, and the
-  first connect starts at now. Up to 2 hours late: answered, starting "Sorry for the slow reply".
+  first connect starts at now. A DM's mark is its conversation's (`slack_thread.mark`); a DM
+  without one is read from where listening started. While no channel is on, the mentions mark
+  moves to now, so a channel turned on later isn't caught up from before it was on. Up to 2 hours
+  late: answered, starting "Sorry for the slow reply".
   Older: no turn; the member gets one fixed note and you get a relay. This also recovers events
   that a second connection took.
-- **Only one install runs the socket:** the one whose id `slack.bot_connect` recorded. A dev copy
-  with a restored database can't take the live events.
+- **Only one install runs the socket:** the one whose id `slack.bot_connect` recorded, and only
+  while `slack.bot.membersOn` is on. A dev copy with a restored database can't take the live
+  events. Where the socket isn't held, its health isn't judged.
 - **No echoes:** your xoxp poller skips your DM with the bot and Jarvis's own posts, so Jarvis's
   words don't come back in as Slack messages.
 - **Health:** `slack_bot` keeps its own `nextHealth` state, reported as the `sync.slack_bot`
