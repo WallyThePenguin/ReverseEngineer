@@ -1,6 +1,7 @@
 // Deep health (D57): what an update gate, `hearth doctor` or the web app needs to call Hearth
 // healthy, in one report. The database, whether its migrations fit this code, which build is
-// running, every component's last report (a stale one fails), Jarvis's turns, and the Chrome link.
+// running, every component's last report (a stale one fails), when the Jarvis process last checked
+// in, Jarvis's turns, and the Chrome link.
 import {
   type Db,
   jarvisTurn,
@@ -9,6 +10,7 @@ import {
   schemaMismatch,
   setting,
 } from "@hearth/db";
+import { getSetting, type Settings } from "@hearth/kernel";
 import {
   type BrowserStatus,
   type HealthRecord,
@@ -16,11 +18,14 @@ import {
   type JudgedHealth,
   judgeHealth,
 } from "@hearth/modules";
-import { and, desc, gt, isNotNull, like, sql } from "drizzle-orm";
+import { and, desc, gt, isNotNull, isNull, like, ne, or, sql } from "drizzle-orm";
 import { buildId, type VersionStamp } from "./version.ts";
 
 export interface TurnStats {
-  /** Turns that finished in the last 24 hours: done, failed or canceled. */
+  /**
+   * Turns that finished in the last 24 hours: done, failed or canceled. Not those a restart cut
+   * short: that isn't Jarvis failing (D54), and an update's own restart would fail its gate.
+   */
   total: number;
   failed: number;
   last: { status: string; trigger: string; at: string; error: string | null } | null;
@@ -46,6 +51,11 @@ export interface DeepHealth {
     unknown: string[];
   } | null;
   components: Record<string, JudgedHealth>;
+  /**
+   * When the Jarvis process last checked in, and since when it's up. Only a running Jarvis writes
+   * it; the jarvis component can also be the worker saying Jarvis hasn't checked in.
+   */
+  jarvisAlive: Settings["jarvis.alive"];
   jarvisTurns24h: TurnStats | null;
   /** The Chrome extension's link; the server doesn't know the extension's id, only its version. */
   browser: {
@@ -86,10 +96,12 @@ export const sqlRunner = (db: Db): SqlRunner => ({
 
 export async function turnStats(db: Db, now: Date): Promise<TurnStats> {
   const since = new Date(now.getTime() - 24 * 3_600_000);
+  // A turn that ran again and finished has no errorKind (runner.ts): only the cut-short go.
+  const counted = or(isNull(jarvisTurn.errorKind), ne(jarvisTurn.errorKind, "interrupted"));
   const rows = await db
     .select({ status: jarvisTurn.status, n: sql<number>`count(*)::int` })
     .from(jarvisTurn)
-    .where(and(isNotNull(jarvisTurn.finishedAt), gt(jarvisTurn.finishedAt, since)))
+    .where(and(isNotNull(jarvisTurn.finishedAt), gt(jarvisTurn.finishedAt, since), counted))
     .groupBy(jarvisTurn.status);
   const count = (s: string) => rows.find((r) => r.status === s)?.n ?? 0;
   const [last] = await db
@@ -100,7 +112,7 @@ export async function turnStats(db: Db, now: Date): Promise<TurnStats> {
       error: jarvisTurn.error,
     })
     .from(jarvisTurn)
-    .where(isNotNull(jarvisTurn.finishedAt))
+    .where(and(isNotNull(jarvisTurn.finishedAt), counted))
     .orderBy(desc(jarvisTurn.finishedAt))
     .limit(1);
   return {
@@ -146,6 +158,7 @@ export async function deepHealth(input: DeepHealthInput): Promise<DeepHealth> {
       db: { ok: false, ms: null },
       migrations: null,
       components: {},
+      jarvisAlive: null,
       jarvisTurns24h: null,
     };
   }
@@ -193,6 +206,7 @@ export async function deepHealth(input: DeepHealthInput): Promise<DeepHealth> {
       unknown: state.unknown,
     },
     components,
+    jarvisAlive: await getSetting(db, "jarvis.alive"),
     jarvisTurns24h: turns,
   };
 }

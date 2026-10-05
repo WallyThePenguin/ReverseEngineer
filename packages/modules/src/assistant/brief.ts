@@ -1,6 +1,6 @@
 // The brief and journal, rendered from every module's digest. Jarvis writes the final text;
 // this deterministic version is what it works from, and what you get if it can't run.
-import { formatDateTime } from "@hearth/core";
+import { asUntrusted, formatDateTime } from "@hearth/core";
 import type { DigestItem, DigestSection } from "@hearth/kernel";
 
 const ORDER: { bucket: DigestItem["bucket"]; heading: string }[] = [
@@ -11,18 +11,22 @@ const ORDER: { bucket: DigestItem["bucket"]; heading: string }[] = [
   { bucket: "fyi", heading: "Also" },
 ];
 
-export function renderDigest(sections: DigestSection[]): string {
+/** The digest as markdown. For a model's prompt, `markOutside` marks the lines that quote
+ * outside content, so it can tell them from Hearth's own facts (D58). */
+export function renderDigest(sections: DigestSection[], markOutside = false): string {
+  const line = (i: DigestItem) =>
+    `- ${markOutside && i.outside ? asUntrusted(i.text, "digest") : i.text}`;
   const blocks: string[] = [];
   for (const { bucket, heading } of ORDER) {
     const items = sections.flatMap((s) => s.items.filter((i) => i.bucket === bucket));
     if (items.length === 0) continue;
-    blocks.push(`## ${heading}\n${items.map((i) => `- ${i.text}`).join("\n")}`);
+    blocks.push(`## ${heading}\n${items.map(line).join("\n")}`);
   }
   return blocks.length ? blocks.join("\n\n") : "Nothing needs you. Quiet day so far.";
 }
 
-export function renderBrief(sections: DigestSection[], now: Date): string {
-  return `Brief for ${formatDateTime(now)}\n\n${renderDigest(sections)}`;
+export function renderBrief(sections: DigestSection[], now: Date, markOutside = false): string {
+  return `Brief for ${formatDateTime(now)}\n\n${renderDigest(sections, markOutside)}`;
 }
 
 /** Some item quotes outside content, so a turn reading the digest has to start untrusted. */

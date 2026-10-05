@@ -6,12 +6,15 @@ import { Button } from "../components/ui.tsx";
 import { ago } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
 import { act, useAction } from "../lib/query.ts";
+import { ReplaceToken } from "./ReplaceToken.tsx";
 
 interface Status {
   connected: boolean;
   team?: string;
   syncedAt?: string | null;
   lastError?: string | null;
+  /** "revoked": the token stopped working, and nothing new comes in until it's replaced. */
+  state?: "ok" | "failing" | "revoked";
   scopes: string[];
 }
 
@@ -43,6 +46,7 @@ export function SlackSettings() {
   const [token, setToken] = createSignal("");
   const [busy, setBusy] = createSignal(false);
   const [showChannels, setShowChannels] = createSignal(false);
+  const [replacing, setReplacing] = createSignal(false);
 
   const connect = async (e: Event) => {
     e.preventDefault();
@@ -107,18 +111,30 @@ export function SlackSettings() {
               <div class="flex-1">
                 <p class="font-medium">{s().team}</p>
                 <p class="text-sm text-muted">
-                  {s().lastError
-                    ? s().lastError
-                    : s().syncedAt
-                      ? `Read in ${ago(s().syncedAt!)}.`
-                      : "Reading in your channels…"}
+                  {s().state === "revoked"
+                    ? "Slack stopped accepting Hearth's token, so nothing new comes in."
+                    : s().lastError
+                      ? s().lastError
+                      : s().syncedAt
+                        ? `Read in ${ago(s().syncedAt!)}.`
+                        : "Reading in your channels…"}
                 </p>
               </div>
               <Button onClick={() => setShowChannels(!showChannels())}>Channels</Button>
+              <Button onClick={() => setReplacing(!replacing())}>New token</Button>
               <Button kind="danger" onClick={() => void disconnect()}>
                 Disconnect
               </Button>
             </div>
+            <Show when={replacing() || s().state === "revoked"}>
+              <ReplaceToken
+                action="slack.replace_token"
+                label="Slack"
+                placeholder="xoxp-…"
+                why="Paste a new User OAuth Token from the same Slack app. Everything read in stays."
+                onDone={() => setReplacing(false)}
+              />
+            </Show>
             <Show when={showChannels()}>
               <ul class="max-h-72 space-y-1 overflow-auto rounded-md border border-line px-3 py-2 text-sm">
                 <For each={channels.data ?? []}>

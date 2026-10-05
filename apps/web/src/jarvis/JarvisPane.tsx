@@ -14,13 +14,6 @@ import type { ConversationRow, SystemStatus } from "../lib/types.ts";
 import { Conversation } from "./Conversation.tsx";
 import { RenameInput, renameConversation } from "./Rename.tsx";
 
-/** A clock for "since when", ticking often enough for a two-minute threshold. */
-const clock = createRoot(() => {
-  const [now, setNow] = createSignal(Date.now());
-  window.setInterval(() => setNow(Date.now()), 15_000);
-  return now;
-});
-
 /** Whether Jarvis is up and well, checked every minute as well as on every change (D54). */
 function useLiveness() {
   const status = useAction<SystemStatus>(
@@ -29,7 +22,7 @@ function useLiveness() {
     () => true,
     () => 60_000,
   );
-  return { status, liveness: () => jarvisLiveness(status.data, clock()) };
+  return { status, liveness: () => jarvisLiveness(status) };
 }
 
 /** "12:47 p.m." today, "Fri 9 a.m." before: the end of a sentence either way. */

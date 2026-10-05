@@ -80,6 +80,20 @@ describe("changes that show at once", () => {
     ]);
   });
 
+  it("edits every page of a list read a page at a time, and puts them all back", () => {
+    const PAGED = ["mail.threads", { view: "inbox", lane: "signal", limit: 50 }];
+    const pages = { pages: [[thread("t1"), thread("t2")], [thread("t3")]], pageParams: [{}, {}] };
+    client.setQueryData(PAGED, pages);
+    const undo = applyOptimistic(client, "mail.archive", { ids: ["t3", "t1"] });
+    const now = client.getQueryData(PAGED) as { pages: MailThread[][]; pageParams: unknown[] };
+    expect(now.pages.map((p) => p.map((t) => t.id))).toEqual([["t2"], []]);
+    expect(now.pageParams).toEqual([{}, {}]);
+    applyOptimistic(client, "mail.mark_read", { ids: ["t2"] });
+    expect((client.getQueryData(PAGED) as typeof now).pages[0]?.[0]?.unread).toBe(false);
+    undo!();
+    expect(client.getQueryData(PAGED)).toEqual(pages);
+  });
+
   it("takes a trashed record out of every list it's in, and puts it back if that fails", () => {
     const TASKS = ["task.list", { limit: 200 }];
     const RECENT = ["entity.recent", {}];

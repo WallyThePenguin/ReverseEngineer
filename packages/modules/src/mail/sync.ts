@@ -5,10 +5,11 @@
 import { googleAccount, mailAccount, mailQuarantine } from "@hearth/db";
 import { type ActionContext, savepoint } from "@hearth/kernel";
 import { and, arrayContains, count, eq, gte, inArray, ne, sql } from "drizzle-orm";
-import { GOOGLE_SERVICE, type GoogleClient, SCOPES } from "../google/client.ts";
-import { GmailProvider } from "../google/gmail-api.ts";
+import { SCOPES } from "../google/client.ts";
 import { pushFlags } from "./flags.ts";
 import type { MailProvider } from "./provider.ts";
+import { providerFor } from "./providers.ts";
+import { repairSome } from "./repair.ts";
 import type { AccountRow } from "./store.ts";
 import { type AccountOutcome, recordOutcome } from "./sync-state.ts";
 import { bringIn, QUARANTINE_AFTER, readCursor, type Work } from "./sync-work.ts";
@@ -35,11 +36,7 @@ export const accountId = (provider: string, address: string) => `${provider}:${a
 /** Two-key advisory lock namespace for mail sync ("mail"). */
 const LOCK = 0x6d61696c;
 
-export function providerFor(ctx: ActionContext, account: AccountRow): MailProvider {
-  if (account.provider === "gmail")
-    return new GmailProvider(ctx.service<GoogleClient>(GOOGLE_SERVICE), ctx.tx);
-  throw new Error(`No mail provider called ${account.provider}`);
-}
+export { providerFor };
 
 /** Every Google account you connected Gmail for gets a mail account. */
 async function gmailAccounts(ctx: ActionContext): Promise<AccountRow[]> {
@@ -101,7 +98,11 @@ export async function syncAccount(
     // Something broke in Hearth itself; its writes are undone, and it counts as a failure.
     work = { ...none, progressed: false, stopped: err };
   }
-  return recordOutcome(ctx, fresh, work);
+  const outcome = await recordOutcome(ctx, fresh, work);
+  // A quiet round looks for originals missing from this PC (6.6). It never holds up mail.
+  if (outcome.status === "ok" && !outcome.more)
+    await savepoint(ctx, (sp) => repairSome(sp, provider, fresh)).catch(() => 0);
+  return outcome;
 }
 
 /** Syncs every account, or only `address`. One failing doesn't stop the rest. */

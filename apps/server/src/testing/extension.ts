@@ -5,8 +5,13 @@ import WebSocket from "ws";
 
 export type Msg = Record<string, unknown> & { type: string };
 
-export function socket(base: string, path: string, origin: string) {
-  const ws = new WebSocket(`${base}${path}`, { origin });
+export function socket(
+  base: string,
+  path: string,
+  origin: string,
+  headers: Record<string, string> = {},
+) {
+  const ws = new WebSocket(`${base}${path}`, { origin, headers });
   const inbox: Msg[] = [];
   const waiters: { type: string; resolve(m: Msg): void }[] = [];
   ws.on("message", (data) => {

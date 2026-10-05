@@ -106,6 +106,7 @@ describe("checkSyncs", () => {
     await t.tdb.db.insert(calendar).values({
       id: "me@example.com",
       account: "me@example.com",
+      googleId: "me@example.com",
       title: "Me",
       lastSyncedAt: at,
     });

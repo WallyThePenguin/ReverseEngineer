@@ -14,10 +14,13 @@ export interface SetupStep {
   section: SettingsSection;
 }
 
-/** The steps, in the order worth doing them; empty when the server doesn't say. */
-export function setupSteps(s: SystemStatus | undefined, now = Date.now()): SetupStep[] {
+/**
+ * The steps, in the order worth doing them; empty when the server doesn't say. `asOf` is when that
+ * status was read, so an old answer doesn't age into "Jarvis stopped".
+ */
+export function setupSteps(s: SystemStatus | undefined, asOf = Date.now()): SetupStep[] {
   if (!s?.setup) return [];
-  const jarvis = jarvisLiveness(s, now);
+  const jarvis = jarvisLiveness({ data: s, dataUpdatedAt: asOf });
   const backup = s.components.backup;
   return [
     {

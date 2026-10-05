@@ -19,7 +19,7 @@ import { PaneContext } from "../components/ui.tsx";
 import { ChatView } from "../jarvis/Conversation.tsx";
 import { JarvisPane, jarvis } from "../jarvis/JarvisPane.tsx";
 import { getMe, setSignedOutHandler } from "../lib/api.ts";
-import { forgetAllDocs } from "../lib/docStore.ts";
+import { forgetAllDocs, sendKeptNotes } from "../lib/docStore.ts";
 import { useHotkeys } from "../lib/hotkeys.ts";
 import { live, queryClient, toast } from "../lib/live.ts";
 import { narrow } from "../lib/narrow.ts";
@@ -132,6 +132,8 @@ function Shell(props: { onSignOut: () => void }) {
   const waiting = useWaiting();
   onMount(() => {
     live.start();
+    // Note edits a closed tab never sent (D59).
+    void sendKeptNotes();
     // The home screen's "Talk to Jarvis" shortcut.
     if (new URLSearchParams(location.search).has("jarvis")) jarvis.toggle(true);
   });
@@ -261,9 +263,12 @@ function Shell(props: { onSignOut: () => void }) {
       <Show when={help()}>
         <Shortcuts onClose={() => setHelp(false)} />
       </Show>
-      <Reconnecting />
-      <Degraded />
-      <UpdateNotice />
+      {/* One above the other, so an update notice never hides "Reconnecting…". */}
+      <div class="pointer-events-none fixed left-1/2 top-[calc(env(safe-area-inset-top)+0.5rem)] z-50 flex -translate-x-1/2 flex-col items-center gap-2">
+        <Reconnecting />
+        <Degraded />
+        <UpdateNotice />
+      </div>
       <div
         class="pointer-events-none fixed bottom-16 left-1/2 z-50 flex w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col items-center gap-2 md:bottom-4"
         role="status"

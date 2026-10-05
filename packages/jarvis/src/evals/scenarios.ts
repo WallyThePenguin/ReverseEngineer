@@ -82,6 +82,8 @@ export const SCENARIOS: Scenario[] = [
         summary: "Budget review",
         start: { dateTime: "2026-10-02T15:00:00Z" },
         end: { dateTime: "2026-10-02T16:00:00Z" },
+        // The owner's own meeting: someone else's invitation is titled by them (D58).
+        organizer: { email: g.email, self: true },
         attendees: [
           { email: g.email, self: true },
           { email: "sam@example.com", displayName: "Sam Lee" },

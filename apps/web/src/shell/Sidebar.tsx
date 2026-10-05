@@ -3,6 +3,7 @@
 import { createRoot, createSignal, For, Show } from "solid-js";
 import { JarvisDot, jarvis } from "../jarvis/JarvisPane.tsx";
 import { authPost } from "../lib/api.ts";
+import { okToSignOut } from "../lib/docStore.ts";
 import { MOD } from "../lib/hotkeys.ts";
 import { live } from "../lib/live.ts";
 import { type ListView, layout } from "../lib/panes.ts";
@@ -68,16 +69,23 @@ const NAV: { view: ListView; label: string; keys: string }[] = [
   { view: "trash", label: "Trash", keys: "g d" },
 ];
 
-/** What's waiting for you: unseen inbox items and approvals. */
+/** What's waiting for you: unseen inbox items and approvals, each approval once (its inbox
+ * card and the approval itself are the same thing). */
 export function useWaiting() {
   const inbox = useAction<InboxRow[]>("inbox.list", () => inboxInput("live", "signal"));
   const approvals = useAction<Approval[]>("approval.list", () => ({
     status: "pending",
     limit: 50,
   }));
-  return () =>
-    (inbox.data ?? []).filter((r) => r.notification.state === "unseen").length +
-    (approvals.data?.length ?? 0);
+  return () => {
+    const pending = new Set((approvals.data ?? []).map((a) => a.id));
+    const unseen = (inbox.data ?? []).filter(
+      (r) =>
+        r.notification.state === "unseen" &&
+        !(r.notification.approvalId && pending.has(r.notification.approvalId)),
+    );
+    return unseen.length + pending.size;
+  };
 }
 
 export function Sidebar(props: {
@@ -170,6 +178,8 @@ export function Sidebar(props: {
         type="button"
         class="min-h-11 rounded-md px-2 py-1.5 text-left text-sm text-muted hover:text-ink md:min-h-0"
         onClick={async () => {
+          // Signing out deletes this device's copies, edits Hearth hasn't got included.
+          if (!(await okToSignOut())) return;
           await authPost("logout").catch(() => {});
           props.onSignOut();
         }}

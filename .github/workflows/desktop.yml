@@ -1,8 +1,9 @@
 name: Desktop
 
-# Builds the desktop app (apps/desktop, a fork of Handy) for Windows and keeps the installer as an
-# artifact, so the PC can install it without a Rust toolchain. Runs Hearth's own Rust tests first.
-# The Windows steps follow Handy's build.yml.
+# Builds Hearth for Windows (apps/desktop, a fork of Handy; D53) and keeps the installer
+# (Hearth_1.0.<run>_x64-setup.exe, installed per user) as an artifact, so the PC can install it
+# without a Rust toolchain. Runs Hearth's own Rust tests first. The Windows steps follow Handy's
+# build.yml.
 
 on:
   pull_request:
@@ -83,8 +84,17 @@ jobs:
         working-directory: apps/desktop/src-tauri
         run: cargo test --lib hearth
 
+      # Each build's version is higher than the last (1.0.<run number>), so Windows installs it as
+      # an upgrade. tauri.conf.json's 1.0.0 is only the local default (D53).
+      - name: Version this build
+        shell: pwsh
+        run: |
+          $json = '{"version":"1.0.${{ github.run_number }}"}'
+          [IO.File]::WriteAllText("$env:GITHUB_WORKSPACE/apps/desktop/hearth-version.json", $json)
+
       - name: Build the installer
-        run: bun run tauri build --bundles nsis
+        shell: pwsh
+        run: bun run tauri build --bundles nsis --config "$env:GITHUB_WORKSPACE/apps/desktop/hearth-version.json"
 
       # The bake-off runs beside the installed app, which has the speech libraries it loads.
       - name: Build the bake-off

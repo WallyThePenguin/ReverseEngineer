@@ -29,11 +29,11 @@ const ics = (o: { uid: string; organizer?: string; method?: string; summary?: st
     "END:VCALENDAR",
   ].join("\r\n");
 
-const invitation = (from: string, body: string) =>
+const invitation = (from: string, body: string, to = ME) =>
   Buffer.from(
     [
       `From: ${from}`,
-      `To: ${ME}`,
+      `To: ${to}`,
       "Subject: Invitation: Planning",
       "Date: Thu, 01 Oct 2026 12:00:00 +0000",
       `Message-ID: <${Math.random().toString(36).slice(2)}@work.example>`,
@@ -138,6 +138,46 @@ describe("calendar invitations in mail", () => {
     await ok("calendar.respond", { id: m!.invite!.event!.id, response: "accepted" });
     const again = await ok<ThreadView>("mail.thread", { id: view.id });
     expect(again.messages[0]!.invite!.event!.response).toBe("accepted");
+  });
+
+  it("answers an invitation sent to two of your accounts as the one it came to", async () => {
+    const WORK = "work@example.com";
+    g.addAccount(WORK);
+    g.signingIn = WORK;
+    const client = g.client();
+    const url = new URL(await client.startSignIn(t.tdb.db, [...SCOPES.calendar, ...SCOPES.gmail]));
+    await client.finishSignIn(t.tdb.db, url.searchParams.get("state")!, "the-code");
+    // The same meeting is on each account's calendar, under the same UID.
+    const meeting = (self: string) => ({
+      summary: "Planning",
+      iCalUID: "planning-1@work.example",
+      start: { dateTime: "2026-10-05T15:00:00Z" },
+      end: { dateTime: "2026-10-05T16:00:00Z" },
+      organizer: { email: BOSS },
+      attendees: [
+        { email: BOSS, organizer: true },
+        { email: self, self: true, responseStatus: "needsAction" as const },
+      ],
+    });
+    g.put(ME, meeting(ME));
+    g.put(WORK, meeting(WORK));
+    const work = g.accounts.get(WORK)!.gmail;
+    const id = work.deliver({ from: { address: BOSS }, subject: "x", text: "x" });
+    work.messages.get(id)!.raw = invitation(
+      BOSS,
+      ics({ uid: "planning-1@work.example", organizer: BOSS }),
+      WORK,
+    );
+    await ok("calendar.sync", {}, integrationCaller("google"));
+    await ok("mail.sync", {}, integrationCaller("google"));
+    const [x] = await ok<ThreadSummary[]>("mail.threads", { view: "all" });
+    const view = await ok<ThreadView>("mail.thread", { id: x!.id });
+    await ok("calendar.respond", { id: view.messages[0]!.invite!.event!.id, response: "accepted" });
+    const answer = (account: string) =>
+      [...g.accounts.get(account)!.calendars.get(account)!.events.values()][0]!.attendees!.find(
+        (a) => a.self,
+      )!.responseStatus;
+    expect([answer(WORK), answer(ME)]).toEqual(["accepted", "needsAction"]);
   });
 
   it("won't match an invitation to an event someone else organizes", async () => {

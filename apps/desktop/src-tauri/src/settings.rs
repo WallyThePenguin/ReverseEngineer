@@ -564,8 +564,10 @@ fn default_start_hidden() -> bool {
     false
 }
 
+/// Hearth starts with Windows (hidden, in the tray): the phone's speech, notifications and the
+/// hotkeys all need it running (D53).
 fn default_autostart_enabled() -> bool {
-    false
+    true
 }
 
 fn default_update_checks_enabled() -> bool {
@@ -955,6 +957,38 @@ pub fn get_default_settings() -> AppSettings {
             current_binding: "ctrl+alt+j".to_string(),
         },
     );
+    // Hearth's windows (D53).
+    for (id, name, description, keys) in [
+        (
+            crate::hearth::OPEN_BINDING,
+            "Open Hearth",
+            "Brings up Hearth's window.",
+            "ctrl+alt+h",
+        ),
+        (
+            crate::hearth::CAPTURE_BINDING,
+            "Quick capture",
+            "A small box to jot down a task.",
+            "ctrl+alt+n",
+        ),
+        (
+            crate::hearth::ASK_BINDING,
+            "Ask Jarvis",
+            "A small window to ask Jarvis by typing.",
+            "ctrl+alt+k",
+        ),
+    ] {
+        bindings.insert(
+            id.to_string(),
+            ShortcutBinding {
+                id: id.to_string(),
+                name: name.to_string(),
+                description: description.to_string(),
+                default_binding: keys.to_string(),
+                current_binding: keys.to_string(),
+            },
+        );
+    }
     bindings.insert(
         "cancel".to_string(),
         ShortcutBinding {

@@ -1,7 +1,7 @@
 // A conversation with Jarvis: messages, the tools it used, approvals it's waiting on, and the
 // reply streaming in as it's written. Live and reloaded views come from the same fold.
 
-import { type ConversationItem, foldConversation, fromEditForm } from "@hearth/core";
+import { foldConversation, fromEditForm } from "@hearth/core";
 import { createEffect, createSignal, For, Match, on, onCleanup, Show, Switch } from "solid-js";
 import { Body } from "../components/Body.tsx";
 import { MentionEditor } from "../components/MentionEditor.tsx";
@@ -12,47 +12,20 @@ import { narrow } from "../lib/narrow.ts";
 import { act, useAction } from "../lib/query.ts";
 import { hush, mic, say, talkTaken, talkWanted } from "../lib/speech.ts";
 import type { LogRecord } from "../lib/types.ts";
-import { decide } from "../views/Inbox.tsx";
 import { RenameInput, renameConversation } from "./Rename.tsx";
+import { OutsideNote, ToolLine } from "./ToolLine.tsx";
 
 /** How long what you sent may wait for Jarvis to start before it says so. */
 const SLOW_MS = 20_000;
 
 interface ConversationData {
-  conversation: { id: string; title: string };
+  conversation: {
+    id: string;
+    title: string;
+    taintedAt?: string | null;
+    taintSource?: string | null;
+  };
   log: LogRecord[];
-}
-
-function ToolLine(props: { item: Extract<ConversationItem, { type: "tool" }> }) {
-  const [open, setOpen] = createSignal(false);
-  const name = () => props.item.name.replace(/^mcp__hearth__/, "").replaceAll("_", " ");
-  return (
-    <div class="text-xs text-muted">
-      <button type="button" class="hover:text-ink" onClick={() => setOpen(!open())}>
-        {props.item.status === "running" ? "Using" : "Used"} {name()}
-        {props.item.isError ? " (failed)" : ""}
-      </button>
-      <Show when={props.item.status === "pending_approval" && props.item.approvalId}>
-        <div class="mt-1 flex items-center gap-2 rounded-md bg-accent-soft px-2 py-1.5 text-ink">
-          <span class="flex-1 whitespace-pre-wrap">
-            Waiting for your yes: {props.item.output || "see the Inbox."}
-          </span>
-          <Button kind="primary" small onClick={() => decide(props.item.approvalId!, "approve")}>
-            Approve
-          </Button>
-          <Button kind="danger" small onClick={() => decide(props.item.approvalId!, "deny")}>
-            Deny
-          </Button>
-        </div>
-      </Show>
-      <Show when={open()}>
-        <pre class="mt-1 max-h-48 overflow-auto rounded bg-sunk p-2 font-mono text-[11px] whitespace-pre-wrap">
-          {JSON.stringify(props.item.input, null, 2)}
-          {props.item.output ? `\n→ ${props.item.output}` : ""}
-        </pre>
-      </Show>
-    </div>
-  );
 }
 
 export function Conversation(props: {
@@ -180,6 +153,9 @@ export function Conversation(props: {
         }
       >
         <Show when={props.id} fallback={<Starter onPick={(t) => setDraft(t)} />}>
+          <Show when={data.data?.conversation.taintedAt}>
+            <OutsideNote source={data.data?.conversation.taintSource} />
+          </Show>
           <Show when={!data.data && data.isError}>
             <p class="text-sm text-bad">
               Couldn't load this conversation.{" "}

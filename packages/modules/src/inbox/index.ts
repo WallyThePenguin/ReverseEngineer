@@ -1,13 +1,14 @@
 // The inbox: everything that needs you, in one keyboard-driven list (PLAN.md section 4).
-import { approval, entity, notification } from "@hearth/db";
+import { approval, entity, notification, type Tx } from "@hearth/db";
 import {
+  ActionError,
   createNotification,
   type DigestItem,
   defineAction,
   defineModule,
   interruptDecision,
 } from "@hearth/kernel";
-import { and, count, desc, eq, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, lte, ne, notExists, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { id, isoDateTime } from "../shared.ts";
 
@@ -16,6 +17,22 @@ const live = (now: Date) =>
     ne(notification.state, "done"),
     or(isNull(notification.snoozedUntil), lte(notification.snoozedUntil, now)),
   );
+
+/** Not an approval's card while that approval waits for a yes or no, or is being done: such a
+ * card leaves the inbox only by deciding it (D58), so it can't be put away and forgotten. */
+const notAwaitingDecision = (tx: Tx) =>
+  notExists(
+    tx
+      .select({ id: approval.id })
+      .from(approval)
+      .where(
+        and(
+          eq(approval.id, notification.approvalId),
+          inArray(approval.status, ["pending", "executing"]),
+        ),
+      ),
+  );
+const NEEDS_DECISION = "This one needs a yes or a no first.";
 
 export const inboxModule = defineModule({
   name: "inbox",
@@ -64,7 +81,8 @@ export const inboxModule = defineModule({
     }),
     defineAction({
       name: "inbox.mark",
-      description: "Mark inbox items unseen, seen or done.",
+      description:
+        "Mark inbox items unseen, seen or done. An approval's card is done once it's decided.",
       input: z.object({
         ids: z.array(id).min(1).max(500),
         state: z.enum(["unseen", "seen", "done"]),
@@ -73,8 +91,14 @@ export const inboxModule = defineModule({
       async handler(i, ctx) {
         const rows = await ctx.tx
           .update(notification)
-          .set({ state: i.state, updatedAt: ctx.now, ...(i.state === "unseen" ? {} : {}) })
-          .where(and(inArray(notification.id, i.ids), ne(notification.state, i.state)))
+          .set({ state: i.state, updatedAt: ctx.now })
+          .where(
+            and(
+              inArray(notification.id, i.ids),
+              ne(notification.state, i.state),
+              i.state === "done" ? notAwaitingDecision(ctx.tx) : undefined,
+            ),
+          )
           .returning({ id: notification.id, entityId: notification.entityId });
         for (const r of rows) {
           ctx.emit({
@@ -96,9 +120,16 @@ export const inboxModule = defineModule({
         const [r] = await ctx.tx
           .update(notification)
           .set({ snoozedUntil: until, state: "seen", updatedAt: ctx.now })
-          .where(eq(notification.id, i.id))
+          .where(and(eq(notification.id, i.id), notAwaitingDecision(ctx.tx)))
           .returning({ id: notification.id, entityId: notification.entityId });
-        if (!r) return { snoozed: false };
+        if (!r) {
+          const [n] = await ctx.tx
+            .select({ id: notification.id })
+            .from(notification)
+            .where(eq(notification.id, i.id));
+          if (n) throw new ActionError("conflict", NEEDS_DECISION);
+          return { snoozed: false };
+        }
         ctx.emit({
           kind: "notification.updated",
           entityId: r.entityId,

@@ -100,13 +100,14 @@ export function PaneCrashed(props: { error: unknown; reset: () => void }) {
 
 /**
  * Shown while Hearth answers but can't reach its database: what's on screen may be out of date.
- * It clears itself once a read works. (Hearth out of reach altogether is Reconnecting's.)
+ * It clears itself once a read works. (Hearth out of reach altogether is Reconnecting's.) The
+ * shell places it, with Reconnecting and the update notice.
  */
 export function Degraded() {
   return (
     <Show when={degraded.on() && !live.reconnecting()}>
       <div
-        class="pointer-events-none fixed top-[calc(env(safe-area-inset-top)+0.5rem)] left-1/2 z-50 w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-lg bg-ink px-4 py-1.5 text-center text-sm text-bg shadow-lg"
+        class="max-w-[calc(100vw-2rem)] rounded-lg bg-ink px-4 py-1.5 text-center text-sm text-bg shadow-lg"
         role="status"
       >
         Hearth can't reach its database right now, so this may be out of date. It catches up by
@@ -116,14 +117,14 @@ export function Degraded() {
   );
 }
 
-/** Shown while the live connection to Hearth is down; it clears itself once it's back. */
+/**
+ * Shown while the live connection to Hearth is down; it clears itself once it's back. The shell
+ * places it, above an update notice.
+ */
 export function Reconnecting() {
   return (
     <Show when={live.reconnecting()}>
-      <div
-        class="pointer-events-none fixed top-[calc(env(safe-area-inset-top)+0.5rem)] left-1/2 z-50 -translate-x-1/2 rounded-full bg-ink px-4 py-1.5 text-sm text-bg shadow-lg"
-        role="status"
-      >
+      <div class="rounded-full bg-ink px-4 py-1.5 text-sm text-bg shadow-lg" role="status">
         Reconnecting…
       </div>
     </Show>

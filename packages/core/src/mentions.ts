@@ -1,14 +1,40 @@
 // Mentions inside markdown bodies: <m-ref type="task" id="...">Label</m-ref>.
 // The server re-derives links from these on every save (PLAN.md section 5.3).
+import { isUuid } from "./ids.ts";
 
 export interface Mention {
   type: string;
   id: string;
   label: string;
-  /** Which occurrence of this target in the body (0, 1, 2...). Becomes the link anchor. */
+  /**
+   * Which occurrence of this target among the tags without a `mid` (0, 1, 2...): the link anchor
+   * for those.
+   */
   occurrence: number;
   /** Character offset of the tag in the body. */
   index: number;
+  /**
+   * The tag's own id (its data-mid), written when the editor inserted it: the link anchor, which
+   * stays the same however the text around it changes (D59).
+   */
+  mid?: string;
+}
+
+const MID = /^[A-Za-z0-9_-]{1,32}$/;
+
+/**
+ * The anchor of a mention's link, and so its dedupe key: its own id when it has one, else which
+ * occurrence of its target it is (tags written before ids, or by Jarvis).
+ */
+export function mentionAnchor(m: Pick<Mention, "occurrence" | "mid">): string {
+  return m.mid ? `mid:${m.mid}` : `#${m.occurrence}`;
+}
+
+/** A new id for a mention tag the editor inserts. */
+export function newMentionId(): string {
+  // getRandomValues, unlike randomUUID, works on a page served over plain http too.
+  const bytes = crypto.getRandomValues(new Uint8Array(6));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 const TAG = /<m-ref\s+([^>]*)>([\s\S]*?)<\/m-ref>/g;
@@ -26,8 +52,14 @@ function escapeAttr(value: string): string {
   return escapeText(value).replaceAll('"', "&quot;");
 }
 
-export function renderMention(m: { type: string; id: string; label: string }): string {
-  return `<m-ref type="${escapeAttr(m.type)}" id="${escapeAttr(m.id)}">${escapeText(m.label)}</m-ref>`;
+export function renderMention(m: {
+  type: string;
+  id: string;
+  label: string;
+  mid?: string;
+}): string {
+  const mid = m.mid ? ` data-mid="${escapeAttr(m.mid)}"` : "";
+  return `<m-ref type="${escapeAttr(m.type)}" id="${escapeAttr(m.id)}"${mid}>${escapeText(m.label)}</m-ref>`;
 }
 
 export function parseMentions(body: string): Mention[] {
@@ -39,11 +71,19 @@ export function parseMentions(body: string): Mention[] {
       attrs[a[1]!] = unescapeText((a[2] ?? "").replaceAll("&quot;", '"'));
     }
     const { type, id } = attrs;
-    if (!type || !id) continue;
+    // Only a record's id can be mentioned: anything else (in pasted or outside text) is text.
+    if (!type || !id || !isUuid(id)) continue;
     const key = `${type}:${id}`;
+    const label = unescapeText(match[2] ?? "");
+    const mid = attrs["data-mid"];
+    // A pasted copy of a tag shares its id, and so its link: it never re-asks an old question.
+    if (mid && MID.test(mid)) {
+      out.push({ type, id, label, occurrence: 0, index: match.index, mid });
+      continue;
+    }
     const occurrence = seen.get(key) ?? 0;
     seen.set(key, occurrence + 1);
-    out.push({ type, id, label: unescapeText(match[2] ?? ""), occurrence, index: match.index });
+    out.push({ type, id, label, occurrence, index: match.index });
   }
   return out;
 }

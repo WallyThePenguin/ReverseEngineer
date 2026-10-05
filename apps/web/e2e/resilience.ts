@@ -8,7 +8,7 @@
 // The server needs development login on (loopback only), so no passkey is involved.
 // HEARTH_E2E_CHROME points at a Chromium to use instead of Playwright's own download.
 
-import { chromium, type Page, type Route } from "playwright";
+import { chromium, type Locator, type Page, type Route } from "playwright";
 
 const base = process.env.HEARTH_E2E_URL ?? "http://localhost:4400";
 const tag = Date.now().toString(36).slice(-4);
@@ -53,6 +53,14 @@ async function runAction(p: Page, name: string, input: unknown) {
   );
 }
 const inboxRow = (p: Page, title: string) => p.locator("li", { hasText: title });
+type Box = { x: number; y: number; width: number; height: number };
+async function box(l: Locator): Promise<Box> {
+  const b = await l.boundingBox();
+  if (!b) throw new Error("not on the page");
+  return b;
+}
+const overlap = (a: Box, b: Box) =>
+  a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 /** Waits for earlier toasts to go, so the next one checked for is new. */
 const noToasts = (p: Page) =>
   p.getByText(UNREACHABLE).first().waitFor({ state: "detached", timeout: 10_000 });
@@ -190,6 +198,44 @@ try {
     await runAction(p, "inbox.notify", { title });
     await inboxRow(p, title).waitFor({ timeout: 5_000 });
     await sameLoad(p);
+  });
+
+  await step("an update notice and Reconnecting… show together", async (p) => {
+    await p.route("**/api/health/deep", (r) =>
+      r.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ build: "a-newer-build", migrations: { ok: true } }),
+      }),
+    );
+    await p.route("**/api/events**", badGateway);
+    await boot(p);
+    const banner = p.getByRole("status").filter({ hasText: "Reconnecting…" });
+    const updated = p.getByText("Hearth was updated.");
+    const reload = p.getByRole("button", { name: "Reload" });
+    await updated.waitFor({ timeout: 10_000 });
+    await banner.waitFor({ timeout: 10_000 });
+    const shown = await box(banner);
+    for (const part of [updated, reload])
+      if (overlap(shown, await box(part)))
+        throw new Error("the update notice covers Reconnecting…");
+    // Nothing covers Reload either (a trial click checks, without reloading).
+    await reload.click({ trial: true, timeout: 2_000 });
+    await p.unrouteAll();
+  });
+
+  await step("Ask Jarvis's window looks again when it's shown after you sign in", async (p) => {
+    await p.route("**/api/auth/me", (r) =>
+      r.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ signedIn: false, principal: null, kind: null, needsSetup: false }),
+      }),
+    );
+    await p.goto(`${base}/chat?compact=1`);
+    await p.getByText("Sign in to Hearth first", { exact: false }).waitFor();
+    await p.unroute("**/api/auth/me");
+    // The app shows its kept window again.
+    await p.evaluate("window.dispatchEvent(new Event('focus'))");
+    await p.getByText("Ask Jarvis", { exact: true }).waitFor({ timeout: 5_000 });
   });
 
   await step("live feed: refused because the session ended goes to sign-in", async (p) => {

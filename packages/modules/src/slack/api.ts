@@ -13,6 +13,15 @@ export interface SlackMessage {
   threadTs?: string;
   /** Join, leave, topic changes and the like. */
   subtype?: string;
+  /** A thread's start: how many replies it has, and the newest one's ts. */
+  replyCount?: number;
+  latestReply?: string;
+}
+
+/** One page of messages, and the cursor for the next page when there's more. */
+export interface SlackPage {
+  messages: SlackMessage[];
+  next?: string;
 }
 
 export interface SlackConversation {
@@ -38,8 +47,22 @@ export interface SlackApi {
   /** Who the token belongs to. */
   whoami(token: string): Promise<{ teamId: string; team: string; url: string; userId: string }>;
   conversations(token: string): Promise<SlackConversation[]>;
-  /** Messages after `oldest` (a Slack ts), oldest first. */
-  history(token: string, channel: string, oldest: string, limit: number): Promise<SlackMessage[]>;
+  /**
+   * A page of a channel's messages after `oldest` and before `latest` (Slack ts), newest first;
+   * the next page is older. Thread replies aren't in it.
+   */
+  history(
+    token: string,
+    channel: string,
+    page: { oldest: string; latest?: string; cursor?: string; limit: number },
+  ): Promise<SlackPage>;
+  /** A page of a thread's replies after `oldest`, oldest first, without its first message. */
+  replies(
+    token: string,
+    channel: string,
+    threadTs: string,
+    page: { oldest: string; cursor?: string; limit: number },
+  ): Promise<SlackPage>;
   user(token: string, id: string): Promise<SlackUser | null>;
   /** Recent messages that @mention this user, anywhere, thread replies included. */
   mentions(token: string, userId: string): Promise<SlackMatch[]>;
@@ -57,13 +80,22 @@ export class SlackError extends Error {
   }
   /** The token no longer works: syncing stops until you connect again. */
   get revoked(): boolean {
-    return ["invalid_auth", "token_revoked", "account_inactive", "not_authed"].includes(this.code);
+    return REVOKED.includes(this.code);
   }
 }
 
+const REVOKED = [
+  "invalid_auth",
+  "token_revoked",
+  "token_expired",
+  "account_inactive",
+  "not_authed",
+];
+
 const SLACK_ERRORS: Record<string, string> = {
   invalid_auth: "Slack doesn't accept this token. Copy the User OAuth Token again.",
-  token_revoked: "The Slack token was revoked. Connect Slack again in Settings.",
+  token_revoked: "The Slack token was revoked. Paste a new one in Settings.",
+  token_expired: "The Slack token expired. Paste a new one in Settings.",
   account_inactive: "That Slack account is deactivated.",
   not_authed: "No Slack token was sent.",
   missing_scope: "The Slack app is missing a permission. Add the scopes listed in Settings.",
@@ -82,8 +114,15 @@ function message(m: Raw): SlackMessage {
     text: str(m.text) ?? "",
     threadTs: str(m.thread_ts),
     subtype: str(m.subtype),
+    replyCount: typeof m.reply_count === "number" ? m.reply_count : undefined,
+    latestReply: str(m.latest_reply),
   };
 }
+
+/** The cursor for the next page, when Slack says there's more. */
+const nextCursor = (r: Raw): string | undefined =>
+  (r.has_more ? str((r.response_metadata as Raw | undefined)?.next_cursor) : undefined) ||
+  undefined;
 
 /** Slack's real Web API, over HTTPS. */
 export function httpSlack(base = "https://slack.com/api"): SlackApi {
@@ -129,14 +168,29 @@ export function httpSlack(base = "https://slack.com/api"): SlackApi {
       }
       return out;
     },
-    async history(token, channel, oldest, limit) {
+    async history(token, channel, page) {
       const r = await call(token, "conversations.history", {
         channel,
-        oldest,
-        limit: String(limit),
+        oldest: page.oldest,
+        ...(page.latest ? { latest: page.latest } : {}),
+        ...(page.cursor ? { cursor: page.cursor } : {}),
+        limit: String(page.limit),
         inclusive: "false",
       });
-      return ((r.messages as Raw[]) ?? []).map(message).reverse();
+      return { messages: ((r.messages as Raw[]) ?? []).map(message), next: nextCursor(r) };
+    },
+    async replies(token, channel, threadTs, page) {
+      const r = await call(token, "conversations.replies", {
+        channel,
+        ts: threadTs,
+        oldest: page.oldest,
+        ...(page.cursor ? { cursor: page.cursor } : {}),
+        limit: String(page.limit),
+        inclusive: "false",
+      });
+      const messages = ((r.messages as Raw[]) ?? []).map(message);
+      // Slack puts the thread's first message at the top of every page.
+      return { messages: messages.filter((m) => m.ts !== threadTs), next: nextCursor(r) };
     },
     async user(token, id) {
       try {

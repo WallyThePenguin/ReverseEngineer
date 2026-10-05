@@ -22,6 +22,8 @@ export interface MeetingView {
   id: string;
   title: string;
   notes: string;
+  /** The record's revision: pass it back to meeting.update to save over this copy only. */
+  revision: number;
   startedAt: Date;
   endedAt: Date | null;
   summary: string | null;
@@ -233,6 +235,7 @@ export async function meetingView(
     id: e.id,
     title: e.title,
     notes: e.body ?? "",
+    revision: e.revision,
     startedAt: m.startedAt,
     endedAt: m.endedAt,
     summary: m.summary,

@@ -1,7 +1,7 @@
 import { JARVIS_ENTITY_ID, renderMention } from "@hearth/core";
 import { approval, entity, jarvisTurn } from "@hearth/db";
 import { ownerCaller } from "@hearth/kernel";
-import type { TaskView } from "@hearth/modules";
+import { MENTION_SETTLE_MS, type TaskView } from "@hearth/modules";
 import { and, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createJarvisHarness, type JarvisHarness } from "./testing.ts";
@@ -67,6 +67,10 @@ describe("Jarvis reacts", () => {
       title: "Groceries",
       body: `eggs\n\n${jarvisMention} add milk`,
     });
+    await h.settle();
+    // A note syncs as you type: Jarvis waits for it to be still before reading the request (D59).
+    expect(h.brain.requests).toHaveLength(0);
+    h.clock.advance(MENTION_SETTLE_MS);
     await h.settle();
     const thread = await comments(note.id);
     expect(thread).toMatchObject([{ createdBy: "jarvis", body: "Milk is on the list now." }]);

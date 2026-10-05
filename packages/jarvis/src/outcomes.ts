@@ -1,6 +1,7 @@
 // Applies what reflexes decide, cheapest first. Only "turn" spends a model turn, and proactive
 // turns pass the pause switch and the daily budget first; when they can't run, their fallback
 // (if any) runs instead.
+import { weakerOrigin } from "@hearth/core";
 import { heartbeatItem, jarvisTurn, schedule } from "@hearth/db";
 import {
   type Caller,
@@ -68,7 +69,12 @@ export async function applyOutcomes(
           trigger: o.trigger,
           mode,
           lane: o.lane,
-          origin: o.untrusted ? "untrusted" : src.event.origin,
+          // No more trusted than what led to it, nor than what it replays (D58).
+          origin: o.untrusted
+            ? "untrusted"
+            : o.origin
+              ? weakerOrigin(o.origin, src.event.origin)
+              : src.event.origin,
           prompt: o.prompt,
           // When it was asked, so a request isn't answered long after (D54): see TURN_TTL_MS.
           context: {
@@ -97,7 +103,9 @@ export async function applyOutcomes(
           if (scheduleId) await setLastOutcome(kernel, scheduleId, `skipped_${gate.reason}`);
           result.skipped.push(`${src.name}: ${gate.reason}`);
           if (o.fallback?.length) {
-            const inner = await applyOutcomes(kernel, o.fallback, src, log);
+            // As trusted as the turn would have been: a brief quoting email is written untrusted.
+            const as = { ...src, event: { ...src.event, origin: base.origin } };
+            const inner = await applyOutcomes(kernel, o.fallback, as, log);
             result.skipped.push(...inner.skipped);
           }
           break;
@@ -171,6 +179,8 @@ export async function applyOutcomes(
           text: o.text,
           aboutId: o.aboutId ?? null,
           sourceEventSeq: src.event.seq,
+          // An email's subject set aside for later is still outside content then (D58).
+          origin: src.event.origin,
           createdAt: now,
         });
         break;

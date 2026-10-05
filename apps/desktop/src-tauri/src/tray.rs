@@ -65,6 +65,10 @@ struct MenuInputs {
     update_checks_enabled: bool,
     /// Hearth's meeting recorder is running.
     recording: bool,
+    /// Hearth's status line, e.g. "Server ✓  Worker ✓  Jarvis ✓" (hearth/status.rs).
+    hearth_status: String,
+    /// Hearth is installed as a service here, so it can be restarted and updated from the tray.
+    hearth_installed: bool,
 }
 
 /// Complete description of what the tray should look like.
@@ -316,6 +320,10 @@ fn compute_desired(app: &AppHandle, icon_state: TrayIconState) -> TrayDesired {
     let theme = get_current_theme(app);
     let warning = crate::secure_input::tray_warning_active(app);
     let model_loaded = app.state::<Arc<TranscriptionManager>>().is_model_loaded();
+    let hearth = crate::hearth::status::current();
+    let hearth_trouble = hearth.as_ref().is_some_and(|s| s.trouble());
+    // Hearth's fork never checks Handy's releases, so the menu doesn't offer to.
+    let update_checks_enabled = crate::settings::update_checks_effectively_enabled(&settings);
 
     let mut downloaded_models: Vec<(String, String)> = app
         .state::<Arc<ModelManager>>()
@@ -327,7 +335,8 @@ fn compute_desired(app: &AppHandle, icon_state: TrayIconState) -> TrayDesired {
     downloaded_models.sort_by(|a, b| a.1.cmp(&b.1));
 
     TrayDesired {
-        icon_path: get_icon_path(theme, icon_state, warning),
+        // Hearth in trouble shows the same warning badge as blocked shortcuts.
+        icon_path: get_icon_path(theme, icon_state, warning || hearth_trouble),
         menu: MenuInputs {
             busy: icon_state.is_busy(),
             warning,
@@ -335,8 +344,12 @@ fn compute_desired(app: &AppHandle, icon_state: TrayIconState) -> TrayDesired {
             selected_model: settings.selected_model,
             downloaded_models,
             locale: settings.app_language,
-            update_checks_enabled: settings.update_checks_enabled,
+            update_checks_enabled,
             recording: crate::hearth::meeting::recording(),
+            hearth_status: hearth
+                .map(|s| s.line())
+                .unwrap_or_else(|| "Checking Hearth…".to_string()),
+            hearth_installed: crate::hearth::services::hearth_folder().is_some(),
         },
     }
 }
@@ -442,15 +455,17 @@ fn load_tray_icon(resolved_icon_path: tauri::Result<PathBuf>) -> tauri::Result<I
     Image::from_path(&resolved_icon_path).map(Image::to_owned)
 }
 
-pub fn tray_tooltip() -> String {
-    version_label()
+pub fn tray_tooltip(app: &AppHandle) -> String {
+    version_label(app)
 }
 
-fn version_label() -> String {
+/// "Hearth v1.0.<build>": the version CI gives each build (tauri.conf.json), not the crate's.
+fn version_label(app: &AppHandle) -> String {
+    let version = app.package_info().version.to_string();
     if cfg!(debug_assertions) {
-        format!("Handy v{} (Dev)", env!("CARGO_PKG_VERSION"))
+        format!("Hearth v{version} (Dev)")
     } else {
-        format!("Handy v{}", env!("CARGO_PKG_VERSION"))
+        format!("Hearth v{version}")
     }
 }
 
@@ -489,8 +504,16 @@ fn build_menu(app: &AppHandle, inputs: &MenuInputs) -> tauri::Result<(Menu<tauri
     let (settings_accelerator, quit_accelerator) = (Some("Ctrl+,"), Some("Ctrl+Q"));
 
     // Create common menu items
-    let version_label = version_label();
+    let version_label = version_label(app);
     let version_i = MenuItem::with_id(app, "version", &version_label, false, None::<&str>)?;
+    // Hearth's status comes first: "Server ✓  Worker ✓  Jarvis ✓".
+    let status_i = MenuItem::with_id(
+        app,
+        "hearth_status",
+        &inputs.hearth_status,
+        false,
+        None::<&str>,
+    )?;
     let settings_i = MenuItem::with_id(
         app,
         "settings",
@@ -520,6 +543,21 @@ fn build_menu(app: &AppHandle, inputs: &MenuInputs) -> tauri::Result<(Menu<tauri
         "Record a meeting"
     };
     let meeting_i = MenuItem::with_id(app, "hearth_meeting", meeting_label, true, None::<&str>)?;
+    let capture_i = MenuItem::with_id(app, "hearth_capture", "Quick capture", true, None::<&str>)?;
+    let restart_i = MenuItem::with_id(
+        app,
+        "hearth_restart",
+        "Restart Hearth services",
+        inputs.hearth_installed,
+        None::<&str>,
+    )?;
+    let update_i = MenuItem::with_id(
+        app,
+        "hearth_update",
+        "Update Hearth…",
+        inputs.hearth_installed,
+        None::<&str>,
+    )?;
     let separator = || PredefinedMenuItem::separator(app);
 
     let menu = if inputs.busy {
@@ -527,17 +565,22 @@ fn build_menu(app: &AppHandle, inputs: &MenuInputs) -> tauri::Result<(Menu<tauri
         Menu::with_items(
             app,
             &[
-                &version_i,
+                &status_i,
                 &separator()?,
                 &cancel_i,
                 &separator()?,
                 &copy_last_transcript_i,
                 &separator()?,
                 &hearth_i,
+                &capture_i,
                 &meeting_i,
                 &settings_i,
                 &check_updates_i,
                 &separator()?,
+                &restart_i,
+                &update_i,
+                &separator()?,
+                &version_i,
                 &quit_i,
             ],
         )?
@@ -569,18 +612,22 @@ fn build_menu(app: &AppHandle, inputs: &MenuInputs) -> tauri::Result<(Menu<tauri
         Menu::with_items(
             app,
             &[
-                &version_i,
-                &separator()?,
-                &copy_last_transcript_i,
-                &separator()?,
-                &model_submenu,
-                &unload_model_i,
+                &status_i,
                 &separator()?,
                 &hearth_i,
+                &capture_i,
                 &meeting_i,
+                &separator()?,
+                &copy_last_transcript_i,
+                &model_submenu,
+                &unload_model_i,
                 &settings_i,
                 &check_updates_i,
                 &separator()?,
+                &restart_i,
+                &update_i,
+                &separator()?,
+                &version_i,
                 &quit_i,
             ],
         )?
@@ -596,9 +643,9 @@ fn build_menu(app: &AppHandle, inputs: &MenuInputs) -> tauri::Result<(Menu<tauri
         menu.remove(&check_updates_i)?;
     }
 
-    // Both layouts start with [version, separator, ...]; slot the warning in
-    // right below the version line so it's the first actionable thing seen.
-    let mut tooltip = version_label;
+    // Both layouts start with [Hearth's status, separator, ...]; slot the warning in
+    // right below the status line so it's the first actionable thing seen.
+    let mut tooltip = format!("{version_label} — {}", inputs.hearth_status);
     if inputs.recording {
         tooltip = format!("● Recording a meeting — {tooltip}");
     }
@@ -712,6 +759,8 @@ mod tests {
             locale: "en".to_string(),
             update_checks_enabled: true,
             recording: false,
+            hearth_status: "Server ✓  Worker ✓  Jarvis ✓".to_string(),
+            hearth_installed: true,
         }
     }
 

@@ -22,7 +22,7 @@ export function SetupChecklist(props: { pane: number }) {
   const status = useAction<SystemStatus>("system.status");
   const [hidden, setHidden] = createSignal(wasHidden());
   const title = createUniqueId();
-  const steps = () => setupSteps(status.data);
+  const steps = () => setupSteps(status.data, status.dataUpdatedAt);
   const finished = () => steps().filter((s) => s.done).length;
   const hide = () => {
     setHidden(true);

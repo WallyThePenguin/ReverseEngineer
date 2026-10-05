@@ -38,6 +38,11 @@ export const entity = pgTable("entity", {
   updatedBy: text("updated_by").notNull(),
   deletedAt: ts("deleted_at"),
   revision: integer("revision").notNull().default(1),
+  /**
+   * Its text was written after reading outside content (D58), so reading it is reading outside
+   * content too. Records outside tools wrote are known by createdBy as well.
+   */
+  outside: boolean("outside").notNull().default(false),
 });
 
 export const LINK_KINDS = [

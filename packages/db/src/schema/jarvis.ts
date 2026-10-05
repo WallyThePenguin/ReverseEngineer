@@ -15,6 +15,8 @@ import {
 
 const ts = (name: string) => timestamp(name, { withTimezone: true, mode: "date" });
 
+type Origin = "owner" | "agent" | "untrusted" | "system";
+
 export const conversation = pgTable("conversation", {
   entityId: uuid("entity_id").primaryKey(),
   subjectId: uuid("subject_id"),
@@ -22,6 +24,13 @@ export const conversation = pgTable("conversation", {
   lastTurnAt: ts("last_turn_at"),
   /** "device" when the desktop app started it; a device can only read its own conversations. */
   startedVia: text("started_via"),
+  /** When a turn here first read outside content: later turns start untrusted (D58). */
+  taintedAt: ts("tainted_at"),
+  /** What it read, in a few words, for the badge that explains why Jarvis asks more. */
+  taintSource: text("taint_source"),
+  /** Addresses that appeared in what it read (D25), and sites it opened before then (D30). */
+  seenUrls: text("seen_urls").array().notNull().default(sql`'{}'`),
+  vouchedHosts: text("vouched_hosts").array().notNull().default(sql`'{}'`),
 });
 
 export const conversationLog = pgTable(
@@ -56,7 +65,7 @@ export const jarvisTurn = pgTable("jarvis_turn", {
   trigger: text("trigger").$type<TurnTrigger>().notNull(),
   mode: text("mode").$type<TurnMode>().notNull(),
   lane: text("lane").$type<TurnLane>().notNull(),
-  origin: text("origin").$type<"owner" | "agent" | "untrusted" | "system">().notNull(),
+  origin: text("origin").$type<Origin>().notNull(),
   prompt: text("prompt").notNull(),
   context: jsonb("context").$type<Record<string, unknown>>().notNull().default({}),
   conversationId: uuid("conversation_id"),
@@ -96,6 +105,8 @@ export const observation = pgTable("observation", {
   createdBy: text("created_by").notNull(),
   turnId: uuid("turn_id"),
   createdAt: ts("created_at").notNull().defaultNow(),
+  /** The noting turn's origin: an untrusted turn's note is outside content (D58). */
+  origin: text("origin").$type<Origin>().notNull().default("untrusted"),
 });
 
 export const heartbeatItem = pgTable("heartbeat_item", {
@@ -105,6 +116,8 @@ export const heartbeatItem = pgTable("heartbeat_item", {
   sourceEventSeq: bigint("source_event_seq", { mode: "number" }),
   createdAt: ts("created_at").notNull().defaultNow(),
   takenAt: ts("taken_at"),
+  /** The origin of the event that set it aside (D58). */
+  origin: text("origin").$type<Origin>().notNull().default("untrusted"),
 });
 
 export const schedule = pgTable("schedule", {
@@ -132,4 +145,6 @@ export const watch = pgTable("watch", {
   expiresAt: ts("expires_at"),
   lastMatchedAt: ts("last_matched_at"),
   endedAt: ts("ended_at"),
+  /** Whoever set it up, as far as trust goes: its turns start no stronger than this (D58). */
+  origin: text("origin").$type<Origin>().notNull().default("untrusted"),
 });

@@ -8,6 +8,8 @@ export const REPORT_EVERY_MS: Readonly<Record<string, number>> = {
   worker: 60_000,
   disk: 60_000,
   jarvis: 60_000,
+  /** Chrome's link, reported by the server (apps/server/src/browser/health.ts). */
+  browser: 5 * 60_000,
   // The worker reports schedules and the syncs with the rest, every minute.
   schedules: 60_000,
   "sync.google": 60_000,

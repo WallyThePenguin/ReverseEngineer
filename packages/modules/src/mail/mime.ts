@@ -17,6 +17,42 @@ export interface ParsedMail {
   text: string;
   html: string | null;
   attachments: (MailAttachment & { content: Buffer })[];
+  /** Sent to many at once, or by a machine: see isBulk. */
+  bulk: boolean;
+}
+
+interface Header {
+  key: string;
+  value: string;
+}
+
+/**
+ * Mail sent to many at once (a list, a newsletter) or by a machine (an auto-reply, a
+ * notification), by its headers: List-Id or List-Unsubscribe, Precedence bulk, list or junk, or
+ * Auto-Submitted other than "no". Nobody waits for a reply to it.
+ */
+export function isBulk(headers: Header[]): boolean {
+  return headers.some(({ key, value }) => {
+    const k = key.trim().toLowerCase();
+    const v = value.trim().toLowerCase();
+    if (k === "list-id" || k === "list-unsubscribe") return v.length > 0;
+    if (k === "precedence") return ["bulk", "list", "junk"].includes(v);
+    if (k === "auto-submitted") return v.length > 0 && v !== "no";
+    return false;
+  });
+}
+
+/** A raw message's headers, without parsing the rest: enough for isBulk on mail already here. */
+export function rawHeaders(raw: Buffer): Header[] {
+  const text = raw.subarray(0, 256_000).toString("latin1");
+  const end = text.search(/\r?\n\r?\n/);
+  const head = (end < 0 ? text : text.slice(0, end)).replace(/\r?\n[ \t]+/g, " ");
+  const out: Header[] = [];
+  for (const line of head.split(/\r?\n/)) {
+    const colon = line.indexOf(":");
+    if (colon > 0) out.push({ key: line.slice(0, colon), value: line.slice(colon + 1) });
+  }
+  return out;
 }
 
 /** "<abc@x>" or "abc@x" → "abc@x". */
@@ -74,6 +110,7 @@ export async function parseMail(raw: Buffer): Promise<ParsedMail> {
         content,
       };
     }),
+    bulk: isBulk(m.headers ?? []),
   };
 }
 
@@ -159,6 +196,11 @@ export interface OutgoingMail {
   text: string;
   html?: string;
   messageId?: string;
+  /**
+   * Sent as X-Hearth-Id too, so Hearth can find the message in Sent even if the provider gave it
+   * a Message-ID of its own.
+   */
+  hearthId?: string;
   inReplyTo?: string | null;
   references?: string[];
   date?: Date;
@@ -182,6 +224,7 @@ export function buildMessage(m: OutgoingMail): Buffer {
     `Subject: ${headerText(m.subject)}`,
     `Date: ${(m.date ?? new Date()).toUTCString().replace("GMT", "+0000")}`,
     `Message-ID: <${m.messageId ?? newMessageId(m.from.address)}>`,
+    ...(m.hearthId ? [`X-Hearth-Id: ${m.hearthId.replace(/[^\w.@-]/g, "")}`] : []),
     ...(m.inReplyTo ? [`In-Reply-To: <${m.inReplyTo}>`] : []),
     ...(m.references?.length ? [`References: ${m.references.map((r) => `<${r}>`).join(" ")}`] : []),
     "MIME-Version: 1.0",

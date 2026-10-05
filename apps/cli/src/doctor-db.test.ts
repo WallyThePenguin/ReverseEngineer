@@ -36,6 +36,23 @@ describe("hearth doctor, what the database says", () => {
     });
   });
 
+  it("fails Chrome's link when the server stopped reporting it", async () => {
+    // The server reports it every 5 minutes; when the server is down, its last "Connected"
+    // mustn't stay green next to the Server failure.
+    await t.kernel.execute(
+      "system.report",
+      { component: "browser", status: "ok", detail: "Connected (extension 1.2.0)" },
+      systemCaller(),
+    );
+    t.clock.advance(9 * 60_000);
+    expect(find(await checkDatabase(t.tdb, t.clock.now()), "browser")?.mark).toBe("ok");
+    t.clock.advance(2 * 60_000);
+    expect(find(await checkDatabase(t.tdb, t.clock.now()), "browser")).toMatchObject({
+      mark: "fail",
+      detail: "No report for 11 min (last: Connected (extension 1.2.0)).",
+    });
+  });
+
   it("fails when Jarvis's turns keep failing", async () => {
     const turn = (status: "done" | "failed") => ({
       id: randomUUID(),

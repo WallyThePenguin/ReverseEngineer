@@ -1,8 +1,9 @@
 // Jarvis's own records and tools: observations, watches, the brief, the journal, and its
 // activity feed.
-import { filterSchema, formatDateTime, matches } from "@hearth/core";
-import { entity, jarvisTurn, observation, watch } from "@hearth/db";
+import { asUntrusted, filterSchema, formatDateTime, matches } from "@hearth/core";
+import { conversation, entity, jarvisTurn, observation, watch } from "@hearth/db";
 import {
+  ActionError,
   createEntity,
   createNotification,
   type DigestItem,
@@ -13,7 +14,7 @@ import {
 } from "@hearth/kernel";
 import { and, desc, eq, gt, gte, isNull, or } from "drizzle-orm";
 import { z } from "zod";
-import { describeRow, id, liveEntity } from "../shared.ts";
+import { describeRow, id, liveEntity, writtenOutside } from "../shared.ts";
 import { briefRoutine, journalRoutine } from "./routines.ts";
 import { turnActions } from "./turns.ts";
 
@@ -70,6 +71,7 @@ export const assistantModule = defineModule({
           .optional(),
       }),
       risk: "internal",
+      callers: ["owner", "agent"],
       async handler(i, ctx) {
         const oid = newId();
         await ctx.tx.insert(observation).values({
@@ -81,6 +83,8 @@ export const assistantModule = defineModule({
             ? new Date(ctx.now.getTime() + i.expiresInHours * 3600_000)
             : null,
           createdBy: ctx.caller.principal,
+          // Noted after reading outside content, it's outside content in the brief too (D58).
+          origin: ctx.caller.origin,
           turnId: ctx.caller.turnId ?? null,
           createdAt: ctx.now,
         });
@@ -109,7 +113,15 @@ export const assistantModule = defineModule({
           .default(24 * 14),
       }),
       risk: "internal",
+      callers: ["owner", "agent"],
       async handler(i, ctx) {
+        // A watch is a standing instruction that runs turns of its own, unrationed: outside
+        // content (an email, a page) mustn't be able to leave one behind (D31, D58).
+        if (ctx.caller.origin === "untrusted")
+          throw new ActionError(
+            "forbidden",
+            "A watch can't be set up after reading outside content. Tell the owner what you'd watch for, and they can ask you to set it up.",
+          );
         const wid = newId();
         await ctx.tx.insert(watch).values({
           id: wid,
@@ -118,6 +130,7 @@ export const assistantModule = defineModule({
           subjectId: i.subjectId ?? null,
           conversationId: ctx.caller.conversationId ?? null,
           createdBy: ctx.caller.principal,
+          origin: ctx.caller.origin,
           createdAt: ctx.now,
           expiresAt: new Date(ctx.now.getTime() + i.expiresInHours * 3600_000),
         });
@@ -243,36 +256,51 @@ export const assistantModule = defineModule({
           origin: event.origin,
           payload: event.payload,
         };
+        // The turn is no more trusted than what set the watch up, or than what happened; text
+        // from either that's outside content is marked as such (D58).
+        const payload = JSON.stringify(event.payload).slice(0, 2000);
+        const what = event.origin === "untrusted" ? asUntrusted(payload, event.kind) : payload;
         return active
           .filter((w) => matches(w.filter as never, view))
-          .map((w) => ({
-            kind: "turn" as const,
-            trigger: "watch" as const,
-            lane: "fast" as const,
-            conversationId: w.conversationId,
-            subjectId: w.subjectId,
-            dedupeKey: `watch:${w.id}:${event.id}`,
-            context: { watchId: w.id },
-            prompt: `Something you were watching for happened: ${w.description}\nEvent ${event.kind} at ${formatDateTime(event.at)}: ${JSON.stringify(event.payload).slice(0, 2000)}\nDecide what to do. End the watch with jarvis_unwatch if it's no longer needed.`,
-          }));
+          .map((w) => {
+            const setUpOutside = w.origin === "untrusted";
+            const asked = setUpOutside ? asUntrusted(w.description, "watch") : w.description;
+            return {
+              kind: "turn" as const,
+              trigger: "watch" as const,
+              lane: "fast" as const,
+              origin: w.origin,
+              ...(setUpOutside || event.origin === "untrusted" ? { untrusted: true } : {}),
+              conversationId: w.conversationId,
+              subjectId: w.subjectId,
+              dedupeKey: `watch:${w.id}:${event.id}`,
+              context: { watchId: w.id },
+              prompt: `Something you were watching for happened: ${asked}\nEvent ${event.kind} at ${formatDateTime(event.at)}: ${what}\nDecide what to do. End the watch with jarvis_unwatch if it's no longer needed.`,
+            };
+          });
       },
     },
   ],
   async digest(ctx): Promise<DigestItem[]> {
     const items: DigestItem[] = [];
     const turns = await ctx.db
-      .select()
+      .select({ t: jarvisTurn, taintedAt: conversation.taintedAt })
       .from(jarvisTurn)
+      .leftJoin(conversation, eq(conversation.entityId, jarvisTurn.conversationId))
       .where(and(gte(jarvisTurn.finishedAt, ctx.since), eq(jarvisTurn.outcome, "act")))
       .orderBy(desc(jarvisTurn.finishedAt))
       .limit(20);
-    for (const t of turns) {
+    for (const { t, taintedAt } of turns) {
       if (t.reply)
         items.push({
           bucket: "handled",
           text: t.reply.split("\n")[0]!.slice(0, 200),
           entityId: t.subjectId,
-          outside: t.origin === "untrusted",
+          // A turn that started trusted and then read an email can quote it in its reply: its
+          // conversation was tainted by the time it finished (D58).
+          outside:
+            t.origin === "untrusted" ||
+            (taintedAt !== null && t.finishedAt !== null && taintedAt <= t.finishedAt),
         });
     }
     const obs = await ctx.db
@@ -283,7 +311,8 @@ export const assistantModule = defineModule({
       .limit(20);
     for (const o of obs) {
       if (o.expiresAt && o.expiresAt < ctx.now) continue;
-      items.push({ bucket: "fyi", text: o.text, entityId: o.aboutId });
+      const outside = o.origin === "untrusted" || writtenOutside(o.createdBy);
+      items.push({ bucket: "fyi", text: o.text, entityId: o.aboutId, outside });
     }
     return items;
   },

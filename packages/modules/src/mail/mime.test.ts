@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { buildMessage, htmlToText, idList, parseMail, snippetOf } from "./mime.ts";
+import {
+  buildMessage,
+  htmlToText,
+  idList,
+  isBulk,
+  parseMail,
+  rawHeaders,
+  snippetOf,
+} from "./mime.ts";
 
 describe("raw email", () => {
   it("writes what it reads: names, accents, threading headers, HTML and attachments", async () => {
@@ -32,6 +40,22 @@ describe("raw email", () => {
     expect(m.attachments.map((a) => [a.filename, a.mimeType, a.content.toString()])).toEqual([
       ["menu.pdf", "application/pdf", "%PDF"],
     ]);
+  });
+
+  it("tells mail sent to many at once or by a machine by its headers", async () => {
+    const raw = (head: string) =>
+      Buffer.from(`From: a@x.example\r\n${head}Subject: Hi\r\n\r\nList-Id: <in.the.body>\r\n`);
+    // Folded over two lines, and only the headers count, not the text below them.
+    expect(isBulk(rawHeaders(raw("List-Unsubscribe:\r\n <mailto:u@x.example>\r\n")))).toBe(true);
+    expect(isBulk(rawHeaders(raw("")))).toBe(false);
+    expect(isBulk(rawHeaders(raw("Precedence: Bulk\r\n")))).toBe(true);
+    expect(isBulk(rawHeaders(raw("Precedence: first-class\r\n")))).toBe(false);
+    expect(isBulk(rawHeaders(raw("Auto-Submitted: auto-generated\r\n")))).toBe(true);
+    expect(isBulk(rawHeaders(raw("Auto-Submitted: no\r\n")))).toBe(false);
+    expect(isBulk(rawHeaders(raw("List-Id: \r\n")))).toBe(false);
+    // parseMail reads the same.
+    expect((await parseMail(raw("List-Id: <club.x.example>\r\n"))).bulk).toBe(true);
+    expect((await parseMail(raw(""))).bulk).toBe(false);
   });
 
   it("reads HTML-only mail as text, and quotes stay out of previews", () => {

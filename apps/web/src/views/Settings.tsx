@@ -66,7 +66,7 @@ export function Settings() {
     if (!s) return null;
     if (s.jarvisAlive === null)
       return "Jarvis hasn't checked in yet. On the PC, start it with: hearth restart jarvis";
-    return jarvisLiveness(s).downSince
+    return jarvisLiveness({ data: s, dataUpdatedAt: status.dataUpdatedAt }).downSince
       ? "Jarvis isn't running. Hearth is trying to restart it; if it stays down, run on the PC: hearth restart jarvis"
       : null;
   };

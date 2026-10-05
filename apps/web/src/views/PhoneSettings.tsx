@@ -6,6 +6,7 @@ import { createSignal, For, Show } from "solid-js";
 import { QueryView } from "../components/QueryView.tsx";
 import { Button } from "../components/ui.tsx";
 import { request } from "../lib/api.ts";
+import { inDesktopApp } from "../lib/desktop.ts";
 import { ago } from "../lib/format.ts";
 import { queryClient, reportError, toast } from "../lib/live.ts";
 
@@ -61,7 +62,9 @@ export function PhoneSettings() {
     void queryClient.invalidateQueries({ queryKey: ["system.status"] });
   };
   const [busy, setBusy] = createSignal(false);
-  const supported = "serviceWorker" in navigator && "PushManager" in window;
+  // In Hearth's Windows app, its own notifications take the place of the browser's.
+  const desktopApp = inDesktopApp();
+  const supported = !desktopApp && "serviceWorker" in navigator && "PushManager" in window;
   const on = () => {
     const s = state();
     return !!s?.mine && s.devices.some((d) => d.endpoint === s.mine);
@@ -111,7 +114,7 @@ export function PhoneSettings() {
   return (
     <section class="space-y-3">
       <h2 class="font-semibold">Phone</h2>
-      <Show when={!installed()}>
+      <Show when={!installed() && !desktopApp}>
         <p class="text-sm text-muted">
           On your phone, open Hearth in Safari, tap Share, then Add to Home Screen. It opens like an
           app, and on an iPhone that's also what lets it show notifications.
@@ -124,7 +127,13 @@ export function PhoneSettings() {
               <div class="flex-1">
                 <p class="font-medium">
                   Notifications{" "}
-                  {supported ? (on() ? "on here" : "off here") : "aren't available here"}
+                  {desktopApp
+                    ? "here come from the Windows app"
+                    : supported
+                      ? on()
+                        ? "on here"
+                        : "off here"
+                      : "aren't available here"}
                 </p>
                 <p class="text-sm text-muted">
                   Approvals, your morning brief, and the interruptions Jarvis is allowed to make.

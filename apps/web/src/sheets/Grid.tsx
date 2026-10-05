@@ -209,7 +209,10 @@ export function SheetGrid(props: { id: string; pane: number }) {
             onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
           />
         }
-        sub={s.saving() ? "Saving…" : "Type to fill a cell · = starts a formula · F2 edits"}
+        sub={
+          s.problem() ??
+          (s.saving() ? "Saving…" : "Type to fill a cell · = starts a formula · F2 edits")
+        }
       />
       <div class="flex items-center gap-2 border-b border-line px-2 py-1 text-sm">
         <span class="w-14 shrink-0 text-center font-mono text-xs text-muted">{curRef()}</span>

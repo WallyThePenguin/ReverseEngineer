@@ -14,6 +14,7 @@ import { and, asc, desc, eq, gt, ilike, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { body, describeRow, id, liveEntity, preview } from "../shared.ts";
 import { appendLog, routeLane } from "./log.ts";
+import { answerMention } from "./mention.ts";
 
 const lane = z.enum(["fast", "deep"]);
 
@@ -143,7 +144,13 @@ export const chatModule = defineModule({
           .where(eq(conversationLog.conversationId, i.id))
           .orderBy(asc(conversationLog.idx));
         return {
-          conversation: { ...e, subjectId: c?.subjectId ?? null },
+          conversation: {
+            ...e,
+            subjectId: c?.subjectId ?? null,
+            // Once it has read outside content, Jarvis asks more here: the app says why (D58).
+            taintedAt: c?.taintedAt ?? null,
+            taintSource: c?.taintSource ?? null,
+          },
           log: log.filter((l) => i.afterIdx === undefined || l.idx > i.afterIdx),
         };
       },
@@ -182,10 +189,18 @@ export const chatModule = defineModule({
           conversationId = e.id;
         }
         const chosen = i.lane ?? routeLane(i.text);
+        // Heard, or sent by a device on its own say-so (D42): kept as such, so the nightly memory
+        // update doesn't take it for your words (D58).
+        const heard = i.heard === true || ctx.caller.origin === "untrusted";
         const [idx] = await appendLog(
           ctx.tx,
           conversationId,
-          [{ kind: "user_message", payload: { text: i.text, by: ctx.caller.principal } }],
+          [
+            {
+              kind: "user_message",
+              payload: { text: i.text, by: ctx.caller.principal, ...(heard ? { heard } : {}) },
+            },
+          ],
           ctx.now,
         );
         ctx.emit({
@@ -280,33 +295,7 @@ export const chatModule = defineModule({
         ];
       },
     },
-    {
-      name: "chat.answer_mention",
-      description:
-        "When you @mention Jarvis in a note, task, comment or doc, it answers right there.",
-      mode: "reactive",
-      on: ["jarvis.mentioned"],
-      run(event) {
-        const p = event.payload as {
-          type: string;
-          parentId: string | null;
-          anchor: string;
-          context: string;
-        };
-        const subjectId = p.type === "comment" && p.parentId ? p.parentId : event.entityId;
-        return [
-          {
-            kind: "turn",
-            trigger: "mention",
-            lane: routeLane(p.context),
-            subjectId,
-            dedupeKey: `mention:${event.entityId}:${p.anchor}`,
-            context: { sourceId: event.entityId, sourceType: p.type },
-            prompt: `You were @mentioned in a ${p.type}. Read the record, then answer or do what was asked:\n\n${p.context}`,
-          },
-        ];
-      },
-    },
+    answerMention,
   ],
 });
 

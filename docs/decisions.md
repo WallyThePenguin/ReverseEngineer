@@ -650,6 +650,9 @@ nothing can approve it, so text from an email could make it paste out your data)
 worth as little as possible if it leaks, and a pasted answer is an outward channel with no
 approval step.
 
+*Later:* D53 pairs the app by hand-off from a signed-in browser instead of a pasted code, and
+adds two read-only scopes (`system.status`, the notification feed).
+
 ## D43. The desktop app is Handy, vendored, with Hearth's code kept to one folder (2026-10-03)
 
 **Decision:** `apps/desktop` is a copy of Handy at `ffbc950` (MIT), outside the pnpm workspace
@@ -1150,6 +1153,236 @@ Restoring over the live database (one bad dump and both are gone). A Windows run
 
 **Why:** The 2026-10-03 update broke every Jarvis turn while health said "ok", the doctor printed
 checkmarks and the updater said "update OK". Each of those now checks the thing that broke.
+
+## D53. Hearth on the PC is one Tauri app; the window signs in by hand-off (2026-10-04)
+
+**Decision:** The desktop app (D43) is renamed "Hearth" (`hearth.exe`, identifier
+`app.hearth.desktop`, installed per user, version `1.0.<CI run>`), and it's how Hearth runs on
+the PC: it starts with Windows into the tray, and its window shows Hearth's web app from the
+address in its settings (`http://localhost:4400` on the PC). That window is a web page like any
+other and gets none of the app's commands. Links elsewhere open in your browser, and when the
+server doesn't answer it shows a built-in "Hearth isn't running" page with Retry. `hearth://`
+links open a page (`hearth://open/<path>`, relative paths only), open voice settings, or
+connect the PC. Any website can open them, so every part of one is untrusted.
+
+Passkeys belong to Hearth's https address, so the window signs in by hand-off. In a signed-in
+browser, Settings → Desktop app → Connect Hearth on this PC makes a single-use nonce (one minute,
+kept in memory, compared in constant time) and opens `hearth://connect?nonce=…`. The app asks
+you first, then trades the nonce at its own configured address, never one from the link, for
+its device token (D42's scopes, paired anew) and a one-time code. Its window trades the code at
+`/api/auth/desktop/window` for an ordinary browser session and opens the inbox. The window has
+one such session: connecting again replaces it, and Disconnect in Settings signs it out with the
+token (and ends the token's notification feed). Only a browser session can start a hand-off, so
+a device token can never become a session.
+`HEARTH_LOCAL_ORIGIN` (default `http://localhost:<port>`, loopback only) is Hearth's address on
+the PC: writes from pages there are accepted, and the session cookie is Secure per request,
+except on that plain-http address.
+
+The app also shows Windows notifications from `GET /api/desktop/notify` (what the phone is
+pushed, D45, plus Hearth's health changing; quiet while the window is in front; clicking one
+opens its page), a tray status line from `/api/health` and `system.status` with Restart Hearth
+services and Update Hearth…, and hotkeys for Hearth (Ctrl+Alt+H), quick capture (Ctrl+Alt+N)
+and Ask Jarvis (Ctrl+Alt+K). The device token gains only `system.status` and the notification
+feed, both read only; it still can't approve anything.
+
+**Alternatives:** A second shell (Electron or plain WebView2) beside the voice app (two tray
+icons, two installers, two things to keep running). Giving the window the app's commands (any
+script on a page it loads could then drive the PC). Signing the window in with the device
+token (a leaked desktop token would become a full session). Web Push inside the window (it can't
+notify while the window is closed; the app can).
+
+**Why:** You wanted Hearth to be a program on the PC, like Discord or Slack, and the voice app
+already is one: it starts with Windows, lives in the tray and has the hotkeys. Keeping the window
+a plain web page and the hand-off one-way keeps the desktop token worth as little as D42 meant.
+
+## D58. Approvals happen once; outside text stays outside (2026-10-04)
+
+**Decision:** A yes runs its action at most once, and words from outside content (email, web
+pages, Slack, GitHub, invitations, outside agents, what the desktop app hears) never come back
+later as your instructions, however they're stored or replayed.
+
+- **Exactly-once approvals.** A yes claims the approval first (`pending` to `executing` in one
+  conditional update). A second yes from another tab or the phone, or a yes racing a no, is told
+  "This was already ..." (409), and nothing runs twice. The same request from the same asker
+  waits once (a partial unique index on action, input hash and requester for pending rows); a
+  copy asked after reading outside content marks the waiting one untrusted. The input is checked
+  against the action again before it runs. Approvals run out by risk (two hours for a held
+  browser step, a day for sending, three for the trash); the scheduler closes them and their
+  cards, and closes a yes that a restart cut short. The inbox and a conversation switch Approve
+  and Deny off while a decision is on its way, and a card waiting for a yes or a no can't be
+  marked done or snoozed.
+- **What an approval's result shows.** The turn Jarvis gets after you decide is untrusted when the
+  action is external or its result holds outside content (an email it found), not only for pages.
+- **Records remember where their words came from.** `entity.outside` marks a record written or
+  edited by a turn that had read outside content; an edit never clears it, and records already
+  written that way were found from the event log. Watches, observations and heartbeat items keep
+  their origin. A watch can't be set up by an outside agent or after reading outside content, and
+  its turns are no more trusted than what set it up or what fired it; old watches count as
+  outside, except ones you made. Replayed text reaches the model inside `<untrusted>` marks: a
+  watch's event, outside heartbeat items, and the outside lines of the brief's digest (tasks,
+  people and calendar preps by their mark, someone else's invitation by its organizer, and what
+  a turn said it did once its conversation had read outside content, even if you started it).
+  The nightly memory update skips a journal written after outside content, and messages and
+  comments a paired device sent on its own say-so (D42, D46).
+- **A conversation stays careful.** Every turn in a conversation resumes the same agent session,
+  so once a turn reads outside content the conversation keeps `tainted_at`, what it read in plain
+  words, the addresses it saw (D25) and the sites it opened first (D30). Its later turns start
+  untrusted with those, so following a link it read, or working on a site it opened before
+  reading, still just works; a new conversation starts fresh, and the conversation shows a badge
+  saying so. Jarvis is told what was read earlier is data, while your new message is still yours.
+  A record's own thread (its @Jarvis replies) stays careful the same way, and has no "new
+  conversation" to start. This is the "taint survives a resumed session" D52 waited on before
+  per-task site grants.
+- **Only you or Jarvis call Jarvis.** An @Jarvis written by an integration or an outside agent
+  calls no one, whatever type its tag claims; its links to records stay (a Notion import links its
+  pages), as links from outside content. A tag whose id isn't a record's id is plain text. An
+  @Jarvis written on outside content's say-so (heard words, D46) starts an untrusted turn, and
+  so does one that first links when you or Jarvis edit a record whose text is outside content
+  (an email's own tag, kept by your edit).
+- **Outside agents are outside content.** MCP clients and integrations act with an untrusted
+  origin. Memory and Jarvis's watches and observations are only for you and Jarvis: an outside
+  agent can't find a memory note by id, search or recent records either. `/mcp` answers only
+  while a token made with `hearth token create` is live, and takes POST only (GET and the rest
+  get 405).
+- **D25/D30 in the kernel.** The checks on what a call opens and where it acts, its pin to the
+  page and its snapshot of what it sends run in `Kernel.execute` for every call made as Jarvis,
+  not only in a turn's tools: a reflex's "act" and the browser self-test get them too, and an
+  approval runs the pinned, snapshotted input that was checked and shown. A call without a turn's
+  trust is checked as having seen no addresses. D25 and D30 are otherwise unchanged.
+- **Secrets at rest.** Google's refresh and access tokens are sealed with the vault key, like
+  saved sign-ins and the Slack and GitHub tokens. Migration 0028 has code steps that seal the
+  tokens already saved (run by `hearth migrate`, `setup`, `dev` and `restore`) and open them
+  again on the way down; a token that can't be opened stops the way down. If the key can't be
+  read, a refreshed access token stays in memory rather than being saved in the clear.
+  **`vault.key` must be kept somewhere safe off this PC**, such as your password manager:
+  backups never hold it (D29), and without it every saved sign-in and the Google, Slack and
+  GitHub connections need setting up again after a rebuild. The backups folder holds whole
+  database dumps and, through the folder Hearth lives in, Hearth's services can read it; locking
+  it down is a step for you ("Lock down the backups folder" in `docs/setup-windows.md`), not
+  something Hearth changes by itself.
+- **Proof.** One test per laundering path (email, web page, Slack, watch, observation, resumed
+  session, @mention) has the scripted brain obey an injected "send the draft to Eve", with a
+  standing rule that lets a trusted turn send at once: each ends with nothing sent and every card
+  marked as outside content.
+
+**Alternatives:** A lock held by the process deciding (a second process, or a restart, forgets
+it). Dropping the taint when a conversation is reopened (the session still holds the email).
+Leaving outside text out of what's kept (Jarvis needs it to be useful; marking it keeps it usable
+without trusting it). Wrapping `vault.key` with Windows DPAPI (the server and worker run as
+LocalService and Jarvis as you, so a per-user key wouldn't open in all three, and a machine-wide
+one adds little against someone who already has the PC).
+
+**Why:** Jarvis now drives your signed-in Chrome and can send as you. A double tap that sends an
+email twice, or an email whose words come back the next morning as a trusted instruction, are the
+two ways that power could turn on you. Both now fail closed: a second yes is refused, and outside
+words stay marked as outside wherever they go.
+
+## D61. Every account syncs on its own; outward calls are idempotent (2026-10-04)
+
+**Decision:** Each connected account (every Google account, Slack workspace and GitHub login) is
+synced, tracked and alerted on by itself, and anything Hearth sends out can be tried again
+without happening twice.
+
+- **Accounts apart.** A calendar is keyed by the account and Google's id, under an id of
+  Hearth's own (migration 0032), so a calendar two accounts share gets a row in each. It syncs
+  through the account connected first; turning it on in another says which has it, and
+  disconnecting the one that syncs it, or that account leaving it, hands it to the next. New
+  events and time blocks go to the calendar picked in Settings, or else the primary calendar of
+  the account connected first. A draft goes from the account you pick in Compose. An invitation
+  in one account's mail is answered on that account's calendar, as that address.
+- **Outward calls are idempotent.** A draft's Message-ID is chosen when it's written, and Send
+  looks in Sent first (by Message-ID, and by Hearth's own X-Hearth-Id header among what was sent
+  since the draft was written, in case Gmail gave the message a new one): if it went out
+  already, that copy is kept and nothing is sent again, even if the draft changed since. A new
+  event's id is worked out from what it is; if Google says it's taken, Hearth reads the event
+  back and keeps the same one, or makes a new id for a different one. Answering an invitation
+  changes only your own answer, read fresh from Google; a repeating meeting is answered for this
+  time or every time.
+- **Connector health.** Slack and GitHub are ok, failing or revoked (`connector-health.ts`,
+  modelled on mail's, D55). Failing is told once, when it starts (at once for something that
+  won't pass by itself, after three failures and half an hour for the network); the first good
+  round or a disconnect closes it. A token that stops working stops the polling: no calls until
+  `replace_token` takes a new one for the same workspace or login, keeping everything read in.
+  GitHub's token expiry is warned of a week ahead, once.
+- **Read everything in, a budget at a time.** Slack channels and threads and GitHub's pull
+  requests are read a page at a time, newest first; what a round can't read waits for the next,
+  and a channel's or repo's mark only moves past what's been read. Each channel, thread and repo
+  is read in a savepoint, so one going wrong keeps the rest, and one that can't be read waits
+  behind the others instead of holding them up.
+- **Mail's own files.** A message's original missing from this PC is fetched again (when you
+  open it, and a few a round in a daily pass that goes on past one Gmail won't give), and files
+  nothing needs are deleted after that pass. Disconnecting a Google account deletes its files,
+  closes its alerts and, if you say so, keeps its unsent drafts, which wait with no account until
+  you pick one.
+- **Needs your reply** is for a person writing to you: never mail sent to many at once or by a
+  machine (List-Id, List-Unsubscribe, Precedence bulk/list/junk, Auto-Submitted), and only from
+  someone you know (a person in Hearth: anyone you've written to) or mail Gmail marks important.
+
+**Alternatives:** One sync for all accounts (one account's failure held up the rest, and a shared
+calendar couldn't be saved twice). Deduplicating sends by a recent-sends table in Hearth (it
+can't see a send Gmail made while Hearth didn't hear back; Gmail's Sent can). Retrying a revoked
+token on a slower schedule (it can't pass by itself; it only adds noise). Keeping kept drafts
+as notes (that would turn text written from outside mail into trusted notes).
+
+**Trade-offs:** If Gmail replaces a sent message's Message-ID and it isn't among the five newest
+sent since the draft was written, a second Send can't find it. A Send pressed again after a
+change to the draft keeps the copy that went out, without the change. A new event exactly like
+one Hearth already made on that calendar (same title, times and details) is taken for it while
+that one is there. Slack threads older than three days that don't mention you aren't looked
+over for new replies. A first message from a stranger that Gmail doesn't mark important no
+longer counts as needing your reply.
+
+**Why:** These are what broke the day a second Google account, Slack or GitHub was connected: a
+calendar two accounts share stayed with the first and the second's copy couldn't be saved, a
+Send pressed again after a timeout could go out twice, a revoked token was polled forever, and
+a busy Slack channel lost messages for good.
+
+## D59. Edits are written ahead and merged, never dropped (2026-10-04)
+
+**Decision:** Nothing typed in Hearth exists only in a page or only in one writer's head.
+
+- **Notes write ahead.** Every edit to a note goes to IndexedDB before it's sent anywhere (D38
+  kept a copy only after a sync came back). An open note syncs half a second after a pause and
+  at least every 2 seconds while you type, gives up on a sync after 10 seconds and tries again
+  with backoff, and sends what's unsent as the page hides or closes. The next open of the note,
+  or the next start of Hearth in that browser, sends whatever never arrived. Written-ahead edits
+  are dropped only once the saved copy holds them, and a saved copy is only replaced by one
+  holding everything it did, so two tabs can't undo each other's. Other tabs with the note open
+  get each edit at once over a BroadcastChannel.
+- **One peer per device slot.** A device edits a note as one of a few Loro peers it keeps, claimed
+  with a Web Lock while the note is open; the server edits as one fixed peer per writer (a hash of
+  who it is). The doc's version grows by a peer per device and writer, not per visit or edit.
+  Reusing a peer is safe because nothing is sent before it's on disk, so whoever claims the peer
+  next opens with all of its edits; a peer whose edit failed to reach disk is retired.
+- **Boards, spreadsheets and meeting notes are saved whole, with a version.** A save carries the
+  version it was made on. The server locks the row, checks the version and bumps it in SQL; a
+  save over a newer version is refused (409). The screen then reads the newer copy, merges and
+  saves again: board cards and arrows by id, workbook sheets by id and cells by name (a piece
+  only one side changed takes that side, one both changed takes this screen's), meeting notes by
+  line (this screen's text, then the lines only the other side wrote). Until Hearth has a change,
+  a copy waits in IndexedDB with the version it was made on; the page sends it as it closes, and
+  the next open sends what never arrived. Jarvis must pass the version it read.
+- **Whole-note writes don't erase typing.** Jarvis rewriting a whole note must pass the revision
+  it read; checklist-to-tasks locks the note and changes only the items it links. A rewrite's
+  diff gets 200 ms and then goes line by line.
+- **Mentions have their own ids.** The note editor writes each mention with a `data-mid`, which is
+  its link's anchor and the key that stops Jarvis answering twice, wherever it moves. In a live
+  doc Jarvis answers once the note has been still for 8 seconds (at most a minute), reading the
+  paragraph as it is by then.
+- **Failures say what happened.** "Can't reach Hearth" only when it can't; when Hearth turns a
+  change down, its own reason. A note deleted while open turns read-only with Copy text, and
+  keeps what it never sent on the device in case it's restored. Signing out asks first when
+  edits haven't reached Hearth, since it deletes this device's copies.
+
+**Alternatives:** A sync socket with a server-side log (PLAN 8.5; more moving parts than an
+action that is already ordered and durable). Loro for boards and sheets too (a rewrite of both
+editors and of everything that reads them, for edits that rarely collide). Last write wins with a
+warning (still drops someone's change). A random peer per session (the version grows until syncs
+fail validation). Answering a mention at once (it fires on half a sentence).
+
+**Why:** The owner's edits must survive a closed tab, a crash, an offline spell and Jarvis editing
+the same thing, without the owner noticing anything but the result. Each rule closes a way an
+edit was being lost.
 
 ## D60. Routine audit rows age out; Hearth's own failures interrupt (2026-10-04)
 

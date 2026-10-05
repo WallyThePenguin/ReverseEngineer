@@ -138,6 +138,7 @@ export async function saveMail(
     attachments: p.attachments.map(({ content: _c, ...a }) => a),
     snippet: snippetOf(p.text),
     invite: cleanDeep(inviteIn(p)),
+    bulk: p.bulk,
   });
   await linkPeople(
     ctx,

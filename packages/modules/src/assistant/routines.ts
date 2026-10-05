@@ -40,7 +40,7 @@ export const briefRoutine: RoutineDef = {
           "Look up anything you need to make it useful (open tasks, the records involved). Don't invent facts.",
           "Then call brief_publish with the markdown and this date.",
           "",
-          draft,
+          renderBrief(sections, ctx.now, true),
         ].join("\n"),
         fallback: [{ kind: "act", action: "brief.publish", input: { markdown: draft, date } }],
       },

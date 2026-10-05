@@ -6,11 +6,14 @@ import { conversationLog, type Db, entity, memoryNote } from "@hearth/db";
 import { getSetting, type RoutineDef } from "@hearth/kernel";
 import { and, asc, desc, eq, gte, isNull, sql } from "drizzle-orm";
 import { renderDigest, withoutOutside } from "../assistant/brief.ts";
-import { preview } from "../shared.ts";
+import { isOutside, preview } from "../shared.ts";
 
 const DAY_MS = 24 * 3600_000;
 
-/** What the owner said in the last day, in chat and in comments: the best source for memory. */
+/**
+ * What the owner said in the last day, in chat and in comments: the best source for memory. Not
+ * words a device heard or sent on its own say-so (D42): those are outside content (D58).
+ */
 async function ownerWords(db: Db, since: Date): Promise<string[]> {
   const chat = await db
     .select({ at: conversationLog.at, text: sql<string>`${conversationLog.payload}->>'text'` })
@@ -19,6 +22,7 @@ async function ownerWords(db: Db, since: Date): Promise<string[]> {
       and(
         eq(conversationLog.kind, "user_message"),
         sql`${conversationLog.payload}->>'by' = 'owner'`,
+        sql`(${conversationLog.payload}->>'heard') IS DISTINCT FROM 'true'`,
         gte(conversationLog.at, since),
       ),
     )
@@ -31,6 +35,7 @@ async function ownerWords(db: Db, since: Date): Promise<string[]> {
       and(
         eq(entity.type, "comment"),
         eq(entity.createdBy, "owner"),
+        eq(entity.outside, false),
         isNull(entity.deletedAt),
         gte(entity.createdAt, since),
       ),
@@ -57,12 +62,14 @@ export const consolidateRoutine: RoutineDef = {
     // Outside content (email subjects) is never a source for memory, so it isn't shown at all.
     const facts = renderDigest(withoutOutside(await firing.digest(since)));
     const said = await ownerWords(ctx.db, since);
-    const [journal] = await ctx.db
-      .select({ body: entity.body })
+    const [latest] = await ctx.db
+      .select({ body: entity.body, createdBy: entity.createdBy, outside: entity.outside })
       .from(entity)
       .where(and(eq(entity.type, "journal"), isNull(entity.deletedAt)))
       .orderBy(desc(entity.createdAt))
       .limit(1);
+    // A journal written after reading outside content may quote it, so it's left out (D58).
+    const journal = latest && !isOutside(latest) ? latest : undefined;
     const notes = await ctx.db
       .select({ id: entity.id, title: entity.title, scope: memoryNote.scope })
       .from(entity)
