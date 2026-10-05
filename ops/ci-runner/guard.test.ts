@@ -152,6 +152,7 @@ describe("the CI guard", () => {
     one(win({ HEARTH_E2E_URL: undefined }), "would drive http://localhost:4400");
     one(linux({ HEARTH_E2E_PORT: undefined }), "HEARTH_E2E_PORT isn't set");
     one(win({ HEARTH_LOCAL_ORIGIN: "http://127.0.0.1:4400" }), "HEARTH_LOCAL_ORIGIN");
+    one(win({ HEARTH_SERVER_URL: "http://127.0.0.1:4400" }), "HEARTH_SERVER_URL");
     one(win({ HEARTH_HOST: "0.0.0.0" }), "loopback only");
   });
 

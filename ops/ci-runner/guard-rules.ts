@@ -198,7 +198,9 @@ export function check(env: NodeJS.ProcessEnv, host: Host = realHost): string[] {
     );
   if (env.HEARTH_HOST && !LOCAL.has(env.HEARTH_HOST) && env.HEARTH_HOST !== "::1")
     problems.push(`HEARTH_HOST is ${env.HEARTH_HOST}: CI servers listen on loopback only.`);
-  const origins = ["HEARTH_ORIGIN", "HEARTH_LOCAL_ORIGIN", "HEARTH_E2E_URL"];
+  // HEARTH_SERVER_URL wins over HEARTH_HOST:HEARTH_PORT where worker and Jarvis code reach the
+  // server (packages/modules/src/browser/client.ts), so a stray one could point tests at the live one.
+  const origins = ["HEARTH_ORIGIN", "HEARTH_LOCAL_ORIGIN", "HEARTH_E2E_URL", "HEARTH_SERVER_URL"];
   if (!env.HEARTH_ORIGIN)
     problems.push("HEARTH_ORIGIN isn't set (it's http://localhost:<CI port>).");
   for (const name of origins) {
