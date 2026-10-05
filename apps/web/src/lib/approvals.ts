@@ -18,6 +18,10 @@ export const deciding = (approvalId: string) => inFlight().has(approvalId);
 /** This approval was decided here (or turned out to be decided already). */
 export const isDecided = (approvalId: string) => decided().has(approvalId);
 
+/** Still waiting for your yes or no: pending, and not decided here a moment ago. */
+export const isWaiting = (approvalId: string, status: string | null | undefined) =>
+  status === "pending" && !isDecided(approvalId);
+
 export async function decide(approvalId: string, decision: "approve" | "deny") {
   if (deciding(approvalId) || isDecided(approvalId)) return;
   setInFlight((s) => add(s, approvalId));

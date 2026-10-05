@@ -8,7 +8,9 @@ vi.mock("./live.ts", () => ({
   toast: { show: (text: string, tone = "info") => shown.push({ text, tone }) },
 }));
 
-const { approvalStateText, decide, deciding, isDecided } = await import("./approvals.ts");
+const { approvalStateText, decide, deciding, isDecided, isWaiting } = await import(
+  "./approvals.ts"
+);
 
 let calls = 0;
 function reply(status: number, body: unknown, wait = 0) {
@@ -56,6 +58,15 @@ describe("deciding an approval", () => {
     reply(503, { status: "error", code: "unavailable", message: "Hearth is busy." });
     await decide("a3", "approve");
     expect(isDecided("a3")).toBe(false);
+  });
+
+  it("stops waiting for you the moment it's decided here, before the lists catch up", async () => {
+    expect(isWaiting("a4", "pending")).toBe(true);
+    expect(isWaiting("a4", "executed")).toBe(false);
+    reply(200, { status: "ok", result: {} });
+    await decide("a4", "deny");
+    expect(isWaiting("a4", "pending")).toBe(false);
+    expect(shown).toEqual([{ text: "Denied.", tone: "info" }]);
   });
 
   it("names each state in a few words", () => {

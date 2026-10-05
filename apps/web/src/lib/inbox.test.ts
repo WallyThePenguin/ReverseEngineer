@@ -1,5 +1,6 @@
-// An approval waiting for you stays in the inbox until you decide it (D58): its ⋯ menu offers no
-// snooze, and a snooze Hearth refuses anyway puts the card straight back.
+// An approval waiting for you stays in the inbox until you decide it (D58): its "more" menu offers
+// no snooze, a snooze Hearth refuses anyway puts the card straight back, and its card shows what
+// it would do, why, and the exact text in full.
 import { QueryClient } from "@tanstack/solid-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { InboxRow } from "./types.ts";
@@ -13,7 +14,7 @@ vi.mock("./live.ts", () => ({
   reportError: (err: Error) => errors.push(err.message),
 }));
 
-const { rowMenu } = await import("./inbox.ts");
+const { approvalParts, rowMenu } = await import("./inbox.ts");
 const { act } = await import("./query.ts");
 
 const row = (id: string, approvalStatus: string | null = null) =>
@@ -49,5 +50,26 @@ describe("an approval waiting for you", () => {
     expect(await snoozing).toBeNull();
     expect(ids()).toEqual(["a", "b"]);
     expect(errors).toEqual([refusal.message]);
+  });
+});
+
+describe("an approval's card", () => {
+  const why = "Other people would see this, so it needs your yes.";
+
+  it("shows what it would do, why, and the email's text exactly as it would go", () => {
+    const text = "Hi Dana,\n\nThe lease looks fine.  Signed copy attached.\n\nBest,\nM\n";
+    const title = "Jarvis asks: Send an email to dana@example.com: Re: lease";
+    expect(approvalParts({ title, body: `${text}\n\n${why}` })).toEqual({ what: title, why, text });
+  });
+
+  it("never shortens the text, however long", () => {
+    const text = Array.from({ length: 400 }, (_, i) => `Line ${i + 1}.`).join("\n\n");
+    expect(approvalParts({ title: "t", body: `${text}\n\n${why}` }).text).toBe(text);
+  });
+
+  it("has only a why when there's nothing more to show", () => {
+    const hard = "This is hard to undo, so it needs your yes.";
+    expect(approvalParts({ title: "t", body: hard })).toEqual({ what: "t", why: hard, text: null });
+    expect(approvalParts({ title: "t", body: null })).toEqual({ what: "t", why: null, text: null });
   });
 });

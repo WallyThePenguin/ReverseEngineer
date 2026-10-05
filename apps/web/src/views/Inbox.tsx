@@ -1,22 +1,22 @@
 // One inbox: Jarvis's results, approvals, due dates and alerts, split into Signal and Noise.
 // j/k to move, Enter to open, e done, s snooze, a/d approve or deny. An approval waiting for
-// you can't be put away with e, s or its menu: it needs a yes or a no.
+// you can't be put away with e, s or its menu: it needs a yes or a no. Each row is an InboxItem
+// (inbox/InboxItem.tsx); an approval's is the shared ApprovalCard, its text in full.
 
-import { createSignal, For, Match, Show, Switch } from "solid-js";
-import { Body } from "../components/Body.tsx";
-import { Overflow, ROW_MENU } from "../components/Menu.tsx";
+import { createSignal, For, Show } from "solid-js";
 import { NoRows } from "../components/QueryView.tsx";
 import { SetupChecklist } from "../components/SetupChecklist.tsx";
-import { Badge, Button, Empty, Kbd, PaneHeader } from "../components/ui.tsx";
-import { approvalStateText, decide, deciding } from "../lib/approvals.ts";
-import { ago, due, snoozeOptions, who } from "../lib/format.ts";
+import { Empty, PaneHeader } from "../components/ui.tsx";
+import { decide } from "../lib/approvals.ts";
+import { snoozeOptions } from "../lib/format.ts";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
-import { type InboxView, NEEDS_DECISION, rowMenu, waitingOnYou } from "../lib/inbox.ts";
+import { type InboxView, NEEDS_DECISION, waitingOnYou } from "../lib/inbox.ts";
 import { toast } from "../lib/live.ts";
 import { layout, routeFor } from "../lib/panes.ts";
 import { act, inboxInput, useAction } from "../lib/query.ts";
 import { createSelection } from "../lib/selection.ts";
 import type { InboxRow } from "../lib/types.ts";
+import { InboxItem } from "./inbox/InboxItem.tsx";
 
 export function Inbox(props: { pane: number }) {
   const [view, setView] = createSignal<InboxView>("live");
@@ -150,115 +150,21 @@ export function Inbox(props: { pane: number }) {
           >
             <ul>
               <For each={list()}>
-                {(row, i) => {
-                  const n = row.notification;
-                  const deadline = () => due(n.deadline, false);
-                  return (
-                    <li
-                      class="group cursor-pointer border-b border-line py-3 pr-2 pl-4"
-                      data-active={focused() && i() === sel.index()}
-                      onClick={(e) => {
-                        sel.select(i());
-                        open(row, e.shiftKey);
-                      }}
-                    >
-                      <div class="flex items-start gap-3">
-                        <span
-                          class={`mt-1.5 size-2 shrink-0 rounded-full ${n.state === "unseen" ? "bg-accent" : "bg-transparent"}`}
-                        />
-                        <div class="min-w-0 flex-1">
-                          <div class="flex items-center gap-2">
-                            <span class={`truncate ${n.state === "unseen" ? "font-semibold" : ""}`}>
-                              {n.title}
-                            </span>
-                            <Show when={n.urgency === "interrupt"}>
-                              <Badge tone="bad">Urgent</Badge>
-                            </Show>
-                            <Show when={n.kind === "brief"}>
-                              <Badge tone="jarvis">Brief</Badge>
-                            </Show>
-                          </div>
-                          <Show when={n.body && n.kind !== "brief"}>
-                            <Show
-                              when={waitingOnYou(row)}
-                              fallback={
-                                <div class="mt-0.5 line-clamp-3 text-sm text-muted">
-                                  <Body text={n.body} />
-                                </div>
-                              }
-                            >
-                              {/* Exactly what would happen, as plain text and in full. */}
-                              <pre class="mt-1 max-h-96 overflow-auto rounded bg-sunk p-2 font-sans text-sm whitespace-pre-wrap">
-                                {n.body}
-                              </pre>
-                            </Show>
-                          </Show>
-                          <Switch>
-                            <Match when={waitingOnYou(row)}>
-                              <div class="mt-2 flex gap-2" onClick={(e) => e.stopPropagation()}>
-                                <Button
-                                  kind="primary"
-                                  small
-                                  disabled={deciding(n.approvalId!)}
-                                  onClick={() => decide(n.approvalId!, "approve")}
-                                >
-                                  Approve <Kbd>a</Kbd>
-                                </Button>
-                                <Button
-                                  kind="danger"
-                                  small
-                                  disabled={deciding(n.approvalId!)}
-                                  onClick={() => decide(n.approvalId!, "deny")}
-                                >
-                                  Deny <Kbd>d</Kbd>
-                                </Button>
-                              </div>
-                            </Match>
-                            <Match when={n.approvalId && row.approvalStatus}>
-                              <p class="mt-1 text-xs text-muted">
-                                {approvalStateText(row.approvalStatus!)}
-                              </p>
-                            </Match>
-                          </Switch>
-                          <Show when={snoozing() === n.id}>
-                            <div
-                              class="mt-2 flex flex-wrap gap-2"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <For each={snoozeOptions()}>
-                                {(o, j) => (
-                                  <Button small onClick={() => snooze(n.id, o.until)}>
-                                    <Kbd>{j() + 1}</Kbd> {o.label}
-                                  </Button>
-                                )}
-                              </For>
-                            </div>
-                          </Show>
-                        </div>
-                        <div class="shrink-0 text-right text-xs text-faint">
-                          <div>{ago(n.createdAt)}</div>
-                          <Show when={n.createdBy !== "owner"}>
-                            <div>{who(n.createdBy)}</div>
-                          </Show>
-                          <Show when={deadline()}>
-                            <div class={deadline()!.overdue ? "text-bad" : "text-warn"}>
-                              due {deadline()!.text}
-                            </div>
-                          </Show>
-                        </div>
-                        {/* What e and s do, for a finger. */}
-                        <Overflow
-                          class={ROW_MENU}
-                          label={`Actions for ${n.title}`}
-                          items={rowMenu(row, view(), {
-                            done: () => done(row),
-                            snooze: () => startSnooze(row),
-                          })}
-                        />
-                      </div>
-                    </li>
-                  );
-                }}
+                {(row, i) => (
+                  <InboxItem
+                    row={row}
+                    view={view()}
+                    active={focused() && i() === sel.index()}
+                    snoozing={snoozing() === row.notification.id}
+                    onOpen={(beside) => {
+                      sel.select(i());
+                      open(row, beside);
+                    }}
+                    onDone={() => done(row)}
+                    onSnooze={() => startSnooze(row)}
+                    onSnoozeUntil={(until) => snooze(row.notification.id, until)}
+                  />
+                )}
               </For>
             </ul>
           </Show>

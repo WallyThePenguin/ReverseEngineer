@@ -233,3 +233,25 @@ body {
   color: var(--color-jarvis);
   background: var(--color-jarvis-soft);
 }
+
+/* A box whose text scrolls (an approval's exact text): a soft shade at its top or bottom edge
+   says there's more past it, and goes once you reach that end. The covers scroll with the text
+   and hide the shades at its ends (background-attachment: local). The shade is the text's own
+   colour, so it shows in dark mode too. */
+@utility scroll-fade {
+  --shade: color-mix(in srgb, var(--color-ink) 16%, transparent);
+  background-color: var(--color-sunk);
+  background-image:
+    linear-gradient(var(--color-sunk) 30%, transparent),
+    linear-gradient(transparent, var(--color-sunk) 70%),
+    radial-gradient(farthest-side at 50% 0, var(--shade), transparent),
+    radial-gradient(farthest-side at 50% 100%, var(--shade), transparent);
+  background-position: top, bottom, top, bottom;
+  background-size:
+    100% 2.5rem,
+    100% 2.5rem,
+    100% 0.75rem,
+    100% 0.75rem;
+  background-repeat: no-repeat;
+  background-attachment: local, local, scroll, scroll;
+}
