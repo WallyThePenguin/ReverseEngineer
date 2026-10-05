@@ -1,6 +1,6 @@
 // Stop means stop, and a retry never does a thing twice (D54): a Stop pressed while Jarvis was
-// stuck survives the restart, a tool still running when the model fails rules out a retry, and
-// a brain that carries on after Stop can't run anything.
+// stuck survives the restart, a tool still running when the model fails rules out a retry, a
+// brain that carries on after Stop can't run anything, and one stopped first never starts.
 import { jarvisTurn, task } from "@hearth/db";
 import { type Caller, ownerCaller } from "@hearth/kernel";
 import { asc } from "drizzle-orm";
@@ -70,21 +70,42 @@ describe("Stop", () => {
   it("leaves a brain that carries on unable to run anything", async () => {
     await start();
     let later: Promise<unknown> = Promise.resolve();
+    let thinking = () => {};
+    const started = new Promise<void>((r) => {
+      thinking = r;
+    });
     script.run = (req) =>
       new Promise(() => {
         // Ignores the signal, and asks for a tool once the turn is over.
         req.signal.addEventListener("abort", () => {
           later = req.tools.find((t) => t.name === "task_create")!.run({ title: "Too late" });
         });
+        thinking();
       });
     const { conversationId } = await chat("hi");
     await h.engine.processAvailable();
     const draining = h.runner.drain();
-    await vi.waitFor(async () => expect((await turns())[0]?.status).toBe("running"));
+    // Stop once the brain is running: pressed while the turn is still being set up, the brain
+    // never starts (below), and there'd be nothing carrying on to test.
+    await started;
     await ok("jarvis.cancel_turn", { conversationId });
     await draining;
     expect(await later).toMatch(/^Not run/);
     expect(await tasks()).toHaveLength(0);
+  });
+
+  it("doesn't start the brain once the turn is stopped", async () => {
+    await start();
+    await chat("hi");
+    await h.engine.processAvailable();
+    const turn = await h.runner.claimNext();
+    // Stop reaches Jarvis while the turn is still being set up (its conversation read, memory
+    // recalled, the prompt built): a model call started after that would only be thrown away.
+    const running = h.runner.run(turn!);
+    expect(h.runner.cancel(turn!.id)).toBe(true);
+    await running;
+    expect(script.requests).toHaveLength(0);
+    expect((await turns())[0]).toMatchObject({ status: "canceled", errorKind: "canceled" });
   });
 });
 

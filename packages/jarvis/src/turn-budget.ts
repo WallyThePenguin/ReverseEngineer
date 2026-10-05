@@ -89,6 +89,22 @@ export function bounded(tools: BrainTool[], deadline: Deadline, ended: string): 
   }));
 }
 
+/**
+ * Runs a turn's brain until the turn is stopped or out of time, whether or not the brain notices.
+ * Once it is, the brain isn't started at all: Stop can land while the turn is still being set up
+ * (or between tries), and a model call started then would only be thrown away (D54).
+ */
+export function untilEnded<T>(signal: AbortSignal, start: () => Promise<T>): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    const ended = () => reject(signal.reason);
+    signal.addEventListener("abort", ended, { once: true });
+    start()
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", ended));
+  });
+}
+
 /** Whether a turn has used the browser, from the Hearth tools it ran. */
 export const browsed = (calls: { action: string }[]): boolean =>
   calls.some((c) => c.action.startsWith("browser."));

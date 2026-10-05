@@ -6,7 +6,7 @@ import { getSetting, jarvisCaller, type Kernel } from "@hearth/kernel";
 import { type LogEntry, recallMemory, renderMemory } from "@hearth/modules";
 import { and, asc, desc, eq, lte, sql } from "drizzle-orm";
 import type pg from "pg";
-import type { Brain, BrainEvents, BrainRequest, BrainResult } from "./brain.ts";
+import type { Brain, BrainEvents, BrainRequest } from "./brain.ts";
 import { classifyFailure, type Failure, failure } from "./failures.ts";
 import { reportJarvisHealth } from "./health.ts";
 import { buildSystemPrompt } from "./prompt.ts";
@@ -23,6 +23,7 @@ import {
   replyOf,
   TURN_LIMIT_MS,
   thinkOn,
+  untilEnded,
 } from "./turn-budget.ts";
 import {
   classifyOutcome,
@@ -343,22 +344,19 @@ export class TurnRunner {
   }
 
   /**
-   * Runs the brain until the turn is stopped or out of time, whether or not the brain notices.
-   * Before any tool has run, two failures are worked around once each: a tool Claude rejects
-   * is left out, and a session Claude lost is replaced by a recap Hearth writes (D54).
+   * Runs the brain until the turn is stopped or out of time, whether or not the brain notices,
+   * and doesn't start it once it is (untilEnded). Before any tool has run, two failures are
+   * worked around once each: a tool Claude rejects is left out, and a session Claude lost is
+   * replaced by a recap Hearth writes (D54).
    */
   private async think(end: Ending, request: BrainRequest, events: BrainEvents) {
     const { signal } = request;
-    const stopped = new Promise<never>((_, reject) => {
-      if (signal.aborted) reject(signal.reason);
-      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
-    });
     let req = withoutTools(request, this.leftOut);
     let leftOut = false;
     let recapped = false;
     for (;;) {
       try {
-        return await Promise.race<BrainResult>([this.brain.run(req, events), stopped]);
+        return await untilEnded(signal, () => this.brain.run(req, events));
       } catch (err) {
         if (signal.aborted || usedTools(end)) throw err;
         const f = classifyFailure(err);
