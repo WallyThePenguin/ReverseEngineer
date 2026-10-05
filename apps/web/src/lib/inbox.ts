@@ -45,3 +45,18 @@ export function approvalParts(n: Pick<InboxRow["notification"], "title" | "body"
     text: cut < 0 ? null : body.slice(0, cut) || null,
   };
 }
+
+/**
+ * The same card from what a conversation logged: the action's summary as Hearth wrote it, whose
+ * first paragraph is what it would do and the rest (an email's text) exactly what would happen,
+ * as the kernel splits it for the inbox's card. The why isn't logged there.
+ */
+export function summaryParts(summary: string | null | undefined): {
+  what: string | null;
+  text: string | null;
+} {
+  const s = summary ?? "";
+  const cut = s.indexOf("\n\n");
+  const what = (cut < 0 ? s : s.slice(0, cut)).trim();
+  return { what: what || null, text: cut < 0 ? null : s.slice(cut + 2) || null };
+}

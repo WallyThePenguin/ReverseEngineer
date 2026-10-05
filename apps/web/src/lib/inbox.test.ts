@@ -14,7 +14,7 @@ vi.mock("./live.ts", () => ({
   reportError: (err: Error) => errors.push(err.message),
 }));
 
-const { approvalParts, rowMenu } = await import("./inbox.ts");
+const { approvalParts, rowMenu, summaryParts } = await import("./inbox.ts");
 const { act } = await import("./query.ts");
 
 const row = (id: string, approvalStatus: string | null = null) =>
@@ -71,5 +71,23 @@ describe("an approval's card", () => {
     const hard = "This is hard to undo, so it needs your yes.";
     expect(approvalParts({ title: "t", body: hard })).toEqual({ what: "t", why: hard, text: null });
     expect(approvalParts({ title: "t", body: null })).toEqual({ what: "t", why: null, text: null });
+  });
+});
+
+describe("an approval in a conversation", () => {
+  it("is what Jarvis would do, then exactly what would happen, in full", () => {
+    const text = "Hi Dana,\n\nThanks. 30 days works.\n\nBest,\nSam";
+    expect(summaryParts(`Send email to dana@example.com: "Re: Lease"\n\n${text}`)).toEqual({
+      what: 'Send email to dana@example.com: "Re: Lease"',
+      text,
+    });
+  });
+
+  it("is just what it would do when that's all there is", () => {
+    expect(summaryParts("Cancel a meeting and tell its guests")).toEqual({
+      what: "Cancel a meeting and tell its guests",
+      text: null,
+    });
+    expect(summaryParts(null)).toEqual({ what: null, text: null });
   });
 });

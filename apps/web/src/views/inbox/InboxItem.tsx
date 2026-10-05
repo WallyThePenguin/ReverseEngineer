@@ -28,102 +28,109 @@ export function InboxItem(props: {
 }) {
   const n = () => props.row.notification;
   const deadline = () => due(n().deadline, false);
+  // What e and s do, for a finger.
+  const menu = () => (
+    <Overflow
+      class={ROW_MENU}
+      label={`Actions for ${n().title}`}
+      items={rowMenu(props.row, props.view, { done: props.onDone, snooze: props.onSnooze })}
+    />
+  );
+  const snoozes = () => (
+    <Show when={props.snoozing}>
+      <div class="mt-2 flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
+        <For each={snoozeOptions()}>
+          {(o, j) => (
+            <Button small onClick={() => props.onSnoozeUntil(o.until)}>
+              <Kbd hint>{j() + 1}</Kbd> {o.label}
+            </Button>
+          )}
+        </For>
+      </div>
+    </Show>
+  );
   return (
     <li
-      class="group cursor-pointer border-b border-line py-3 pr-2 pl-4"
+      class={`group cursor-pointer border-b border-line ${n().approvalId ? "px-3 py-2 md:px-4 md:py-3" : "py-3 pr-2 pl-4"}`}
       data-active={props.active}
       // Focus inside a row (its text box, a button, its menu) puts the keyboard on it, so a and
       // d decide the card you're in, not one you moved away from.
       onFocusIn={() => props.onSelect()}
       onClick={(e) => props.onOpen(e.shiftKey)}
     >
-      <div class="flex items-start gap-3">
-        <span
-          class={`mt-1.5 size-2 shrink-0 rounded-full ${n().state === "unseen" ? "bg-accent" : "bg-transparent"}`}
-        />
-        <div class="min-w-0 flex-1">
-          <Show
-            when={n().approvalId}
-            fallback={
-              <>
-                <div class="flex items-center gap-2">
-                  <span class={`truncate ${n().state === "unseen" ? "font-semibold" : ""}`}>
-                    {n().title}
-                  </span>
-                  <Show when={n().urgency === "interrupt"}>
-                    <Badge tone="bad">Urgent</Badge>
-                  </Show>
-                  <Show when={n().kind === "brief"}>
-                    <Badge tone="jarvis">Brief</Badge>
-                  </Show>
-                </div>
-                <Show when={n().body && n().kind !== "brief"}>
-                  <div class="mt-0.5 line-clamp-3 text-sm text-muted">
-                    <Body text={n().body} />
-                  </div>
+      <Show
+        when={n().approvalId}
+        fallback={
+          <div class="flex items-start gap-3">
+            <span
+              class={`mt-1.5 size-2 shrink-0 rounded-full ${n().state === "unseen" ? "bg-accent" : "bg-transparent"}`}
+            />
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2">
+                <span class={`truncate ${n().state === "unseen" ? "font-semibold" : ""}`}>
+                  {n().title}
+                </span>
+                <Show when={n().urgency === "interrupt"}>
+                  <Badge tone="bad">Urgent</Badge>
                 </Show>
-              </>
-            }
-          >
-            {(approvalId) => {
-              const parts = () => approvalParts(n());
-              return (
-                <ApprovalCard
-                  approvalId={approvalId()}
-                  what={parts().what}
-                  why={parts().why}
-                  text={parts().text}
-                  status={props.row.approvalStatus}
-                  byJarvis={n().createdBy === "jarvis"}
-                  meta={
-                    <>
-                      {ago(n().createdAt)}
-                      <Show when={deadline()}>
-                        {(d) => (
-                          <span class={d().overdue ? "text-bad" : "text-warn"}>
-                            {` · due ${d().text}`}
-                          </span>
-                        )}
-                      </Show>
-                    </>
-                  }
-                  keys
-                />
-              );
-            }}
-          </Show>
-          <Show when={props.snoozing}>
-            <div class="mt-2 flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
-              <For each={snoozeOptions()}>
-                {(o, j) => (
-                  <Button small onClick={() => props.onSnoozeUntil(o.until)}>
-                    <Kbd>{j() + 1}</Kbd> {o.label}
-                  </Button>
-                )}
-              </For>
+                <Show when={n().kind === "brief"}>
+                  <Badge tone="jarvis">Brief</Badge>
+                </Show>
+              </div>
+              <Show when={n().body && n().kind !== "brief"}>
+                <div class="mt-0.5 line-clamp-3 text-sm text-muted">
+                  <Body text={n().body} />
+                </div>
+              </Show>
+              {snoozes()}
             </div>
-          </Show>
-        </div>
-        {/* An approval's card says when it was asked, and its title who asks: on a phone the card
-            needs the width. */}
-        <Show when={!n().approvalId}>
-          <div class="shrink-0 text-right text-xs text-faint">
-            <div>{ago(n().createdAt)}</div>
-            <Show when={n().createdBy !== "owner"}>
-              <div>{who(n().createdBy)}</div>
-            </Show>
-            <Show when={deadline()}>
-              {(d) => <div class={d().overdue ? "text-bad" : "text-warn"}>due {d().text}</div>}
-            </Show>
+            <div class="shrink-0 text-right text-xs text-faint">
+              <div>{ago(n().createdAt)}</div>
+              <Show when={n().createdBy !== "owner"}>
+                <div>{who(n().createdBy)}</div>
+              </Show>
+              <Show when={deadline()}>
+                {(d) => <div class={d().overdue ? "text-bad" : "text-warn"}>due {d().text}</div>}
+              </Show>
+            </div>
+            {menu()}
           </div>
-        </Show>
-        {/* What e and s do, for a finger. */}
-        <Overflow
-          class={ROW_MENU}
-          label={`Actions for ${n().title}`}
-          items={rowMenu(props.row, props.view, { done: props.onDone, snooze: props.onSnooze })}
-        />
-      </div>
+        }
+      >
+        {(approvalId) => {
+          const parts = () => approvalParts(n());
+          // The card is the whole row, its dot and menu inside it, so on a phone its text has
+          // the screen's width; its title says who asks, and its foot when.
+          return (
+            <>
+              <ApprovalCard
+                approvalId={approvalId()}
+                what={parts().what}
+                why={parts().why}
+                text={parts().text}
+                status={props.row.approvalStatus}
+                byJarvis={n().createdBy === "jarvis"}
+                unseen={n().state === "unseen"}
+                menu={menu()}
+                meta={
+                  <>
+                    {ago(n().createdAt)}
+                    <Show when={deadline()}>
+                      {(d) => (
+                        <span class={d().overdue ? "text-bad" : "text-warn"}>
+                          {` · due ${d().text}`}
+                        </span>
+                      )}
+                    </Show>
+                  </>
+                }
+                keys
+              />
+              {snoozes()}
+            </>
+          );
+        }}
+      </Show>
     </li>
   );
 }

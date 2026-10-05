@@ -1,10 +1,23 @@
-// An approval, as a card wherever one shows: what Jarvis (or another asker) wants to do, why it
-// needs your yes, and exactly what would happen, in full. The text scrolls inside its box and is
-// never cut short, and a card waiting for you has no way to put it off: no snooze, no dismiss,
-// only a yes or a no (D58). Once it's decided, it says what became of it.
+// An approval, as a card wherever one shows (the inbox, a conversation with Jarvis): what Jarvis
+// (or another asker) wants to do, why it needs your yes, and exactly what would happen, in full.
+// Long text opens with "Show all" and is never cut short, and a card waiting for you has no way
+// to put it off: no snooze, no dismiss, only a yes or a no (D58). Once it's decided, it says what
+// became of it.
 
-import { children, createUniqueId, type JSX, Show } from "solid-js";
+import {
+  children,
+  createEffect,
+  createSignal,
+  createUniqueId,
+  type JSX,
+  on,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import { approvalStateText, decide, deciding, isWaiting } from "../lib/approvals.ts";
+import { humanTimes } from "../lib/format.ts";
+import { narrow } from "../lib/narrow.ts";
 import { Icon, type IconName } from "./icons.tsx";
 import { Card } from "./kit/Card.tsx";
 import { JarvisMark } from "./Mark.tsx";
@@ -33,9 +46,13 @@ export function ApprovalCard(props: {
   status: string | null;
   /** Jarvis is the one asking: the card carries its mark. */
   byJarvis?: boolean;
+  /** You haven't seen it yet: a dot before it, as on the list's other rows. */
+  unseen?: boolean;
+  /** At the end of its heading: the list row's "more" menu, inside the card on a phone's width. */
+  menu?: JSX.Element;
   /** When it was asked (and any deadline), beside its buttons. */
   meta?: JSX.Element;
-  /** Shows a and d on its buttons, where the list's keys decide it. */
+  /** Shows a and d on its buttons, where the list's keys decide it (not on a touch screen). */
   keys?: boolean;
   /** h2 by default; h3 inside a section that has a heading of its own. */
   level?: 2 | 3;
@@ -44,7 +61,10 @@ export function ApprovalCard(props: {
 }) {
   const id = createUniqueId();
   const meta = children(() => props.meta);
+  const menu = children(() => props.menu);
   const waiting = () => isWaiting(props.approvalId, props.status);
+  // Times as you'd say them; quoted titles and the text itself stay exactly as they are.
+  const what = () => humanTimes(props.what);
   // Decided here a moment ago, before the lists catch up with what became of it.
   const outcome = () =>
     props.status === "pending"
@@ -56,6 +76,9 @@ export function ApprovalCard(props: {
   return (
     <Card labelledby={id} class={props.class}>
       <div class="flex items-start gap-2">
+        <Show when={props.unseen}>
+          <span class="mt-2 size-2 shrink-0 rounded-full bg-accent" />
+        </Show>
         <Show when={props.byJarvis}>
           <JarvisMark size={18} class="mt-0.5" />
         </Show>
@@ -64,35 +87,20 @@ export function ApprovalCard(props: {
           when={props.level === 3}
           fallback={
             <h2 id={id} class={HEADING}>
-              {props.what}
+              {what()}
             </h2>
           }
         >
           <h3 id={id} class={HEADING}>
-            {props.what}
+            {what()}
           </h3>
+        </Show>
+        <Show when={menu()}>
+          <div class="-my-2.5 -mr-2.5 shrink-0 md:my-0 md:mr-0">{menu()}</div>
         </Show>
       </div>
       <Show when={props.why}>{(why) => <p class="mt-1 text-sm text-muted">{why()}</p>}</Show>
-      <Show when={props.text}>
-        {(text) => (
-          // Exactly what would happen, as plain text and in full: long text scrolls in its box,
-          // with a shade at an edge while there's more past it. It takes the keyboard's focus,
-          // so it scrolls without a mouse too: there the arrow keys scroll it, rather than move
-          // the list's selection off the card you're reading.
-          <pre
-            tabindex="0"
-            onKeyDown={(e) => {
-              const box = e.currentTarget;
-              const arrow = e.key === "ArrowDown" || e.key === "ArrowUp";
-              if (arrow && box.scrollHeight > box.clientHeight) e.stopPropagation();
-            }}
-            class="scroll-fade mt-3 max-h-64 overflow-auto rounded-md border border-line p-3 font-sans text-sm break-words whitespace-pre-wrap"
-          >
-            {text()}
-          </pre>
-        )}
-      </Show>
+      <Show when={props.text}>{(text) => <ExactText text={text()} />}</Show>
       <Show when={props.status || meta()}>
         <div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-meta text-muted">
           <Show when={!waiting() && props.status}>
@@ -115,7 +123,7 @@ export function ApprovalCard(props: {
               >
                 Deny{" "}
                 <Show when={props.keys}>
-                  <Kbd>d</Kbd>
+                  <Kbd hint>d</Kbd>
                 </Show>
               </Button>
               <Button
@@ -127,7 +135,7 @@ export function ApprovalCard(props: {
               >
                 Approve{" "}
                 <Show when={props.keys}>
-                  <Kbd>a</Kbd>
+                  <Kbd hint>a</Kbd>
                 </Show>
               </Button>
             </div>
@@ -135,5 +143,57 @@ export function ApprovalCard(props: {
         </div>
       </Show>
     </Card>
+  );
+}
+
+/**
+ * Exactly what would happen, as plain text and in full. Long text starts folded, with a shade at
+ * its bottom edge, and "Show all" opens the rest right there: on a computer the box scrolls first
+ * (the arrow keys scroll it once it has the focus, rather than move the list's selection off the
+ * card you're reading); on a phone it shows a few lines, so a list of cards still fits a screen.
+ */
+function ExactText(props: { text: string }) {
+  const [all, setAll] = createSignal(false);
+  const [more, setMore] = createSignal(false);
+  let box!: HTMLPreElement;
+  const measure = () => {
+    if (!all()) setMore(box.scrollHeight > box.clientHeight + 1);
+  };
+  onMount(() => {
+    const resized = new ResizeObserver(measure);
+    resized.observe(box);
+    onCleanup(() => resized.disconnect());
+  });
+  createEffect(on([() => props.text, narrow], () => queueMicrotask(measure)));
+  const fold = () =>
+    all() ? "" : narrow() ? "max-h-24 overflow-hidden" : "max-h-64 overflow-auto";
+  return (
+    <>
+      <pre
+        ref={box}
+        tabindex="0"
+        onKeyDown={(e) => {
+          const arrow = e.key === "ArrowDown" || e.key === "ArrowUp";
+          if (arrow && box.scrollHeight > box.clientHeight) e.stopPropagation();
+        }}
+        class={`scroll-fade mt-3 rounded-md border border-line p-3 font-sans text-sm break-words whitespace-pre-wrap ${fold()}`}
+      >
+        {props.text}
+      </pre>
+      <Show when={more()}>
+        <button
+          type="button"
+          class="-mb-2 flex min-h-11 items-center gap-1 text-meta font-medium text-muted hover:text-ink md:mb-0 md:min-h-0 md:pt-1.5"
+          aria-expanded={all()}
+          onClick={(e) => {
+            e.stopPropagation();
+            setAll(!all());
+          }}
+        >
+          <Icon name="chevron-down" size={14} class={all() ? "rotate-180" : ""} />
+          {all() ? "Show less" : "Show all"}
+        </button>
+      </Show>
+    </>
   );
 }

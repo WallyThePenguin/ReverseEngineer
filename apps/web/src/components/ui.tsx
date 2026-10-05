@@ -76,9 +76,15 @@ export function Badge(props: {
   return <span class={`rounded-sm px-1.5 py-0.5 text-micro ${tone()}`}>{props.children}</span>;
 }
 
-export function Kbd(props: { children: JSX.Element }) {
+/**
+ * A key. A `hint` beside what it does (a and d on Approve and Deny) isn't shown on a touch
+ * screen, which has no keys to press.
+ */
+export function Kbd(props: { children: JSX.Element; hint?: boolean }) {
   return (
-    <kbd class="rounded-sm border border-line bg-sunk px-1 font-mono text-micro text-muted">
+    <kbd
+      class={`rounded-sm border border-line bg-sunk px-1 font-mono text-micro text-muted ${props.hint ? "pointer-coarse:hidden" : ""}`}
+    >
       {props.children}
     </kbd>
   );
