@@ -18,6 +18,8 @@ export function InboxItem(props: {
   active: boolean;
   /** Its snooze choices are showing (s, or Snooze… from its menu). */
   snoozing: boolean;
+  /** Makes it the row the keyboard is on. */
+  onSelect: () => void;
   /** Opens what it's about; `beside` when Shift was held. */
   onOpen: (beside: boolean) => void;
   onDone: () => void;
@@ -30,6 +32,9 @@ export function InboxItem(props: {
     <li
       class="group cursor-pointer border-b border-line py-3 pr-2 pl-4"
       data-active={props.active}
+      // Focus inside a row (its text box, a button, its menu) puts the keyboard on it, so a and
+      // d decide the card you're in, not one you moved away from.
+      onFocusIn={() => props.onSelect()}
       onClick={(e) => props.onOpen(e.shiftKey)}
     >
       <div class="flex items-start gap-3">

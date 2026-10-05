@@ -156,6 +156,7 @@ export function Inbox(props: { pane: number }) {
                     view={view()}
                     active={focused() && i() === sel.index()}
                     snoozing={snoozing() === row.notification.id}
+                    onSelect={() => sel.select(i())}
                     onOpen={(beside) => {
                       sel.select(i());
                       open(row, beside);

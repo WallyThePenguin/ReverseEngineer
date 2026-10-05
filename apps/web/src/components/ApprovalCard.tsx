@@ -78,9 +78,15 @@ export function ApprovalCard(props: {
         {(text) => (
           // Exactly what would happen, as plain text and in full: long text scrolls in its box,
           // with a shade at an edge while there's more past it. It takes the keyboard's focus,
-          // so it scrolls without a mouse too.
+          // so it scrolls without a mouse too: there the arrow keys scroll it, rather than move
+          // the list's selection off the card you're reading.
           <pre
             tabindex="0"
+            onKeyDown={(e) => {
+              const box = e.currentTarget;
+              const arrow = e.key === "ArrowDown" || e.key === "ArrowUp";
+              if (arrow && box.scrollHeight > box.clientHeight) e.stopPropagation();
+            }}
             class="scroll-fade mt-3 max-h-64 overflow-auto rounded-md border border-line p-3 font-sans text-sm break-words whitespace-pre-wrap"
           >
             {text()}
