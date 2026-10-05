@@ -18,8 +18,8 @@ import { HEARTBEAT } from "./heartbeat.ts";
 import { type RunnerOptions, TurnRunner } from "./runner.ts";
 
 /**
- * How long a stopping Jarvis waits for tools still running. Well inside the 15 seconds an update
- * gives Jarvis to stop by itself (ops/windows/control.ps1) and the CLI's own stop limit.
+ * How long a stopping Jarvis waits for tools still running. Well inside the 12 seconds Jarvis
+ * gives itself to stop when an update asks (apps/jarvis/src/main.ts) and the CLI's own stop limit.
  */
 const TOOLS_SETTLE_MS = 8_000;
 

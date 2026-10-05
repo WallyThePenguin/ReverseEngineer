@@ -6,7 +6,7 @@
 // and Jarvis, checking once a second, stops the way SIGTERM stops it. Jarvis also stops once the
 // task's cmd.exe is gone, which is what ending the task does, so it never outlives its task run.
 import { execFile } from "node:child_process";
-import { statSync } from "node:fs";
+import { rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 /** Who wrote a stop request, and whether they may stop Jarvis. */
@@ -30,6 +30,11 @@ export interface StopWatchOptions {
   everyMs?: number;
 }
 
+/** How often Jarvis looks for a request and at its task run. */
+const CHECK_EVERY_MS = 1000;
+/** The longest Jarvis waits to learn who asked (ownerOf): PowerShell starts slowly on a busy PC. */
+const OWNER_CHECK_MS = 20_000;
+
 /** Watches for a request to stop, and for the end of the task run. Returns how to stop watching. */
 export function watchForStopRequest(opts: StopWatchOptions): () => void {
   const whoAsked = opts.whoAsked ?? ownerOf;
@@ -46,11 +51,15 @@ export function watchForStopRequest(opts: StopWatchOptions): () => void {
   };
   const finish = (why: string) => {
     unwatch();
+    forget(opts.file, opts.startedAt);
     opts.stop(why);
   };
   const check = () => {
-    if (done || asking) return;
+    if (done) return;
+    // Even while who asked is still being found out, which can take seconds: ending the task is
+    // the quicker way an update stops Jarvis.
     if (!parentAlive()) return finish("The task that started Jarvis has ended");
+    if (asking) return;
     const at = modifiedAt(opts.file);
     if (at <= opts.startedAt || at === seen) return;
     seen = at;
@@ -66,9 +75,24 @@ export function watchForStopRequest(opts: StopWatchOptions): () => void {
         );
       });
   };
-  timer = setInterval(check, opts.everyMs ?? 1000);
+  timer = setInterval(check, opts.everyMs ?? CHECK_EVERY_MS);
   timer.unref();
   return unwatch;
+}
+
+/**
+ * Removes the request this Jarvis stopped for (or was sent as its task ended), so it's never
+ * taken for the next Jarvis's: that one ignores a request older than itself, but not when the
+ * clock has stepped back since. One from before this Jarvis is left: it wasn't for this one.
+ */
+function forget(file: string, startedAt: number): void {
+  if (modifiedAt(file) <= startedAt) return;
+  try {
+    rmSync(file, { force: true });
+  } catch {
+    // An administrator's request this account may not remove: control.ps1 removes it before
+    // starting Jarvis again.
+  }
 }
 
 /** When the file was last written, or 0 when there's none (or it can't be read). */
@@ -128,7 +152,8 @@ export function ownerOf(file: string): Promise<Asker> {
   return new Promise((resolve) => {
     const env = { ...process.env, HEARTH_STOP_FILE: file };
     const args = ["-NoProfile", "-NonInteractive", "-Command", OWNER_SCRIPT];
-    execFile(POWERSHELL, args, { env, timeout: 20_000, windowsHide: true }, (err, stdout) => {
+    const options = { env, timeout: OWNER_CHECK_MS, windowsHide: true };
+    execFile(POWERSHELL, args, options, (err, stdout) => {
       const [owner = "", me = ""] = String(stdout)
         .split(/\r?\n/)
         .map((l) => l.trim());

@@ -289,6 +289,10 @@ the voice shortcuts do nothing.
   `worker`, or `jarvis`). It waits until what it restarted reports in, and says if it doesn't.
   It needs no administrator once `install.ps1` has run. Jarvis's log is `hearth-jarvis.log` in
   the same folder as the services'.
+- If a restart, an update or `pnpm hearth doctor` says an older Jarvis is still running and
+  Hearth can't stop it from your account, that Jarvis is from before Jarvis stopped when asked
+  (D63). While it runs, the task can't start a new one. Run the `taskkill` line it prints as
+  administrator (or run `install.ps1` again), then `pnpm hearth restart jarvis`.
 - If a service log says `EPERM`, its account can't read `node_modules`: run
   `Remove-Item -Recurse -Force node_modules`, then `pnpm install`, then `pnpm hearth restart`.
 - If a service log says it "won't start" because the database is missing updates, run
@@ -327,7 +331,7 @@ old checks. Run the new one directly that once, from the Hearth folder:
 ```powershell
 git fetch origin claude/admiring-wright-ghc2o3
 $tmp = New-Item -ItemType Directory -Force "$env:TEMP\hearth-update"
-foreach ($f in "update.ps1", "control.ps1") {
+foreach ($f in "update.ps1", "control.ps1", "control-jarvis.ps1") {
   git show "origin/claude/admiring-wright-ghc2o3:ops/windows/$f" | Set-Content "$tmp\$f"
 }
 & "$tmp\update.ps1" -Root (Get-Location).Path
