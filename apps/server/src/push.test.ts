@@ -4,7 +4,7 @@ import { max } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pairDevice } from "./auth/devices.ts";
 import { EventHub } from "./hub.ts";
-import { type PushMessage, type PushSend, pushToAll, startPush } from "./push.ts";
+import { messageFor, type PushMessage, type PushSend, pushToAll, startPush } from "./push.ts";
 import { createTestServer, type TestServer } from "./testing/server.ts";
 
 let t: TestServer;
@@ -82,7 +82,8 @@ describe("phone notifications", () => {
     await t.kernel.execute("task.create", { title: "Not worth a buzz" }, jarvisCaller("owner"));
     await settle();
     expect(sent.map((s) => s.message.title)).toEqual(["Your brief is ready"]);
-    expect(sent[0]).toMatchObject({ endpoint: PHONE, message: { url: "/inbox" } });
+    // The brief opens on Today, where it's in full.
+    expect(sent[0]).toMatchObject({ endpoint: PHONE, message: { url: "/today" } });
 
     // A device that's gone is forgotten.
     gone.add(PHONE);
@@ -195,6 +196,13 @@ describe("phone notifications", () => {
     const list = (await (await t.browser("/api/push")).json()) as { devices: unknown[] };
     expect(list.devices).toHaveLength(2);
     warn.mockRestore();
+  });
+
+  it("opens the brief on Today, and everything else on the inbox", () => {
+    const row = { id: "n1", title: "Jarvis asks: Send an email", body: null };
+    expect(messageFor({ ...row, kind: "brief" }).url).toBe("/today");
+    expect(messageFor({ ...row, kind: "approval" }).url).toBe("/inbox");
+    expect(messageFor({ ...row, kind: "alert" }).url).toBe("/inbox");
   });
 
   it("is off limits to the desktop app's code", async () => {

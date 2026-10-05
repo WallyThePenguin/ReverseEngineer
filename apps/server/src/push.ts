@@ -85,7 +85,8 @@ export function messageFor(row: { id: string; kind: string; title: string; body:
   return {
     title: heading ?? clip(row.title, 120),
     body: clip(heading ? row.title : (row.body ?? ""), 240),
-    url: "/inbox",
+    // The brief opens on Today, where it's in full with the rest of your morning.
+    url: row.kind === "brief" ? "/today" : "/inbox",
     tag: row.id,
   } satisfies PushMessage;
 }
