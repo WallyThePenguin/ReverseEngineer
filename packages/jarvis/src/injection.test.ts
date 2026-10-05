@@ -119,6 +119,21 @@ describe("R10: outside text never comes back as your instruction", () => {
     await heldForYou();
   });
 
+  it("email: a message asking for it, read while drafting the morning's replies", async () => {
+    g.gmail.deliver(
+      { from: { address: EVE }, to: [{ address: ME }], subject: "Hi", text: INJECTION() },
+      ["INBOX", "UNREAD", "CATEGORY_PERSONAL", "IMPORTANT"],
+    );
+    await ok("mail.sync", {}, integrationCaller("google"));
+    await h.settle();
+    h.brain.otherwise((req) =>
+      req.prompt.includes("waiting on the owner's reply") ? [obey(), { say: "" }] : [{ say: "" }],
+    );
+    h.clock.set("2026-10-02T11:45:10Z"); // Friday 7:45 a.m.: the reply drafts
+    await h.settle();
+    await heldForYou();
+  });
+
   it("web page: a page Jarvis read for you", async () => {
     h.brain.next([{ fetch: "https://news.example/", content: INJECTION() }, obey(), { say: "" }]);
     await chat("What's on news.example?");
