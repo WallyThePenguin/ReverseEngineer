@@ -210,7 +210,8 @@ jobs:
 
   # The real Windows install, as on the PC: install.ps1 as administrator (the runner is one), with
   # its services, Jarvis's task and the backup task; then update.ps1 and `hearth restart jarvis`
-  # from the same account unelevated, as a Limited task like Jarvis's own; then an update that
+  # from the same account as a Limited task like Jarvis's own (UAC is off on the runner, so that
+  # still has a full token), and Jarvis ending when only its task is stopped; then an update that
   # hands over to a new update.ps1, and one rolled back by a failing migration. Each checks the
   # services, deep health on the right commit and exactly one Jarvis, the one checking in. Its own
   # job, so a failing unit test in the windows job doesn't skip it. No Chrome task (-SkipChromeTask)
@@ -252,10 +253,10 @@ jobs:
       - name: install.ps1 as administrator, then the services, the tasks, deep health and the doctor
         timeout-minutes: 10
         run: powershell -NoProfile -ExecutionPolicy Bypass -File ops/windows/test-install.ps1 -Phase install
-      - name: update.ps1 unelevated, to the same commit (-Force)
+      - name: update.ps1 as a Limited task, to the same commit (-Force)
         timeout-minutes: 12
         run: powershell -NoProfile -ExecutionPolicy Bypass -File ops/windows/test-install.ps1 -Phase update
-      - name: hearth restart jarvis, unelevated
+      - name: Jarvis ends with its task, then hearth restart jarvis as a Limited task
         timeout-minutes: 6
         run: powershell -NoProfile -ExecutionPolicy Bypass -File ops/windows/test-install.ps1 -Phase restart
       - name: update.ps1 to a commit that changes update.ps1, whose new copy takes over

@@ -10,6 +10,11 @@
 
   Jarvis needs no Claude login here: it only calls the model for a turn, nothing here talks to
   it, and `hearth pause` keeps its routines from spending turns of their own.
+
+  GitHub's Windows runners have UAC off, so the Limited task still gets a full token there (it
+  says so, as a warning): what runs unelevated is the same account in its own logon session, not
+  fewer rights. The restart phase covers what fewer rights change: it stops Jarvis's task alone,
+  all your unelevated account can do, and Jarvis must end with it.
 #>
 [CmdletBinding()]
 param(
@@ -218,6 +223,23 @@ switch ($Phase) {
   }
 
   "restart" {
+    # A Jarvis that outlived its task is how Hearth's PC kept running old code: your unelevated
+    # account can only stop the task, which ends cmd, not node. Stopping the task alone must end
+    # Jarvis, whether Windows takes it down with cmd or it notices and stops itself.
+    # Get-Content, which shares the log with the cmd and node still writing it.
+    $logFile = Join-Path $serviceDir "hearth-jarvis.log"
+    $noticed = [regex]::Escape("Its task was stopped, so Jarvis is stopping")
+    $saidBefore = [regex]::Matches("$(Get-Content -Raw $logFile)", $noticed).Count
+    $jarvisPids = @(Get-JarvisNodes | ForEach-Object { [int]$_.ProcessId })
+    if ($jarvisPids.Count -ne 1) { Fail "expected one Jarvis to stop, found $($jarvisPids.Count)" }
+    Stop-ScheduledTask -TaskName "Hearth Jarvis"
+    $left = @(Wait-JarvisGone $jarvisPids 40)
+    if ($left.Count) { Fail "Jarvis (pid $($left -join ', ')) was still running 40 s after its task was stopped" }
+    $how = if ([regex]::Matches("$(Get-Content -Raw $logFile)", $noticed).Count -gt $saidBefore) {
+      "it noticed and stopped itself"
+    } else { "Windows ended it with the task" }
+    Write-Host "Stopping the Hearth Jarvis task alone stopped Jarvis (pid $($jarvisPids -join ', ')): $how."
+
     $since = [datetime]::UtcNow
     $code = Invoke-Unelevated "restart" "& pnpm hearth restart jarvis" 240
     if ($code -ne 0) { Fail "hearth restart jarvis exited $code" }
