@@ -67,9 +67,10 @@ the top of `apps/web/e2e/chrome-launch.ts`). Two more check that the app rides t
 being down: `e2e:resilience` fakes errors and timeouts against a running server, and
 `e2e:offline` starts and stops its own to check the service worker (see the top of each file).
 
-Tests need a Postgres role that can create databases; set `HEARTH_TEST_DATABASE_URL` if it isn't
-`postgres://hearth:hearth@localhost:5432/postgres`. On a PC that also runs Hearth, give tests a
-cluster of their own instead of the one holding your data:
+Tests need a Postgres role that can create databases, named by `HEARTH_TEST_DATABASE_URL` (for
+example `postgres://hearth:hearth@localhost:5432/postgres` on a PC that doesn't run Hearth). There's
+no default, so a test run can't land on the cluster holding your data. On a PC that also runs
+Hearth, give tests a cluster of their own:
 
 ```powershell
 $bin = "C:\Program Files\PostgreSQL\17\bin"; $dir = "$env:LOCALAPPDATA\HearthTestDb"
