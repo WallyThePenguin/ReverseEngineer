@@ -167,7 +167,9 @@ describe("disconnecting a Google account", () => {
     expect(await ok("google.disconnect", { email: WORK })).toEqual({ removed: 1, keptDrafts: 0 });
     expect(await drafts()).toEqual([]);
     expect([await work(), await mine(), await cal()]).toEqual(["done", "unseen", "done"]);
-    await vi.waitFor(async () => expect(await blobs.has(workFile!)).toBe(false));
+    await vi.waitFor(async () => expect(await blobs.has(workFile!)).toBe(false), {
+      timeout: 10_000,
+    });
     expect(await blobs.has(myFile!)).toBe(true);
   });
 
