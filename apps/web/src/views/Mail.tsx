@@ -5,6 +5,7 @@
 
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { Icon } from "../components/icons.tsx";
+import { Skeleton } from "../components/kit/Skeleton.tsx";
 import { Badge, Button, Empty, PaneHeader } from "../components/ui.tsx";
 import { debounced } from "../lib/debounce.ts";
 import { ago } from "../lib/format.ts";
@@ -210,7 +211,7 @@ export function Mail(props: { pane: number }) {
           when={(accounts.data ?? []).length > 0 || accounts.isLoading}
           fallback={<Empty>No mail account yet. Connect Gmail in Settings.</Empty>}
         >
-          <Show when={!threads.isLoading} fallback={<Empty>Loading…</Empty>}>
+          <Show when={!threads.isLoading} fallback={<Skeleton />}>
             <Show
               when={list().length > 0}
               fallback={

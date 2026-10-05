@@ -1,132 +1,20 @@
-// Small shared pieces: pane headers, empty states, buttons, badges.
+// Small shared pieces: empty, loading and failed states, badges and keys. The pane header
+// (PaneHeader.tsx) and the kit's Button are re-exported from here, as they always were.
 
 import type { JSX } from "solid-js";
-import { createContext, Show, useContext } from "solid-js";
-import { listFor } from "../lib/apps.ts";
-import { layout } from "../lib/panes.ts";
+import { Show } from "solid-js";
 import { failedMessage, isMissing } from "../lib/readState.ts";
-import { moveToTrash, restore, TRASHABLE } from "../lib/trash.ts";
-import { Icon, type IconName } from "./icons.tsx";
-import { type MenuItem, Overflow } from "./Menu.tsx";
+import { Button } from "./kit/Button.tsx";
+import { EmptyState } from "./kit/EmptyState.tsx";
+import { Skeleton } from "./kit/Skeleton.tsx";
+import { PaneHeader } from "./PaneHeader.tsx";
 
-/** The record a pane shows, so its header can offer to move it to the trash. */
-export interface PaneRecord {
-  id: string;
-  type: string;
-  /** It's in the trash (some records still open from there): the header offers Restore. */
-  trashed?: boolean;
-}
+export { Button } from "./kit/Button.tsx";
+export { ForRecord, PaneContext, PaneHeader, type PaneRecord } from "./PaneHeader.tsx";
 
-/** Which pane a view is in, how to close it (when there's more than one), and its record. */
-export const PaneContext = createContext<{
-  close: (() => void) | null;
-  record?: PaneRecord | undefined;
-}>({ close: null });
-
-/** Tells the pane's header which record is showing (the header can be drawn by an editor). */
-export function ForRecord(props: { record: PaneRecord | undefined; children: JSX.Element }) {
-  const pane = useContext(PaneContext);
-  return (
-    <PaneContext.Provider
-      value={{
-        get close() {
-          return pane.close;
-        },
-        get record() {
-          return props.record;
-        },
-      }}
-    >
-      {props.children}
-    </PaneContext.Provider>
-  );
-}
-
-export function PaneHeader(props: {
-  title: JSX.Element;
-  children?: JSX.Element;
-  sub?: JSX.Element;
-  /** More actions, behind a "more" button. */
-  menu?: MenuItem[];
-  /** The record this pane shows: the menu offers to move it to the trash. */
-  record?: PaneRecord | undefined;
-}) {
-  const pane = useContext(PaneContext);
-  const record = () => {
-    const r = props.record ?? pane.record;
-    return r && TRASHABLE.has(r.type) ? r : undefined;
-  };
-  const items = (): MenuItem[] => {
-    const r = record();
-    if (!r) return props.menu ?? [];
-    if (r.trashed) return [{ label: "Restore", run: () => void restore(r.id) }];
-    return [
-      ...(props.menu ?? []),
-      {
-        label: "Move to trash",
-        danger: true,
-        run: async () => {
-          if (!(await moveToTrash(r.id))) return;
-          // A lone pane can't close: it goes to the list the record was in, or the inbox.
-          if (pane.close) pane.close();
-          else layout.open({ view: listFor(r.type) ?? "inbox" });
-        },
-      },
-    ];
-  };
-  return (
-    <>
-      <header class="flex min-h-12 items-start gap-2 border-b border-line px-4 py-2">
-        <div class="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
-          <div class="min-w-24 flex-1">
-            <h1 class="truncate text-title">{props.title}</h1>
-            <Show when={props.sub}>
-              <p class="truncate text-meta text-muted">{props.sub}</p>
-            </Show>
-          </div>
-          {props.children}
-        </div>
-        <Show when={items().length > 0}>
-          <Overflow items={items()} label="More actions" />
-        </Show>
-        <PaneClose />
-      </header>
-      <Show when={record()?.trashed && record()}>
-        {(r) => (
-          <p class="flex items-center gap-3 border-b border-line bg-accent-soft px-4 py-1.5 text-sm">
-            <span class="flex-1">This is in the trash.</span>
-            <Button small onClick={() => void restore(r().id)}>
-              Restore
-            </Button>
-          </p>
-        )}
-      </Show>
-    </>
-  );
-}
-
-function PaneClose() {
-  const pane = useContext(PaneContext);
-  return (
-    <Show when={pane.close}>
-      <button
-        type="button"
-        class="-mr-2 flex min-h-11 min-w-11 items-center justify-center rounded text-faint hover:bg-sunk hover:text-ink md:min-h-7 md:min-w-7"
-        title="Close pane (Alt+W)"
-        aria-label="Close pane"
-        onClick={(e) => {
-          e.stopPropagation();
-          pane.close?.();
-        }}
-      >
-        <Icon name="x" size={18} />
-      </button>
-    </Show>
-  );
-}
-
+/** A screen with nothing in it, said in a sentence; EmptyState adds a tile, title and button. */
 export function Empty(props: { children: JSX.Element }) {
-  return <p class="px-4 py-10 text-center text-sm text-muted">{props.children}</p>;
+  return <EmptyState>{props.children}</EmptyState>;
 }
 
 /** The parts of a read that its loading, failed and missing states need. */
@@ -157,7 +45,7 @@ export function Placeholder(props: { query: Read; what: string }) {
   return (
     <div class="flex h-full flex-col">
       <PaneHeader title={missing() ? "Not found" : ""} />
-      <Show when={props.query.isError} fallback={<Empty>Loading…</Empty>}>
+      <Show when={props.query.isError} fallback={<Skeleton kind="record" count={4} />}>
         <Show
           when={!missing()}
           fallback={<Empty>{`This ${props.what} doesn't exist or was deleted.`}</Empty>}
@@ -170,43 +58,6 @@ export function Placeholder(props: { query: Read; what: string }) {
         </Show>
       </Show>
     </div>
-  );
-}
-
-export function Button(props: {
-  onClick?: (e: MouseEvent) => void;
-  /** Submits its form (so Enter in any of the form's fields does too). */
-  submit?: boolean;
-  children: JSX.Element;
-  kind?: "primary" | "plain" | "danger" | "jarvis";
-  disabled?: boolean;
-  title?: string;
-  /** What a screen reader says, when the button shows only a symbol. */
-  label?: string;
-  /** Drawn before its text. */
-  icon?: IconName;
-  small?: boolean;
-}) {
-  const tone = () =>
-    ({
-      primary: "bg-accent text-on-fill",
-      plain: "border border-line bg-panel hover:bg-sunk",
-      danger: "border border-line bg-panel text-bad hover:bg-sunk",
-      jarvis: "bg-jarvis text-on-fill",
-    })[props.kind ?? "plain"];
-  return (
-    <button
-      type={props.submit ? "submit" : "button"}
-      // A fingertip needs 44 px; a pointer doesn't.
-      class={`inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md font-medium disabled:opacity-50 md:min-h-0 ${props.small ? "px-3 text-sm md:px-2 md:py-0.5 md:text-xs" : "px-3 py-1 text-sm"} ${tone()}`}
-      disabled={props.disabled}
-      title={props.title}
-      aria-label={props.label}
-      onClick={(e) => props.onClick?.(e)}
-    >
-      <Show when={props.icon}>{(name) => <Icon name={name()} size={props.small ? 14 : 16} />}</Show>
-      {props.children}
-    </button>
   );
 }
 

@@ -113,7 +113,7 @@ describe("colours", () => {
   });
 
   it("keep a badge's text readable on its own background", () => {
-    for (const tone of ["ok", "warn", "bad", "accent", "jarvis"]) {
+    for (const tone of ["ok", "warn", "bad", "info", "accent", "jarvis"]) {
       for (const [mode, values] of Object.entries(MODES)) {
         const ratio = contrast(
           token(values, `--color-${tone}`),
@@ -129,6 +129,20 @@ describe("colours", () => {
       for (const [mode, values] of Object.entries(MODES)) {
         const ratio = contrast(token(values, "--color-on-fill"), token(values, `--color-${fill}`));
         expect(ratio, `${fill} in ${mode}`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+
+  it("give initials eight tints that read in ink and can be told apart", () => {
+    const tints = Array.from({ length: 8 }, (_, i) => `--color-avatar-${i + 1}`);
+    for (const [mode, values] of Object.entries(MODES)) {
+      for (const [i, a] of tints.entries()) {
+        const ratio = contrast(token(values, "--color-ink"), token(values, a));
+        expect(ratio, `${a} in ${mode}`).toBeGreaterThanOrEqual(4.5);
+        for (const b of tints.slice(i + 1)) {
+          const gap = apart(token(values, a), token(values, b));
+          expect(gap, `${a} and ${b} in ${mode}`).toBeGreaterThanOrEqual(0.02);
+        }
       }
     }
   });
