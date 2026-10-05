@@ -250,8 +250,87 @@ describe("reply drafts", () => {
     ]);
     const prompt = (out[0] as { prompt: string }).prompt;
     expect(await listed(prompt)).toEqual(["Q9", "Q8", "Q7", "Q6", "Q5", "Q4", "Q3", "Q2"]);
+    expect(prompt).toContain(
+      "Use only mail_thread and mail_draft, and only for the conversations listed below.",
+    );
     expect(prompt).toContain("never set to, cc or bcc");
     expect(prompt).toContain("never call mail_send or mail_no_reply");
+    expect(prompt).toContain("Don't archive, mark, move, change or discard anything");
+  });
+
+  it("drafts a reply where the only draft is a follow-up from before they answered", async () => {
+    g.gmail.deliver(
+      {
+        from: { address: ME },
+        to: [ANA],
+        subject: "Contract",
+        text: "Did you sign it?",
+        messageId: "c1@f",
+      },
+      ["SENT"],
+    );
+    await sync();
+    const [contract] = await ok<ThreadSummary[]>("mail.threads", { view: "all", waiting: "them" });
+    // Jarvis's nudge, which you didn't send; then Ana answers the next day.
+    await ok(
+      "mail.draft",
+      { threadId: contract!.id, text: "Just checking in, did you sign it?" },
+      jarvisCaller("untrusted"),
+    );
+    g.gmail.deliver(
+      {
+        from: ANA,
+        subject: "Re: Contract",
+        text: "Signed. Can you send the invoice?",
+        messageId: "c2@f",
+        inReplyTo: "c1@f",
+        references: ["c1@f"],
+        date: new Date("2026-10-02T12:00:00Z"),
+      },
+      IMPORTANT,
+    );
+    await sync();
+    t.clock.set("2026-10-03T11:45:00Z");
+    const out = await replyDraftRoutine.run(firing(), ctx());
+    expect(await listed((out[0] as { prompt: string }).prompt)).toEqual(["Contract"]);
+    // The old nudge isn't a reply to what Ana said.
+    expect(await waitingDigest(ctx())).toEqual([
+      { bucket: "today", text: "1 email needs your reply." },
+    ]);
+  });
+
+  it("doesn't write again a reply you threw away, until they write again", async () => {
+    g.gmail.deliver(
+      { from: ANA, subject: "Dinner?", text: "Are you free Friday?", messageId: "d1@f" },
+      IMPORTANT,
+    );
+    await sync();
+    const [dinner] = await ok<ThreadSummary[]>("mail.threads", { waiting: "you" });
+    const draft = await ok<{ id: string }>(
+      "mail.draft",
+      { threadId: dinner!.id, text: "Friday works." },
+      jarvisCaller("untrusted"),
+    );
+    await ok("mail.discard", { id: draft.id });
+    t.clock.advance(DAY_MS);
+    expect(await replyDraftRoutine.run(firing(), ctx())).toEqual([]);
+
+    g.gmail.deliver(
+      {
+        from: ANA,
+        subject: "Re: Dinner?",
+        text: "Or Saturday?",
+        messageId: "d2@f",
+        inReplyTo: "d1@f",
+        references: ["d1@f"],
+        date: t.clock.now(),
+      },
+      IMPORTANT,
+    );
+    await sync();
+    t.clock.advance(DAY_MS);
+    const out = await replyDraftRoutine.run(firing(), ctx());
+    expect(await listed((out[0] as { prompt: string }).prompt)).toEqual(["Dinner?"]);
   });
 
   it("does nothing while Jarvis is paused, and leaves follow-ups to draft once it's back", async () => {

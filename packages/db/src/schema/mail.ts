@@ -1,6 +1,6 @@
 // Mail and the people it comes from (M2). Mirrors migrations/0006_mail.up.sql and
 // 0007_mail_drafts.up.sql, 0008_mail_waiting.up.sql, 0009_mail_invites.up.sql,
-// 0022_google_pacing.up.sql and 0032_integrations.up.sql.
+// 0022_google_pacing.up.sql, 0032_integrations.up.sql and 0034_mail_drafted.up.sql.
 import { sql } from "drizzle-orm";
 import {
   boolean,
@@ -110,6 +110,8 @@ export const mailThread = pgTable(
     noReplyCount: integer("no_reply_count"),
     /** When Jarvis last drafted a follow-up for it. */
     nudgedAt: ts("nudged_at"),
+    /** When Jarvis last wrote a draft in it; kept when you throw the draft away. */
+    draftedAt: ts("drafted_at"),
   },
   (t) => [unique().on(t.accountId, t.rootMessageId)],
 );
