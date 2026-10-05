@@ -1,11 +1,21 @@
 // Saving a board whole (D59): a save that lost a race is merged card by card and sent again, a
 // save that can't reach Hearth keeps trying, Hearth's own reason shows when it refuses one, a
 // closing page still sends what's unsaved, and a board restored from the trash saves what was
-// changed while it was there, however the restore and Hearth's answers cross. Runs against a fake
-// Hearth (no DOM or IndexedDB here).
+// changed while it was there, however the restore and Hearth's answers cross, and adds what was
+// changed before it was first read to Hearth's board instead of saving over it. Runs against a
+// fake Hearth and an in-memory stand-in for IndexedDB (no DOM here).
 import type { Canvas, CanvasNode } from "@hearth/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Unsaved } from "./docStore.ts";
 import type { LiveEvent } from "./live.ts";
+
+/** The unsaved copies this device keeps, by key. */
+const kept = vi.hoisted(() => new Map<string, Unsaved<unknown>>());
+vi.mock("./docStore.ts", () => ({
+  loadUnsaved: async (key: string) => structuredClone(kept.get(key)) ?? null,
+  saveUnsaved: async (rec: Unsaved<unknown>) => void kept.set(rec.key, structuredClone(rec)),
+  dropUnsaved: async (key: string) => void kept.delete(key),
+}));
 
 /** Who's listening to the live feed; the tests send its events. */
 const feed = vi.hoisted(() => new Set<(e: LiveEvent) => void>());
@@ -48,6 +58,7 @@ beforeEach(() => {
   late = null;
   held = 0;
   feed.clear();
+  kept.clear();
   sent = [];
   const win = Object.assign(new EventTarget(), {
     setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
@@ -100,6 +111,7 @@ async function openBoard() {
       return { title: r.title, data: r.board, version: r.version };
     },
     merge: mergeCanvas,
+    empty: () => ({ nodes: [], edges: [] }),
     current: () => structuredClone(shown),
     show: (data) => {
       shown = structuredClone(data);
@@ -200,7 +212,8 @@ describe("saving a board whole", () => {
   it("opens a board that was in the trash when it opened, once it's restored", async () => {
     trashed = true;
     const { saver, shown } = await openBoard();
-    expect(saver.problem()).toMatch(/deleted/);
+    // Nothing has been on screen to change, so it doesn't speak of saving changes.
+    expect(saver.problem()).toBe("This board is in the trash. Restore it to open it here.");
     trashed = false;
     hear("entity.restored");
     await vi.advanceTimersByTimeAsync(0);
@@ -238,4 +251,36 @@ describe("saving a board whole", () => {
     expect(texts(shown())).toEqual(["one"]);
     expect(saver.problem()).toBeNull();
   });
+
+  it("adds a card made before the board was first read to Hearth's, once it's restored", async () => {
+    server.board = { nodes: [card("a", "Original")], edges: [] };
+    trashed = true;
+    // Opened from the trash: nothing's been read, and a card goes on the empty screen.
+    const { saver, edit } = await openBoard();
+    edit((b) => b.nodes.push(card("n", "Added")));
+    await vi.advanceTimersByTimeAsync(700);
+    trashed = false;
+    hear("entity.restored");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(texts(server.board)).toEqual(["Original", "Added"]);
+    expect(saver.problem()).toBeNull();
+  });
+
+  it.each([0, 1])(
+    "merges a copy kept before the board was read onto Hearth's, deleting nothing (made on version %i)",
+    async (baseVersion) => {
+      server.board = { nodes: [card("a", "Original")], edges: [] };
+      kept.set("canvas:b1", {
+        key: "canvas:b1",
+        data: { nodes: [card("n", "Added")], edges: [] },
+        base: null,
+        baseVersion,
+      });
+      const { shown } = await openBoard();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(texts(shown())).toEqual(["Original", "Added"]);
+      expect(texts(server.board)).toEqual(["Original", "Added"]);
+      expect(kept.size).toBe(0);
+    },
+  );
 });

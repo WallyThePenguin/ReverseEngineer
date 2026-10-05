@@ -2,7 +2,8 @@
 // open, as the same peer, without clashing; edits are dropped from disk only once a saved copy
 // holds them, and one tab's saved copy never loses another's; a deleted note keeps what Hearth
 // never got, and sends it once the note is restored, however the restore and Hearth's answers
-// cross. Runs against a fake Hearth and an in-memory stand-in for IndexedDB.
+// cross, and keeps its copy so an edit written ahead after it went survives an open made while
+// it's still gone. Runs against a fake Hearth and an in-memory stand-in for IndexedDB.
 import { LoroDoc, VersionVector } from "loro-crdt";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PendingKey, PendingUpdate, SavedDoc } from "./docStore.ts";
@@ -277,13 +278,14 @@ describe("a note's edits, written ahead", () => {
     await a.doc.close();
   });
 
-  it("keeps what a deleted note never sent, and forgets one with nothing unsent", async () => {
+  it("keeps a deleted note's copy, marked unsent only when it holds what Hearth never got", async () => {
     const a = await open();
     mode = "gone";
     a.type(" (draft)");
     await vi.advanceTimersByTimeAsync(600);
     expect(a.seen.at(-1)).toBe("gone");
     expect(savedText()).toBe("Plan (draft)");
+    expect(disk.docs.get("n1")!.unsent).toBe(1);
     expect(disk.updates.size).toBe(0);
     await a.doc.close();
 
@@ -294,7 +296,29 @@ describe("a note's edits, written ahead", () => {
     b.doc.schedule(0);
     await vi.advanceTimersByTimeAsync(0);
     expect(b.seen.at(-1)).toBe("gone");
-    expect(disk.docs.has("n1")).toBe(false);
+    expect(savedText()).toBe("Plan");
+    expect(disk.docs.get("n1")!.unsent).toBeUndefined();
+    await b.doc.close();
+  });
+
+  it("sends an edit written ahead after a note went with nothing unsent, once it's restored", async () => {
+    const a = await open();
+    mode = "gone";
+    a.doc.schedule(0);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(a.seen.at(-1)).toBe("gone");
+    // A change that got past the locked editor is written ahead all the same.
+    a.type(" (ticked)");
+    await vi.advanceTimersByTimeAsync(600);
+    expect(disk.updates.size).toBe(1);
+    await a.doc.close();
+    // Kept notes are sent (Hearth starting, something else restored) while it's still gone.
+    const { sendUnsent } = await import("./doc.ts");
+    await sendUnsent(["n1"]);
+    await vi.advanceTimersByTimeAsync(0);
+    mode = "up";
+    const b = await open();
+    expect(hearthText()).toBe("Plan (ticked)");
     await b.doc.close();
   });
 

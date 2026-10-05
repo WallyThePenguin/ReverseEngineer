@@ -278,10 +278,12 @@ export function CanvasBoard(props: { id: string; pane: number }) {
             aria-label="Board name"
             value={b.title()}
             placeholder="Untitled board"
+            readOnly={!b.loaded()}
             onChange={(e) => void b.rename(e.currentTarget.value.trim() || "Untitled board")}
             onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
           />
         }
+        record={{ id: props.id, type: "canvas", trashed: b.gone() }}
         sub={
           b.problem() ??
           "Double-click to write · drag the background to move around · Ctrl+scroll to zoom"

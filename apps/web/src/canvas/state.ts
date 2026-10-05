@@ -1,6 +1,8 @@
 // One open board: what's on it, what's selected, undo and redo, and saving. Every change is saved
 // whole a moment after you stop, kept on this device until Hearth has it, and merged card by card
-// with anything saved elsewhere meanwhile (Jarvis adding cards, another screen): D59.
+// with anything saved elsewhere meanwhile (Jarvis adding cards, another screen): D59. It takes no
+// change or new name until Hearth's copy has first been read: one opened from the trash has
+// nothing on screen until it's restored, and a card put on that empty screen was made on nothing.
 
 import { type Canvas, type CanvasEdge, type CanvasNode, mergeCanvas } from "@hearth/core";
 import { batch, createSignal } from "solid-js";
@@ -43,6 +45,7 @@ export function createBoard(id: string) {
       return { title: r.title, data: r.board, version: r.version };
     },
     merge: mergeCanvas,
+    empty: () => ({ nodes: [], edges: [] }),
     current: () => copy(board),
     show(data, name) {
       batch(() => {
@@ -55,6 +58,7 @@ export function createBoard(id: string) {
 
   /** Changes the board as one undoable step. */
   const change = (fn: (draft: Canvas) => void) => {
+    if (!loaded()) return;
     undo.push(copy(board));
     if (undo.length > MAX_UNDO) undo.shift();
     redo.length = 0;
@@ -69,8 +73,15 @@ export function createBoard(id: string) {
     title,
     loaded,
     saving: saver.saving,
-    /** Why the board isn't saved, in plain words, or null. */
-    problem: saver.problem,
+    /** It's in the trash: the pane's header says so, and offers Restore. */
+    gone: saver.gone,
+    /** Why the board isn't saved, in plain words, or null; in the trash, what that means here. */
+    problem() {
+      if (!saver.gone()) return saver.problem();
+      return loaded()
+        ? "Changes made here are kept, and saved once it's restored."
+        : "There's nothing to show here until it's restored.";
+    },
     selected,
     tool,
     setTool,
@@ -90,7 +101,7 @@ export function createBoard(id: string) {
       redo.length = 0;
     },
     commit() {
-      saver.changed();
+      if (loaded()) saver.changed();
     },
     change,
     add(node: CanvasNode) {
@@ -132,6 +143,7 @@ export function createBoard(id: string) {
       saver.changed();
     },
     rename(t: string) {
+      if (!loaded()) return;
       setTitle(t);
       saver.rename(t);
     },

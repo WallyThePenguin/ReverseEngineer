@@ -74,6 +74,9 @@ export function createSheet(id: string) {
       return { title: r.title, data: r.book, version: r.version };
     },
     merge: mergeWorkbook,
+    // What the screen starts as, not no sheets at all: a cell typed in its "Sheet1" before the
+    // first read then doesn't put that name back over the one Hearth's sheet has.
+    empty: emptyWorkbook,
     current: () => copy(book),
     show(data, name) {
       batch(() => {

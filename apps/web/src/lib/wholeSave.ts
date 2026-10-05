@@ -34,6 +34,11 @@ export interface SaverOptions<T> {
   input(data: T, baseVersion: number, title: string | undefined): unknown;
   get(): Promise<Remote<T>>;
   merge(base: T, mine: T, theirs: T): T;
+  /**
+   * One with nothing in it (a new board, a new spreadsheet's one empty sheet, no notes). Changes
+   * kept before Hearth's copy was first read are merged onto it, so they only add to Hearth's.
+   */
+  empty(): T;
   /** A plain copy of what's on screen. */
   current(): T;
   /** Puts a copy that came from elsewhere, or a merge, on screen. */
@@ -106,7 +111,12 @@ export function createSaver<T>(o: SaverOptions<T>) {
   const refused = (err: unknown) => {
     if (err instanceof ApiError && err.code === "not_found") {
       setGone(true);
-      setProblem(`This ${o.noun} was deleted. Restore it from the trash to save changes here.`);
+      // Never read here (it opened from the trash): restoring it is what opens it.
+      setProblem(
+        loaded
+          ? `This ${o.noun} was deleted. Restore it from the trash to save changes here.`
+          : `This ${o.noun} is in the trash. Restore it to open it here.`,
+      );
     } else {
       const why = err instanceof Error ? err.message : String(err);
       setProblem(`Hearth didn't save this: ${why}`);
@@ -120,9 +130,12 @@ export function createSaver<T>(o: SaverOptions<T>) {
     if (!closed) retry = window.setTimeout(() => void save(), backoff(attempt++));
   };
 
-  /** Takes in what was saved elsewhere and puts this screen's changes on top. */
+  /**
+   * Takes in what was saved elsewhere and puts this screen's changes on top. With no base (never
+   * read), what's here was made on nothing, so it's merged onto nothing: it adds, it can't delete.
+   */
   const mergeWith = (theirs: Remote<T>) => {
-    const merged = o.merge(base ?? theirs.data, o.current(), theirs.data);
+    const merged = o.merge(base ?? o.empty(), o.current(), theirs.data);
     base = theirs.data;
     version = theirs.version;
     o.show(merged);
@@ -215,13 +228,17 @@ export function createSaver<T>(o: SaverOptions<T>) {
       return;
     }
     // Changes made here that never reached Hearth: the tab closed, or Hearth was out of reach.
-    base = kept!.base ?? r?.data ?? null;
-    version = kept!.baseVersion;
-    title = kept!.title !== r?.title ? kept!.title : undefined;
-    o.show(kept!.data, kept!.title ?? r?.title);
+    // Ones kept before Hearth's copy was ever read have no base: whatever version they name,
+    // they're merged onto an empty one, so they add to what Hearth has and delete none of it (D59).
+    const k = kept!;
+    const unread = (k.base ?? null) === null;
+    base = k.base ?? o.empty();
+    version = k.baseVersion;
+    title = k.title !== r?.title ? k.title : undefined;
+    o.show(k.data, k.title ?? r?.title);
     if (!r) dirty = true;
-    else if (kept!.baseVersion !== r.version) mergeWith(r);
-    else dirty = !sameJson(kept!.data, r.data);
+    else if (unread || k.baseVersion !== r.version) mergeWith(r);
+    else dirty = !sameJson(k.data, r.data);
     if (unsaved()) void save();
     else void dropUnsaved(o.key);
   }
@@ -295,6 +312,8 @@ export function createSaver<T>(o: SaverOptions<T>) {
     saving,
     /** Why the last change isn't saved, in plain words, or null. */
     problem,
+    /** Hearth said it's in the trash, and it hasn't been restored since. */
+    gone,
     load,
     /** The screen changed it: save a moment after the last change. */
     changed() {

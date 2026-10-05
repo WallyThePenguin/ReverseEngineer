@@ -23,6 +23,8 @@ export function MeetingNotes(props: { id: string; notes: string; revision: numbe
       return { title: r.title, data: r.notes, version: r.revision };
     },
     merge: mergeText,
+    // Typed before the first read, onto the page's copy: merged onto none, Hearth's lines all stay.
+    empty: () => "",
     current: () => area?.value ?? "",
     show(notes) {
       if (!area || area.value === notes) return;

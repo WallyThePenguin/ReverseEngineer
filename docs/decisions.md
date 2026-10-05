@@ -1361,7 +1361,9 @@ a busy Slack channel lost messages for good.
   only one side changed takes that side, one both changed takes this screen's), meeting notes by
   line (this screen's text, then the lines only the other side wrote). Until Hearth has a change,
   a copy waits in IndexedDB with the version it was made on; the page sends it as it closes, and
-  the next open sends what never arrived. Jarvis must pass the version it read.
+  the next open sends what never arrived. One kept before Hearth's copy was ever read is merged
+  onto an empty one, so it adds to what Hearth has and deletes none of it; a board takes no
+  change at all until it's been read. Jarvis must pass the version it read.
 - **Whole-note writes don't erase typing.** Jarvis rewriting a whole note must pass the revision
   it read; checklist-to-tasks locks the note and changes only the items it links. A rewrite's
   diff gets 200 ms and then goes line by line.
@@ -1370,11 +1372,11 @@ a busy Slack channel lost messages for good.
   doc Jarvis answers once the note has been still for 8 seconds (at most a minute), reading the
   paragraph as it is by then.
 - **Failures say what happened.** "Can't reach Hearth" only when it can't; when Hearth turns a
-  change down, its own reason. A note deleted while open turns read-only with Copy text and
-  keeps what it never sent on the device; restored (here or anywhere), it's editable again and
-  sends what it kept. Boards, spreadsheets and meeting notes likewise keep their changes and save
-  them once restored. Signing out asks first when edits haven't reached Hearth, since it deletes
-  this device's copies.
+  change down, its own reason. A note deleted while open turns read-only with Copy text (its
+  checklist boxes too) and keeps its saved copy, with what it never sent, on the device;
+  restored (here or anywhere), it's editable again and sends what it kept. Boards, spreadsheets
+  and meeting notes likewise keep their changes and save them once restored. Signing out asks
+  first when edits haven't reached Hearth, since it deletes this device's copies.
 
 **Alternatives:** A sync socket with a server-side log (PLAN 8.5; more moving parts than an
 action that is already ordered and durable). Loro for boards and sheets too (a rewrite of both

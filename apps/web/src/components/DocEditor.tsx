@@ -77,9 +77,14 @@ class Checkbox extends WidgetType {
     box.className = "mx-0.5 align-middle";
     box.onmousedown = (e) => {
       e.preventDefault();
+      // CodeMirror's read-only stops typing, not a change dispatched here: a box ticked in a
+      // deleted note would be written ahead and saved once it's restored.
+      if (view.state.readOnly) return;
       const at = view.posAtDOM(box);
       view.dispatch({ changes: { from: at + 1, to: at + 2, insert: this.checked ? " " : "x" } });
     };
+    // Ticked or not as the note says, never by the click itself.
+    box.onclick = (e) => e.preventDefault();
     return box;
   }
   ignoreEvent() {
@@ -170,7 +175,7 @@ const READ_ONLY = [EditorState.readOnly.of(true), EditorView.editable.of(false)]
 
 export default function DocEditor(props: { id: string; placeholder?: string }) {
   let host!: HTMLDivElement;
-  /** "trashed": it's in the trash and this device has no copy of it to show. */
+  /** "trashed": it's in the trash, and this device has no saved copy of it to show. */
   const [state, setState] = createSignal<"opening" | "open" | "failed" | "trashed">("opening");
   const [status, setStatus] = createSignal<DocStatus>({ kind: "ok" });
   const [editedBy, setEditedBy] = createSignal<string | null>(null);
@@ -270,12 +275,6 @@ export default function DocEditor(props: { id: string; placeholder?: string }) {
 
   return (
     <div>
-      <Show when={state() === "trashed"}>
-        <div class="mb-2 rounded-md border border-line bg-sunk px-3 py-2 text-sm">
-          This is in the trash, and there's no copy of it on this device to read. Restore it to open
-          it here.
-        </div>
-      </Show>
       <Show when={state() === "open" && gone()}>
         {(g) => (
           <div class="mb-2 flex flex-wrap items-center gap-3 rounded-md border border-line bg-sunk px-3 py-2 text-sm">
@@ -292,6 +291,8 @@ export default function DocEditor(props: { id: string; placeholder?: string }) {
       </Show>
       <div class="mb-1 flex h-5 items-center gap-3 text-xs text-faint">
         <Show when={state() === "opening"}>Opening…</Show>
+        {/* The note's pane header says it's in the trash, and offers Restore. */}
+        <Show when={state() === "trashed"}>There's nothing to read here until it's restored.</Show>
         <Show when={state() === "failed"}>
           <span class="text-bad">Couldn't open this note. Check that Hearth is running.</span>
         </Show>

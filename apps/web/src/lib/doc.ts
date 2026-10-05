@@ -52,7 +52,10 @@ export type DocStatus =
   /** Deleted, until it's restored; `unsent` if it held edits Hearth never got (kept here). */
   | { kind: "gone"; unsent: boolean };
 
-/** The note is in the trash, and this device has no copy of it to open until it's restored. */
+/**
+ * The note is in the trash, and this device has no saved copy of it to open until it's restored
+ * (edits written ahead here, if any, wait on disk for that).
+ */
 export class NoteGone extends Error {}
 
 export class LiveDoc {
@@ -315,23 +318,21 @@ export class LiveDoc {
     return c === 0 || c === 1;
   }
 
-  /** Deleted (or never a doc). What never reached Hearth stays here, in case it's put back. */
+  /**
+   * Deleted (or never a doc). Its saved copy stays, holding what never reached Hearth in case it's
+   * put back, and what an edit written ahead from now on (a key pressed as the editor locks) was
+   * made on, so an open before it's restored (Hearth starting, something else restored) can read
+   * that edit and keep it. Hearth has no permanent delete, only the trash, so the copy is kept
+   * like that of any note opened here, until signing out clears them all.
+   */
   private async lost() {
     this.gone = true;
     window.clearTimeout(this.timer);
     window.clearTimeout(this.retry);
-    // Asked once every edit is on disk, so one typed meanwhile isn't dropped without a copy.
-    await this.written();
-    const unsent = this.unsent();
-    const drop = [...this.adopted];
-    for (let n = this.kept + 1; n <= this.n; n++) drop.push([this.id, this.tab, n]);
-    await keepDoc(
-      this.id,
-      // Another tab's copy with edits this one hasn't seen stays too.
-      (saved) => (unsent ? this.copy(saved) : saved?.unsent && !this.holds(saved) ? saved : null),
-      drop,
-    );
-    if (this.gone) this.onStatus({ kind: "gone", unsent });
+    // Never read from Hearth (it opened from the trash): there's no copy to keep, and edits an
+    // earlier copy wrote ahead stay on disk as they are, to go once it's restored.
+    if (this.server !== null) await this.keep();
+    if (this.gone) this.onStatus({ kind: "gone", unsent: this.unsent() });
     // Restored meanwhile: the sync it asked for found this one running, so it goes now.
     else this.schedule(0);
   }
