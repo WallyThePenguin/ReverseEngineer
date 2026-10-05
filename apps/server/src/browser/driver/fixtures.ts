@@ -95,6 +95,12 @@ export function fixtures(port: () => number): Site {
     },
     // Nothing at all for 2.5 s, so a new tab going to it is still on its blank page till then.
     "/held": { rest: page("Held", "<h1>Held</h1>"), afterMs: 2_500 },
+    // Its heading comes when a test calls finish() (or after a minute): still loading till then.
+    "/unfinished": {
+      first: `<!doctype html><html><head><title>Unfinished</title><meta charset="utf-8"></head><body style="margin:0"><p>The start</p>`,
+      rest: "<h1>The end</h1></body></html>",
+      afterMs: 60_000,
+    },
     "/order": page("Ordered", "<h1>Thanks</h1>"),
     "/subscribe": page("Subscribed", "<h1>Subscribed</h1>"),
     "/post": page("Posted", "<h1>Posted</h1>"),

@@ -40,6 +40,8 @@ interface Tab {
   openerTabId: number | null;
   url: string;
   title: string;
+  /** As the extension's tab list has it: from a navigation's start till its page has loaded. */
+  loading: boolean;
   /** Child sessions (frames from other sites) and the frame each is for. */
   children: Map<string, string>;
   /** Isolated worlds made, per session ("" for the tab's own). */
@@ -274,7 +276,7 @@ export class TestChrome implements BrowserClient, CdpTransport {
       title: t.title,
       active: true,
       handed: t.handed,
-      loading: false,
+      loading: t.loading,
       openerTabId: t.openerTabId,
       dialog: this.dialogs.get(t.id),
       error: null,
@@ -292,6 +294,7 @@ export class TestChrome implements BrowserClient, CdpTransport {
       openerTabId: opener,
       url: "",
       title: "",
+      loading: false,
       children: new Map(),
       worlds: new Map(),
     };
@@ -334,6 +337,11 @@ export class TestChrome implements BrowserClient, CdpTransport {
     );
     if (!tab || !m.method) return;
     const child = tab.session === m.sessionId ? undefined : m.sessionId;
+    // The tab's own frame has the target's id.
+    if (!child && params.frameId === tab.targetId) {
+      if (m.method === "Page.frameStartedLoading") tab.loading = true;
+      if (m.method === "Page.frameStoppedLoading") tab.loading = false;
+    }
     if (m.method === "Target.attachedToTarget") {
       const sid = String(params.sessionId);
       tab.children.set(sid, (params.targetInfo as { targetId: string }).targetId);
