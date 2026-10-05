@@ -1,6 +1,6 @@
 // Pages for the driver's tests (B1): frames from two sites, shadow DOM, a hidden checkbox, a tab
 // that's a link, a click handled by a parent, things a page made clickable with no role, a date,
-// a canvas, a pop-up and an endless list.
+// a canvas, a pop-up, an endless list, and pages that are slow to come.
 import type { Site } from "../../testing/cdp-connection.ts";
 
 const page = (title: string, body: string) =>
@@ -87,6 +87,14 @@ export function fixtures(port: () => number): Site {
       more(); addEventListener("scroll", () => {
         if (innerHeight + scrollY > document.body.scrollHeight - 200) more(); });</script>`,
     ),
+    // Its heading comes 2.5 s after the rest, so it's still loading till then, with nothing to read.
+    "/slow": {
+      first: `<!doctype html><html><head><title>Slow</title><meta charset="utf-8"></head><body style="margin:0">`,
+      rest: "<h1>Slow</h1></body></html>",
+      afterMs: 2_500,
+    },
+    // Nothing at all for 2.5 s, so a new tab going to it is still on its blank page till then.
+    "/held": { rest: page("Held", "<h1>Held</h1>"), afterMs: 2_500 },
     "/order": page("Ordered", "<h1>Thanks</h1>"),
     "/subscribe": page("Subscribed", "<h1>Subscribed</h1>"),
     "/post": page("Posted", "<h1>Posted</h1>"),

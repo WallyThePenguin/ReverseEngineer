@@ -136,3 +136,27 @@ describe.runIf(h.run)("the driver", () => {
     expect(zoomed.imageW).toBeGreaterThan(100);
   });
 });
+
+describe.runIf(h.run)("the tests' Chrome", () => {
+  // The tests' open waits for a page to load, as browser.open does before Jarvis reads it (B1).
+  // It once gave up after a set number of checks and handed over a tab whose first read came
+  // back empty, the way a tab still on its blank page reads. The test has a minute: its four new
+  // tabs and two pages that take 2.5 s each went past the usual 20 s under load.
+  it("hands over a tab once its page has loaded, and fails by name when it doesn't", async () => {
+    // Nothing comes for 2.5 s: the tab is still on its blank page when the wait runs out.
+    const held = chrome().url("a.test", "/held");
+    await expect(chrome().open(held, false, 250)).rejects.toThrow(
+      `${held} didn't load in 0.25 s: it's still "blank".`,
+    );
+    // Its heading comes 2.5 s after the rest. The wait starts before Page.navigate, so a late
+    // answer can't stretch it till the page is done.
+    const slow = chrome().url("a.test", "/slow");
+    await expect(chrome().open(slow, false, 250)).rejects.toThrow(`${slow} didn't load in 0.25 s`);
+    // With the usual wait, the first read shows each page. Each is asked for afresh, since Chrome
+    // held a second request for /held till the first one's answer came.
+    const first = await chrome().open(`${held}?again`);
+    expect((await drive("read_page", { tabId: first })).text).toContain('heading "Held"');
+    const second = await chrome().open(`${slow}?again`);
+    expect((await drive("read_page", { tabId: second })).text).toContain('heading "Slow"');
+  }, 60_000);
+});

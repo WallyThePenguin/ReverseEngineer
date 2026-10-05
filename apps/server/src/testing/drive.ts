@@ -5,7 +5,7 @@ import { chromiumForTests, chromiumPath } from "@hearth/modules/chromium";
 import { afterAll, beforeAll } from "vitest";
 import { fixtures } from "../browser/driver/fixtures.ts";
 import type { Site } from "./cdp-connection.ts";
-import { TestChrome } from "./chrome.ts";
+import { TestChrome, WARM_MS } from "./chrome.ts";
 
 export interface Harness {
   readonly run: boolean;
@@ -15,6 +15,9 @@ export interface Harness {
   /** Times anything else, like a step through the kernel, with the driver's calls. */
   timed<T>(op: string, run: () => Promise<T>): Promise<T>;
 }
+
+/** Chromium gets 20 s to start and WARM_MS to load a first page, both before any test. */
+const LAUNCH_MS = 20_000 + WARM_MS + 10_000;
 
 /** The ref a read gave the thing named `label`. */
 export function refOf(text: string, label: string): string {
@@ -40,7 +43,7 @@ export function useChrome(name: string, extra: Site = {}): Harness {
       ...fixtures(() => chrome?.server.port ?? 0),
       ...extra,
     });
-  }, 30_000);
+  }, LAUNCH_MS);
   afterAll(async () => {
     await chrome?.close();
     if (!timings.length) return;

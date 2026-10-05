@@ -19,8 +19,19 @@ export interface CdpMessage {
   error?: { message: string };
 }
 
+/**
+ * A page that's slow to come: the rest `afterMs` after the first part, so it's still loading till
+ * then. With no first part nothing comes till then, not even the headers, and a tab going to it
+ * stays on the page it was on.
+ */
+export interface SlowPage {
+  first?: string;
+  rest: string;
+  afterMs: number;
+}
+
 /** Pages by host and path ("a.test/form"), or by path alone for any host. */
-export type Site = Record<string, string | ((body: string) => string)>;
+export type Site = Record<string, string | ((body: string) => string) | SlowPage>;
 
 export class FixtureServer {
   readonly server: Server;
@@ -44,8 +55,18 @@ export class FixtureServer {
           res.writeHead(404).end("Not found");
           return;
         }
-        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        res.end(typeof page === "function" ? page(body) : page);
+        const head = () => res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        if (typeof page !== "object") {
+          head().end(typeof page === "function" ? page(body) : page);
+          return;
+        }
+        if (page.first !== undefined) head().write(page.first);
+        const timer = setTimeout(
+          () => (page.first === undefined ? head() : res).end(page.rest),
+          page.afterMs,
+        );
+        // A tab that went elsewhere, or a Chromium that closed, takes nothing more.
+        res.on("close", () => clearTimeout(timer));
       });
     });
   }
