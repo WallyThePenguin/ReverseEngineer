@@ -34,6 +34,8 @@ export interface App {
   utility?: true;
   /** Its slot on the phone's tab bar, counting from the left. Without one, it's behind More. */
   phoneTab?: number;
+  /** The view its phone tab opens, when that isn't its home. */
+  phoneView?: ListView;
 }
 
 export const APPS: readonly App[] = [
@@ -42,9 +44,11 @@ export const APPS: readonly App[] = [
     label: "Today",
     icon: "sun",
     hue: "--color-today",
-    views: ["inbox"],
+    views: ["today", "inbox"],
     records: [],
     phoneTab: 1,
+    // The phone's first tab stays the inbox until Today is the screen Hearth opens on.
+    phoneView: "inbox",
   },
   {
     id: "mail",
@@ -127,6 +131,13 @@ export interface Place {
 
 /** In the sidebar's order. */
 export const PLACES: readonly Place[] = [
+  {
+    view: "today",
+    label: "Today",
+    icon: "today",
+    keys: "g h",
+    about: "your morning on one screen",
+  },
   { view: "inbox", label: "Inbox", icon: "inbox", keys: "g i" },
   { view: "mail", label: "Mail", icon: "mail", keys: "g e" },
   { view: "tasks", label: "Tasks", icon: "tasks", keys: "g t", lists: ["task"] },
@@ -222,8 +233,8 @@ export function placeOf(view: ListView): Place {
 export const listFor = (type: string): ListView | undefined =>
   PLACES.find((p) => p.lists?.includes(type))?.view;
 
-/** The phone's tabs, left to right: each one's sub-product home. */
+/** The phone's tabs, left to right: each one's sub-product home, or the view it names instead. */
 export const phoneTabs = (): Place[] =>
   APPS.filter((a) => a.phoneTab !== undefined)
     .sort((a, b) => a.phoneTab! - b.phoneTab!)
-    .map((a) => placeOf(a.views[0]!));
+    .map((a) => placeOf(a.phoneView ?? a.views[0]!));

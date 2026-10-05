@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { toolSentence } from "./toolNames.ts";
+import { toolDoing, toolSentence } from "./toolNames.ts";
 
 describe("toolSentence", () => {
   it("says what Jarvis did in words, as it happens and once it's done", () => {
@@ -18,6 +18,12 @@ describe("toolSentence", () => {
     expect(toolSentence("mcp__hearth__calendar_schedule_meeting", "done")).toBe(
       "Invited people to a meeting",
     );
+  });
+
+  it("says what a kind of action does, for a group of approvals asking for it", () => {
+    expect(toolDoing("mail.send")).toBe("Sending an email");
+    expect(toolDoing("calendar.respond")).toBe("Answering an invitation");
+    expect(toolDoing("standing_rule.create")).toBe("Using standing rule create");
   });
 
   it("names any other tool in plain words", () => {

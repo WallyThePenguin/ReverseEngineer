@@ -3,6 +3,7 @@
 /** Every list view. None is ever taken away: links already sent out name them (push, the
  * service worker, the desktop app, installed home-screen icons). */
 export const LIST_VIEWS = [
+  "today",
   "inbox",
   "mail",
   "tasks",

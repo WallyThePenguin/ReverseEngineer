@@ -48,6 +48,12 @@ describe("the sub-products", () => {
     expect(appOf("thread").id).toBe("mail");
   });
 
+  it("make Today the Today app's home, with the inbox beside it", () => {
+    expect(appOf("today").views).toEqual(["today", "inbox"]);
+    expect(appOf("inbox").id).toBe("today");
+    expect(productOf("today")).toBe("today");
+  });
+
   it("each have their own colour, except Settings, which keeps the accent", () => {
     for (const app of APPS) {
       if (app.utility) expect(app.hue, app.id).toBeUndefined();
@@ -76,6 +82,7 @@ describe("places", () => {
     for (const k of keys) expect(k).toMatch(/^g [a-z]$/);
     // The ones fingers already know.
     expect(Object.fromEntries(PLACES.map((p) => [p.view, p.keys]))).toEqual({
+      today: "g h",
       inbox: "g i",
       mail: "g e",
       tasks: "g t",
@@ -95,6 +102,7 @@ describe("places", () => {
 
   it("keep the names the sidebar, the shortcuts sheet and Cmd+K have always used", () => {
     expect(PLACES.map((p) => p.label)).toEqual([
+      "Today",
       "Inbox",
       "Mail",
       "Tasks",
@@ -111,6 +119,7 @@ describe("places", () => {
       "Trash",
     ]);
     expect(PLACES.map(goLabel)).toEqual([
+      "Go to Today",
       "Go to Inbox",
       "Go to Mail",
       "Go to Tasks",
@@ -127,6 +136,7 @@ describe("places", () => {
       "Go to the trash",
     ]);
     expect(PLACES.map(paletteLabel)).toEqual([
+      "Go to Today (your morning on one screen)",
       "Go to Inbox",
       "Go to Mail",
       "Go to Tasks",
@@ -149,6 +159,9 @@ describe("places", () => {
     for (const view of LIST_VIEWS) expect(decodeRoute(view)).toEqual({ view });
     for (const view of RECORD_VIEWS) expect(decodeRoute(`${view}/${ID}`)).toEqual({ view, id: ID });
     expect(decodePath(`/inbox+task/${ID}`)).toEqual([{ view: "inbox" }, { view: "task", id: ID }]);
+    expect(decodePath("/today")).toEqual([{ view: "today" }]);
+    // Hearth still opens on the inbox; Today is a place you go to, for now.
+    expect(decodePath("/")).toEqual([{ view: "inbox" }]);
   });
 
   it("send a lone pane to the list its trashed record was in", () => {
@@ -163,9 +176,13 @@ describe("places", () => {
 });
 
 describe("the phone's tab bar", () => {
-  it("shows Inbox, Tasks and Calendar, each a sub-product's home", () => {
+  it("shows Inbox, Tasks and Calendar, each in its sub-product", () => {
     expect(phoneTabs().map((p) => p.label)).toEqual(["Inbox", "Tasks", "Calendar"]);
-    for (const tab of phoneTabs()) expect(appOf(tab.view).views[0]).toBe(tab.view);
+    for (const tab of phoneTabs()) {
+      const app = appOf(tab.view);
+      expect(app.views).toContain(tab.view);
+      expect(app.phoneView ?? app.views[0]).toBe(tab.view);
+    }
     const slots = APPS.flatMap((a) => (a.phoneTab === undefined ? [] : [a.phoneTab]));
     expect(new Set(slots).size).toBe(slots.length);
   });

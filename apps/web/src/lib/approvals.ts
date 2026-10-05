@@ -64,25 +64,52 @@ export function settledAs(
   return decision === "approve" ? "failed" : "gone";
 }
 
-export async function decide(approvalId: string, decision: "approve" | "deny") {
-  if (deciding(approvalId) || isDecided(approvalId)) return;
+/**
+ * How a decision sent from here went: done as asked; turned away because something changed first
+ * (someone decided it elsewhere, it ran out, or what it would do changed since you saw it, as a
+ * draft edited meanwhile); or not done (Hearth out of reach, or it failed).
+ */
+export type Decided = "done" | "changed" | "failed";
+
+/** Hearth's answers that something changed under the decision, rather than that it failed. */
+const CHANGED = new Set(["conflict", "not_found"]);
+
+/**
+ * Sends your yes or no, and says how it went. `quiet` leaves the saying to the caller: Today's
+ * "Approve all" sends several and reports them in one line.
+ */
+export async function decide(
+  approvalId: string,
+  decision: "approve" | "deny",
+  opts: { quiet?: boolean } = {},
+): Promise<Decided> {
+  // On its way already, or decided a moment ago: not the one you were looking at any more.
+  if (deciding(approvalId) || isDecided(approvalId)) return "changed";
+  const say = (text: string, tone?: "info" | "error") => {
+    if (!opts.quiet) toast.show(text, tone);
+  };
   setInFlight((s) => add(s, approvalId));
   try {
     const r = await decideApproval(approvalId, decision).catch((err: Error) => err);
     if (r instanceof Error) {
       // It may still have gone through; asking again is safe, since it runs at most once.
-      toast.show(r.message, "error");
-      return;
+      say(r.message, "error");
+      return "failed";
     }
     if (r.status === "ok") {
       settle(approvalId, decision === "approve" ? "executed" : "denied");
-      toast.show(decision === "approve" ? "Approved and done." : "Denied.");
-    } else if (r.status === "error") {
+      say(decision === "approve" ? "Approved and done." : "Denied.");
+      return "done";
+    }
+    if (r.status === "error") {
       // Decided elsewhere, ran out, or approved and then failed: it's no longer waiting either
       // way. Only Hearth being out of reach leaves it to decide again.
       if (r.code !== "unavailable") settle(approvalId, settledAs(decision, r));
-      toast.show(r.message, r.message.startsWith("This was already") ? "info" : "error");
-    } else if (r.status === "denied") toast.show(r.reason, "error");
+      say(r.message, r.message.startsWith("This was already") ? "info" : "error");
+      return CHANGED.has(r.code) ? "changed" : "failed";
+    }
+    if (r.status === "denied") say(r.reason, "error");
+    return "failed";
   } finally {
     setInFlight((s) => drop(s, approvalId));
     // What the approved action changed arrives as its own live events.

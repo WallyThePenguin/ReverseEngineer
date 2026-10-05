@@ -40,6 +40,7 @@ import { Settings } from "../views/Settings.tsx";
 import { Sheets, SheetView } from "../views/Sheets.tsx";
 import { Tasks } from "../views/Tasks.tsx";
 import { TaskView } from "../views/TaskView.tsx";
+import { Today } from "../views/Today.tsx";
 import { Trash } from "../views/Trash.tsx";
 import { Voice } from "../views/Voice.tsx";
 import { CommandPalette } from "./CommandPalette.tsx";
@@ -53,6 +54,9 @@ function PaneView(props: { route: PaneRoute; index: number }) {
   const id = () => ("id" in props.route ? props.route.id : "");
   return (
     <Switch>
+      <Match when={props.route.view === "today"}>
+        <Today pane={props.index} />
+      </Match>
       <Match when={props.route.view === "inbox"}>
         <Inbox pane={props.index} />
       </Match>

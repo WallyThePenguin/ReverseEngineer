@@ -73,6 +73,33 @@ describe("deciding an approval", () => {
     expect(shown).toEqual([{ text: "Denied.", tone: "info" }]);
   });
 
+  it("says how each decision went, quietly when its caller reports them together", async () => {
+    reply(200, { status: "ok", result: {} });
+    expect(await decide("b1", "approve", { quiet: true })).toBe("done");
+    // Decided a moment ago: not the one Approve all saw waiting.
+    expect(await decide("b1", "approve", { quiet: true })).toBe("changed");
+    reply(409, { status: "error", code: "conflict", message: "This was already denied." });
+    expect(await decide("b2", "approve", { quiet: true })).toBe("changed");
+    reply(400, {
+      status: "error",
+      code: "conflict",
+      message: "The draft changed since you were asked, so nothing was sent.",
+    });
+    expect(await decide("b3", "approve", { quiet: true })).toBe("changed");
+    expect(decidedAs("b3")).toBe("failed");
+    reply(404, { status: "error", code: "not_found", message: "Approval not found" });
+    expect(await decide("b4", "approve", { quiet: true })).toBe("changed");
+    reply(502, { status: "error", code: "failed", message: "Gmail said no." });
+    expect(await decide("b5", "approve", { quiet: true })).toBe("failed");
+    reply(503, { status: "error", code: "unavailable", message: "Hearth is busy." });
+    expect(await decide("b6", "approve", { quiet: true })).toBe("failed");
+    expect(isDecided("b6")).toBe(false);
+    expect(shown).toEqual([]);
+    // Without quiet, the same answer is a toast.
+    expect(await decide("b7", "approve")).toBe("failed");
+    expect(shown).toEqual([{ text: "Hearth is busy.", tone: "error" }]);
+  });
+
   it("reads what became of it from what Hearth said when it couldn't take the decision", () => {
     const conflict = (message: string) => ({ code: "conflict", message });
     expect(settledAs("deny", conflict("This was already approved and done."))).toBe("executed");

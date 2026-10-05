@@ -15,6 +15,8 @@ export interface Entity {
   updatedBy: string;
   deletedAt: string | null;
   revision: number;
+  /** Written after reading outside content (an email, a web page), so it may quote it (D58). */
+  outside?: boolean;
 }
 
 export interface Task {
@@ -282,6 +284,10 @@ export interface CalEvent {
   meetUrl: string | null;
   htmlLink: string | null;
   selfResponse: string | null;
+  /** You made it, so there's nothing to answer. */
+  selfOrganizer: boolean;
+  /** One time of a repeating meeting: answering it asks whether for this time or every time. */
+  recurringEventId: string | null;
   attendees: { email: string; name?: string; response?: string; self?: boolean }[];
   taskId: string | null;
 }

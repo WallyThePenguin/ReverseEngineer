@@ -59,6 +59,8 @@ export function ApprovalCard(props: {
   keys?: boolean;
   /** h2 by default; h3 inside a section that has a heading of its own. */
   level?: 2 | 3;
+  /** Its exact text shown in full from the start, as under Today's "Approve all", which covers it. */
+  open?: boolean;
   /** Placement only (a margin); the look is the card's. */
   class?: string;
 }) {
@@ -108,7 +110,7 @@ export function ApprovalCard(props: {
         </Show>
       </div>
       <Show when={props.why}>{(why) => <p class="mt-1 text-sm text-muted">{why()}</p>}</Show>
-      <Show when={props.text}>{(text) => <ExactText text={text()} />}</Show>
+      <Show when={props.text}>{(text) => <ExactText text={text()} open={props.open} />}</Show>
       <Show when={state() || meta()}>
         <div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-meta text-muted">
           <Show when={!waiting() && state()}>
@@ -161,8 +163,9 @@ export function ApprovalCard(props: {
  * to, since you decide on all of it (D58). The arrow keys scroll it once it has the focus, rather
  * than move the list's selection off the card you're reading.
  */
-function ExactText(props: { text: string }) {
-  const [all, setAll] = createSignal(false);
+function ExactText(props: { text: string; open?: boolean }) {
+  // Open from the start, it has no box to scroll and nothing to show more of.
+  const [all, setAll] = createSignal(props.open === true);
   const [more, setMore] = createSignal(false);
   let box!: HTMLPreElement;
   const measure = () => {

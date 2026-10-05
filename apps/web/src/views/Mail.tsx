@@ -4,7 +4,7 @@
 // and reach Gmail within a minute. Older conversations load as you scroll down to them. One with a
 // reply drafted says so, and whether Jarvis wrote it.
 
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from "solid-js";
 import { Icon } from "../components/icons.tsx";
 import { Pill } from "../components/kit/Pill.tsx";
 import { Skeleton } from "../components/kit/Skeleton.tsx";
@@ -25,9 +25,20 @@ type View = "inbox" | "starred" | "sent" | "all" | "trash";
 
 export const named = (a: MailAddress | undefined) => a?.name || a?.address || "someone";
 
+type Lane = "signal" | "noise" | "reply" | "waiting";
+/** A lane Mail was asked to open on from elsewhere, until it does. */
+const [asked, setAsked] = createSignal<Lane | null>(null);
+
+/** Opens Mail on the conversations that need your reply (Today's "All" under Replies you owe). */
+export function openToReply() {
+  setAsked("reply");
+  layout.open({ view: "mail" });
+}
+
 export function Mail(props: { pane: number }) {
   const [view, setView] = createSignal<View>("inbox");
-  const [lane, setLane] = createSignal<"signal" | "noise" | "reply" | "waiting">("signal");
+  const [lane, setLane] = createSignal<Lane>(untrack(asked) ?? "signal");
+  setAsked(null);
   const [query, setQuery] = createSignal("");
   const accounts = useAction<MailAccount[]>("mail.accounts");
   // What's searched for: what's typed, once typing pauses.
@@ -70,6 +81,16 @@ export function Mail(props: { pane: number }) {
   // Moving down with j: the next page comes before you reach the end.
   createEffect(() => {
     if (paging() && sel.index() >= list().length - 5) listed.more();
+  });
+  // Asked again while it's open: it turns to that lane.
+  createEffect(() => {
+    const to = asked();
+    if (!to) return;
+    setAsked(null);
+    setView("inbox");
+    setQuery("");
+    setLane(to);
+    sel.reset();
   });
   const focused = () => layout.focused() === props.pane;
 
