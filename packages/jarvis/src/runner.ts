@@ -10,7 +10,7 @@ import type { Brain, BrainEvents, BrainRequest } from "./brain.ts";
 import { claimNextTurn, type TurnRow } from "./claim.ts";
 import { classifyFailure, type Failure, failure } from "./failures.ts";
 import { reportJarvisHealth } from "./health.ts";
-import { runMemberTurn } from "./member-turn.ts";
+import { type MemberTurnEnv, runMemberTurn } from "./member-turn.ts";
 import { buildSystemPrompt } from "./prompt.ts";
 import { keepTaint, readFrom, restoreTaint } from "./taint.ts";
 import { ensureConversation, recapConversation, streamer, withRecap, writeLog } from "./threads.ts";
@@ -183,7 +183,7 @@ export class TurnRunner {
     const { turn } = end;
     // A Slack member's turn runs as them, with only what they may know (D62).
     if (turn.trigger === "slack_member") {
-      const think = (e: Ending, req: BrainRequest, ev: BrainEvents) => this.think(e, req, ev);
+      const think: MemberTurnEnv["think"] = (e, req, ev, afresh) => this.think(e, req, ev, afresh);
       return runMemberTurn({ ...this.env, think }, end, deadline, started);
     }
     const cid = await ensureConversation(this.kernel, turn);
@@ -285,7 +285,10 @@ export class TurnRunner {
       sessionId: conv?.agentSessionId ?? null,
       signal: deadline.signal,
     };
-    const think = (req: BrainRequest) => this.think(end, req, events);
+    // Claude lost the session this would resume: what Hearth kept of the conversation, then the ask.
+    const afresh = async () =>
+      withRecap(turn.prompt, await recapConversation(this.kernel, cid, turn));
+    const think = (req: BrainRequest) => this.think(end, req, events, afresh);
     // A kept session holds what was read, so the conversation remembers that first (D58).
     const remember = () => keepTaint(this.kernel, cid, state, conv);
     const keep = (id: string) => remember().then(() => keepSession(this.kernel, cid, id));
@@ -331,9 +334,16 @@ export class TurnRunner {
    * Runs the brain until the turn is stopped or out of time, whether or not the brain notices,
    * and doesn't start it once it is (untilEnded). Before any tool has run, two failures are
    * worked around once each: a tool Claude rejects is left out, and a session Claude lost is
-   * replaced by a recap Hearth writes (D54).
+   * replaced by a new one, which starts from `afresh`: the prompt the turn writes from what Hearth
+   * kept of the conversation (D54). The turn writes it, not this, because a Slack member's turn
+   * must keep their words, earlier ones too, inside asUntrusted there as well (D62).
    */
-  private async think(end: Ending, request: BrainRequest, events: BrainEvents) {
+  private async think(
+    end: Ending,
+    request: BrainRequest,
+    events: BrainEvents,
+    afresh: () => Promise<string>,
+  ) {
     const { signal } = request;
     let req = withoutTools(request, this.leftOut);
     let leftOut = false;
@@ -356,13 +366,11 @@ export class TurnRunner {
         }
         if (f.kind === "session_gone" && req.sessionId && end.conversationId && !recapped) {
           recapped = true;
-          const cid = end.conversationId;
           await this.kernel.db
             .update(conversation)
             .set({ agentSessionId: null })
-            .where(eq(conversation.entityId, cid));
-          const recap = await recapConversation(this.kernel, cid, end.turn);
-          req = { ...req, sessionId: null, prompt: withRecap(end.turn.prompt, recap) };
+            .where(eq(conversation.entityId, end.conversationId));
+          req = { ...req, sessionId: null, prompt: await afresh() };
           this.log(`turn ${end.turn.id}: the agent session was gone, so it starts from a recap`);
           continue;
         }
