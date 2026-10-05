@@ -13,6 +13,7 @@ import {
 } from "@hearth/db";
 import { type ActionContext, newId, updateEntity } from "@hearth/kernel";
 import { and, asc, eq, inArray } from "drizzle-orm";
+import { personFor } from "../people/store.ts";
 import { type MailProvider, MailProviderError } from "./provider.ts";
 
 type MessageRow = typeof mailMessage.$inferSelect;
@@ -23,20 +24,24 @@ const AUTOMATED =
 
 /**
  * Who the conversation waits on, from its last message: "them" if you sent it (Gmail says so; a
- * From line naming you can be forged); "you" if a person wrote to you directly (not a cc, a
- * newsletter, a notification or a Gmail tab) in Signal.
+ * From line naming you can be forged); "you" if a person wrote to you directly (not a cc, a list,
+ * a newsletter, a notification or a Gmail tab) in Signal, and they're someone you know (`known`:
+ * a person in Hearth, as anyone you write to becomes) or Gmail marks it important (D61).
  */
 export function waitingOn(
-  last: Pick<MessageRow, "outbound" | "fromAddress" | "labels" | "toAddresses" | "invite">,
+  last: Pick<MessageRow, "outbound" | "fromAddress" | "labels" | "toAddresses" | "invite" | "bulk">,
   me: string,
   lane: MailLane,
+  known: boolean,
 ): "you" | "them" | null {
   if (last.outbound) return last.labels.includes("SENT") ? "them" : null;
   if (lane !== "signal" || AUTOMATED.test(last.fromAddress)) return null;
   // An invitation is answered on the calendar, not by email.
   if (last.invite) return null;
+  if (last.bulk) return null;
   if (last.labels.some((l) => l.startsWith("CATEGORY_") && l !== "CATEGORY_PERSONAL")) return null;
-  return last.toAddresses.some((a) => a.address.toLowerCase() === me.toLowerCase()) ? "you" : null;
+  if (!last.toAddresses.some((a) => a.address.toLowerCase() === me.toLowerCase())) return null;
+  return known || last.labels.includes("IMPORTANT") ? "you" : null;
 }
 
 /** Works the conversation's state out again from its messages. Removes it if none are left. */
@@ -92,6 +97,7 @@ export async function recomputeThread(ctx: ActionContext, threadId: string): Pro
     .from(entity)
     .where(eq(entity.id, msgs[0]!.entityId));
   if (first) await updateEntity(ctx, threadId, { title: first.title }).catch(() => {});
+  const known = !last.outbound && Boolean(await personFor(ctx.tx, last.fromAddress.toLowerCase()));
   await ctx.tx
     .update(mailThread)
     .set({
@@ -106,7 +112,7 @@ export async function recomputeThread(ctx: ActionContext, threadId: string): Pro
       inInbox: any("INBOX"),
       trashed: live.length === 0,
       lane,
-      waiting: said || !row ? null : waitingOn(last, row.me, lane),
+      waiting: said || !row ? null : waitingOn(last, row.me, lane, known),
       waitingSince: last.sentAt,
     })
     .where(eq(mailThread.entityId, threadId));

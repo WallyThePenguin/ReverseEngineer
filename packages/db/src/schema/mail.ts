@@ -1,6 +1,6 @@
 // Mail and the people it comes from (M2). Mirrors migrations/0006_mail.up.sql and
-// 0007_mail_drafts.up.sql, 0008_mail_waiting.up.sql, 0009_mail_invites.up.sql and
-// 0022_google_pacing.up.sql.
+// 0007_mail_drafts.up.sql, 0008_mail_waiting.up.sql, 0009_mail_invites.up.sql,
+// 0022_google_pacing.up.sql and 0032_integrations.up.sql.
 import { sql } from "drizzle-orm";
 import {
   boolean,
@@ -33,6 +33,9 @@ export const mailAccount = pgTable(
     /** Failed syncs in a row, and when the first of them was. A slowdown isn't a failure. */
     failures: integer("failures").notNull().default(0),
     failingSince: ts("failing_since"),
+    /** The daily look for missing originals: where it got to, and when it last finished. */
+    repairFrom: uuid("repair_from"),
+    repairedAt: ts("repaired_at"),
   },
   (t) => [unique().on(t.provider, t.address)],
 );
@@ -134,6 +137,8 @@ export const mailMessage = pgTable(
     attachments: jsonb("attachments").$type<MailAttachment[]>().notNull().default([]),
     snippet: text("snippet").notNull().default(""),
     invite: jsonb("invite").$type<MailInvite>(),
+    /** Sent to many at once or by a machine; null until its original was read for it (0032). */
+    bulk: boolean("bulk"),
   },
   (t) => [unique().on(t.accountId, t.providerId)],
 );
@@ -165,11 +170,14 @@ export const personEmail = pgTable("person_email", {
 
 export const mailDraft = pgTable("mail_draft", {
   entityId: uuid("entity_id").primaryKey(),
-  accountId: text("account_id").notNull(),
+  /** Null for a draft kept from an account that was disconnected, until you pick one (0032). */
+  accountId: text("account_id"),
   threadId: uuid("thread_id"),
   toAddresses: jsonb("to_addresses").$type<MailAddress[]>().notNull().default([]),
   ccAddresses: jsonb("cc_addresses").$type<MailAddress[]>().notNull().default([]),
   bccAddresses: jsonb("bcc_addresses").$type<MailAddress[]>().notNull().default([]),
   inReplyTo: text("in_reply_to"),
   refs: text("refs").array().notNull().default(sql`'{}'`),
+  /** Chosen when the draft is written, so a send can be looked for in Sent (0032). */
+  messageId: text("message_id").notNull(),
 });

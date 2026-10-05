@@ -2,7 +2,7 @@
 // with what Hearth knows about it: the guests, the last time you met, linked records and open
 // tasks. Jarvis writes it up; if it can't, you get the plain facts (PLAN.md section 6.2).
 import { formatDateTime, localDate } from "@hearth/core";
-import { calendarEvent, entity, link, meeting, personEmail, task } from "@hearth/db";
+import { calendar, calendarEvent, entity, link, meeting, personEmail, task } from "@hearth/db";
 import {
   addLink,
   createEntity,
@@ -29,6 +29,7 @@ import {
 } from "drizzle-orm";
 import { z } from "zod";
 import { id, preview } from "../shared.ts";
+import { inSelectedCalendar } from "./calendars.ts";
 import { type EventView, guests, toEventView, whenText } from "./store.ts";
 
 const HOUR_MS = 3600_000;
@@ -36,13 +37,17 @@ const HOUR_MS = 3600_000;
 /** An address as a LIKE pattern that matches only itself. */
 const likeEscape = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 
-/** Events worth preparing for: not all-day, not declined, not a time block, with guests or long. */
+/**
+ * Events worth preparing for, on calendars you sync: not all-day, not declined, not a time
+ * block, with guests or long.
+ */
 export async function eventsToPrep(ctx: ReadContext, hours = 48): Promise<EventView[]> {
   const min = await getSetting(ctx.db, "calendar.prepMinMinutes");
   const rows = await ctx.db
     .select({ e: entity, r: calendarEvent })
     .from(calendarEvent)
     .innerJoin(entity, eq(entity.id, calendarEvent.entityId))
+    .innerJoin(calendar, inSelectedCalendar)
     .where(
       and(
         isNull(entity.deletedAt),

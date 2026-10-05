@@ -1,15 +1,19 @@
 // Free time: the gaps in your working hours that no busy event covers. Evenings and weekends are
 // never free time for Hearth to fill.
 import { addLocalDays, atLocal, type DayRules, localDate, localParts } from "@hearth/core";
-import { calendarEvent, type DbOrTx } from "@hearth/db";
+import { calendar, calendarEvent, type DbOrTx } from "@hearth/db";
 import { and, gt, lt, ne } from "drizzle-orm";
+import { inSelectedCalendar } from "./calendars.ts";
 
 export interface Slot {
   start: Date;
   end: Date;
 }
 
-/** Busy time between two instants: events that block you and that you haven't declined. */
+/**
+ * Busy time between two instants: events that block you and that you haven't declined, on
+ * calendars you sync (a colleague's calendar you've turned off isn't your time).
+ */
 export async function busyTimes(db: DbOrTx, from: Date, to: Date): Promise<Slot[]> {
   const rows = await db
     .select({
@@ -20,6 +24,7 @@ export async function busyTimes(db: DbOrTx, from: Date, to: Date): Promise<Slot[
       selfResponse: calendarEvent.selfResponse,
     })
     .from(calendarEvent)
+    .innerJoin(calendar, inSelectedCalendar)
     .where(
       and(
         ne(calendarEvent.status, "cancelled"),

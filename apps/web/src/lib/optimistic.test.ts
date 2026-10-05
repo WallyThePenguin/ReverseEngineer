@@ -80,6 +80,20 @@ describe("changes that show at once", () => {
     ]);
   });
 
+  it("edits every page of a list read a page at a time, and puts them all back", () => {
+    const PAGED = ["mail.threads", { view: "inbox", lane: "signal", limit: 50 }];
+    const pages = { pages: [[thread("t1"), thread("t2")], [thread("t3")]], pageParams: [{}, {}] };
+    client.setQueryData(PAGED, pages);
+    const undo = applyOptimistic(client, "mail.archive", { ids: ["t3", "t1"] });
+    const now = client.getQueryData(PAGED) as { pages: MailThread[][]; pageParams: unknown[] };
+    expect(now.pages.map((p) => p.map((t) => t.id))).toEqual([["t2"], []]);
+    expect(now.pageParams).toEqual([{}, {}]);
+    applyOptimistic(client, "mail.mark_read", { ids: ["t2"] });
+    expect((client.getQueryData(PAGED) as typeof now).pages[0]?.[0]?.unread).toBe(false);
+    undo!();
+    expect(client.getQueryData(PAGED)).toEqual(pages);
+  });
+
   it("leaves reads it doesn't know alone, and has nothing to undo for other actions", () => {
     client.setQueryData(["task.list", {}], [{ id: "t1" }]);
     expect(applyOptimistic(client, "task.update", { id: "t1", title: "x" })).toBeNull();

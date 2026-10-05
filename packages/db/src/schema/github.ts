@@ -1,5 +1,6 @@
-// GitHub (M7). Mirrors migrations/0019_github.up.sql.
+// GitHub (M7). Mirrors migrations/0019_github.up.sql and 0032_integrations.up.sql.
 import { integer, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import type { ConnectorSyncState } from "./slack.ts";
 
 const ts = (name: string) => timestamp(name, { withTimezone: true, mode: "date" });
 
@@ -10,12 +11,19 @@ export const githubAccount = pgTable("github_account", {
   syncedAt: ts("synced_at"),
   lastError: text("last_error"),
   createdAt: ts("created_at").notNull().defaultNow(),
+  syncState: text("sync_state").$type<ConnectorSyncState>().notNull().default("ok"),
+  failures: integer("failures").notNull().default(0),
+  failingSince: ts("failing_since"),
+  tokenExpiresAt: ts("token_expires_at"),
 });
 
 export const githubRepo = pgTable("github_repo", {
   fullName: text("full_name").primaryKey(),
   seenUntil: ts("seen_until"),
   polledAt: ts("polled_at"),
+  /** More changed than a round reads: the page to carry on from, and the newest change seen. */
+  resumePage: integer("resume_page"),
+  backlogTop: ts("backlog_top"),
 });
 
 export type GithubPrState = "open" | "draft" | "merged" | "closed";

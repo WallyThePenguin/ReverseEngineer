@@ -45,9 +45,11 @@ async function ok<T>(name: string, input: unknown = {}, caller: Caller = ownerCa
 const sync = () => ok("mail.sync", {}, integrationCaller("google"));
 const waiting = async (w: "you" | "them") =>
   (await ok<ThreadSummary[]>("mail.threads", { view: "all", waiting: w })).map((x) => x.subject);
+/** Gmail marks it important: from someone Hearth doesn't know yet, that's what flags it. */
+const IMPORTANT = ["INBOX", "UNREAD", "CATEGORY_PERSONAL", "IMPORTANT"];
 
 function seed() {
-  g.gmail.deliver({ from: ANA, subject: "Dinner?", text: "Are you free Friday?" });
+  g.gmail.deliver({ from: ANA, subject: "Dinner?", text: "Are you free Friday?" }, IMPORTANT);
   g.gmail.deliver({
     from: ANA,
     cc: [],
@@ -55,6 +57,8 @@ function seed() {
     subject: "FYI",
     text: ".",
   });
+  // Someone Hearth doesn't know, and Gmail doesn't think it's important.
+  g.gmail.deliver({ from: { address: "cy@else.example" }, subject: "Quick question", text: "?" });
   g.gmail.deliver({ from: { address: "no-reply@shop.example" }, subject: "Receipt", text: "." });
   g.gmail.deliver({ from: { address: "bo@x.example" }, subject: "Sale", text: "." }, [
     "INBOX",
@@ -77,8 +81,8 @@ describe("needs a reply, and waiting on them", () => {
     await sync();
     expect(await waiting("you")).toEqual(["Dinner?"]);
     expect(await waiting("them")).toEqual(["Contract"]);
-    // The receipt is unread Signal, but nobody expects an answer to it.
-    expect(await ok("mail.counts")).toEqual({ unread: 3, toReply: 1 });
+    // The receipt and the stranger's question are unread Signal, but don't need your reply.
+    expect(await ok("mail.counts")).toEqual({ unread: 4, toReply: 1 });
   });
 
   it("matches what the migration worked out for mail already here", async () => {
@@ -91,6 +95,13 @@ describe("needs a reply, and waiting on them", () => {
       "utf8",
     );
     await t.tdb.db.execute(sql.raw(up.slice(up.indexOf("UPDATE mail_thread"))));
+    // And 0032's second look, for a known sender or Gmail's important mark.
+    const v32 = await readFile(
+      new URL("../../../db/migrations/0032_integrations.up.sql", import.meta.url),
+      "utf8",
+    );
+    const from = v32.indexOf("UPDATE mail_thread t SET waiting = NULL");
+    await t.tdb.db.execute(sql.raw(v32.slice(from, v32.indexOf(";", from) + 1)));
     const after = await t.tdb.db.select().from(mailThread).orderBy(mailThread.entityId);
     expect(after.map((x) => [x.waiting, x.waitingSince])).toEqual(
       before.map((x) => [x.waiting, x.waitingSince]),
@@ -98,24 +109,25 @@ describe("needs a reply, and waiting on them", () => {
   });
 
   it("drops off when you reply or say no reply is needed, and comes back with a new message", async () => {
-    g.gmail.deliver({
-      from: ANA,
-      subject: "Dinner?",
-      text: "Are you free Friday?",
-      messageId: "d1@f",
-    });
+    g.gmail.deliver(
+      { from: ANA, subject: "Dinner?", text: "Are you free Friday?", messageId: "d1@f" },
+      IMPORTANT,
+    );
     await sync();
     const [x] = await ok<ThreadSummary[]>("mail.threads", { waiting: "you" });
     await ok("mail.no_reply", { ids: [x!.id] });
     expect(await waiting("you")).toEqual([]);
-    g.gmail.deliver({
-      from: ANA,
-      subject: "Re: Dinner?",
-      text: "Hello?",
-      messageId: "d2@f",
-      inReplyTo: "d1@f",
-      references: ["d1@f"],
-    });
+    g.gmail.deliver(
+      {
+        from: ANA,
+        subject: "Re: Dinner?",
+        text: "Hello?",
+        messageId: "d2@f",
+        inReplyTo: "d1@f",
+        references: ["d1@f"],
+      },
+      IMPORTANT,
+    );
     await sync();
     expect(await waiting("you")).toEqual(["Dinner?"]);
     const draft = await ok<{ id: string }>("mail.draft", { threadId: x!.id, text: "Yes!" });
@@ -139,7 +151,7 @@ describe("what mail can't do to the rules", () => {
   });
 
   it("brings back a conversation you set aside when a backdated message arrives", async () => {
-    g.gmail.deliver({ from: ANA, subject: "Dinner?", text: "?", messageId: "d1@f" });
+    g.gmail.deliver({ from: ANA, subject: "Dinner?", text: "?", messageId: "d1@f" }, IMPORTANT);
     await sync();
     const [x] = await ok<ThreadSummary[]>("mail.threads", { waiting: "you" });
     await ok("mail.no_reply", { ids: [x!.id] });

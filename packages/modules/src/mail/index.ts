@@ -16,6 +16,8 @@ import { id, isoDateTime } from "../shared.ts";
 import { describeDraft, draftActions } from "./drafts.ts";
 import { changeFlags, pendingChanges, recomputeThread } from "./flags.ts";
 import { normalizePattern, senderPatterns } from "./people.ts";
+import { restoreAction } from "./repair.ts";
+import { sendAction } from "./send.ts";
 import { syncMail, syncProgress } from "./sync.ts";
 import { alertKey } from "./sync-state.ts";
 import { listThreads, loadThread, searchThreads, threadText, who } from "./views.ts";
@@ -170,6 +172,7 @@ export const mailModule = defineModule({
           .optional()
           .describe("you: needs the owner's reply. them: the owner wrote last and is waiting."),
         before: isoDateTime.optional().describe("For the next page: the last one's lastMessageAt."),
+        beforeId: id.optional().describe("With before: the last one's id."),
         limit: z.number().int().min(1).max(200).default(50),
       }),
       risk: "read",
@@ -323,8 +326,10 @@ export const mailModule = defineModule({
       risk: "read",
       async handler(_i, ctx) {
         const rows = await ctx.tx.select().from(mailAccount).orderBy(mailAccount.address);
-        return Promise.all(
-          rows.map(async (a) => ({
+        // One account after another: a transaction takes one query at a time.
+        const out = [];
+        for (const a of rows)
+          out.push({
             address: a.address,
             provider: a.provider,
             state: a.syncState,
@@ -333,8 +338,8 @@ export const mailModule = defineModule({
             lastError: a.lastError,
             ...(await syncProgress(ctx, a)),
             pendingChanges: await pendingChanges(ctx.tx, a.id),
-          })),
-        );
+          });
+        return out;
       },
     }),
     defineAction({
@@ -348,6 +353,8 @@ export const mailModule = defineModule({
       handler: (i, ctx) => syncMail(ctx, i.account),
     }),
     ...draftActions,
+    sendAction,
+    restoreAction,
     ...waitingActions,
   ],
   routines: [followUpRoutine],
