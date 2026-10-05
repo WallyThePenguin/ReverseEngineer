@@ -57,6 +57,8 @@ export async function runWorker(): Promise<() => Promise<void>> {
   return async () => {
     worker.stop();
     await worker.slackOutbox?.stop();
+    // A round in progress finishes before the database closes.
+    await worker.slackTake?.stop();
     await slackInbound.close();
     await database.close();
   };

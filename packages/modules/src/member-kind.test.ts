@@ -149,9 +149,14 @@ describe("each kind of caller", () => {
 });
 
 describe("the registry, for a member", () => {
-  // Grown in PR5 to exactly member.free_time, member.leave_message, member.request_meeting and
-  // slack.reply. Anything else here means an action let members in.
-  const MEMBER_ACTIONS: string[] = [];
+  // Exactly the reply a member's turn sends (only the runner calls it) and the three actions made
+  // for them, in registry order (D62). Anything else here means an action let members in.
+  const MEMBER_ACTIONS = [
+    "slack.reply",
+    "member.free_time",
+    "member.leave_message",
+    "member.request_meeting",
+  ];
 
   it("refuses a member every action Hearth has, except the ones made for them", () => {
     const registry = new Registry(ALL_MODULES);

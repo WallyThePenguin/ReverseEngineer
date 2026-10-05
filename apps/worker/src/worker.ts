@@ -11,6 +11,7 @@ import { type MailRoundOptions, mailRound } from "./mail-loop.ts";
 import { scheduleWatch } from "./schedule-health.ts";
 import { type SlackBot, startSlackBot } from "./slack-bot.ts";
 import { type SlackOutbox, type SlackOutboxOptions, startSlackOutbox } from "./slack-outbox.ts";
+import { type SlackTake, startSlackTake } from "./slack-take.ts";
 import { checkSyncs, ErrorClock } from "./sync-health.ts";
 import { checkDueWatches } from "./watches.ts";
 
@@ -178,6 +179,10 @@ export function startWorker(opts: WorkerOptions) {
   const slackOutbox: SlackOutbox | null = opts.slackInbound
     ? startSlackOutbox({ kernel, pool: opts.listenPool, log: (m, e) => log(m, e) })
     : null;
+  // And the take loop: who wrote, their conversation, and a turn or a relay to you (D62).
+  const slackTake: SlackTake | null = opts.slackInbound
+    ? startSlackTake({ kernel, log: (m, e) => log(m, e) })
+    : null;
 
   // Routine audit rows (reads, check-ins, syncs) are let go after a while (AUDIT_KEEP), and what
   // Slack members wrote to Jarvis after 30 days (D62).
@@ -204,10 +209,12 @@ export function startWorker(opts: WorkerOptions) {
     mail,
     slackBot,
     slackOutbox,
+    slackTake,
     tick: scheduler.tick,
     stop() {
       slackBot?.stop();
       void slackOutbox?.stop();
+      void slackTake?.stop();
       clearInterval(timer);
       clearInterval(watchTimer);
       clearInterval(calendarTimer);

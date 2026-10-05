@@ -11,6 +11,10 @@ import { describeRow, liveEntity, preview } from "../shared.ts";
 import { botActions } from "./bot/connect.ts";
 import { sendActions } from "./bot/send.ts";
 import { connectActions } from "./connect.ts";
+import { checkMembersAction } from "./member/check.ts";
+import { ownerMemberActions } from "./member/owner.ts";
+import { replyAction } from "./member/reply.ts";
+import { takeAction } from "./member/take.ts";
 import { syncSlack } from "./sync.ts";
 
 export {
@@ -18,6 +22,7 @@ export {
   SLACK_SERVICE,
   type SlackApi,
   SlackError,
+  type SlackUser,
   USER_TOKEN_METHODS,
 } from "./api.ts";
 export { httpSlackBot, SLACK_BOT_SERVICE, type SlackBotApi } from "./bot/api.ts";
@@ -51,6 +56,7 @@ export {
   PER_MINUTE,
   SENDING_STALE_MS,
 } from "./bot/queue.ts";
+export { REPLY_ACTION } from "./bot/settings.ts";
 export {
   ackOf,
   BACKOFF_RESET_MS,
@@ -67,6 +73,17 @@ export {
 export { type BotRow, openBotToken } from "./bot/tokens.ts";
 export { SLACK_SCOPES } from "./connect.ts";
 export { FakeSlack } from "./fake.ts";
+export { MEMBER_TIERS, memberModule } from "./member/index.ts";
+export { plainOf, SLOW_MS, writtenAt } from "./member/messages.ts";
+export { replaceHeldReplies } from "./member/reply.ts";
+export { SETTLE_MS, type TakeRound } from "./member/take.ts";
+export {
+  claimMessages,
+  holdMessages,
+  type MemberBrief,
+  memberBrief,
+  memberGate,
+} from "./member/turn.ts";
 
 const syncFailed = syncFailedReflex("slack", "Slack", async (ctx) => {
   const [ws] = await ctx.db
@@ -154,6 +171,12 @@ export const slackModule = defineModule({
     ...connectActions,
     ...botActions,
     ...sendActions,
+    // A member's turn answering them, the worker's take loop, and what you decide about members
+    // (D62).
+    replyAction,
+    checkMembersAction,
+    takeAction,
+    ...ownerMemberActions,
     defineAction({
       name: "slack.channels",
       description: "The Slack channels and direct messages you're in, and which are read in.",

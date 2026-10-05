@@ -10,14 +10,19 @@ import type { BrainRequest, BrainResult, BrainTool } from "./brain.ts";
 
 /**
  * How long a turn may run before it's stopped: by lane, for a voice command (the owner is
- * waiting on it), and for a turn that uses the browser (D54, B1).
+ * waiting on it), for a turn that uses the browser (D54, B1), and for a Slack member's (D62).
  */
 export const TURN_LIMIT_MS = {
   fast: 10 * 60_000,
   deep: 30 * 60_000,
   voice: 2 * 60_000,
   browser: 30 * 60_000,
+  /** A Slack member's turn: two minutes, and MEMBER_STEPS model steps (D62). */
+  member: 2 * 60_000,
 };
+
+/** Model steps a Slack member's turn may take (D62). */
+export const MEMBER_STEPS = 8;
 
 /** Model steps a turn that uses the browser may take in all, across its goes. */
 export const BROWSER_STEPS = 150;
@@ -25,6 +30,9 @@ export const BROWSER_STEPS = 150;
 /** What the model is told when a browsing turn gets more steps. */
 export const CARRY_ON =
   "You ran out of steps for one go and have been given more. Carry on with the task from where you left off.";
+
+/** What a tool says once its turn has been stopped or run out of time. */
+export const ENDED = "Not run: this turn has been stopped. Don't call any more tools.";
 
 /** What the owner reads when a turn runs out of steps. */
 export const OUT_OF_STEPS =

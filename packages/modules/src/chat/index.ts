@@ -22,6 +22,16 @@ const lane = z.enum(["fast", "deep"]);
 /** Words to find in a title as typed: % and _ match themselves, not anything. */
 const likeText = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 
+/**
+ * Who wrote a line: you, or in a Slack member's conversation the member by name, since there
+ * "You" would be someone else (D62).
+ */
+function authorOf(kind: string, payload: Record<string, unknown>): string {
+  if (kind !== "user_message") return "Jarvis";
+  if (!String(payload.by ?? "").startsWith("member:")) return "You";
+  return typeof payload.name === "string" && payload.name ? payload.name : "Someone in Slack";
+}
+
 /** A paired device (the desktop app) only sees the conversations it started (D42). */
 const deviceMay = (via: string, startedVia: string | null | undefined) =>
   via !== "device" || startedVia === "device";
@@ -55,7 +65,7 @@ export const chatModule = defineModule({
         .filter((l) => l.kind === "user_message" || l.kind === "assistant_message")
         .map(
           (l) =>
-            `- ${l.kind === "user_message" ? "You" : "Jarvis"} (${formatDateTime(l.at)}): ${preview(String(l.payload.text ?? ""), 500)}`,
+            `- ${authorOf(l.kind, l.payload)} (${formatDateTime(l.at)}): ${preview(String(l.payload.text ?? ""), 500)}`,
         );
       return describeRow(row, [], lines.length ? `## Latest messages\n${lines.join("\n")}` : "");
     },

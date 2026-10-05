@@ -87,14 +87,28 @@ export async function writeLog(
 }
 
 /**
+ * Who wrote a line of a conversation: you, or in a Slack member's conversation the member by
+ * name, since there "You" would be someone else (D62).
+ */
+export function authorOf(kind: string, payload: Record<string, unknown>, you = "Owner"): string {
+  if (kind !== "user_message") return "Jarvis";
+  const by = String(payload.by ?? "");
+  if (!by.startsWith("member:")) return you;
+  return typeof payload.name === "string" && payload.name ? payload.name : "Someone in Slack";
+}
+
+/**
  * The conversation so far, written by Hearth from its own log: what a turn starts from when
- * Claude no longer has the session it would have resumed (D54).
+ * Claude no longer has the session it would have resumed (D54), or when a member's conversation
+ * starts a new one after 12 idle hours (D62). `skip` leaves out lines the turn sends as
+ * themselves.
  */
 export async function recapConversation(
   kernel: Kernel,
   conversationId: string,
   turn: { id: string; prompt: string },
   limit = 20,
+  skip: (payload: Record<string, unknown>) => boolean = () => false,
 ): Promise<string | null> {
   const rows = await kernel.db
     .select()
@@ -111,11 +125,11 @@ export async function recapConversation(
   const [newest] = rows;
   if (newest?.kind === "user_message" && newest.payload.text === turn.prompt) rows.shift();
   const lines = rows
-    .filter((r) => r.turnId !== turn.id)
+    .filter((r) => r.turnId !== turn.id && !skip(r.payload))
     .slice(0, limit)
     .reverse()
     .map((r) => {
-      const who = r.kind === "user_message" ? "Owner" : "Jarvis";
+      const who = authorOf(r.kind, r.payload);
       const text = String(r.payload.text ?? "").slice(0, 1500);
       return `- ${who} (${formatDateTime(r.at)}): ${text}`;
     });

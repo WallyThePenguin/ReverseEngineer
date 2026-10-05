@@ -4,11 +4,13 @@
 import { conversation, jarvisTurn } from "@hearth/db";
 import { getSetting, jarvisCaller, type Kernel } from "@hearth/kernel";
 import { type LogEntry, recallMemory, renderMemory } from "@hearth/modules";
-import { and, asc, desc, eq, lte, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type pg from "pg";
 import type { Brain, BrainEvents, BrainRequest } from "./brain.ts";
+import { claimNextTurn, type TurnRow } from "./claim.ts";
 import { classifyFailure, type Failure, failure } from "./failures.ts";
 import { reportJarvisHealth } from "./health.ts";
+import { runMemberTurn } from "./member-turn.ts";
 import { buildSystemPrompt } from "./prompt.ts";
 import { keepTaint, readFrom, restoreTaint } from "./taint.ts";
 import { ensureConversation, recapConversation, streamer, withRecap, writeLog } from "./threads.ts";
@@ -18,6 +20,7 @@ import { alertLeftOut } from "./turn-alerts.ts";
 import {
   bounded,
   Deadline,
+  ENDED,
   keepSession,
   OUT_OF_STEPS,
   replyOf,
@@ -38,7 +41,7 @@ import {
 } from "./turn-end.ts";
 import type { TurnLog } from "./turn-log.ts";
 
-export type TurnRow = typeof jarvisTurn.$inferSelect;
+export type { TurnRow } from "./claim.ts";
 
 export interface RunnerOptions {
   kernel: Kernel;
@@ -57,8 +60,6 @@ const REPLY_IN_THREAD = new Set(["mention", "assignment", "watch", "approval"]);
 /** Turns whose answer is pasted where nothing can approve it: they only rewrite text (D42). */
 const NO_TOOLS = new Set(["voice_command"]);
 const WEB_TOOLS = new Set(["WebSearch", "WebFetch"]);
-/** What a tool says once its turn has been stopped or run out of time. */
-const ENDED = "Not run: this turn has been stopped. Don't call any more tools.";
 
 /** A request without the tools Claude rejected, so one bad definition can't stop every turn. */
 function withoutTools(req: BrainRequest, leftOut: Set<string>): BrainRequest {
@@ -98,37 +99,13 @@ export class TurnRunner {
     };
   }
 
-  /** Claims the next runnable turn: reactive before proactive, one at a time per conversation. */
+  /**
+   * Claims the next runnable turn: yours, then Slack members' (one at a time), then proactive
+   * ones; one at a time per conversation (claim.ts).
+   */
   async claimNext(): Promise<TurnRow | null> {
     await expireQueued(this.env).catch((err) => this.log("expiring old turns failed", err));
-    const now = this.kernel.clock.now();
-    return this.kernel.db.transaction(async (tx) => {
-      // Claims take turns: otherwise two workers could each see "nothing running" for the same
-      // conversation before either commits, and answer it twice at once.
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('jarvis_claim'))`);
-      const [next] = await tx
-        .select()
-        .from(jarvisTurn)
-        .where(
-          and(
-            eq(jarvisTurn.status, "queued"),
-            lte(jarvisTurn.notBefore, now),
-            sql`NOT EXISTS (SELECT 1 FROM jarvis_turn r WHERE r.status = 'running'
-              AND ((r.conversation_id IS NOT NULL AND r.conversation_id = ${jarvisTurn.conversationId})
-                OR (r.subject_id IS NOT NULL AND r.subject_id = ${jarvisTurn.subjectId})))`,
-          ),
-        )
-        .orderBy(desc(sql`${jarvisTurn.mode} = 'reactive'`), asc(jarvisTurn.queuedAt))
-        .limit(1)
-        .for("update", { skipLocked: true });
-      if (!next) return null;
-      const [claimed] = await tx
-        .update(jarvisTurn)
-        .set({ status: "running", startedAt: now, attempts: sql`${jarvisTurn.attempts} + 1` })
-        .where(eq(jarvisTurn.id, next.id))
-        .returning();
-      return claimed ?? null;
-    });
+    return claimNextTurn(this.kernel, this.kernel.clock.now());
   }
 
   /** Runs queued turns until none are runnable. Returns how many ran. */
@@ -154,7 +131,9 @@ export class TurnRunner {
   }
 
   private limitFor(turn: TurnRow): number {
-    return turn.trigger === "voice_command" ? this.limits.voice : this.limits[turn.lane];
+    if (turn.trigger === "voice_command") return this.limits.voice;
+    if (turn.trigger === "slack_member") return this.limits.member;
+    return this.limits[turn.lane];
   }
 
   async run(turn: TurnRow): Promise<void> {
@@ -202,6 +181,11 @@ export class TurnRunner {
 
   private async attempt(end: Ending, deadline: Deadline, started: number): Promise<void> {
     const { turn } = end;
+    // A Slack member's turn runs as them, with only what they may know (D62).
+    if (turn.trigger === "slack_member") {
+      const think = (e: Ending, req: BrainRequest, ev: BrainEvents) => this.think(e, req, ev);
+      return runMemberTurn({ ...this.env, think }, end, deadline, started);
+    }
     const cid = await ensureConversation(this.kernel, turn);
     end.conversationId = cid;
     await this.kernel.db

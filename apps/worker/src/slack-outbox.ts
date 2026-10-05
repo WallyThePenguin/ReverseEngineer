@@ -36,6 +36,19 @@ export interface SlackOutbox {
   stop(): Promise<void>;
 }
 
+/**
+ * Whether this worker acts for Jarvis's bot: the same rule as holding its socket. The outbox
+ * posts and the take loop takes only here (D62).
+ */
+export async function holdsBotHere(kernel: Kernel): Promise<boolean> {
+  const [row] = await kernel.db.select().from(slackBot).limit(1);
+  if (!row) return false;
+  const membersOn = await getSetting(kernel.db, "slack.bot.membersOn");
+  // A worker that can't tell which install it is doesn't act: it might be a copy.
+  const id = (kernel.services[INSTALL_SERVICE] as Install | undefined)?.id() ?? null;
+  return id !== null && holdsSocket(row, membersOn, id);
+}
+
 export function startSlackOutbox(opts: SlackOutboxOptions): SlackOutbox {
   const { kernel } = opts;
   const log =
@@ -50,16 +63,6 @@ export function startSlackOutbox(opts: SlackOutboxOptions): SlackOutbox {
   let stopping: Promise<void> | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
-  /** Whether this worker posts for the bot: the same rule as holding its socket. */
-  async function here(): Promise<boolean> {
-    const [row] = await kernel.db.select().from(slackBot).limit(1);
-    if (!row) return false;
-    const membersOn = await getSetting(kernel.db, "slack.bot.membersOn");
-    // A worker that can't tell which install it is doesn't post: it might be a copy.
-    const id = (kernel.services[INSTALL_SERVICE] as Install | undefined)?.id() ?? null;
-    return id !== null && holdsSocket(row, membersOn, id);
-  }
-
   const later = (ms: number) => {
     if (stopped) return;
     if (timer) clearTimeout(timer);
@@ -69,7 +72,7 @@ export function startSlackOutbox(opts: SlackOutboxOptions): SlackOutbox {
   async function round() {
     let next = pollMs;
     try {
-      if (await here()) {
+      if (await holdsBotHere(kernel)) {
         last = await sendOutbox(kernel);
         if (last.more) next = paceMs;
       }

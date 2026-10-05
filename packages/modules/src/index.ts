@@ -18,7 +18,7 @@ import { notionModule } from "./notion/index.ts";
 import { peopleModule } from "./people/index.ts";
 import { routinesModule } from "./routines/index.ts";
 import { sheetsModule } from "./sheets/index.ts";
-import { slackModule } from "./slack/index.ts";
+import { memberModule, slackModule } from "./slack/index.ts";
 import { systemModule } from "./system/index.ts";
 import { tasksModule } from "./tasks/index.ts";
 import { voiceModule } from "./voice/index.ts";
@@ -42,6 +42,7 @@ export const ALL_MODULES: HearthModule[] = [
   voiceModule,
   canvasModule,
   slackModule,
+  memberModule,
   githubModule,
   notionModule,
   sheetsModule,
@@ -119,10 +120,12 @@ export {
   CATCH_UP_EVERY_MS,
   type CatchUp,
   catchUp,
+  claimMessages,
   clearOldInbound,
   FakeSlack,
   type Frame,
   type Hearing,
+  holdMessages,
   holdsSocket,
   httpSlack,
   httpSlackBot,
@@ -131,6 +134,10 @@ export {
   type InboundStore,
   inboundStore,
   JARVIS_APP_ID,
+  MEMBER_TIERS,
+  type MemberBrief,
+  memberBrief,
+  memberGate,
   OUTBOX_CHANNEL,
   OUTBOX_POLL_MS,
   type Ours,
@@ -138,19 +145,28 @@ export {
   onDisconnect,
   openBotToken,
   PACE_MS,
+  POST_MAX,
   parseFrame,
+  plainOf,
+  REPLY_ACTION,
   REVOKED_CODES,
   receive,
+  replaceHeldReplies,
+  SETTLE_MS,
   SLACK_BOT_SERVICE,
   SLACK_SCOPES,
   SLACK_SERVICE,
+  SLOW_MS,
   type SlackApi,
   type SlackBotApi,
   SlackError,
+  type SlackUser,
   saveBotHealth,
   sendOutbox,
   slackTs,
   storeInbound,
+  type TakeRound,
+  writtenAt,
 } from "./slack/index.ts";
 export {
   EXTERNAL_COMPONENTS,
@@ -174,6 +190,7 @@ export {
   inboxModule,
   mailModule,
   meetingsModule,
+  memberModule,
   memoryModule,
   notesModule,
   notionModule,
