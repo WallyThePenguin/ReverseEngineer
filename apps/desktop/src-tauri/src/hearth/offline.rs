@@ -1,5 +1,6 @@
 // When Hearth's server doesn't answer, its windows show a built-in "Hearth isn't running" page
-// (it works with the server down) and open the page they were asked for once it answers again.
+// (it works with the server down, in Hearth's own colours) and open the page they were asked for
+// once it answers again.
 
 use super::client::healthy;
 use super::window::MAIN;
@@ -106,7 +107,8 @@ fn offline_page(label: &str) -> Url {
         r#"<!doctype html><html><head><meta charset="utf-8"><title>Hearth isn't running</title>
 <style>
 :root{{color-scheme:light dark;font-family:"Segoe UI",system-ui,sans-serif}}
-body{{margin:0;display:grid;place-items:center;min-height:100vh;background:Canvas;color:CanvasText}}
+body{{margin:0;display:grid;place-items:center;min-height:100vh;background:#faf8f5;color:#1f1b16}}
+@media (prefers-color-scheme:dark){{body{{background:#15130f;color:#ece7df}}}}
 main{{max-width:30rem;padding:{pad};text-align:center}}
 h1{{font-size:{h}rem;font-weight:600;margin:0 0 .5rem}}
 p{{margin:.25rem 0 1rem;opacity:.8;line-height:1.4}}
@@ -158,6 +160,8 @@ mod tests {
         let text = page.as_str();
         assert!(text.contains("Hearth%20isn%27t%20running"));
         assert!(text.contains("hearth%3A%2F%2Fretry"));
+        // Hearth's background, light and dark, as its window has before a page paints.
+        assert!(text.contains("%23faf8f5") && text.contains("%2315130f"));
         assert!(!offline_page(CAPTURE).as_str().contains("Restart%20Hearth"));
     }
 

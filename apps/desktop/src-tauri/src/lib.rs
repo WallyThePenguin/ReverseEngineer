@@ -1115,11 +1115,16 @@ pub fn run(cli_args: CliArgs) {
             let tray_available = settings.show_tray_icon && !cli_args.no_tray;
 
             // Hearth (D53): opening the app opens Hearth's window, or the page a hearth:// link
-            // asked for. The voice settings window comes up as well while voice isn't set up
-            // (no speech model yet), or when Windows blocks the microphone.
+            // asked for. Starting hidden (with Windows), Hearth's window loads out of sight, so
+            // it's ready when you first open it. The voice settings window comes up as well while
+            // voice isn't set up (no speech model yet), or when Windows blocks the microphone.
             let opened_by_link = hearth::deeplink::init(&app_handle);
-            if !opened_by_link && (!should_hide || !tray_available) {
-                hearth::window::open(&app_handle, "/");
+            if !opened_by_link {
+                if should_hide && tray_available {
+                    hearth::window::preload(&app_handle);
+                } else {
+                    hearth::window::open(&app_handle, "/");
+                }
             }
             if should_force_show || (!should_hide && !has_downloaded_model(&app_handle)) {
                 show_main_window(&app_handle);
