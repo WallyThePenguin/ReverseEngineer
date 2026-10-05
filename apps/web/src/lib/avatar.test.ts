@@ -11,6 +11,12 @@ describe("initials", () => {
 
   it("read a name written last name first", () => {
     expect(initials("Ruiz, Dana")).toBe("DR");
+    expect(initials("Ruiz, Dana, MD")).toBe("DR");
+  });
+
+  it("leave out a title or a company after a whole name", () => {
+    expect(initials("Dana Ruiz, MD")).toBe("DR");
+    expect(initials("Dana Ruiz, Acme, Inc.")).toBe("DR");
   });
 
   it("skip quotes, brackets and an address written into the name", () => {

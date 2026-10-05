@@ -19,7 +19,12 @@ export function initials(name?: string | null, email?: string | null): string {
   let address = email ?? "";
   // A name that's really an address, as some senders' are.
   if (/^\S+@\S+$/.test(text)) [text, address] = ["", text];
-  if (text.includes(",")) text = text.split(",").reverse().join(" ");
+  if (text.includes(",")) {
+    // One word before the comma is a last name ("Ruiz, Dana"); more is a whole name with a title
+    // or a company after it ("Dana Ruiz, MD"), which isn't part of the initials.
+    const [before = "", ...after] = text.split(",");
+    text = before.trim().split(/\s+/).length > 1 ? before : [...after, before].join(" ");
+  }
   let words = text.split(/\s+/).filter((w) => first(w) !== "");
   if (words.length === 0) {
     // "dana.ruiz+news@" is Dana Ruiz's address with a tag on it.

@@ -34,6 +34,8 @@ export function SectionHeader(props: {
           <button
             type="button"
             class="-mr-1 inline-flex min-h-11 items-center gap-0.5 rounded-md px-1 text-meta font-medium text-muted hover:bg-sunk hover:text-ink md:min-h-7"
+            // Today has an "All" in every card: a screen reader hears which list it opens.
+            aria-describedby={props.id}
             onClick={() => more().run()}
           >
             {more().label ?? "All"}

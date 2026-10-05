@@ -104,7 +104,7 @@ export function PaneCrashed(props: { error: unknown; reset: () => void }) {
  * Shown while Hearth answers but can't reach its database: what's on screen may be out of date.
  * It clears itself once a read works. (Hearth out of reach altogether is Reconnecting's.)
  */
-export function Degraded() {
+function Degraded() {
   return (
     <Show when={degraded.on() && !live.reconnecting()}>
       <Notice tone="warn">
@@ -116,7 +116,7 @@ export function Degraded() {
 }
 
 /** Shown while the live connection to Hearth is down; it clears itself once it's back. */
-export function Reconnecting() {
+function Reconnecting() {
   return (
     <Show when={live.reconnecting()}>
       <Notice icon="loader-circle" spin>
