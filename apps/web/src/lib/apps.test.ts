@@ -55,6 +55,23 @@ describe("places", () => {
     const keys = PLACES.map((p) => p.keys);
     expect(new Set(keys).size).toBe(keys.length);
     for (const k of keys) expect(k).toMatch(/^g [a-z]$/);
+    // The ones fingers already know.
+    expect(Object.fromEntries(PLACES.map((p) => [p.view, p.keys]))).toEqual({
+      inbox: "g i",
+      mail: "g e",
+      tasks: "g t",
+      notes: "g n",
+      calendar: "g c",
+      canvases: "g w",
+      sheets: "g x",
+      people: "g p",
+      memory: "g m",
+      voice: "g v",
+      browser: "g b",
+      activity: "g a",
+      settings: "g s",
+      trash: "g d",
+    });
   });
 
   it("keep the names the sidebar, the shortcuts sheet and Cmd+K have always used", () => {
@@ -74,11 +91,39 @@ describe("places", () => {
       "Settings",
       "Trash",
     ]);
-    expect(goLabel(placeOf("inbox"))).toBe("Go to Inbox");
+    expect(PLACES.map(goLabel)).toEqual([
+      "Go to Inbox",
+      "Go to Mail",
+      "Go to Tasks",
+      "Go to Notes",
+      "Go to Calendar",
+      "Go to Canvas",
+      "Go to Spreadsheets",
+      "Go to People",
+      "Go to Memory",
+      "Go to Voice",
+      "Go to the browser",
+      "Go to Jarvis's activity",
+      "Go to Settings",
+      "Go to the trash",
+    ]);
+    expect(PLACES.map(paletteLabel)).toEqual([
+      "Go to Inbox",
+      "Go to Mail",
+      "Go to Tasks",
+      "Go to Notes",
+      "Go to Calendar",
+      "Go to Canvas (boards)",
+      "Go to Spreadsheets",
+      "Go to People",
+      "Go to Memory (what Jarvis remembers)",
+      "Go to Voice (dictation history, dictionary, snippets)",
+      "Go to the browser (your Chrome, live)",
+      "Go to Jarvis's activity",
+      "Go to Settings",
+      "Go to the trash (restore what you deleted)",
+    ]);
     expect(goLabel(placeOf("browser"))).toBe("Go to the browser");
-    expect(paletteLabel(placeOf("canvases"))).toBe("Go to Canvas (boards)");
-    expect(paletteLabel(placeOf("trash"))).toBe("Go to the trash (restore what you deleted)");
-    expect(paletteLabel(placeOf("activity"))).toBe("Go to Jarvis's activity");
   });
 
   it("still open from every view name a link may carry", () => {
