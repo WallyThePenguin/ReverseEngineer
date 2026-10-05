@@ -9,9 +9,12 @@ import { z } from "zod";
 import { syncFailedReflex } from "../connector-health.ts";
 import { describeRow, liveEntity, preview } from "../shared.ts";
 import { botActions } from "./bot/connect.ts";
+import { ownerReplyAction, takeOwnerAction } from "./bot/owner-dm.ts";
 import { sendActions } from "./bot/send.ts";
 import { connectActions } from "./connect.ts";
+import { channelActions } from "./member/channels.ts";
 import { checkMembersAction } from "./member/check.ts";
+import { conversationActions } from "./member/conversations.ts";
 import { ownerMemberActions } from "./member/owner.ts";
 import { replyAction } from "./member/reply.ts";
 import { takeAction } from "./member/take.ts";
@@ -45,6 +48,7 @@ export {
 } from "./bot/inbound.ts";
 export { JARVIS_APP_ID, slackManifest } from "./bot/manifest.ts";
 export { type OutboxRound, sendOutbox } from "./bot/outbox.ts";
+export { isYou, OWNER_DM_IDLE_MS, OWNER_REPLIES } from "./bot/owner-dm.ts";
 export {
   enqueue,
   type NewPost,
@@ -73,6 +77,8 @@ export {
 export { type BotRow, openBotToken } from "./bot/tokens.ts";
 export { SLACK_SCOPES } from "./connect.ts";
 export { FakeSlack } from "./fake.ts";
+export { CHANNEL_CHECK_MS } from "./member/channels.ts";
+export { THREAD_LINES, type ThreadLine } from "./member/in-channel.ts";
 export { MEMBER_TIERS, memberModule } from "./member/index.ts";
 export { plainOf, SLOW_MS, writtenAt } from "./member/messages.ts";
 export { replaceHeldReplies } from "./member/reply.ts";
@@ -171,12 +177,16 @@ export const slackModule = defineModule({
     ...connectActions,
     ...botActions,
     ...sendActions,
-    // A member's turn answering them, the worker's take loop, and what you decide about members
-    // (D62).
+    // A member's turn answering them, the worker's take loop, what you decide about members and
+    // channels, your own DM with Jarvis, and the screens you read their conversations on (D62).
     replyAction,
     checkMembersAction,
     takeAction,
     ...ownerMemberActions,
+    ...channelActions,
+    takeOwnerAction,
+    ownerReplyAction,
+    ...conversationActions,
     defineAction({
       name: "slack.channels",
       description: "The Slack channels and direct messages you're in, and which are read in.",
@@ -192,6 +202,10 @@ export const slackModule = defineModule({
             kind: slackChannel.kind,
             ingest: slackChannel.ingest,
             polledAt: slackChannel.polledAt,
+            // Whether Jarvis answers @mentions there, and when that was last checked (D62).
+            jarvisTier: slackChannel.jarvisTier,
+            jarvisReplies: slackChannel.jarvisReplies,
+            jarvisCheckedAt: slackChannel.jarvisCheckedAt,
           })
           .from(slackChannel)
           .orderBy(slackChannel.kind, slackChannel.name),

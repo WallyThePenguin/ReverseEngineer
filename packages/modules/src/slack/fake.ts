@@ -224,6 +224,15 @@ export class FakeSlack {
         this.failIf(`readback ${channel}`);
         return this.readBackOf(channel, p);
       },
+      thread: async (token, channel, threadTs, limit) => {
+        check(token);
+        this.calls.push(`thread ${channel} ${threadTs}`);
+        this.failIf(`thread ${channel}`);
+        return (this.messages.get(channel) ?? [])
+          .filter((m) => m.ts === threadTs || m.threadTs === threadTs)
+          .sort((a, b) => Number(a.ts) - Number(b.ts))
+          .slice(-limit);
+      },
     };
   }
 

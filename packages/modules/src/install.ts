@@ -12,7 +12,13 @@ export const INSTALL_SERVICE = "install";
 export interface Install {
   /** This install's id, made the first time it's asked for. */
   id(): string;
+  /** Where you open this copy of Hearth, for a link to it from Slack (D62): HEARTH_ORIGIN. */
+  origin?(): string;
 }
+
+/** Hearth's address as the server has it (apps/server/src/config.ts), without a trailing /. */
+export const originOf = (env: NodeJS.ProcessEnv) =>
+  (env.HEARTH_ORIGIN ?? `http://localhost:${env.HEARTH_PORT ?? 4400}`).replace(/\/$/, "");
 
 function readId(file: string): string {
   const id = readFileSync(file, "utf8").trim();
@@ -45,5 +51,6 @@ export function installFromEnv(env: NodeJS.ProcessEnv = process.env): Install {
       id ??= findId(env);
       return id;
     },
+    origin: () => originOf(env),
   };
 }

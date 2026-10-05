@@ -1,13 +1,16 @@
 // What Jarvis has been doing: every turn (what triggered it, what it did, how it ended), what
-// it's watching for you, and what it noted for the next brief.
+// it's watching for you, and what it noted for the next brief. The Slack filter shows only what
+// Slack started, and Jarvis's conversations there (D62).
 
-import { For, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import { NoRows } from "../components/QueryView.tsx";
 import { Badge, Button, PaneHeader } from "../components/ui.tsx";
 import { ago } from "../lib/format.ts";
 import { layout, routeFor } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
+import { isSlackTurn } from "../lib/slack.ts";
 import type { Observation, Turn, Watch } from "../lib/types.ts";
+import { SlackConversations } from "./SlackConversations.tsx";
 
 const TRIGGER_LABEL: Record<string, string> = {
   chat: "You asked",
@@ -19,7 +22,14 @@ const TRIGGER_LABEL: Record<string, string> = {
   routine: "Routine",
   reflex: "Noticed something",
   heartbeat: "Heartbeat",
+  slack_member: "Someone in Slack",
 };
+
+/** What started a turn, in words: a chat from your Slack DM says so (D62). */
+const triggerOf = (t: Turn) =>
+  t.trigger === "chat" && t.context?.via === "slack"
+    ? "You asked in Slack"
+    : (TRIGGER_LABEL[t.trigger] ?? t.trigger);
 
 function outcomeTone(t: Turn): "ok" | "bad" | "jarvis" | "muted" {
   if (t.status === "failed") return "bad";
@@ -32,6 +42,8 @@ export function Activity() {
   const turns = useAction<Turn[]>("jarvis.activity", () => ({ limit: 100 }));
   const watches = useAction<Watch[]>("jarvis.watches");
   const notes = useAction<Observation[]>("observation.list", () => ({ limit: 50 }));
+  const [slackOnly, setSlackOnly] = createSignal(false);
+  const shown = () => (turns.data ?? []).filter((t) => !slackOnly() || isSlackTurn(t));
 
   const openTurn = (t: Turn, beside: boolean) => {
     if (t.conversationId) layout.open({ view: "chat", id: t.conversationId }, { beside });
@@ -42,6 +54,21 @@ export function Activity() {
     <div class="flex h-full flex-col">
       <PaneHeader title="Jarvis's activity" sub="Everything Jarvis did, and why" />
       <div class="flex-1 space-y-6 overflow-auto px-4 py-4">
+        <div class="flex gap-1">
+          <Button
+            small
+            kind={slackOnly() ? "plain" : "primary"}
+            onClick={() => setSlackOnly(false)}
+          >
+            Everything
+          </Button>
+          <Button small kind={slackOnly() ? "primary" : "plain"} onClick={() => setSlackOnly(true)}>
+            Slack
+          </Button>
+        </div>
+        <Show when={slackOnly()}>
+          <SlackConversations />
+        </Show>
         <Show when={(watches.data ?? []).length > 0}>
           <section>
             <h3 class="mb-2 text-xs font-medium uppercase tracking-wide text-faint">
@@ -86,19 +113,21 @@ export function Activity() {
         <section>
           <h3 class="mb-2 text-xs font-medium uppercase tracking-wide text-faint">Turns</h3>
           <Show
-            when={(turns.data ?? []).length > 0}
+            when={shown().length > 0}
             fallback={
               <NoRows query={turns} what="Jarvis's activity">
-                Jarvis hasn't done anything yet.
+                {slackOnly()
+                  ? "Nothing from Slack in Jarvis's recent turns."
+                  : "Jarvis hasn't done anything yet."}
               </NoRows>
             }
           >
             <ul class="divide-y divide-line">
-              <For each={turns.data}>
+              <For each={shown()}>
                 {(t) => (
                   <li class="cursor-pointer py-2.5" onClick={(e) => openTurn(t, e.shiftKey)}>
                     <div class="flex items-center gap-2 text-sm">
-                      <span class="font-medium">{TRIGGER_LABEL[t.trigger] ?? t.trigger}</span>
+                      <span class="font-medium">{triggerOf(t)}</span>
                       <Show when={t.mode === "proactive"}>
                         <Badge tone="jarvis">On its own</Badge>
                       </Show>

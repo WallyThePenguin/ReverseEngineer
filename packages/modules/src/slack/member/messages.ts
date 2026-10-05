@@ -10,13 +10,13 @@ import { type DbOrTx, slackInbound, slackUser } from "@hearth/db";
 import type { ActionContext } from "@hearth/kernel";
 import { and, eq, inArray } from "drizzle-orm";
 import { plainText } from "../save.ts";
-import { type NoteKind, sendNote } from "./notes.ts";
+import { type NoteKind, type NoteTo, sendNote } from "./notes.ts";
 import { passOn } from "./relay.ts";
 
 export type InboundRow = typeof slackInbound.$inferSelect;
 
-/** What's settled about a message for good. */
-export type Settled = "answered" | "held" | "relayed" | "blocked" | `ignored:${string}`;
+/** What's settled about a message for good. "yours": your own DM, gone to Jarvis as you. */
+export type Settled = "answered" | "held" | "relayed" | "blocked" | "yours" | `ignored:${string}`;
 
 /** Messages more than this late (by Slack's time) get a note, not an answer (D62). */
 export const LATE_MS = 2 * 3_600_000;
@@ -80,13 +80,22 @@ export async function relayRows(
     kind: "unanswered",
     vip: who.vip,
   });
-  const last = rows.at(-1)!;
   await sendNote(ctx, note, {
     teamId: who.teamId,
     principal: who.principal,
-    channelId: last.channelId,
-    threadTs: last.threadTs,
+    ...noteAt(rows.at(-1)!),
     conversationId: who.conversationId,
   });
   await settle(ctx, rows, "relayed");
+}
+
+/**
+ * Where a note about a message goes: their DM, in the thread they wrote in if they did; or in a
+ * channel, the thread of their @mention, seen only by them (D62).
+ */
+export function noteAt(
+  row: Pick<InboundRow, "channelId" | "channelType" | "ts" | "threadTs" | "userId">,
+): Pick<NoteTo, "channelId" | "threadTs" | "ephemeralTo"> {
+  if (row.channelType === "im") return { channelId: row.channelId, threadTs: row.threadTs };
+  return { channelId: row.channelId, threadTs: row.threadTs ?? row.ts, ephemeralTo: row.userId };
 }

@@ -27,7 +27,7 @@ async function due(ctx: ActionContext, teamId: string, ownerIm: string) {
       and(
         isNull(slackInbound.takenAt),
         eq(slackInbound.teamId, teamId),
-        eq(slackInbound.channelType, "im"),
+        // A DM or a channel's @mention alike; your own DM with Jarvis is yours, not a member's.
         ne(slackInbound.channelId, ownerIm),
         or(isNull(slackUser.id), unchecked),
       ),

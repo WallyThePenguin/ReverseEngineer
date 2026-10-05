@@ -158,6 +158,8 @@ export const chatModule = defineModule({
           conversation: {
             ...e,
             subjectId: c?.subjectId ?? null,
+            // A Slack member's is read-only, and your Slack DM's says where you wrote (D62).
+            startedVia: c?.startedVia ?? null,
             // Once it has read outside content, Jarvis asks more here: the app says why (D58).
             taintedAt: c?.taintedAt ?? null,
             taintSource: c?.taintSource ?? null,
@@ -201,11 +203,14 @@ export const chatModule = defineModule({
             type: "conversation",
             title: preview(i.text, 60) || "New conversation",
           });
-          await ctx.tx
-            .insert(conversation)
-            .values({ entityId: e.id, startedVia: ctx.caller.via === "device" ? "device" : null });
+          // Started from the desktop app (D42), or from your DM with Jarvis in Slack (D62).
+          const via =
+            ctx.caller.via === "device" || ctx.caller.via === "slack" ? ctx.caller.via : null;
+          await ctx.tx.insert(conversation).values({ entityId: e.id, startedVia: via });
           conversationId = e.id;
         }
+        // From your DM with Jarvis: its turn tells Slack how it went (D62).
+        const fromSlack = ctx.caller.via === "slack" ? { via: "slack" } : {};
         const chosen = i.lane ?? routeLane(i.text);
         // Heard, or sent by a device on its own say-so (D42): kept as such, so the nightly memory
         // update doesn't take it for your words (D58).
@@ -216,7 +221,12 @@ export const chatModule = defineModule({
           [
             {
               kind: "user_message",
-              payload: { text: i.text, by: ctx.caller.principal, ...(heard ? { heard } : {}) },
+              payload: {
+                text: i.text,
+                by: ctx.caller.principal,
+                ...(heard ? { heard } : {}),
+                ...fromSlack,
+              },
             },
           ],
           ctx.now,
@@ -229,7 +239,14 @@ export const chatModule = defineModule({
         ctx.emit({
           kind: "chat.message_posted",
           entityId: conversationId,
-          payload: { conversationId, text: i.text, lane: chosen, idx, heard: i.heard === true },
+          payload: {
+            conversationId,
+            text: i.text,
+            lane: chosen,
+            idx,
+            heard: i.heard === true,
+            ...fromSlack,
+          },
         });
         return { conversationId, idx };
       },
@@ -285,6 +302,7 @@ export const chatModule = defineModule({
           lane: "fast" | "deep";
           heard?: boolean;
           idx: number;
+          via?: string;
         };
         // You pressed Stop before Jarvis saw this (it was down): let it go (D54).
         const [stopped] = await ctx.db
@@ -305,6 +323,7 @@ export const chatModule = defineModule({
             kind: "turn",
             trigger: "chat",
             ...(p.heard ? { untrusted: true } : {}),
+            ...(p.via === "slack" ? { context: { via: "slack" } } : {}),
             lane: p.lane,
             conversationId: p.conversationId,
             prompt: p.text,

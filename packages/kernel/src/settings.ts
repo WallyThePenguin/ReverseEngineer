@@ -48,6 +48,12 @@ export interface Settings {
    * passed to you, and they're told so once a day.
    */
   "slack.bot.memberTurns": { perTenMinutes: number; perDay: number; allPerDay: number };
+  /**
+   * What your own DM to Jarvis's bot gets back in Slack (D62). "fixed": only "Got it, it's in
+   * Hearth", then "Done" or "Needs your yes in Hearth", as the desktop app gets (D42). "full":
+   * the answer itself, which Slack keeps and exports, so it's yours to turn on.
+   */
+  "slack.bot.ownerDmAnswers": "fixed" | "full";
 }
 
 export const SETTING_DEFAULTS: Settings = {
@@ -70,6 +76,7 @@ export const SETTING_DEFAULTS: Settings = {
   "jarvis.alive": null,
   "slack.bot.membersOn": false,
   "slack.bot.memberTurns": { perTenMinutes: 4, perDay: 20, allPerDay: 60 },
+  "slack.bot.ownerDmAnswers": "fixed",
 };
 
 export async function getSetting<K extends keyof Settings>(

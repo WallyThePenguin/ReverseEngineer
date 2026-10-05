@@ -11,13 +11,23 @@ const MAIL: Rule = ["mail.", "person.view", "company.view"];
 
 /** By the event's module: the part of its kind before the first dot. */
 const BY_MODULE: Record<string, Rule> = {
-  notification: ["inbox.list"],
-  approval: ["inbox.list", "approval.list", "conversation.", "standing_rule.list"],
+  // A channel Jarvis stopped answering in tells you with a card (D62).
+  notification: ["inbox.list", "slack.channels"],
+  approval: [
+    "inbox.list",
+    "approval.list",
+    "conversation.",
+    "standing_rule.list",
+    // A held reply to someone in Slack shows on their conversation's bar (D62).
+    "slack.conversation",
+    "slack.conversations",
+  ],
   link: ["entity.", "task.", "note.list", "person.view", "company.view", "doc."],
   mail: MAIL,
   task: ["task.", "inbox.list"],
   calendar: ["calendar.", "person.view", "company.view"],
-  conversation: ["conversation.", "jarvis.activity"],
+  // A Slack member's conversation growing shows on the Slack screens too (D62).
+  conversation: ["conversation.", "jarvis.activity", "slack.conversation", "slack.conversations"],
   chat: ["conversation.", "jarvis.activity"],
   jarvis: ["jarvis.", "observation.list", "system.status", "conversation."],
   system: ["system.status"],

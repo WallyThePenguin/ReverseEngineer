@@ -1,6 +1,6 @@
 // What happens to a member's waiting messages (D62): a turn, or a relay to you with a fixed note.
-// At most one turn waits per conversation, and it folds in everything that came before it runs,
-// so a burst of messages is one turn. No turn when:
+// At most one turn waits per member in a conversation, and it folds in everything they wrote
+// before it runs, so a burst of messages is one turn. No turn when:
 // - the conversation or Jarvis is paused (and 20 of Jarvis's posts in one conversation within ten
 //   minutes pause it for an hour, and tell you: the loop breaker);
 // - Jarvis hasn't got to a message in ten minutes (it's down, or busy with you);
@@ -104,13 +104,21 @@ async function overBudget(ctx: ActionContext, principal: string) {
 export type Decision = "turn" | "waiting" | "relayed" | "busy";
 
 /**
- * Decides for one conversation's waiting messages (oldest first): starts its turn, leaves them
- * to the turn already waiting, or passes them on to you.
+ * What else a turn needs before it's queued, like the thread a channel turn answers in; null
+ * when it can't be had yet, and the messages wait a round.
+ */
+export type More = () => Promise<Record<string, unknown> | null>;
+
+/**
+ * Decides for one member's waiting messages in a conversation (oldest first): starts their turn,
+ * leaves them to the turn already waiting, or passes them on to you. In a channel's thread each
+ * member who wrote gets a turn of their own, so who is answered is never in doubt (D62).
  */
 export async function decide(
   ctx: ActionContext,
   c: Conversation,
   waiting: InboundRow[],
+  more?: More,
 ): Promise<Decision> {
   if (!waiting.length) return "waiting";
   const { who, thread } = c;
@@ -130,6 +138,7 @@ export async function decide(
         eq(jarvisTurn.conversationId, thread.conversationId),
         eq(jarvisTurn.trigger, "slack_member"),
         eq(jarvisTurn.status, "queued"),
+        sql`${jarvisTurn.context}->>'member' = ${who.principal}`,
       ),
     )
     .for("update");
@@ -161,6 +170,8 @@ export async function decide(
     await relayRows(ctx, who, waiting, "busy");
     return "busy";
   }
+  const extra = more ? await more() : {};
+  if (!extra) return "waiting";
   await ctx.tx.insert(jarvisTurn).values({
     id: newId(),
     trigger: "slack_member",
@@ -176,6 +187,7 @@ export async function decide(
       channel: thread.channelId,
       // Ten minutes from the first message it answers (TURN_TTL_MS.slack_member).
       askedAt: oldest.receivedAt.toISOString(),
+      ...extra,
     },
     conversationId: thread.conversationId,
     queuedAt: ctx.now,

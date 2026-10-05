@@ -7,6 +7,7 @@ import {
   type DbOrTx,
   slackAnswer,
   slackBot,
+  slackChannel,
   slackInbound,
   slackOutbox,
   slackUser,
@@ -14,6 +15,7 @@ import {
 } from "@hearth/db";
 import { getSetting } from "@hearth/kernel";
 import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { channelName } from "./in-channel.ts";
 import type { InboundRow } from "./messages.ts";
 import { cleanName, type MemberNow, memberNow, reaches } from "./people.ts";
 
@@ -60,17 +62,19 @@ export async function memberGate(
 }
 
 /**
- * Folds the messages waiting in a turn's conversation into it, oldest first, in one UPDATE …
- * RETURNING: up to ten and 12,000 characters (the first always). A turn run again after a crash
- * gets the ones it had back. None means there's nothing to answer, and the turn is skipped.
+ * Folds the messages its member has waiting in a turn's conversation into it, oldest first, in
+ * one UPDATE … RETURNING: up to ten and 12,000 characters (the first always). In a channel's
+ * thread others' messages wait for their own turns. A turn run again after a crash gets the ones
+ * it had back. None means there's nothing to answer, and the turn is skipped.
  */
 export async function claimMessages(
   db: Db,
   turnId: string,
   conversationId: string,
+  user: string,
 ): Promise<InboundRow[]> {
   const mine = sql`(s.turn_id = ${turnId} AND s.outcome = 'claimed')
-    OR (s.turn_id IS NULL AND s.outcome = 'waiting')`;
+    OR (s.turn_id IS NULL AND s.outcome = 'waiting' AND s.user_id = ${user})`;
   const res = await db.execute<{ ts: string }>(sql`
     WITH pick AS (
       SELECT channel_id, ts FROM (
@@ -105,6 +109,10 @@ export interface MemberBrief {
   sent: string[];
   owner: string;
   workspace: string;
+  /** The channel whose thread it answers in, which reads the answer; null in their DM. */
+  channel: string | null;
+  /** Whether it's you, @mentioning Jarvis in a channel: still answered as the channel's. */
+  ownerAsking: boolean;
 }
 
 /** The answers a member may be given: for everyone, or naming them in their DM. */
@@ -153,6 +161,13 @@ export async function memberBrief(db: Db, m: MemberNow, teamId: string): Promise
         .orderBy(desc(slackOutbox.createdAt))
         .limit(SENT_SHOWN)
     : [];
+  const [ch] =
+    m.thread && !dm
+      ? await db
+          .select({ id: slackChannel.id, name: slackChannel.name })
+          .from(slackChannel)
+          .where(eq(slackChannel.id, m.thread.channelId))
+      : [];
   return {
     name: m.name,
     tier: m.tier,
@@ -160,6 +175,8 @@ export async function memberBrief(db: Db, m: MemberNow, teamId: string): Promise
     sent: sent.map((s) => s.text).reverse(),
     owner: cleanName(me?.name, "the owner").split(" ")[0] ?? "the owner",
     workspace: cleanName(ws?.teamName, "your workspace"),
+    channel: dm ? null : `#${channelName(ch?.name ?? "", m.thread?.channelId ?? "a channel")}`,
+    ownerAsking: Boolean(ws && m.user.id === ws.userId),
   };
 }
 

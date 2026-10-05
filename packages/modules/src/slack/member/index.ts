@@ -14,6 +14,7 @@ import { z } from "zod";
 import { freeSlots } from "../../calendar/free.ts";
 import { describeRow, isoDateTime, liveEntity, preview } from "../../shared.ts";
 import { plainText } from "../save.ts";
+import { memberDigest } from "./conversations.ts";
 import { needTier } from "./people.ts";
 import { laterMessages, passOn, RELAY_TYPE } from "./relay.ts";
 
@@ -135,4 +136,6 @@ export const memberModule = defineModule({
   reflexes: [],
   noReflexesBecause:
     "A member's words only make cards for you: nothing they write starts a turn with your rights (D62).",
+  // The brief's one line about them: how many Jarvis answered (conversations.ts).
+  digest: memberDigest,
 });

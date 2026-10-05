@@ -8,7 +8,15 @@
 // ("Jarvis answers members on its own"), and the runner asks first when the member or the channel
 // is on review. A held reply is a card with the exact text; it runs once when you say yes (D58),
 // lapses after a day, and a newer held reply in the same conversation replaces it.
-import { approval, type Db, jarvisTurn, notification, slackInbound, slackUser } from "@hearth/db";
+import {
+  approval,
+  type Db,
+  jarvisTurn,
+  notification,
+  slackChannel,
+  slackInbound,
+  slackUser,
+} from "@hearth/db";
 import {
   type ActionContext,
   ActionError,
@@ -22,6 +30,7 @@ import { POST_MAX } from "../bot/filter.ts";
 import { enqueue } from "../bot/queue.ts";
 import { postingBot } from "../bot/recipients.ts";
 import { REPLY_ACTION } from "../bot/settings.ts";
+import { channelName } from "./in-channel.ts";
 import { memberNow, reaches } from "./people.ts";
 
 const replySnapshot = z.object({ name: z.string(), place: z.string() });
@@ -48,9 +57,14 @@ async function placeOf(db: ReadContext["db"] | ActionContext["tx"], i: ReplyInpu
     .from(slackUser)
     .where(eq(slackUser.id, i.to));
   const name = (u?.name ?? i.to).replace(/\s+/g, " ").trim().slice(0, 80);
-  const place = i.channelId.startsWith("D")
-    ? `their DM with Jarvis${i.threadTs ? ", in a thread" : ""}`
-    : `a thread in ${i.channelId}`;
+  if (i.channelId.startsWith("D"))
+    return { name, place: `their DM with Jarvis${i.threadTs ? ", in a thread" : ""}` };
+  // In a channel, by its name: everyone in it reads the reply, so the card says which (D62).
+  const [ch] = await db
+    .select({ name: slackChannel.name })
+    .from(slackChannel)
+    .where(eq(slackChannel.id, i.channelId));
+  const place = `a thread in #${channelName(ch?.name ?? "", i.channelId)}, which everyone there reads`;
   return { name, place } satisfies ReplySnapshot;
 }
 
@@ -134,8 +148,9 @@ export const replyAction = defineAction({
 });
 
 /**
- * A newer held reply replaces the older ones in its conversation (D62): they expire, with their
- * cards, so you never approve an answer to something the member has since moved on from.
+ * A newer held reply replaces the older ones to the same member in its conversation (D62): they
+ * expire, with their cards, so you never approve an answer to something the member has since
+ * moved on from. In a channel's thread, a reply to someone else there stays.
  */
 export async function replaceHeldReplies(
   db: Db,
@@ -144,6 +159,11 @@ export async function replaceHeldReplies(
   now: Date,
 ): Promise<number> {
   return db.transaction(async (tx) => {
+    const [kept] = await tx
+      .select({ by: approval.requestedBy })
+      .from(approval)
+      .where(eq(approval.id, keepId));
+    if (!kept) return 0;
     const replaced = await tx
       .update(approval)
       .set({ status: "expired", decidedAt: now, error: "A newer reply replaced it." })
@@ -151,6 +171,7 @@ export async function replaceHeldReplies(
         and(
           eq(approval.action, REPLY_ACTION),
           eq(approval.conversationId, conversationId),
+          eq(approval.requestedBy, kept.by),
           eq(approval.status, "pending"),
           ne(approval.id, keepId),
         ),

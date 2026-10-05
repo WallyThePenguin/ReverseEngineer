@@ -5,11 +5,13 @@
 //   from other orgs and deactivated users are never answered. A member gets their principal
 //   (member:slack:<team>:<user>) the first time they write; you blocking them stops here;
 // - where: one conversation per member's DM, created tainted and outside (D58), titled
-//   "Slack: <name>", with each message logged under its author;
+//   "Slack: <name>", with each message logged under its author; an @mention in a channel that's
+//   on goes to its thread's conversation, and anywhere else gets a note (in-channel.ts);
 // - what next (decide.ts): their turn, or a relay to you with a fixed note.
 // A round also settles the turns that ended (sweep.ts). Messages are taken once settled for
-// 1.5 s, in Slack's order, so a burst arrives together. Your DM with Jarvis and channel @mentions
-// aren't a member's DM: they're left for their own handling.
+// 1.5 s, in Slack's order, so a burst arrives together. Your DM with Jarvis isn't a member's: it's
+// yours, taken by slack.take_owner. You @mentioning Jarvis in a channel is a channel turn, at the
+// channel's tier, since the channel reads the answer (D62).
 import { MEMBER_CONVERSATION, memberPrincipal } from "@hearth/core";
 import {
   conversation,
@@ -25,11 +27,15 @@ import { and, eq, isNull, lte, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { appendLog } from "../../chat/log.ts";
 import { INBOUND_TEXT_MAX } from "../bot/socket.ts";
+import type { BotRow } from "../bot/tokens.ts";
+import { checkedLately, isOn } from "./channels.ts";
 import { CHECK_EVERY_MS } from "./check.ts";
-import { type Conversation, decide } from "./decide.ts";
+import { type Conversation, decide, type More } from "./decide.ts";
+import { channelOf, offChannel, threadContext, threadConversation } from "./in-channel.ts";
 import {
   type InboundRow,
   LATE_MS,
+  noteAt,
   plainOf,
   relayRows,
   settle,
@@ -123,26 +129,31 @@ async function takeOne(ctx: ActionContext, ws: Ws, row: InboundRow): Promise<Too
     await settle(ctx, [row], "ignored:unchecked");
     return SETTLED;
   }
-  const why = row.userId === ws.userId ? "owner_elsewhere" : notAMember(u);
+  const inDm = row.channelType === "im";
+  // You, in a DM that isn't yours with Jarvis: never a member's turn. In a channel you're one
+  // of the people there, at the channel's tier (people.ts).
+  const why = inDm && row.userId === ws.userId ? "owner_elsewhere" : notAMember(u);
   if (why) {
     await settle(ctx, [row], `ignored:${why}`);
+    return SETTLED;
+  }
+  const ch = inDm ? null : await channelOf(ctx.tx, row.channelId);
+  if (!inDm && !isOn(ch)) {
+    await offChannel(ctx, ws.teamId, row);
     return SETTLED;
   }
   const name = cleanName(u.name, u.id);
   const p = await principalFor(ctx, ws, u, name);
   if (p.blocked) {
-    await sendNote(ctx, "blocked", {
-      teamId: ws.teamId,
-      principal: p.id,
-      channelId: row.channelId,
-      threadTs: row.threadTs,
-    });
+    await sendNote(ctx, "blocked", { teamId: ws.teamId, principal: p.id, ...noteAt(row) });
     await settle(ctx, [row], "blocked");
     return SETTLED;
   }
-  const thread = await dmConversation(ctx, ws, row, { principal: p.id, name });
+  const thread = ch
+    ? await threadConversation(ctx, ws.teamId, row, ch)
+    : await dmConversation(ctx, ws, row, { principal: p.id, name });
   if (!thread) {
-    await settle(ctx, [row], "ignored:not_their_dm");
+    await settle(ctx, [row], `ignored:${inDm ? "not_their_dm" : "not_a_channel_thread"}`);
     return SETTLED;
   }
   const cid = thread.conversationId;
@@ -181,18 +192,23 @@ async function takeOne(ctx: ActionContext, ws: Ws, row: InboundRow): Promise<Too
   return { cid };
 }
 
-/** The member and place of a conversation with waiting or claimed messages. */
-async function conversationOf(ctx: ActionContext, ws: Ws, cid: string) {
-  const [t] = await ctx.tx
-    .select({ thread: slackThread, user: slackUser, disabledAt: principal.disabledAt })
+/** The member who wrote messages waiting or claimed in a conversation, and its place in Slack. */
+async function conversationOf(ctx: ActionContext, ws: Ws, row: InboundRow) {
+  const cid = row.conversationId;
+  if (!cid) return null;
+  const [thread] = await ctx.tx
+    .select()
     .from(slackThread)
-    .innerJoin(slackUser, eq(slackUser.principal, slackThread.member))
-    .innerJoin(principal, eq(principal.id, slackThread.member))
     .where(eq(slackThread.conversationId, cid));
-  if (!t) return null;
+  const [t] = await ctx.tx
+    .select({ user: slackUser, disabledAt: principal.disabledAt })
+    .from(slackUser)
+    .innerJoin(principal, eq(principal.id, slackUser.principal))
+    .where(eq(slackUser.id, row.userId));
+  if (!thread || !t) return null;
   const who = {
     teamId: ws.teamId,
-    principal: t.thread.member!,
+    principal: t.user.principal!,
     name: cleanName(t.user.name, t.user.id),
     vip: t.user.vip,
     conversationId: cid,
@@ -200,7 +216,26 @@ async function conversationOf(ctx: ActionContext, ws: Ws, cid: string) {
   };
   // Blocked since, or no longer a member (the daily check): their waiting messages get no turn.
   const blocked = Boolean(t.disabledAt) || t.user.tier === "blocked" || Boolean(notAMember(t.user));
-  return { who, thread: t.thread, blocked } satisfies Conversation & { blocked: boolean };
+  return { who, thread, blocked } satisfies Conversation & { blocked: boolean };
+}
+
+/**
+ * In a channel's thread, what a turn needs first: the channel still on and checked within the
+ * hour, and the thread so far. Null (wait a round) while its check is due or Slack can't be read.
+ */
+function inThread(
+  ctx: ActionContext,
+  ws: Ws,
+  bot: BotRow,
+  c: Conversation,
+  rows: InboundRow[],
+): More {
+  return async () => {
+    const ch = await channelOf(ctx.tx, c.thread.channelId);
+    if (!isOn(ch) || !checkedLately(ch, ctx.now)) return null;
+    const lines = await threadContext(ctx, ws, bot, c.thread, new Set(rows.map((r) => r.ts)));
+    return lines ? { thread: lines } : null;
+  };
 }
 
 /** One round of the take loop. */
@@ -221,7 +256,6 @@ export async function takeRound(ctx: ActionContext): Promise<TakeRound> {
       and(
         isNull(slackInbound.takenAt),
         eq(slackInbound.teamId, ws.teamId),
-        eq(slackInbound.channelType, "im"),
         ne(slackInbound.channelId, bot.ownerIm),
         lte(slackInbound.receivedAt, new Date(ctx.now.getTime() - SETTLE_MS)),
       ),
@@ -244,25 +278,37 @@ export async function takeRound(ctx: ActionContext): Promise<TakeRound> {
       cid = took.cid;
     }
     if (!cid) continue;
-    conversations.set(cid, [...(conversations.get(cid) ?? []), { ...row, outcome: "waiting" }]);
+    // Each member's own: in a channel's thread, several people can be waiting on Jarvis.
+    const key = `${cid} ${row.userId}`;
+    const waiting = { ...row, conversationId: cid, outcome: "waiting" };
+    conversations.set(key, [...(conversations.get(key) ?? []), waiting]);
   }
   for (const [turnId, mine] of claimed) {
-    const c = await conversationOf(ctx, ws, mine[0]!.conversationId!);
+    const c = await conversationOf(ctx, ws, mine[0]!);
     if (!c) continue;
     const how = await settleClaimed(ctx, turnId, mine, c.who, c.thread);
     if (how !== "open") done.settled += mine.length;
   }
-  for (const [cid, waiting] of conversations) {
-    const c = await conversationOf(ctx, ws, cid);
+  for (const waiting of conversations.values()) {
+    const c = await conversationOf(ctx, ws, waiting[0]!);
     if (!c) continue;
     if (c.blocked) {
-      const last = waiting.at(-1)!;
-      const to = { channelId: last.channelId, threadTs: last.threadTs, conversationId: cid };
+      const to = { ...noteAt(waiting.at(-1)!), conversationId: c.who.conversationId };
       await sendNote(ctx, "blocked", { teamId: ws.teamId, principal: c.who.principal, ...to });
       await settle(ctx, waiting, "blocked");
       continue;
     }
-    const how = await decide(ctx, c, waiting);
+    let more: More | undefined;
+    if (c.thread.audience === "channel") {
+      // Turned off since they wrote, by you or by its hourly check: passed on to you instead.
+      if (!isOn(await channelOf(ctx.tx, c.thread.channelId))) {
+        await relayRows(ctx, c.who, waiting, "off_channel");
+        done.relayed++;
+        continue;
+      }
+      more = inThread(ctx, ws, bot, c, waiting);
+    }
+    const how = await decide(ctx, c, waiting, more);
     if (how === "turn") done.turns++;
     if (how === "relayed" || how === "busy") done.relayed++;
   }

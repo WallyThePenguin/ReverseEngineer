@@ -76,18 +76,27 @@ export const botSettingsAction = defineAction({
   name: "slack.bot_settings",
   description:
     "Whether people in your Slack workspace can talk to Jarvis's bot, and whether its replies to them go out without your yes.",
-  input: z.object({ membersOn: z.boolean().optional(), answersOnOwn: z.boolean().optional() }),
+  input: z.object({
+    membersOn: z.boolean().optional(),
+    answersOnOwn: z.boolean().optional(),
+    /** What your own DM to Jarvis gets back in Slack: fixed replies, or the answer itself. */
+    ownerDmAnswers: z.enum(["fixed", "full"]).optional(),
+  }),
   risk: "internal",
-  // Only you: this is what lets a member's reply go out without asking (D62).
+  // Only you: this is what lets a member's reply go out without asking (D62), and what decides
+  // whether Jarvis's answers to you are kept in Slack.
   callers: ["owner"],
   async handler(i, ctx) {
     const ws = await workspace(ctx);
     if (i.membersOn !== undefined) await setSetting(ctx.tx, "slack.bot.membersOn", i.membersOn);
     if (i.answersOnOwn !== undefined)
       await setAnswersOnOwn(ctx, ws.teamId, ws.teamName, i.answersOnOwn);
+    if (i.ownerDmAnswers !== undefined)
+      await setSetting(ctx.tx, "slack.bot.ownerDmAnswers", i.ownerDmAnswers);
     return {
       membersOn: await getSetting(ctx.tx, "slack.bot.membersOn"),
       answersOnOwn: await answersOnOwn(ctx.tx, ws.teamId),
+      ownerDmAnswers: await getSetting(ctx.tx, "slack.bot.ownerDmAnswers"),
     };
   },
 });

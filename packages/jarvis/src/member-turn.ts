@@ -25,6 +25,7 @@ import {
   REPLY_ACTION,
   replaceHeldReplies,
   SLOW_MS,
+  type ThreadLine,
   writtenAt,
 } from "@hearth/modules";
 import { and, desc, eq, ne } from "drizzle-orm";
@@ -102,9 +103,9 @@ export async function runMemberTurn(
   const gate = await memberGate(db, turn, now);
   // Blocked or paused since it was queued: the take loop passes its messages on instead.
   if (!gate.ok) return skip(env, end, gate.why);
-  const heard = await claimMessages(db, turn.id, cid);
-  if (!heard.length) return skip(env, end, "nothing");
   const m = gate.member;
+  const heard = await claimMessages(db, turn.id, cid, m.user.id);
+  if (!heard.length) return skip(env, end, "nothing");
   const thread = m.thread!;
   const user = m.user.id;
   const turnId = turn.id;
@@ -132,7 +133,12 @@ export async function runMemberTurn(
       at: writtenAt(h.ts),
       file: h.subtype === "file_share",
     });
-  const message = memberMessage(user, m.name, said, rules, slow);
+  // In a channel, the thread so far, as the take loop read it when it queued the turn.
+  const inThread = (turn.context.thread as ThreadLine[] | undefined) ?? [];
+  const message = memberMessage(user, m.name, said, rules, slow, {
+    lines: inThread,
+    from: `slack:${thread.channelId}`,
+  });
   const asked = new Set(heard.map((h) => h.ts));
   // A new session starts from what Hearth kept of the conversation, wrapped as their words like
   // what they write now, then the messages it answers, which the recap leaves out (D62). That's

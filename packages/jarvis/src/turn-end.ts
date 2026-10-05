@@ -24,6 +24,7 @@ import type { LogEntry } from "@hearth/modules";
 import { and, count, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import { BACKOFF_MINUTES, type Failure, failure, friendlyError, PASSING } from "./failures.ts";
 import { applyOutcomes } from "./outcomes.ts";
+import { tellSlack } from "./slack-owner.ts";
 import { writeLog } from "./threads.ts";
 import type { ToolCallRecord } from "./tools.ts";
 import { alertFailure } from "./turn-alerts.ts";
@@ -148,6 +149,11 @@ export async function recordEnd(
       { actor: "jarvis", origin: "agent", correlationId: turn.id, at: now },
     ),
   );
+  // Your DM with Jarvis in Slack started it: Slack hears how it went (D62).
+  if (turn.context.via === "slack")
+    await tellSlack(env, e, patch.status, patch.outcome ?? null, patch.reply ?? null).catch((err) =>
+      env.log(`couldn't tell Slack how turn ${turn.id} ended`, err),
+    );
 }
 
 /** Whether the attempt used a Hearth tool, or started one that may still be running. */

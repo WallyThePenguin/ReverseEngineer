@@ -3,7 +3,7 @@
 // A full member is in your workspace, not a guest, not a bot and not deactivated. Everyone starts
 // at `relay` (a message passed on to you); `schedule` (your free time and meeting requests) is
 // yours to give, one person at a time. In a channel's thread the tier is the lower of the
-// member's and the channel's.
+// member's and the channel's; your own @mention there gets the channel's.
 import {
   type DbOrTx,
   principal,
@@ -13,6 +13,7 @@ import {
   slackChannel,
   slackThread,
   slackUser,
+  slackWorkspace,
 } from "@hearth/db";
 import { type ActionContext, ActionError, type Caller } from "@hearth/kernel";
 import { eq } from "drizzle-orm";
@@ -102,7 +103,14 @@ export async function memberNow(
       .select({ tier: slackChannel.jarvisTier, replies: slackChannel.jarvisReplies })
       .from(slackChannel)
       .where(eq(slackChannel.id, thread.channelId));
-    tier = lowerTier(tier, c?.tier ?? "off");
+    // The channel reads the answer, so it sets how far Jarvis goes. You're a member there too,
+    // at the channel's tier: whatever tier your own Slack row has doesn't lower it (D62).
+    const [ws] = await db
+      .select({ userId: slackWorkspace.userId })
+      .from(slackWorkspace)
+      .where(eq(slackWorkspace.teamId, user.teamId));
+    const yours = ws?.userId === user.id && tier !== "blocked";
+    tier = lowerTier(yours ? "schedule" : tier, c?.tier ?? "off");
     if (c?.replies !== "auto") replies = "review";
   }
   return { user, name: cleanName(user.name, user.id), tier, replies, thread: thread ?? null };

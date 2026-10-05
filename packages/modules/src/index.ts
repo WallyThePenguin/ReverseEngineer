@@ -119,6 +119,7 @@ export {
   botTrouble,
   CATCH_UP_EVERY_MS,
   type CatchUp,
+  CHANNEL_CHECK_MS,
   catchUp,
   claimMessages,
   clearOldInbound,
@@ -133,6 +134,7 @@ export {
   type InboundRow,
   type InboundStore,
   inboundStore,
+  isYou,
   JARVIS_APP_ID,
   MEMBER_TIERS,
   type MemberBrief,
@@ -142,6 +144,8 @@ export {
   OUTBOX_POLL_MS,
   type Ours,
   type OutboxRound,
+  OWNER_DM_IDLE_MS,
+  OWNER_REPLIES,
   onDisconnect,
   openBotToken,
   PACE_MS,
@@ -166,6 +170,8 @@ export {
   slackTs,
   storeInbound,
   type TakeRound,
+  THREAD_LINES,
+  type ThreadLine,
   writtenAt,
 } from "./slack/index.ts";
 export {

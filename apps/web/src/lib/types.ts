@@ -127,6 +127,8 @@ export interface Turn {
   lane: string;
   origin: string;
   prompt: string;
+  /** What started it beyond its trigger: via "slack" for your DM with Jarvis there (D62). */
+  context?: Record<string, unknown> | null;
   conversationId: string | null;
   subjectId: string | null;
   status: string;

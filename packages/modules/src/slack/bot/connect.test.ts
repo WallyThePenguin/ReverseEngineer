@@ -209,15 +209,18 @@ describe("the bot afterwards", () => {
     expect(await ok("slack.bot_settings", { answersOnOwn: false, membersOn: true })).toEqual({
       answersOnOwn: false,
       membersOn: true,
+      // Your own DM to Jarvis gets fixed replies in Slack until you choose full answers (D62).
+      ownerDmAnswers: "fixed",
     });
     expect(await t.kernel.hasStandingRule("slack.reply", memberCaller("T1", "U_SAM"))).toBe(false);
     // Disconnecting and connecting again doesn't turn it back on behind your back.
     await ok("slack.bot_disconnect");
     await connect();
     expect(await autoRule()).toEqual([]);
-    expect(await ok("slack.bot_settings", { answersOnOwn: true })).toEqual({
+    expect(await ok("slack.bot_settings", { answersOnOwn: true, ownerDmAnswers: "full" })).toEqual({
       answersOnOwn: true,
       membersOn: true,
+      ownerDmAnswers: "full",
     });
     expect(await autoRule()).toHaveLength(1);
   });

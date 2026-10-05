@@ -1,12 +1,21 @@
 import { randomUUID } from "node:crypto";
-import { connect, jarvisTurn, loadMigrations } from "@hearth/db";
-import { systemCaller } from "@hearth/kernel";
+import {
+  connect,
+  jarvisTurn,
+  loadMigrations,
+  slackBot,
+  slackInbound,
+  slackOutbox,
+  slackWorkspace,
+} from "@hearth/db";
+import { setSetting, systemCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { ALL_MODULES } from "@hearth/modules";
 import { deepHealth } from "@hearth/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Check } from "./doctor.ts";
 import { checkDatabase, checkTurns } from "./doctor-db.ts";
+import { checkSlackBot } from "./doctor-slack.ts";
 
 let t: TestKernel;
 beforeEach(async () => {
@@ -80,6 +89,75 @@ describe("hearth doctor, what the database says", () => {
     await report("sync.slack", "failing", "Acme: invalid_auth");
     expect((await deep()).status).toBe("failing");
     expect(find(await checkDatabase(t.tdb, t.clock.now()), "sync.slack")?.mark).toBe("fail");
+  });
+
+  it("says what Jarvis's Slack bot did in the last day, and warns about posts that didn't go out (D62)", async () => {
+    const now = t.clock.now();
+    expect(await checkSlackBot(t.tdb.db, now)).toBeNull();
+    await t.tdb.db.insert(slackWorkspace).values({
+      teamId: "T1",
+      teamName: "Acme",
+      url: "https://acme.slack.com/",
+      userId: "UME",
+      token: "sealed",
+    });
+    await t.tdb.db.insert(slackBot).values({
+      teamId: "T1",
+      appId: "A0JARVIS",
+      botUserId: "UJARVIS",
+      botId: "B1",
+      ownerIm: "DUME",
+      installId: "this-pc",
+      botToken: "sealed",
+      appToken: "sealed",
+    });
+    await setSetting(t.tdb.db, "slack.bot.membersOn", true);
+    const took = (ts: string, outcome: string, hoursAgo = 1) => ({
+      channelId: "DSAM",
+      ts,
+      teamId: "T1",
+      userId: "USAM",
+      channelType: "im",
+      source: "event" as const,
+      takenAt: new Date(now.getTime() - hoursAgo * 3_600_000),
+      outcome,
+    });
+    await t.tdb.db
+      .insert(slackInbound)
+      .values([
+        took("1.1", "answered"),
+        took("1.2", "answered"),
+        took("1.3", "relayed"),
+        { ...took("1.4", "yours"), channelId: "DUME", userId: "UME" },
+        took("1.5", "answered", 30),
+      ]);
+    const line =
+      "People in your Slack can talk to it; in the last 24 hours it answered 2, passed 1 on to you, and took 1 from you.";
+    expect(await checkSlackBot(t.tdb.db, now)).toEqual({
+      name: "Jarvis's Slack bot",
+      mark: "ok",
+      detail: line,
+    });
+    await t.tdb.db.insert(slackOutbox).values({
+      id: randomUUID(),
+      dedupeKey: "answer:lost",
+      teamId: "T1",
+      channelId: "DSAM",
+      text: "Hi",
+      kind: "answer",
+      createdBy: "jarvis",
+      state: "failed",
+      createdAt: now,
+      expiresAt: new Date(now.getTime() + 86_400_000),
+    });
+    expect(await checkSlackBot(t.tdb.db, now)).toMatchObject({
+      mark: "warn",
+      detail: `${line.slice(0, -1)}. 1 post(s) didn't go out: they're in your inbox.`,
+    });
+    // Slack revoking the bot is a warning, never a fail: an update can't fix it.
+    await t.tdb.db.update(slackBot).set({ syncState: "revoked" });
+    expect(await checkSlackBot(t.tdb.db, now)).toMatchObject({ mark: "warn" });
+    expect(find(await checkDatabase(t.tdb, now), "Jarvis's Slack bot")?.mark).toBe("warn");
   });
 
   it("fails when Jarvis's turns keep failing", async () => {

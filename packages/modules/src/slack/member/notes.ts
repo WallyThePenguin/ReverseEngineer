@@ -2,7 +2,8 @@
 // They come from this closed set, filled only with your first name and the workspace's name, so
 // nobody's words reach them and no model writes them. Each kind goes to a member at most once a
 // day (the outbox key says which day): a member who keeps writing while Jarvis is paused hears it
-// once, and their messages are passed on to you.
+// once, and their messages are passed on to you. In a channel a note is ephemeral, seen only by
+// the member it's for, in the thread they wrote in: it's about them, not for the channel.
 import { localDate } from "@hearth/core";
 import { slackUser, slackWorkspace } from "@hearth/db";
 import { type ActionContext, getSetting } from "@hearth/kernel";
@@ -11,7 +12,14 @@ import { appendLog } from "../../chat/log.ts";
 import { enqueue } from "../bot/queue.ts";
 import { cleanName } from "./people.ts";
 
-export type NoteKind = "busy" | "paused" | "late" | "sorry" | "too_long" | "blocked";
+export type NoteKind =
+  | "busy"
+  | "paused"
+  | "late"
+  | "sorry"
+  | "too_long"
+  | "blocked"
+  | "off_channel";
 
 interface Names {
   owner: string;
@@ -29,6 +37,8 @@ const NOTES: Record<NoteKind, (n: Names) => string> = {
     `That's longer than I can take in one message, so I've passed it on to ${n.owner}.`,
   blocked: (n) =>
     `I can't take messages from you in ${n.workspace}. Please reach ${n.owner} another way.`,
+  // An @mention in a channel that isn't on, or a group DM, which never is (D62).
+  off_channel: () => "I only answer in DMs here: message me directly.",
 };
 
 /** Your first name as Slack has it, and the workspace's name: all a note ever says of anyone. */
@@ -51,10 +61,12 @@ export interface NoteTo {
   teamId: string;
   /** The member's principal: one note of a kind a day each. */
   principal: string;
-  /** Their DM with the bot, and the thread they wrote in, if they did. */
+  /** Their DM with the bot, and the thread they wrote in, if they did; or a channel's thread. */
   channelId: string;
   threadTs?: string | null;
   conversationId?: string | null;
+  /** In a channel: the member, the only one who sees it. */
+  ephemeralTo?: string | null;
 }
 
 /** The note's text, for tests and the log. */
@@ -67,11 +79,14 @@ export const noteText = (kind: NoteKind, n: Names) => NOTES[kind](n);
 export async function sendNote(ctx: ActionContext, kind: NoteKind, to: NoteTo): Promise<boolean> {
   const { timeZone } = await getSetting(ctx.tx, "owner.dayRules");
   const text = NOTES[kind](await names(ctx, to.teamId));
+  // "I only answer in DMs here" is once a day in each channel, the rest once a day anywhere.
+  const per = kind === "off_channel" ? `:${to.channelId}` : "";
   const { row, created } = await enqueue(ctx, {
-    dedupeKey: `note:${kind}:${to.principal}:${localDate(ctx.now, timeZone)}`,
+    dedupeKey: `note:${kind}:${to.principal}${per}:${localDate(ctx.now, timeZone)}`,
     teamId: to.teamId,
     channelId: to.channelId,
     threadTs: to.threadTs ?? null,
+    ephemeralTo: to.ephemeralTo ?? null,
     text,
     kind: "note",
     conversationId: to.conversationId ?? null,

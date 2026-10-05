@@ -230,11 +230,18 @@ export const botActions = [
     callers: ["owner"],
     async handler(_i, ctx) {
       const membersOn = await getSetting(ctx.tx, "slack.bot.membersOn");
+      const ownerDmAnswers = await getSetting(ctx.tx, "slack.bot.ownerDmAnswers");
       const [ws] = await ctx.tx.select().from(slackWorkspace).limit(1);
       const bot = ws ? await current(ctx, ws.teamId) : undefined;
       const answers = ws ? await answersOnOwn(ctx.tx, ws.teamId) : false;
       if (!ws || !bot)
-        return { connected: false, appId: JARVIS_APP_ID, membersOn, answersOnOwn: answers };
+        return {
+          connected: false,
+          appId: JARVIS_APP_ID,
+          membersOn,
+          answersOnOwn: answers,
+          ownerDmAnswers,
+        };
       return {
         connected: true,
         appId: bot.appId,
@@ -247,6 +254,7 @@ export const botActions = [
         listensHere: listensHere(ctx, bot),
         membersOn,
         answersOnOwn: answers,
+        ownerDmAnswers,
       };
     },
   }),

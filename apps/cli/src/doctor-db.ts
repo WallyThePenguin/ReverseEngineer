@@ -3,6 +3,7 @@
 import { credential, type Database, type MigrationState, migrationState } from "@hearth/db";
 import { type DeepHealth, deepHealth, type TurnStats, whyFailed } from "@hearth/server";
 import type { Check, Mark } from "./doctor.ts";
+import { checkSlackBot } from "./doctor-slack.ts";
 
 /** More than this share of the last day's turns failing is a fail; any failure is a warning. */
 export const TURN_FAILURE_LIMIT = 0.1;
@@ -84,5 +85,7 @@ export async function checkDatabase(database: Database, now = new Date()): Promi
   });
   checks.push(...checkComponents(report));
   if (report.jarvisTurns24h) checks.push(checkTurns(report.jarvisTurns24h));
+  const bot = await checkSlackBot(database.db, now);
+  if (bot) checks.push(bot);
   return checks;
 }

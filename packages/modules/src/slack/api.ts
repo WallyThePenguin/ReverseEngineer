@@ -140,6 +140,11 @@ export interface SlackApi {
    * how the outbox tells whether a post that may have gone out did (D62).
    */
   readBack(token: string, channel: string, page: ReadBackPage): Promise<SlackMessage[]>;
+  /**
+   * A thread as it stands, its first message included: the last `limit` messages, oldest first.
+   * What a channel turn sees of the thread it answers in (D62).
+   */
+  thread(token: string, channel: string, threadTs: string, limit: number): Promise<SlackMessage[]>;
 }
 
 /** Slack said no. `retryAfter` is set when it asks Hearth to slow down. */

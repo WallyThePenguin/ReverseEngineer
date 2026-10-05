@@ -1,12 +1,14 @@
 // Settings for Jarvis's own Slack bot (D62): the manifest to merge into your Slack app, the bot's
-// two tokens, how its socket is doing, and who it answers (SlackMembers.tsx). Jarvis posts only
-// as the bot, never as you, and nobody in the workspace can talk to it until you turn members on.
+// two tokens, how its socket is doing, who it answers (SlackMembers.tsx), the channels it answers
+// in and what your own DM gets back (SlackChannels.tsx). Jarvis posts only as the bot, never as
+// you, and nobody in the workspace can talk to it until you turn members on.
 
 import { createSignal, For, Show } from "solid-js";
 import { Button } from "../components/ui.tsx";
 import { ago } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
 import { act, useAction } from "../lib/query.ts";
+import { OwnerDmSwitch, SlackChannels } from "./SlackChannels.tsx";
 import { MemberSwitches, SlackMembers } from "./SlackMembers.tsx";
 
 interface BotStatus {
@@ -23,6 +25,8 @@ interface BotStatus {
   membersOn: boolean;
   /** "Jarvis answers members on its own": its DM replies go out without your yes. */
   answersOnOwn: boolean;
+  /** What your own DM to Jarvis gets back in Slack: fixed replies, or the answer (D62). */
+  ownerDmAnswers: "fixed" | "full";
 }
 
 /** The manifest to merge into your Slack app, with a button that copies it. */
@@ -182,7 +186,9 @@ export function SlackBotSettings(props: { manifest: string }) {
               />
             </Show>
             <MemberSwitches membersOn={s().membersOn} answersOnOwn={s().answersOnOwn} />
+            <OwnerDmSwitch ownerDmAnswers={s().ownerDmAnswers} />
             <SlackMembers />
+            <SlackChannels />
           </Show>
         )}
       </Show>

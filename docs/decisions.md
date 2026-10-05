@@ -1625,19 +1625,24 @@ The member's words reach the model inside `asUntrusted(…, "slack:U…")`.
 - **Channel tiers:** `off` (the default), `relay` or `schedule`. A channel's replies are `review`
   (the default) or `auto`.
 - **In a thread,** the tier is the lower of the member's and the channel's.
-- **Turning a channel on** needs three things, checked with your xoxp: you're in the channel; it
-  isn't shared with another org (`is_ext_shared`, `is_shared`); it has no guests. The check runs
-  again every hour, and before a turn if it's stale. A failed check turns the channel off and
-  tells you.
+- **Turning a channel on** (`slack.channel_set`, yours only) needs four things, checked with your
+  xoxp: you're in the channel; it isn't shared with another org (`is_ext_shared`, `is_shared`);
+  it has no guests; and Jarvis's bot was invited, since it can only answer where it is. The check
+  runs again every hour (`slack.check_channels`, from the worker's take loop), and a turn in a
+  channel checked over an hour ago waits for it. A failed check turns the channel off and tells
+  you, and anyone waiting there gets the off-channel note.
 - **Group DMs** are always off.
-- **An @mention in an off channel** gets one ephemeral "I only answer in DMs here", at most once
-  a day per member per channel, and no turn runs.
+- **An @mention in an off channel** gets one ephemeral "I only answer in DMs here: message me
+  directly." in its thread, seen only by them, at most once a day per member per channel, and no
+  turn runs.
 - **Shared answers (`slack_answer`)** are plain text you write in Settings: office hours, status,
   how to reach you. Each one is for everyone or for named members, and a prompt holds at most
   4 KB of them. Only you can write them (`callers: ["owner"]`), so nothing Jarvis reads can mark
   something shareable. Channel turns see only the "everyone" answers.
 - **A channel turn also sees its thread:** the last 20 messages, read by the worker with your
-  xoxp. Everyone in the channel can already read them.
+  xoxp when the turn is queued, and given to the model wrapped as untrusted, like the member's
+  own words. Everyone in the channel can already read them. Each member in a thread has their
+  own turns there, and a held reply replaces only that member's earlier one.
 
 **When a reply goes out on its own.** The runner fills in `slack.reply {text, to, channelId,
 threadTs}` from `slack_thread`, never from the model. The handler refuses unless those match the
@@ -1699,8 +1704,12 @@ conversation of `caller.turnId` and that conversation's member. It writes one ou
 - It's you, but untrusted and via Slack, like the desktop app (D42): a `chat` turn in one rolling
   conversation started via Slack, with all your tools. Anything outward or self_external waits for
   your yes in Hearth.
-- Slack gets only fixed replies: "Got it, it's in Hearth: <link>", then "Done" or "Needs your yes
-  in Hearth". Full answers stay in Hearth, because a pasted answer is an outward channel and Slack
+- The worker takes it with `slack.take_owner`, which only runs as you via Slack, untrusted, so
+  Slack's words never run with your full trust. After 12 quiet hours, your next message starts a
+  new conversation.
+- Slack gets only fixed replies: "Got it, it's in Hearth: <link>", then "Done", "Needs your yes
+  in Hearth" (when anything in the turn waits for you) or "That didn't work. It's in Hearth.".
+  Jarvis's process tells the outbox when the turn ends (`slack.owner_reply`, system only). Full answers stay in Hearth, because a pasted answer is an outward channel and Slack
   keeps and exports it. Answering in full there is an opt-in that starts off
   (`slack.bot.ownerDmAnswers = "full"`).
 - Your @mention in a channel is a channel turn.
@@ -1812,11 +1821,18 @@ authorization names the bot user.
 
 **Where you see it.**
 - **Jarvis's activity** gets a Slack filter showing each member conversation, read-only, with
-  Reply as Jarvis, Ask Jarvis about this, tier, Block and Pause.
+  Reply as Jarvis, Ask Jarvis about this, tier, Block and Pause (`slack.conversations`,
+  `slack.conversation`, `slack.conversation_pause`, all yours only). It also shows the turns your
+  own Slack DM started, as "You asked in Slack".
+- **Settings → Slack** gets the channels Jarvis may answer in, each with its tier, replies and
+  last check, and the switch for full answers in your own DM.
 - **The inbox** gets relays, one card per member per hour (a VIP's may interrupt once a day,
   within D60's 8); meeting requests; held replies; alerts.
 - **The brief** gets one line, marked as outside content: "Jarvis answered 7 Slack messages from
   3 people".
+- **`hearth doctor`** gets a line for Jarvis's Slack bot: whether members are on, and what it
+  answered, relayed and took from you in the last day. A revoked bot or a post that didn't go
+  out is a warning, never a fail, so Slack's trouble can't roll an update back.
 
 Everything lands behind `slack.bot.membersOn`, which starts off.
 

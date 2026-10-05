@@ -1,7 +1,8 @@
 // Reading Slack's answers: messages, people and channels as Hearth keeps them, and the reads
 // "tell Sam" needs with your own token (D62): everyone in the workspace, who's in a channel, and
-// what's been posted in a place since a time, with the outbox id on each of Jarvis's posts. These
-// are all reads; api.ts USER_TOKEN_METHODS lists them, and your token is never used to write.
+// what's been posted in a place since a time, with the outbox id on each of Jarvis's posts; and
+// the thread a channel turn answers in. These are all reads; api.ts USER_TOKEN_METHODS lists
+// them, and your token is never used to write.
 import type { Raw, ReadBackPage, SlackChannelFacts, SlackMessage, SlackUser } from "./api.ts";
 
 const str = (v: unknown) => (typeof v === "string" ? v : undefined);
@@ -135,5 +136,23 @@ export function directoryReads(call: (token: string) => Call) {
     },
     readBack: (token: string, channel: string, page: ReadBackPage) =>
       readBackWith(call(token), channel, page),
+    async thread(
+      token: string,
+      channel: string,
+      threadTs: string,
+      limit: number,
+    ): Promise<SlackMessage[]> {
+      // Slack gives a thread oldest first, its first message on every page: the newest `limit`
+      // are at the end of what was read.
+      const raw = await allPages(
+        call(token),
+        "conversations.replies",
+        { channel, ts: threadTs, limit: "200", inclusive: "true" },
+        READ_BACK_PAGES,
+        (r) => (r.messages as Raw[]) ?? [],
+      );
+      const seen = new Map((raw as Raw[]).map((m) => [String(m.ts), messageOf(m)]));
+      return [...seen.values()].sort((a, b) => Number(a.ts) - Number(b.ts)).slice(-limit);
+    },
   };
 }

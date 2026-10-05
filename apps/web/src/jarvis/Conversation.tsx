@@ -1,5 +1,6 @@
 // A conversation with Jarvis: messages, the tools it used, approvals it's waiting on, and the
-// reply streaming in as it's written. Live and reloaded views come from the same fold.
+// reply streaming in as it's written. Live and reloaded views come from the same fold. A Slack
+// member's conversation is read-only, under a bar you act from (SlackBar.tsx, D62).
 
 import { foldConversation, fromEditForm } from "@hearth/core";
 import { createEffect, createSignal, For, Match, on, onCleanup, Show, Switch } from "solid-js";
@@ -10,9 +11,11 @@ import { MOD } from "../lib/hotkeys.ts";
 import { live } from "../lib/live.ts";
 import { narrow } from "../lib/narrow.ts";
 import { act, useAction } from "../lib/query.ts";
+import { isMemberConversation } from "../lib/slack.ts";
 import { hush, mic, say, talkTaken, talkWanted } from "../lib/speech.ts";
 import type { LogRecord } from "../lib/types.ts";
 import { RenameInput, renameConversation } from "./Rename.tsx";
+import { SlackBar } from "./SlackBar.tsx";
 import { OutsideNote, ToolLine } from "./ToolLine.tsx";
 
 /** How long what you sent may wait for Jarvis to start before it says so. */
@@ -24,6 +27,7 @@ interface ConversationData {
     title: string;
     taintedAt?: string | null;
     taintSource?: string | null;
+    startedVia?: string | null;
   };
   log: LogRecord[];
 }
@@ -34,6 +38,8 @@ export function Conversation(props: {
   /** The conversation is gone (trashed, or from before a restore). */
   onMissing?: () => void;
   compact?: boolean;
+  /** A Slack member's: only their turns write here (D62). */
+  readOnly?: boolean;
 }) {
   const data = useAction<ConversationData>(
     "conversation.get",
@@ -180,6 +186,10 @@ export function Conversation(props: {
                       <Show when={m().role === "jarvis"}>
                         <p class="mb-0.5 text-xs font-medium text-jarvis">Jarvis</p>
                       </Show>
+                      {/* Someone in Slack wrote it, or you did, in your DM with Jarvis (D62). */}
+                      <Show when={m().author ?? (m().via === "slack" ? "You, in Slack" : null)}>
+                        {(who) => <p class="mb-0.5 text-xs font-medium text-muted">{who()}</p>}
+                      </Show>
                       <Body text={m().text} />
                     </div>
                   )}
@@ -247,7 +257,12 @@ export function Conversation(props: {
           </button>
         </div>
       </Show>
-      <div class="border-t border-line p-3">
+      <Show when={props.readOnly}>
+        <p class="border-t border-line px-4 py-2 text-xs text-muted">
+          Only their own Jarvis turns write here. Reply as Jarvis, or ask Jarvis about it, above.
+        </p>
+      </Show>
+      <div class={`border-t border-line p-3 ${props.readOnly ? "hidden" : ""}`}>
         <MentionEditor
           value={draft()}
           onInput={setDraft}
@@ -320,6 +335,7 @@ export function ChatView(props: { id: string }) {
   const data = useAction<ConversationData>("conversation.get", () => ({ id: props.id }));
   const [renaming, setRenaming] = createSignal(false);
   const title = () => data.data?.conversation.title || "Conversation";
+  const member = () => isMemberConversation(data.data?.conversation.startedVia);
   return (
     <div class="flex h-full flex-col">
       <PaneHeader
@@ -335,12 +351,15 @@ export function ChatView(props: { id: string }) {
             />
           </Show>
         }
-        sub="With Jarvis"
+        sub={member() ? "Jarvis and someone in your Slack" : "With Jarvis"}
         menu={data.data ? [{ label: "Rename", run: () => setRenaming(true) }] : []}
         record={data.data ? { id: props.id, type: "conversation" } : undefined}
       />
+      <Show when={member()}>
+        <SlackBar id={props.id} />
+      </Show>
       <div class="min-h-0 flex-1">
-        <Conversation id={props.id} />
+        <Conversation id={props.id} readOnly={member()} />
       </div>
     </div>
   );
