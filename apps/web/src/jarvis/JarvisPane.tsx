@@ -2,7 +2,7 @@
 
 import { createRoot, createSignal, For, Show } from "solid-js";
 import { Icon } from "../components/icons.tsx";
-import { JarvisMark } from "../components/Mark.tsx";
+import { JarvisGlyph, JarvisMark } from "../components/Mark.tsx";
 import { Overflow } from "../components/Menu.tsx";
 import { Badge, Button } from "../components/ui.tsx";
 import { debounced } from "../lib/debounce.ts";
@@ -38,7 +38,7 @@ function when(d: Date): string {
  * running or its turns are failing. What's wrong is its tooltip, which a screen reader reads with
  * the button's name, as it did the red dot's.
  */
-export function JarvisStatusMark(props: { size?: number }) {
+export function JarvisStatusMark(props: { size?: number; glyph?: boolean }) {
   const { status, liveness } = useLiveness();
   const wrong = () =>
     liveness().unwell
@@ -46,12 +46,13 @@ export function JarvisStatusMark(props: { size?: number }) {
         ? "Jarvis isn't running"
         : "Jarvis's turns are failing"
       : undefined;
+  const state = () => (wrong() ? "down" : status.data?.jarvisPaused ? "paused" : "idle");
   return (
     <span class="inline-flex" title={wrong()}>
-      <JarvisMark
-        size={props.size}
-        state={wrong() ? "down" : status.data?.jarvisPaused ? "paused" : "idle"}
-      />
+      {/* The phone's tab bar draws it as a line icon with its state as a dot (JarvisGlyph). */}
+      <Show when={props.glyph} fallback={<JarvisMark size={props.size} state={state()} />}>
+        <JarvisGlyph size={props.size} state={state()} />
+      </Show>
     </span>
   );
 }

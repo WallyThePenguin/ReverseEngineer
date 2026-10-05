@@ -70,3 +70,41 @@ export function JarvisMark(props: {
     </>
   );
 }
+
+/** How Jarvis is, as the small dot on its line mark. */
+const DOT: Record<JarvisState, string> = {
+  idle: "bg-jarvis",
+  thinking: "bg-jarvis animate-pulse",
+  listening: "bg-bad",
+  paused: "bg-faint",
+  down: "bg-bad",
+};
+
+/**
+ * Jarvis's mark drawn as a line icon, for the phone's tab bar: in the text's colour like the
+ * other tabs' icons, so only the tab you're on stands out. How Jarvis is shows only as a small
+ * dot on its corner: indigo while it runs, grey while you've paused it, red while it's down.
+ */
+export function JarvisGlyph(props: { state?: JarvisState; size?: number; class?: string }) {
+  const size = () => props.size ?? 24;
+  return (
+    <span aria-hidden="true" class={`relative inline-flex shrink-0 ${props.class ?? ""}`}>
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        width={size()}
+        height={size()}
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.75"
+        aria-hidden="true"
+      >
+        <circle cx="12" cy="12" r="9" />
+        <circle cx="12" cy="12" r="3.25" fill="currentColor" stroke="none" />
+      </svg>
+      <span
+        class={`absolute top-0 right-0 size-2 rounded-full ring-2 ring-panel ${DOT[props.state ?? "idle"]}`}
+      />
+    </span>
+  );
+}
