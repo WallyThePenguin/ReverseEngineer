@@ -9,7 +9,7 @@ import {
 import { entity, task } from "@hearth/db";
 import { type DigestItem, defineModule, getSetting } from "@hearth/kernel";
 import { and, asc, eq, gte, isNull, lt, notInArray, or } from "drizzle-orm";
-import { describeRow, preview, writtenOutside } from "../shared.ts";
+import { describeRow, isOutside, preview } from "../shared.ts";
 import { TASK_ACTIONS } from "./actions.ts";
 import { TASK_REFLEXES } from "./reflexes.ts";
 import { loadTask, toTaskView } from "./view.ts";
@@ -41,12 +41,14 @@ export const tasksModule = defineModule({
       const t = await loadTask(ctx.db, { id: entityId });
       if (!t) return null;
       const e = (await ctx.db.select().from(entity).where(eq(entity.id, entityId)))[0]!;
+      // Dates and times in the owner's own time zone, as everywhere else Jarvis reads them.
+      const { timeZone } = await getSetting(ctx.db, "owner.dayRules");
       const extra = [
         t.key,
         TASK_STATUS_LABELS[t.status],
         `priority ${t.priority}`,
         t.dueAt
-          ? `due ${t.dueIsDate ? localDate(t.dueAt, "America/New_York") : formatDateTime(t.dueAt)}`
+          ? `due ${t.dueIsDate ? localDate(t.dueAt, timeZone) : formatDateTime(t.dueAt, timeZone)}`
           : "no due date",
         `assignee ${t.assignee ?? "nobody"}`,
       ];
@@ -60,7 +62,10 @@ export const tasksModule = defineModule({
       const thread = kids
         .filter((k) => k.type === "comment")
         .slice(-10)
-        .map((k) => `- ${k.createdBy} at ${formatDateTime(k.createdAt)}: ${preview(k.body, 600)}`);
+        .map(
+          (k) =>
+            `- ${k.createdBy} at ${formatDateTime(k.createdAt, timeZone)}: ${preview(k.body, 600)}`,
+        );
       const tail = [
         subtasks.length ? `## Subtasks\n${subtasks.join("\n")}` : "",
         thread.length ? `## Thread (latest ${thread.length})\n${thread.join("\n")}` : "",
@@ -95,7 +100,7 @@ export const tasksModule = defineModule({
         bucket: "today",
         text: `${overdue ? "Overdue" : "Due today"}: ${t.key} ${t.title}${t.dueIsDate ? "" : ` (${formatDateTime(t.dueAt!)})`}`,
         entityId: t.id,
-        outside: writtenOutside(r.entity.createdBy),
+        outside: isOutside(r.entity),
       });
     }
     const handled = await ctx.db
@@ -116,7 +121,7 @@ export const tasksModule = defineModule({
           bucket: "handled",
           text: `${t.key} ${t.title} is ${TASK_STATUS_LABELS[t.status]}`,
           entityId: t.id,
-          outside: writtenOutside(r.entity.createdBy),
+          outside: isOutside(r.entity),
         });
       }
     }
@@ -137,7 +142,7 @@ export const tasksModule = defineModule({
         bucket: "fyi",
         text: `${formatTaskNumber(r.task.number)} ${r.entity.title} has been In Progress with no change for ${STALLED_DAYS}+ days`,
         entityId: r.entity.id,
-        outside: writtenOutside(r.entity.createdBy),
+        outside: isOutside(r.entity),
       });
     }
     return items;

@@ -4,6 +4,7 @@
 import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
 import { createSignal, Show } from "solid-js";
 import { authPost } from "../lib/api.ts";
+import { inDesktopApp } from "../lib/desktop.ts";
 
 export function Login(props: { needsSetup: boolean; onSignedIn: () => void }) {
   const [code, setCode] = createSignal("");
@@ -19,7 +20,12 @@ export function Login(props: { needsSetup: boolean; onSignedIn: () => void }) {
     } catch (err) {
       const e = err as Error;
       setError(
-        e.name === "NotAllowedError" ? "The passkey prompt was closed. Try again." : e.message,
+        e.name === "NotAllowedError"
+          ? "The passkey prompt was closed. Try again."
+          : // Opened at another address, like the Windows app's window at localhost (D53).
+            e.name === "SecurityError"
+            ? "Your passkey only works at Hearth's own address, not this one."
+            : e.message,
       );
     } finally {
       setBusy(false);
@@ -104,6 +110,13 @@ export function Login(props: { needsSetup: boolean; onSignedIn: () => void }) {
         </Show>
         <Show when={error()}>
           <p class="text-sm text-bad">{error()}</p>
+        </Show>
+        {/* Passkeys belong to Hearth's own address, so the Windows app signs in by hand-off (D53). */}
+        <Show when={!props.needsSetup && inDesktopApp()}>
+          <p class="text-sm text-muted">
+            Passkey not working here? Open Hearth in your browser, go to Settings, Desktop app, and
+            choose Connect Hearth on this PC.
+          </p>
         </Show>
       </div>
     </div>

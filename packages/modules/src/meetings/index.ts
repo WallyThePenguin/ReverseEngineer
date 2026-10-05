@@ -169,16 +169,23 @@ export const meetingsModule = defineModule({
     }),
     defineAction({
       name: "meeting.update",
-      description: "Rename a meeting or change the owner's notes for it.",
+      description:
+        "Rename a meeting or change the owner's notes for it. Pass revision (from meeting.get) to fail safely if it changed since you read it.",
       input: z.object({
         id,
         title: z.string().trim().min(1).max(300).optional(),
         notes: body.optional(),
+        revision: z.number().int().optional(),
       }),
       risk: "self_external",
       summarize: () => "Change a meeting's notes",
       handler: (i, ctx) =>
-        updateEntity(ctx, i.id, { title: i.title, body: i.notes }, { type: "meeting" }),
+        updateEntity(
+          ctx,
+          i.id,
+          { title: i.title, body: i.notes },
+          { type: "meeting", expectedRevision: i.revision },
+        ),
     }),
     defineAction({
       name: "meeting.add_segments",

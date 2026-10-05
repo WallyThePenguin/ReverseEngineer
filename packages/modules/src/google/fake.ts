@@ -1,5 +1,7 @@
 // A fake Google for tests: sign-in, token refresh and the Calendar calls Hearth makes, kept in
-// memory. Hand `fake.fetch` to a GoogleClient.
+// memory. Hand `fake.fetch` to a GoogleClient. It holds one account to start with; addAccount
+// adds more, each with its own calendars, mailbox and tokens, and shareCalendar puts one calendar
+// (a holiday calendar, a colleague's) in several accounts at once, as Google does.
 import type { Db } from "@hearth/db";
 import type { Allowance, GoogleService } from "./budget.ts";
 import type { GCalendar, GEvent } from "./calendar-api.ts";
@@ -8,32 +10,84 @@ import { errorReply, FakeGmail } from "./fake-gmail.ts";
 
 interface FakeCalendar extends GCalendar {
   events: Map<string, GEvent>;
+  /** Ids of events deleted here: Google never hands an id out again. */
+  gone: Set<string>;
 }
 
+export interface FakeAccount {
+  email: string;
+  refreshToken: string;
+  calendars: Map<string, FakeCalendar>;
+  gmail: FakeGmail;
+}
+
+const json = (status: number, data: unknown) =>
+  new Response(data === null ? null : JSON.stringify(data), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+
 export class FakeGoogle {
+  /** The first account's address. */
   readonly email: string;
-  readonly calendars = new Map<string, FakeCalendar>();
+  readonly accounts = new Map<string, FakeAccount>();
   readonly calls: { method: string; path: string; body?: unknown }[] = [];
   /** Set to make the next token refresh fail as if access was revoked. */
   revoked = false;
   /** What a sign-in grants. */
   grants: string[] = ["openid", "email", ...SCOPES.calendar];
-  readonly gmail: FakeGmail;
+  /** Which account the next sign-in is. */
+  signingIn: string;
   /** How long each call takes, for tests where calls overlap. */
   latencyMs = 0;
+  /** The next `n` Calendar changes are made, but the reply is lost (Hearth sees a 503). */
+  loseCalendarReplies = 0;
   /** The time clients and the fake Gmail see; set it to the test kernel's clock. */
   clock: { now(): Date } = { now: () => new Date() };
   /** What clients made by client() logged. */
   readonly logs: string[] = [];
-  private readonly issued: string[] = [];
+  /** Who each access token handed out belongs to. */
+  private readonly issued = new Map<string, string>();
   private readonly invalid = new Set<string>();
   private readonly calendarFailures: number[] = [];
   private readonly refreshFailures: number[] = [];
   private seq = 0;
 
+  constructor(email = "owner@example.com") {
+    this.email = email;
+    this.signingIn = email;
+    this.addAccount(email, "rt");
+  }
+
+  /** Adds an account with its own primary calendar and mailbox. Sign in as it with signingIn. */
+  addAccount(email: string, refreshToken = `rt-${email}`): FakeAccount {
+    const gmail = new FakeGmail(email);
+    gmail.now = () => this.clock.now().getTime();
+    const account: FakeAccount = { email, refreshToken, calendars: new Map(), gmail };
+    this.accounts.set(email, account);
+    this.addCalendar({ id: email, summary: email, primary: true, accessRole: "owner" }, email);
+    return account;
+  }
+
+  private account(email: string): FakeAccount {
+    const a = this.accounts.get(email);
+    if (!a) throw new Error(`No fake Google account ${email}`);
+    return a;
+  }
+
+  /** The first account's calendars. */
+  get calendars(): Map<string, FakeCalendar> {
+    return this.account(this.email).calendars;
+  }
+
+  /** The first account's mailbox. */
+  get gmail(): FakeGmail {
+    return this.account(this.email).gmail;
+  }
+
   /** Every access token handed out so far stops working, as if Google expired them early. */
   invalidateTokens() {
-    for (const t of this.issued) this.invalid.add(t);
+    for (const t of this.issued.keys()) this.invalid.add(t);
   }
 
   /** The next `n` Calendar calls fail with `status`, as Google sends it. */
@@ -46,20 +100,30 @@ export class FakeGoogle {
     for (let i = 0; i < n; i++) this.refreshFailures.push(status);
   }
 
-  constructor(email = "owner@example.com") {
-    this.email = email;
-    this.gmail = new FakeGmail(email);
-    this.gmail.now = () => this.clock.now().getTime();
-    this.addCalendar({ id: email, summary: email, primary: true, accessRole: "owner" });
+  addCalendar(c: GCalendar, account = this.email) {
+    this.account(account).calendars.set(c.id, { ...c, events: new Map(), gone: new Set() });
   }
 
-  addCalendar(c: GCalendar) {
-    this.calendars.set(c.id, { ...c, events: new Map() });
+  /** One calendar seen by several accounts, each with its own access: the events are shared. */
+  shareCalendar(c: Omit<GCalendar, "accessRole">, access: Record<string, GCalendar["accessRole"]>) {
+    const events = new Map<string, GEvent>();
+    const gone = new Set<string>();
+    for (const [email, accessRole] of Object.entries(access))
+      this.account(email).calendars.set(c.id, { ...c, accessRole, events, gone });
+  }
+
+  private calendar(calendarId: string, account?: string): FakeCalendar {
+    const where = account ? [this.account(account)] : [...this.accounts.values()];
+    for (const a of where) {
+      const cal = a.calendars.get(calendarId);
+      if (cal) return cal;
+    }
+    throw new Error(`No fake calendar ${calendarId}`);
   }
 
   /** Puts an event straight into Google, as if made in Google's own app or by someone else. */
   put(calendarId: string, ev: Partial<GEvent> & Pick<GEvent, "start" | "end">): GEvent {
-    const cal = this.calendars.get(calendarId)!;
+    const cal = this.calendar(calendarId);
     const id = ev.id ?? `ev${++this.seq}`;
     const full: GEvent = { status: "confirmed", summary: "", ...ev, id, etag: `"${++this.seq}"` };
     cal.events.set(id, full);
@@ -67,7 +131,9 @@ export class FakeGoogle {
   }
 
   remove(calendarId: string, id: string) {
-    this.calendars.get(calendarId)!.events.delete(id);
+    const cal = this.calendar(calendarId);
+    cal.events.delete(id);
+    cal.gone.add(id);
   }
 
   /** A client talking to this fake. With `db`, its budget and tokens are shared through it. */
@@ -87,6 +153,31 @@ export class FakeGoogle {
     });
   }
 
+  private issue(email: string): string {
+    const token = `at${++this.seq}`;
+    this.issued.set(token, email);
+    return token;
+  }
+
+  private signIn(body: Record<string, unknown> | undefined): Response {
+    if (body?.grant_type === "refresh_token") {
+      if (this.revoked)
+        return json(400, { error: "invalid_grant", error_description: "Token has been revoked." });
+      const failing = this.refreshFailures.shift();
+      if (failing) return json(failing, { error: "rate_limit_exceeded" });
+      const owner = [...this.accounts.values()].find((a) => a.refreshToken === body.refresh_token);
+      if (!owner) return json(400, { error: "invalid_grant", error_description: "Bad token." });
+      return json(200, { access_token: this.issue(owner.email), expires_in: 3600 });
+    }
+    const a = this.account(this.signingIn);
+    return json(200, {
+      access_token: this.issue(a.email),
+      expires_in: 3600,
+      refresh_token: a.refreshToken,
+      scope: this.grants.join(" "),
+    });
+  }
+
   async fetch(url: string, init: RequestInit = {}): Promise<Response> {
     if (this.latencyMs) await new Promise((r) => setTimeout(r, this.latencyMs));
     const u = new URL(url);
@@ -98,59 +189,47 @@ export class FakeGoogle {
           ? Object.fromEntries(init.body)
           : undefined;
     this.calls.push({ method, path: u.pathname, ...(body ? { body } : {}) });
-    const json = (status: number, data: unknown) =>
-      new Response(data === null ? null : JSON.stringify(data), {
-        status,
-        headers: { "content-type": "application/json" },
-      });
 
-    if (u.hostname === "oauth2.googleapis.com") {
-      if (body?.grant_type === "refresh_token" && this.revoked)
-        return json(400, { error: "invalid_grant", error_description: "Token has been revoked." });
-      const failing = body?.grant_type === "refresh_token" && this.refreshFailures.shift();
-      if (failing) return json(failing, { error: "rate_limit_exceeded" });
-      const token = `at${++this.seq}`;
-      this.issued.push(token);
-      return json(200, {
-        access_token: token,
-        expires_in: 3600,
-        ...(body?.grant_type === "authorization_code"
-          ? {
-              refresh_token: "rt",
-              scope: this.grants.join(" "),
-            }
-          : {}),
-      });
-    }
-    if (u.hostname === "openidconnect.googleapis.com") return json(200, { email: this.email });
-    // Signed out, or a token Google no longer takes: every API call is turned away.
+    if (u.hostname === "oauth2.googleapis.com") return this.signIn(body);
     const bearer = new Headers(init.headers).get("authorization")?.replace(/^Bearer /, "");
-    if (this.revoked || (bearer && this.invalid.has(bearer)))
+    const who = bearer ? this.issued.get(bearer) : undefined;
+    // Signed out, or a token Google no longer takes: every API call is turned away.
+    if (this.revoked || !who || (bearer && this.invalid.has(bearer)))
       return json(401, {
         error: { code: 401, message: "Request had invalid authentication credentials." },
       });
+    const account = this.account(who);
+    if (u.hostname === "openidconnect.googleapis.com") return json(200, { email: account.email });
     if (u.hostname === "gmail.googleapis.com") {
       const id = u.pathname.match(/\/messages\/([^/]+)$/)?.[1];
-      if (id && this.gmail.hangIds.has(decodeURIComponent(id))) {
-        this.gmail.hung++;
+      if (id && account.gmail.hangIds.has(decodeURIComponent(id))) {
+        account.gmail.hung++;
         // No answer: wait until the client gives up on it.
         await new Promise((_, reject) =>
           init.signal?.addEventListener("abort", () => reject(init.signal?.reason)),
         );
       }
-      return this.gmail.handle(u, method, body);
+      return account.gmail.handle(u, method, body);
     }
-
     const failing = this.calendarFailures.shift();
     if (failing) return errorReply(failing);
+    const res = this.calendarCall(account, u, method, body);
+    if (method !== "GET" && this.loseCalendarReplies > 0) {
+      this.loseCalendarReplies--;
+      return errorReply(503);
+    }
+    return res;
+  }
+
+  private calendarCall(account: FakeAccount, u: URL, method: string, body: GEvent | undefined) {
     const path = u.pathname.replace("/calendar/v3", "");
     if (path === "/users/me/calendarList") {
       return json(200, {
-        items: [...this.calendars.values()].map(({ events: _e, ...c }) => c),
+        items: [...account.calendars.values()].map(({ events: _e, gone: _g, ...c }) => c),
       });
     }
     const m = path.match(/^\/calendars\/([^/]+)\/events(?:\/([^/]+))?$/);
-    const cal = m ? this.calendars.get(decodeURIComponent(m[1]!)) : undefined;
+    const cal = m ? account.calendars.get(decodeURIComponent(m[1]!)) : undefined;
     if (!m || !cal) return json(404, { error: { message: "Not found" } });
     const eventId = m[2] ? decodeURIComponent(m[2]) : null;
     if (method === "GET" && !eventId) {
@@ -164,10 +243,25 @@ export class FakeGoogle {
       return json(200, { items });
     }
     if (method === "POST" && !eventId) {
-      return json(200, this.put(cal.id, { ...body, organizer: { email: this.email, self: true } }));
+      // An id the caller chose is Google's to refuse when it's taken, even by a deleted event.
+      if (body?.id && (cal.events.has(body.id) || cal.gone.has(body.id)))
+        return json(409, {
+          error: {
+            code: 409,
+            message: "The requested identifier already exists.",
+            errors: [{ reason: "duplicate", message: "The requested identifier already exists." }],
+          },
+        });
+      return json(
+        200,
+        this.put(cal.id, { ...body, organizer: { email: account.email, self: true } }),
+      );
     }
+    if (method === "GET" && eventId && cal.gone.has(eventId))
+      return json(200, { id: eventId, status: "cancelled" });
     const existing = eventId ? cal.events.get(eventId) : undefined;
     if (!existing) return json(404, { error: { message: "Not found" } });
+    if (method === "GET") return json(200, existing);
     if (method === "PATCH") {
       const next = { ...existing, ...body, etag: `"${++this.seq}"` } as GEvent;
       // Google works out who "self" and the organizer are; a patch doesn't send them.
@@ -185,6 +279,7 @@ export class FakeGoogle {
     }
     if (method === "DELETE") {
       cal.events.delete(existing.id);
+      cal.gone.add(existing.id);
       return json(204, null);
     }
     return json(405, { error: { message: "Unsupported" } });

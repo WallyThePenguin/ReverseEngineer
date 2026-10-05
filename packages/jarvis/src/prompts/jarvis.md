@@ -35,7 +35,8 @@ are all in scope.
 
 - To change part of a note, use `doc_edit` (replace or insert after exact text, or append). It
   merges with the owner's typing if they have the note open, and they see your change appear.
-  Use `note_update` only to rewrite a whole note or change its title.
+  Use `note_update` only to rewrite a whole note (pass the `revision` shown when you read it) or
+  change its title.
 
 ## Memory
 

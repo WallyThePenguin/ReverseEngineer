@@ -2,19 +2,40 @@
 // message kept on this PC. The frame's policy lets nothing run and nothing load from the internet
 // (so senders can't tell you opened it) until you ask for images. Attachments are always
 // downloads, never shown in Hearth's own page, so one can't run as part of Hearth.
+import type { Caller, Kernel } from "@hearth/kernel";
 import { BLOB_SERVICE, type BlobStore, messageAttachment, messageHtml } from "@hearth/modules";
 import { Hono } from "hono";
 import type { AppEnv } from "../env.ts";
+
+/**
+ * Reads a message's original, fetching it from the mail service again first if this PC's copy
+ * is missing (6.6). Null when it can't be had.
+ */
+async function withOriginal<T>(
+  kernel: Kernel,
+  caller: Caller,
+  id: string,
+  read: (blobs: BlobStore) => Promise<T | null>,
+): Promise<T | null> {
+  const blobs = kernel.services[BLOB_SERVICE] as BlobStore;
+  const first = await read(blobs);
+  if (first) return first;
+  const res = await kernel.execute<{ restored: boolean }>("mail.restore_original", { id }, caller);
+  return res.status === "ok" && res.result.restored ? read(blobs) : null;
+}
 
 export function mailRoutes() {
   const r = new Hono<AppEnv>();
 
   r.get("/frame/:id", async (c) => {
-    if (c.get("caller")?.kind !== "owner") return c.text("Sign in to Hearth first.", 401);
+    const caller = c.get("caller");
+    if (caller?.kind !== "owner") return c.text("Sign in to Hearth first.", 401);
     const { kernel } = c.get("deps");
     const id = c.req.param("id");
     if (!/^[0-9a-f-]{36}$/i.test(id)) return c.text("Not found.", 404);
-    const shown = await messageHtml(kernel.db, kernel.services[BLOB_SERVICE] as BlobStore, id);
+    const shown = await withOriginal(kernel, caller, id, (blobs) =>
+      messageHtml(kernel.db, blobs, id),
+    );
     if (!shown) return c.text("This message's original isn't on this PC.", 404);
     const images = c.req.query("images") === "1";
     const remote = images ? " https: http:" : "";
@@ -42,14 +63,16 @@ export function mailRoutes() {
   });
 
   r.get("/attachment/:id/:index", async (c) => {
-    if (c.get("caller")?.kind !== "owner") return c.text("Sign in to Hearth first.", 401);
+    const caller = c.get("caller");
+    if (caller?.kind !== "owner") return c.text("Sign in to Hearth first.", 401);
     const { kernel } = c.get("deps");
     const id = c.req.param("id");
     const index = Number(c.req.param("index"));
     if (!/^[0-9a-f-]{36}$/i.test(id) || !Number.isInteger(index) || index < 0)
       return c.text("Not found.", 404);
-    const blobs = kernel.services[BLOB_SERVICE] as BlobStore;
-    const file = await messageAttachment(kernel.db, blobs, id, index);
+    const file = await withOriginal(kernel, caller, id, (blobs) =>
+      messageAttachment(kernel.db, blobs, id, index),
+    );
     if (!file) return c.text("That attachment isn't on this PC.", 404);
     const name = file.filename.replace(/[\r\n"\\]/g, "_");
     return new Response(new Uint8Array(file.content), {

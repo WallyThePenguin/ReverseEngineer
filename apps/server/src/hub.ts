@@ -24,11 +24,34 @@ export class EventHub {
   }
 
   start(): void {
-    if (!this.pool || this.stopListening) return;
-    this.stopListening = listenChannels(this.pool, ["hearth_event", STREAM_CHANNEL], (ch, p) => {
-      if (ch === STREAM_CHANNEL) for (const l of this.listeners) l.onStream(p);
-      else this.publish(Number(p));
-    });
+    const pool = this.pool;
+    if (!pool || this.stopListening) return;
+    this.stopListening = listenChannels(
+      pool,
+      ["hearth_event", STREAM_CHANNEL],
+      (ch, p) => {
+        if (ch === STREAM_CHANNEL) for (const l of this.listeners) l.onStream(p);
+        else this.publish(Number(p));
+      },
+      {
+        // Events committed while LISTEN was down were never announced: wake everyone up to the
+        // newest, so open screens and phone notifications catch up now, not at the next event.
+        // At the very start too, for anything committed before LISTEN was in place.
+        onListening: () => void this.catchUp(pool),
+      },
+    );
+  }
+
+  private async catchUp(pool: pg.Pool): Promise<void> {
+    try {
+      const { rows } = await pool.query<{ seq: string | null }>(
+        "SELECT max(seq) AS seq FROM event",
+      );
+      const seq = Number(rows[0]?.seq ?? 0);
+      if (seq > 0 && !this.stopped) this.publish(seq);
+    } catch (err) {
+      console.warn(`[server] catching up after LISTEN: ${(err as Error).message}`);
+    }
   }
 
   /** Wakes every listener; also used by tests that don't have a LISTEN connection. */

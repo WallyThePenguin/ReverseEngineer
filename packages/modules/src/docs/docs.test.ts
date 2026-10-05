@@ -1,10 +1,11 @@
-import { docUpdate, entity } from "@hearth/db";
+import { docPeer, docState, docUpdate, entity } from "@hearth/db";
 import { type Caller, jarvisCaller, ownerCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
-import { count, eq } from "drizzle-orm";
+import { count, eq, sql } from "drizzle-orm";
 import { LoroDoc, VersionVector } from "loro-crdt";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ALL_MODULES } from "../index.ts";
+import { loadDoc } from "./store.ts";
 
 let t: TestKernel;
 beforeEach(async () => {
@@ -46,6 +47,8 @@ class Screen {
     this.server = r.version;
   }
 }
+const revisionOf = async (id: string) =>
+  (await t.tdb.db.select().from(entity).where(eq(entity.id, id)))[0]!.revision;
 const body = async (id: string) =>
   (await t.tdb.db.select().from(entity).where(eq(entity.id, id)))[0]!.body;
 
@@ -73,7 +76,12 @@ describe("live docs", () => {
     await a.sync();
     a.type(a.text.length, "three\n");
     // Jarvis read the note before the typing synced.
-    await ok("note.update", { id: note.id, body: "ONE\ntwo\n" }, jarvisCaller("agent"));
+    const read = await revisionOf(note.id);
+    await ok(
+      "note.update",
+      { id: note.id, body: "ONE\ntwo\n", revision: read },
+      jarvisCaller("agent"),
+    );
     await a.sync();
     expect(a.text).toBe("ONE\ntwo\nthree\n");
     expect(await body(note.id)).toBe("ONE\ntwo\nthree\n");
@@ -90,7 +98,11 @@ describe("live docs", () => {
     const note = await ok<{ id: string }>("note.create", { title: "Plan", body: "mine" });
     const a = new Screen(note.id);
     await a.sync();
-    await ok("note.update", { id: note.id, body: "theirs" }, jarvisCaller("agent"));
+    await ok(
+      "note.update",
+      { id: note.id, body: "theirs", revision: await revisionOf(note.id) },
+      jarvisCaller("agent"),
+    );
     await ok("note.update", { id: note.id, title: "Renamed" });
     const rows = await t.tdb.db
       .select({ by: docUpdate.createdBy })
@@ -129,6 +141,57 @@ describe("live docs", () => {
     expect(late.text).toBe(a.text);
     late.doc.checkout(early);
     expect(late.text).toBe("0 1 2 3 4 5 6 7 8 9 ");
+  });
+
+  it("takes in a 50,000-character rewrite in well under half a second", async () => {
+    const words = ["notes", "survive", "a", "crash", "while", "Jarvis", "edits", "them", "too"];
+    const prose = (n: number, seed: number) => {
+      let s = "";
+      for (let x = seed; s.length < n; x = (x * 1103515245 + 12345) % 2147483648)
+        s += `${words[x % words.length]}${x % 13 === 0 ? ".\n\n" : " "}`;
+      return s.slice(0, n);
+    };
+    const note = await ok<{ id: string }>("note.create", { title: "Long", body: prose(50_000, 1) });
+    const a = new Screen(note.id);
+    await a.sync();
+    const rewritten = prose(50_000, 7);
+    const revision = await revisionOf(note.id);
+    const t0 = performance.now();
+    await ok("note.update", { id: note.id, body: rewritten, revision }, jarvisCaller("agent"));
+    expect(performance.now() - t0).toBeLessThan(500);
+    await a.sync();
+    expect(a.text).toBe(rewritten);
+  });
+
+  it("writes as one peer per writer, so the version doesn't grow with every edit", async () => {
+    const note = await ok<{ id: string }>("note.create", { title: "Busy", body: "start" });
+    const a = new Screen(note.id);
+    await a.sync();
+    for (let n = 0; n < 12; n++) {
+      await ok("doc.edit", { id: note.id, edits: [{ append: `J${n}` }] }, jarvisCaller("agent"));
+      await ok("note.update", { id: note.id, title: `Busy ${n}` });
+    }
+    await a.sync();
+    expect(a.text).toContain("J11");
+    // The first copy, this screen and Jarvis.
+    expect(a.doc.oplogVersion().toJSON().size).toBeLessThanOrEqual(3);
+    const peers = await t.tdb.db.select().from(docPeer).where(eq(docPeer.entityId, note.id));
+    expect(peers.filter((p) => p.principal === "jarvis")).toHaveLength(1);
+  });
+
+  it("holds the snapshot while reading history, so a fold can't slip in between", async () => {
+    const note = await ok<{ id: string }>("note.create", { title: "Log", body: "x" });
+    const a = new Screen(note.id);
+    await a.sync();
+    await t.tdb.db.transaction(async (reader) => {
+      expect(await loadDoc(reader, note.id)).not.toBeNull();
+      const folding = t.tdb.db.transaction(async (fold) => {
+        await fold.execute(sql`SET LOCAL lock_timeout = '200ms'`);
+        await fold.update(docState).set({ upto: 0 }).where(eq(docState.entityId, note.id));
+      });
+      // 55P03: the lock wasn't available.
+      await expect(folding).rejects.toMatchObject({ cause: { code: "55P03" } });
+    });
   });
 
   it("refuses what isn't a doc, garbage updates, and Jarvis syncing", async () => {

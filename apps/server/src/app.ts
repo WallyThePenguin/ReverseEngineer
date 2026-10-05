@@ -41,8 +41,10 @@ import type { AppEnv, ServerDeps } from "./env.ts";
 import { EventHub } from "./hub.ts";
 import { mcpRoutes } from "./mcp.ts";
 import { type PushSend, startPush, webPushSend } from "./push.ts";
+import { requestLog } from "./request-log.ts";
 import { actionRoutes } from "./routes/actions.ts";
 import { authRoutes } from "./routes/auth.ts";
+import { desktopRoutes } from "./routes/desktop.ts";
 import { deviceRoutes } from "./routes/devices.ts";
 import { eventRoutes } from "./routes/events.ts";
 import { googleRoutes } from "./routes/google.ts";
@@ -53,6 +55,7 @@ import { pushRoutes } from "./routes/push.ts";
 import { speechRoutes } from "./routes/speech.ts";
 import { voiceRoutes } from "./routes/voice.ts";
 import { SpeechRelay } from "./speech.ts";
+import { startWorkerWatch } from "./worker-watch.ts";
 
 const CSP = [
   "default-src 'self'",
@@ -79,6 +82,8 @@ export interface AppOptions {
   bridge?: BrowserBridge;
   /** How phone notifications go out; tests pass a fake. */
   push?: PushSend;
+  /** Where requests that didn't go well are logged; the console by default. */
+  requestLog?: (line: string) => void;
 }
 
 export function createApp(opts: AppOptions) {
@@ -108,6 +113,7 @@ export function createApp(opts: AppOptions) {
   };
   const app = new Hono<AppEnv>();
 
+  app.use("*", requestLog({ log: opts.requestLog }));
   app.use("*", async (c, next) => {
     c.set("deps", deps);
     await next();
@@ -142,6 +148,7 @@ export function createApp(opts: AppOptions) {
   app.route("/api/google", googleRoutes());
   app.route("/api/mail", mailRoutes());
   app.route("/api/devices", deviceRoutes());
+  app.route("/api/desktop", desktopRoutes());
   app.route("/api/voice", speechRoutes(speech));
   app.route("/api/voice", voiceRoutes());
   app.route("/api/push", pushRoutes(sendPush));
@@ -175,6 +182,7 @@ export function createApp(opts: AppOptions) {
   }
 
   let detachSockets: (() => void) | null = null;
+  let stopWorkerWatch: (() => void) | null = null;
   return {
     app,
     hub,
@@ -182,6 +190,7 @@ export function createApp(opts: AppOptions) {
     start: () => {
       hub.start();
       push = startPush(opts.kernel, hub, sendPush);
+      stopWorkerWatch = startWorkerWatch(opts.kernel);
     },
     /** Resolves once phone notifications for the events so far are sent (for tests). */
     pushIdle: () => push?.idle() ?? Promise.resolve(),
@@ -199,6 +208,7 @@ export function createApp(opts: AppOptions) {
       detachSockets?.();
       bridge.close();
       push?.stop();
+      stopWorkerWatch?.();
       await hub.stop();
     },
   };

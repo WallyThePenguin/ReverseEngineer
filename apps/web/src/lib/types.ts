@@ -98,7 +98,7 @@ export interface Approval {
   reason: string;
   requestedBy: string;
   origin: string;
-  status: "pending" | "denied" | "executed" | "failed" | "expired";
+  status: "pending" | "executing" | "denied" | "executed" | "failed" | "expired";
   error: string | null;
   conversationId: string | null;
   createdAt: string;
@@ -158,6 +158,8 @@ export interface Watch {
 }
 
 export interface SystemStatus {
+  /** What's connected so far, for the "Set up Hearth" checklist (absent from older servers). */
+  setup?: { google: boolean; chrome: boolean; phone: boolean; desktop: boolean };
   jarvisPaused: boolean;
   /** When the Jarvis process last checked in; null before it ever has. */
   jarvisAlive: { at: string; since: string; pid: number } | null;
@@ -284,113 +286,4 @@ export interface CalEvent {
   taskId: string | null;
 }
 
-export interface CalendarSetup {
-  configured: boolean;
-  accounts: {
-    email: string;
-    status: "ok" | "failing" | "revoked";
-    lastError: string | null;
-    connectedAt: string;
-  }[];
-  calendars: {
-    id: string;
-    title: string;
-    color: string | null;
-    selected: boolean;
-    lastSyncedAt: string | null;
-    lastError: string | null;
-  }[];
-}
-
-export interface MailAddress {
-  address: string;
-  name?: string;
-}
-
-export interface MailThread {
-  id: string;
-  subject: string;
-  snippet: string;
-  account: string;
-  participants: MailAddress[];
-  lastMessageAt: string;
-  messageCount: number;
-  unread: boolean;
-  starred: boolean;
-  inInbox: boolean;
-  trashed: boolean;
-  lane: "signal" | "noise";
-  waiting: "you" | "them" | null;
-  waitingSince: string | null;
-}
-
-export interface MailInvite {
-  method: string;
-  summary: string;
-  event: {
-    id: string;
-    title: string;
-    startsAt: string;
-    endsAt: string;
-    allDay: boolean;
-    cancelled: boolean;
-    response: string | null;
-    selfOrganizer: boolean;
-  } | null;
-}
-
-export interface MailMessage {
-  id: string;
-  invite: MailInvite | null;
-  from: MailAddress;
-  to: MailAddress[];
-  cc: MailAddress[];
-  sentAt: string;
-  text: string;
-  hasHtml: boolean;
-  outbound: boolean;
-  unread: boolean;
-  attachments: {
-    index: number;
-    filename: string;
-    mimeType: string;
-    size: number;
-    inline?: boolean;
-  }[];
-}
-
-export interface MailThreadView extends MailThread {
-  messages: MailMessage[];
-}
-
-export interface MailAccount {
-  address: string;
-  provider: string;
-  /** Catching up and paused (Gmail asked Hearth to slow down) are normal; failing isn't. */
-  state: "ok" | "catching_up" | "paused" | "failing";
-  syncedAt: string | null;
-  pausedUntil: string | null;
-  lastError: string | null;
-  /** Google wants the account connected again. */
-  reconnect: boolean;
-  firstSyncDone: boolean;
-  /** A first sync's progress: messages brought in, of about how many. */
-  backfill: { fetched: number; target: number } | null;
-  /** Messages still to bring in or look up. */
-  waiting: number;
-  /** Messages that wouldn't save, set aside. */
-  setAside: number;
-  pendingChanges: number;
-}
-
-export interface MailDraft {
-  id: string;
-  account: string;
-  threadId: string | null;
-  to: MailAddress[];
-  cc: MailAddress[];
-  bcc: MailAddress[];
-  subject: string;
-  text: string;
-  updatedAt: string;
-}
+export type * from "./integration-types.ts";

@@ -8,7 +8,8 @@
   --color-line: #e6e1d8;
   --color-ink: #1f1b16;
   --color-muted: #6f675c;
-  --color-faint: #a39a8d;
+  /* Quiet, but still readable: 4.5:1 on a panel, the WCAG AA line for text. */
+  --color-faint: #7d7366;
   --color-accent: #c2410c;
   --color-accent-soft: #fdeee4;
   --color-ok: #15803d;
@@ -28,7 +29,7 @@
     --color-line: #34302a;
     --color-ink: #ece7df;
     --color-muted: #a39a8d;
-    --color-faint: #6f675c;
+    --color-faint: #938a7d;
     --color-accent: #f97316;
     --color-accent-soft: #3a2416;
     --color-ok: #4ade80;

@@ -1,6 +1,6 @@
-import { JARVIS_ENTITY_ID, renderMention } from "@hearth/core";
+import { DEFAULT_DAY_RULES, JARVIS_ENTITY_ID, renderMention } from "@hearth/core";
 import { conversationLog, notification } from "@hearth/db";
-import { jarvisCaller, ownerCaller, type ReadContext } from "@hearth/kernel";
+import { jarvisCaller, ownerCaller, type ReadContext, setSetting } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -87,6 +87,22 @@ describe("tasks", () => {
     });
     await ok("task.update", { id: task.id, dueAt: "2026-10-05T14:00:00Z" });
     expect(await dueSoon.onCheck!(payload, { ...read(), event: created })).toEqual([]);
+  });
+
+  it("tells Jarvis due dates in the owner's time zone", async () => {
+    await setSetting(t.tdb.db, "owner.dayRules", { ...DEFAULT_DAY_RULES, timeZone: "Asia/Tokyo" });
+    try {
+      // Midnight starting 3 October in Tokyo, still 2 October in New York.
+      const day = await ok<TaskView>("task.create", {
+        title: "Visa",
+        dueAt: "2026-10-02T15:00:00Z",
+        dueIsDate: true,
+      });
+      const knows = await tasksModule.knowledge!.task!(day.id, read());
+      expect(JSON.stringify(knows)).toContain("due 2026-10-03");
+    } finally {
+      await setSetting(t.tdb.db, "owner.dayRules", DEFAULT_DAY_RULES);
+    }
   });
 });
 

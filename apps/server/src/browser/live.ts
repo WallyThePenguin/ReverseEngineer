@@ -65,6 +65,9 @@ export class LiveView {
     this.viewers.add(ws);
     send(ws, state(this.bridge.snapshot()));
     ws.on("message", (data) => {
+      // Once it's being closed (signed out, say), it drives nothing, even while ws waits for a
+      // client that won't let go.
+      if (ws.readyState !== ws.OPEN) return;
       let msg: ViewerMessage;
       try {
         msg = JSON.parse(String(data));

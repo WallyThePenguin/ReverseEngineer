@@ -10,12 +10,16 @@ import {
   requireEntity,
   updateEntity,
 } from "@hearth/kernel";
-import { and, asc, desc, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, ilike, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { body, describeRow, id, liveEntity, preview } from "../shared.ts";
 import { appendLog, routeLane } from "./log.ts";
+import { answerMention } from "./mention.ts";
 
 const lane = z.enum(["fast", "deep"]);
+
+/** Words to find in a title as typed: % and _ match themselves, not anything. */
+const likeText = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 
 /** A paired device (the desktop app) only sees the conversations it started (D42). */
 const deviceMay = (via: string, startedVia: string | null | undefined) =>
@@ -83,8 +87,12 @@ export const chatModule = defineModule({
     }),
     defineAction({
       name: "conversation.list",
-      description: "List conversations with Jarvis, most recent first.",
-      input: z.object({ limit: z.number().int().min(1).max(100).default(30) }),
+      description:
+        "List conversations with Jarvis, most recent first, optionally those whose title has some words.",
+      input: z.object({
+        limit: z.number().int().min(1).max(100).default(30),
+        query: z.string().trim().max(200).optional(),
+      }),
       risk: "read",
       async handler(i, ctx) {
         return ctx.tx
@@ -97,9 +105,28 @@ export const chatModule = defineModule({
           })
           .from(entity)
           .innerJoin(conversation, eq(conversation.entityId, entity.id))
-          .where(isNull(entity.deletedAt))
+          .where(
+            and(
+              isNull(entity.deletedAt),
+              i.query ? ilike(entity.title, `%${likeText(i.query)}%`) : undefined,
+            ),
+          )
           .orderBy(desc(entity.updatedAt))
           .limit(i.limit);
+      },
+    }),
+    defineAction({
+      name: "conversation.rename",
+      description: "Rename a conversation with Jarvis.",
+      input: z.object({ id, title: z.string().trim().min(1).max(200) }),
+      risk: "internal",
+      async handler(i, ctx) {
+        const [c] = await ctx.tx
+          .select({ startedVia: conversation.startedVia })
+          .from(conversation)
+          .where(eq(conversation.entityId, i.id));
+        if (!c || !deviceMay(ctx.caller.via, c.startedVia)) throw notFound("Conversation");
+        return updateEntity(ctx, i.id, { title: i.title }, { type: "conversation" });
       },
     }),
     defineAction({
@@ -117,7 +144,13 @@ export const chatModule = defineModule({
           .where(eq(conversationLog.conversationId, i.id))
           .orderBy(asc(conversationLog.idx));
         return {
-          conversation: { ...e, subjectId: c?.subjectId ?? null },
+          conversation: {
+            ...e,
+            subjectId: c?.subjectId ?? null,
+            // Once it has read outside content, Jarvis asks more here: the app says why (D58).
+            taintedAt: c?.taintedAt ?? null,
+            taintSource: c?.taintSource ?? null,
+          },
           log: log.filter((l) => i.afterIdx === undefined || l.idx > i.afterIdx),
         };
       },
@@ -156,10 +189,18 @@ export const chatModule = defineModule({
           conversationId = e.id;
         }
         const chosen = i.lane ?? routeLane(i.text);
+        // Heard, or sent by a device on its own say-so (D42): kept as such, so the nightly memory
+        // update doesn't take it for your words (D58).
+        const heard = i.heard === true || ctx.caller.origin === "untrusted";
         const [idx] = await appendLog(
           ctx.tx,
           conversationId,
-          [{ kind: "user_message", payload: { text: i.text, by: ctx.caller.principal } }],
+          [
+            {
+              kind: "user_message",
+              payload: { text: i.text, by: ctx.caller.principal, ...(heard ? { heard } : {}) },
+            },
+          ],
           ctx.now,
         );
         ctx.emit({
@@ -254,33 +295,7 @@ export const chatModule = defineModule({
         ];
       },
     },
-    {
-      name: "chat.answer_mention",
-      description:
-        "When you @mention Jarvis in a note, task, comment or doc, it answers right there.",
-      mode: "reactive",
-      on: ["jarvis.mentioned"],
-      run(event) {
-        const p = event.payload as {
-          type: string;
-          parentId: string | null;
-          anchor: string;
-          context: string;
-        };
-        const subjectId = p.type === "comment" && p.parentId ? p.parentId : event.entityId;
-        return [
-          {
-            kind: "turn",
-            trigger: "mention",
-            lane: routeLane(p.context),
-            subjectId,
-            dedupeKey: `mention:${event.entityId}:${p.anchor}`,
-            context: { sourceId: event.entityId, sourceType: p.type },
-            prompt: `You were @mentioned in a ${p.type}. Read the record, then answer or do what was asked:\n\n${p.context}`,
-          },
-        ];
-      },
-    },
+    answerMention,
   ],
 });
 

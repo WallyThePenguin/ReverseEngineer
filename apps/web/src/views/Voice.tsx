@@ -2,7 +2,8 @@
 // snippets, and how dictation is written in each app (PLAN.md section 7.2).
 
 import { createSignal, For, type JSX, Match, Show, Switch } from "solid-js";
-import { Badge, Button, Empty, PaneHeader } from "../components/ui.tsx";
+import { NoRows } from "../components/QueryView.tsx";
+import { Badge, Button, PaneHeader } from "../components/ui.tsx";
 import { ago } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
 import { act, useAction } from "../lib/query.ts";
@@ -124,11 +125,9 @@ function History() {
       <Show
         when={(list.data ?? []).length > 0}
         fallback={
-          <Empty>
-            {list.isLoading
-              ? "Loading…"
-              : "Nothing dictated yet. Hold the dictation hotkey in the desktop app and talk."}
-          </Empty>
+          <NoRows query={list} what="your dictation history">
+            Nothing dictated yet. Hold the dictation hotkey in the desktop app and talk.
+          </NoRows>
         }
       >
         <ul>
@@ -217,7 +216,11 @@ function Dictionary() {
       </form>
       <Show
         when={(list.data ?? []).length > 0}
-        fallback={<Empty>No words yet. Fixes you make in the history show up here too.</Empty>}
+        fallback={
+          <NoRows query={list} what="your dictionary">
+            No words yet. Fixes you make in the history show up here too.
+          </NoRows>
+        }
       >
         <ul>
           <For each={list.data}>
@@ -284,7 +287,14 @@ function Snippets() {
           Add snippet
         </Button>
       </form>
-      <Show when={(list.data ?? []).length > 0} fallback={<Empty>No snippets yet.</Empty>}>
+      <Show
+        when={(list.data ?? []).length > 0}
+        fallback={
+          <NoRows query={list} what="your snippets">
+            No snippets yet.
+          </NoRows>
+        }
+      >
         <ul>
           <For each={list.data}>
             {(s) => (

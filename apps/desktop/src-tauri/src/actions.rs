@@ -901,6 +901,17 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
             hearth: crate::hearth::Mode::Talk,
         }) as Arc<dyn ShortcutAction>,
     );
+    // Hearth's windows: open Hearth, quick capture, ask Jarvis by typing (D53).
+    for id in [
+        crate::hearth::OPEN_BINDING,
+        crate::hearth::CAPTURE_BINDING,
+        crate::hearth::ASK_BINDING,
+    ] {
+        map.insert(
+            id.to_string(),
+            Arc::new(crate::hearth::WindowHotkey) as Arc<dyn ShortcutAction>,
+        );
+    }
     map.insert(
         "cancel".to_string(),
         Arc::new(CancelAction) as Arc<dyn ShortcutAction>,

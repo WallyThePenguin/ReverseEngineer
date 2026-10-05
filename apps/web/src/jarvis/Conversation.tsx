@@ -1,60 +1,38 @@
 // A conversation with Jarvis: messages, the tools it used, approvals it's waiting on, and the
 // reply streaming in as it's written. Live and reloaded views come from the same fold.
 
-import { type ConversationItem, foldConversation, fromEditForm } from "@hearth/core";
+import { foldConversation, fromEditForm } from "@hearth/core";
 import { createEffect, createSignal, For, Match, on, onCleanup, Show, Switch } from "solid-js";
 import { Body } from "../components/Body.tsx";
 import { MentionEditor } from "../components/MentionEditor.tsx";
 import { Button, PaneHeader } from "../components/ui.tsx";
+import { MOD } from "../lib/hotkeys.ts";
 import { live } from "../lib/live.ts";
+import { narrow } from "../lib/narrow.ts";
 import { act, useAction } from "../lib/query.ts";
 import { hush, mic, say, talkTaken, talkWanted } from "../lib/speech.ts";
 import type { LogRecord } from "../lib/types.ts";
-import { decide } from "../views/Inbox.tsx";
+import { RenameInput, renameConversation } from "./Rename.tsx";
+import { OutsideNote, ToolLine } from "./ToolLine.tsx";
 
 /** How long what you sent may wait for Jarvis to start before it says so. */
 const SLOW_MS = 20_000;
 
 interface ConversationData {
-  conversation: { id: string; title: string };
+  conversation: {
+    id: string;
+    title: string;
+    taintedAt?: string | null;
+    taintSource?: string | null;
+  };
   log: LogRecord[];
-}
-
-function ToolLine(props: { item: Extract<ConversationItem, { type: "tool" }> }) {
-  const [open, setOpen] = createSignal(false);
-  const name = () => props.item.name.replace(/^mcp__hearth__/, "").replaceAll("_", " ");
-  return (
-    <div class="text-xs text-muted">
-      <button type="button" class="hover:text-ink" onClick={() => setOpen(!open())}>
-        {props.item.status === "running" ? "Using" : "Used"} {name()}
-        {props.item.isError ? " (failed)" : ""}
-      </button>
-      <Show when={props.item.status === "pending_approval" && props.item.approvalId}>
-        <div class="mt-1 flex items-center gap-2 rounded-md bg-accent-soft px-2 py-1.5 text-ink">
-          <span class="flex-1 whitespace-pre-wrap">
-            Waiting for your yes: {props.item.output || "see the Inbox."}
-          </span>
-          <Button kind="primary" small onClick={() => decide(props.item.approvalId!, "approve")}>
-            Approve
-          </Button>
-          <Button kind="danger" small onClick={() => decide(props.item.approvalId!, "deny")}>
-            Deny
-          </Button>
-        </div>
-      </Show>
-      <Show when={open()}>
-        <pre class="mt-1 max-h-48 overflow-auto rounded bg-sunk p-2 font-mono text-[11px] whitespace-pre-wrap">
-          {JSON.stringify(props.item.input, null, 2)}
-          {props.item.output ? `\n→ ${props.item.output}` : ""}
-        </pre>
-      </Show>
-    </div>
-  );
 }
 
 export function Conversation(props: {
   id: string | null;
   onCreated?: (id: string) => void;
+  /** The conversation is gone (trashed, or from before a restore). */
+  onMissing?: () => void;
   compact?: boolean;
 }) {
   const data = useAction<ConversationData>(
@@ -62,6 +40,9 @@ export function Conversation(props: {
     () => ({ id: props.id }),
     () => !!props.id,
   );
+  createEffect(() => {
+    if ((data.error as { code?: string } | null)?.code === "not_found") props.onMissing?.();
+  });
   const view = () => foldConversation(data.data?.log ?? []);
   const streaming = () =>
     Object.entries(live.streams())
@@ -99,10 +80,18 @@ export function Conversation(props: {
     if (!busy()) setStopping(false);
   });
 
+  // New words keep the bottom in view only while you're at the bottom: scrolled up to read,
+  // you stay where you are, and a button takes you down.
+  const [pinned, setPinned] = createSignal(true);
+  const toBottom = () => {
+    setPinned(true);
+    queueMicrotask(() => scroller?.scrollTo({ top: scroller.scrollHeight }));
+  };
+  createEffect(on(() => props.id, toBottom));
   createEffect(
-    on([() => view().items.length, () => streaming().join("").length], () =>
-      queueMicrotask(() => scroller?.scrollTo({ top: scroller.scrollHeight })),
-    ),
+    on([() => view().items.length, () => streaming().join("").length], () => {
+      if (pinned()) toBottom();
+    }),
   );
 
   // Asked by voice: Jarvis's answers after this point are read aloud.
@@ -149,14 +138,39 @@ export function Conversation(props: {
     setSending(false);
     if (!r) return false;
     setDraft("");
+    toBottom();
     if (!props.id) props.onCreated?.(r.conversationId);
     return true;
   };
 
   return (
-    <div class="flex h-full flex-col">
-      <div ref={scroller} class="flex-1 space-y-3 overflow-auto px-4 py-3">
+    <div class="relative flex h-full flex-col">
+      <div
+        ref={scroller}
+        class="flex-1 space-y-3 overflow-auto px-4 py-3"
+        onScroll={() =>
+          setPinned(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80)
+        }
+      >
         <Show when={props.id} fallback={<Starter onPick={(t) => setDraft(t)} />}>
+          <Show when={data.data?.conversation.taintedAt}>
+            <OutsideNote source={data.data?.conversation.taintSource} />
+          </Show>
+          <Show when={!data.data && data.isError}>
+            <p class="text-sm text-bad">
+              Couldn't load this conversation.{" "}
+              <button
+                type="button"
+                class="font-medium underline"
+                onClick={() => void data.refetch()}
+              >
+                Try again
+              </button>
+            </p>
+          </Show>
+          <Show when={!data.data && data.isLoading}>
+            <p class="text-sm text-muted">Loading…</p>
+          </Show>
           <For each={view().items}>
             {(item) => (
               <Switch>
@@ -222,6 +236,17 @@ export function Conversation(props: {
           </Show>
         </Show>
       </div>
+      <Show when={!pinned() && props.id}>
+        <div class="pointer-events-none relative">
+          <button
+            type="button"
+            class="pointer-events-auto absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full border border-line bg-panel px-3 py-1 text-xs font-medium shadow"
+            onClick={toBottom}
+          >
+            ↓ Latest
+          </button>
+        </div>
+      </Show>
       <div class="border-t border-line p-3">
         <MentionEditor
           value={draft()}
@@ -229,7 +254,11 @@ export function Conversation(props: {
           onSubmit={() => void send()}
           rows={props.compact ? 2 : 3}
           autofocus={!props.compact}
-          placeholder="Ask Jarvis anything, or @ a task or note (Ctrl+Enter to send)"
+          placeholder={
+            narrow()
+              ? "Ask Jarvis anything, or @ a task or note"
+              : `Ask Jarvis anything, or @ a task or note (${MOD}+Enter to send)`
+          }
         />
         <div class="mt-2 flex justify-end gap-2">
           <Button
@@ -289,9 +318,27 @@ function Starter(props: { onPick: (text: string) => void }) {
 /** A conversation opened in its own pane. */
 export function ChatView(props: { id: string }) {
   const data = useAction<ConversationData>("conversation.get", () => ({ id: props.id }));
+  const [renaming, setRenaming] = createSignal(false);
+  const title = () => data.data?.conversation.title || "Conversation";
   return (
     <div class="flex h-full flex-col">
-      <PaneHeader title={data.data?.conversation.title || "Conversation"} sub="With Jarvis" />
+      <PaneHeader
+        title={
+          <Show when={renaming()} fallback={title()}>
+            <RenameInput
+              value={title()}
+              class="w-full rounded border border-line bg-panel px-2 py-0.5 text-base font-semibold"
+              onDone={(t) => {
+                setRenaming(false);
+                if (t) void renameConversation(props.id, t);
+              }}
+            />
+          </Show>
+        }
+        sub="With Jarvis"
+        menu={data.data ? [{ label: "Rename", run: () => setRenaming(true) }] : []}
+        record={data.data ? { id: props.id, type: "conversation" } : undefined}
+      />
       <div class="min-h-0 flex-1">
         <Conversation id={props.id} />
       </div>

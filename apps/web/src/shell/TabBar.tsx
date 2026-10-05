@@ -14,9 +14,12 @@ const TABS: { view: ListView; label: string }[] = [
 export function TabBar(props: { waiting: number; onMenu: () => void }) {
   const current = () => (jarvis.open() ? null : layout.panes()[layout.focused()]?.view);
   const tab = (active: boolean) =>
-    `flex flex-1 flex-col items-center gap-0.5 py-2 text-xs ${active ? "font-semibold text-accent" : "text-muted"}`;
+    `flex min-h-12 flex-1 flex-col items-center justify-center gap-0.5 py-2 text-xs ${active ? "font-semibold text-accent" : "text-muted"}`;
   return (
-    <nav class="flex shrink-0 border-t border-line bg-panel pb-[env(safe-area-inset-bottom)]">
+    <nav
+      class="flex shrink-0 border-t border-line bg-panel pb-[env(safe-area-inset-bottom)]"
+      aria-label="Main"
+    >
       <For each={TABS}>
         {(t) => (
           <button

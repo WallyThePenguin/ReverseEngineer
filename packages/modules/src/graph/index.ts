@@ -2,6 +2,7 @@
 // Reflexes live in the modules that own each record type.
 import { entity, link } from "@hearth/db";
 import {
+  type ActionContext,
   ActionError,
   addLink,
   defineAction,
@@ -9,12 +10,28 @@ import {
   getEntity,
   notFound,
   removeLink,
-  restoreEntity,
-  trashEntity,
 } from "@hearth/kernel";
-import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { id, preview } from "../shared.ts";
+import { refuseUntrusted } from "../memory/store.ts";
+import { hiddenTypes, id, preview } from "../shared.ts";
+import { listTrash, restoreTree, trashTree } from "./trash.ts";
+
+/** Leaves out the record types this caller can't read (memory, for outside agents: D58). */
+const readable = (ctx: { caller: Parameters<typeof hiddenTypes>[0] }) => {
+  const hidden = hiddenTypes(ctx.caller);
+  return hidden.length ? notInArray(entity.type, hidden) : undefined;
+};
+
+/** A record's type. One this caller can't read (D58) isn't there for it to trash or restore. */
+async function readableType(ctx: ActionContext, recordId: string): Promise<string> {
+  const [row] = await ctx.tx
+    .select({ type: entity.type })
+    .from(entity)
+    .where(eq(entity.id, recordId));
+  if (!row || hiddenTypes(ctx.caller).includes(row.type)) throw notFound("Record");
+  return row.type;
+}
 
 const LINKABLE = ["attachment", "related", "participant", "derived_from", "reply"] as const;
 
@@ -48,7 +65,7 @@ export const graphModule = defineModule({
       risk: "read",
       async handler(input, ctx) {
         const row = await getEntity(ctx.tx, input.id);
-        if (!row) throw notFound("Record");
+        if (!row || hiddenTypes(ctx.caller).includes(row.type)) throw notFound("Record");
         return row;
       },
     }),
@@ -80,6 +97,7 @@ export const graphModule = defineModule({
             and(
               isNull(entity.deletedAt),
               input.types?.length ? inArray(entity.type, input.types) : undefined,
+              readable(ctx),
               or(
                 sql`${sql.raw("search")} @@ ${tsq}`,
                 sql`${entity.title} % ${q}`,
@@ -121,6 +139,7 @@ export const graphModule = defineModule({
               input.types?.length
                 ? inArray(entity.type, input.types)
                 : sql`${entity.type} NOT IN ('comment', 'conversation', 'agent')`,
+              readable(ctx),
             ),
           )
           .orderBy(desc(entity.updatedAt))
@@ -146,7 +165,7 @@ export const graphModule = defineModule({
               otherTitle: entity.title,
             })
             .from(link)
-            .innerJoin(entity, and(eq(entity.id, other), isNull(entity.deletedAt)))
+            .innerJoin(entity, and(eq(entity.id, other), isNull(entity.deletedAt), readable(ctx)))
             .where(eq(dir === "out" ? link.fromId : link.toId, input.id))
             .orderBy(desc(link.createdAt));
           return rows;
@@ -156,27 +175,40 @@ export const graphModule = defineModule({
     }),
     defineAction({
       name: "entity.trash",
-      description: "Move a record to trash. It can be restored.",
+      description:
+        "Move a record to trash, with its comments, subtasks and subpages. It can be restored.",
       input: z.object({ id }),
       risk: "destructive",
       summarize: (i) => `Move record ${i.id} to trash`,
-      handler: async (input, ctx) => trashEntity(ctx, input.id),
+      async handler(input, ctx) {
+        await readableType(ctx, input.id);
+        return trashTree(ctx, input.id);
+      },
     }),
     defineAction({
       name: "entity.restore",
-      description: "Bring a record back from trash.",
+      description:
+        "Bring a record back from trash, with whatever went to the trash with it (its subtasks, subpages, comments).",
       input: z.object({ id }),
       risk: "internal",
       async handler(input, ctx) {
+        const type = await readableType(ctx, input.id);
         // A snippet is typed into whatever app you dictate into, so only you bring one back.
-        const [row] = await ctx.tx
-          .select({ type: entity.type })
-          .from(entity)
-          .where(eq(entity.id, input.id));
-        if (row && OWNER_ONLY_TYPES.has(row.type) && ctx.caller.kind !== "owner")
+        if (OWNER_ONLY_TYPES.has(type) && ctx.caller.kind !== "owner")
           throw new ActionError("forbidden", "Only the owner can restore this.");
-        return restoreEntity(ctx, input.id);
+        // A memory note back from the trash steers every turn again: a change to memory like any
+        // other, so not after outside content.
+        if (type === "memory_note") refuseUntrusted(ctx);
+        return restoreTree(ctx, input.id);
       },
+    }),
+    defineAction({
+      name: "entity.trashed",
+      description:
+        "List what's in the trash, most recently trashed first. Records that went with another (subtasks, subpages) are counted on its row.",
+      input: z.object({ limit: z.number().int().min(1).max(200).default(100) }),
+      risk: "read",
+      handler: async (input, ctx) => listTrash(ctx.tx, input.limit, hiddenTypes(ctx.caller)),
     }),
     defineAction({
       name: "link.add",

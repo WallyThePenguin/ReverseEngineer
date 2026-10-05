@@ -13,7 +13,8 @@ export type ListView =
   | "voice"
   | "browser"
   | "activity"
-  | "settings";
+  | "settings"
+  | "trash";
 
 export type PaneRoute =
   | { view: ListView }
@@ -34,6 +35,7 @@ const LIST_VIEWS = new Set([
   "browser",
   "activity",
   "settings",
+  "trash",
 ]);
 const RECORD_VIEWS = new Set(["task", "note", "canvas", "sheet", "record", "chat", "thread"]);
 const ID = /^[0-9a-f-]{36}$/i;

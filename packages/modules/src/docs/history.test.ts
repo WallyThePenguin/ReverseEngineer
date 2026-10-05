@@ -1,7 +1,7 @@
-import { docCheckpoint, entity } from "@hearth/db";
+import { docCheckpoint, docState, entity } from "@hearth/db";
 import { type Caller, jarvisCaller, ownerCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { LoroDoc, VersionVector } from "loro-crdt";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ALL_MODULES } from "../index.ts";
@@ -61,7 +61,13 @@ describe("doc history", () => {
     // Later edits, by you on a screen and by Jarvis.
     a.type(a.text.length, " second");
     await a.sync();
-    await ok("note.update", { id: note.id, body: "rewritten by Jarvis" }, jarvisCaller("agent"));
+    const revision = (await t.tdb.db.select().from(entity).where(eq(entity.id, note.id)))[0]!
+      .revision;
+    await ok(
+      "note.update",
+      { id: note.id, body: "rewritten by Jarvis", revision },
+      jarvisCaller("agent"),
+    );
     const h = await ok<History>("doc.history", { id: note.id });
     expect(h.versions.length).toBeGreaterThanOrEqual(1);
     expect(new Set(h.versions.flatMap((v) => v.by))).toEqual(new Set(["owner", "jarvis"]));
@@ -114,10 +120,39 @@ describe("doc history", () => {
 
   it("names the writer of a note's text even before it's opened", async () => {
     const note = await ok<{ id: string }>("note.create", { title: "Plan", body: "mine" });
-    await ok("note.update", { id: note.id, body: "mine and theirs" }, jarvisCaller("agent"));
+    await ok(
+      "note.update",
+      { id: note.id, body: "mine and theirs", revision: 1 },
+      jarvisCaller("agent"),
+    );
     await ok("note.update", { id: note.id, title: "Renamed" });
     const h = await ok<History>("doc.history", { id: note.id });
     expect(new Set(h.versions.flatMap((v) => v.by))).toEqual(new Set(["owner", "jarvis"]));
+  });
+
+  it("puts a version back without deadlocking a sync that's folding the note", async () => {
+    const note = await ok<{ id: string }>("note.create", { title: "Log", body: "first" });
+    const a = new Screen(note.id);
+    await a.sync();
+    const [first] = (await ok<History>("doc.history", { id: note.id })).versions;
+    a.type(a.text.length, " second");
+    await a.sync();
+    let restoring: Promise<{ status: string }> | undefined;
+    await t.tdb.db.transaction(async (sync) => {
+      // A screen's sync holds the note...
+      await sync.select().from(entity).where(eq(entity.id, note.id)).for("update");
+      restoring = t.kernel.execute(
+        "doc.restore",
+        { id: note.id, frontiers: first!.frontiers },
+        ownerCaller(),
+      );
+      await new Promise((r) => setTimeout(r, 300));
+      // ...and folds its updates into the snapshot, which a restore waiting behind it mustn't hold.
+      await sync.execute(sql`SET LOCAL lock_timeout = '2s'`);
+      await sync.update(docState).set({ upto: 0 }).where(eq(docState.entityId, note.id));
+    });
+    expect(await restoring).toMatchObject({ status: "ok" });
+    expect(await body(note.id)).toBe("first");
   });
 
   it("refuses versions the doc doesn't have, and other people", async () => {

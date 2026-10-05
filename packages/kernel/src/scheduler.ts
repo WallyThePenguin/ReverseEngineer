@@ -1,9 +1,11 @@
 // One scheduler for routines, reminders and debounced checks (PLAN.md section 8.4). A firing
 // advances next_run_at and appends a clock.fired event in one transaction, so it happens once.
-import { isStaleFiring, nextCronRun } from "@hearth/core";
-import { type Db, type DbOrTx, schedule } from "@hearth/db";
+import { isStaleFiring, isValidTimeZone, nextCronRun } from "@hearth/core";
+import { type Db, type DbOrTx, schedule, type Tx } from "@hearth/db";
 import { and, asc, eq, isNotNull, lte, sql } from "drizzle-orm";
+import { expireApprovals } from "./approval-life.ts";
 import type { Clock } from "./clock.ts";
+import { ActionError } from "./errors.ts";
 import { appendEvents } from "./events.ts";
 import type { Registry } from "./registry.ts";
 
@@ -25,6 +27,8 @@ export interface ScheduleSpec {
  */
 export async function upsertSchedule(db: DbOrTx, spec: ScheduleSpec, now: Date): Promise<void> {
   const timeZone = spec.timeZone ?? "America/New_York";
+  if (!isValidTimeZone(timeZone))
+    throw new ActionError("invalid_input", `"${timeZone}" isn't a time zone Hearth knows.`);
   const next = spec.runAt ?? (spec.cron ? nextCronRun(spec.cron, timeZone, now) : null);
   const values = {
     id: spec.id,
@@ -83,8 +87,49 @@ export async function ensureRoutineSchedules(
   }
 }
 
-/** Fires every due schedule. Returns how many fired (stale firings are skipped, not counted). */
-export async function runDueSchedules(db: Db, clock: Clock, limit = 50): Promise<number> {
+/** A schedule that couldn't fire is tried again this much later, not on every tick. */
+export const SCHEDULE_RETRY_MS = 60 * 60_000;
+
+/** Advances one due schedule and appends its clock.fired event. Throws if it can't. */
+async function fire(tx: Tx, row: ScheduleRow, now: Date): Promise<"fired" | "stale"> {
+  const scheduledFor = row.nextRunAt!;
+  const stale = isStaleFiring(scheduledFor, now, row.staleAfterSeconds);
+  const next = row.cron ? nextCronRun(row.cron, row.timeZone, now) : null;
+  await tx
+    .update(schedule)
+    .set({ nextRunAt: next, lastRunAt: now, lastOutcome: stale ? "skipped_stale" : "fired" })
+    .where(eq(schedule.id, row.id));
+  if (stale) return "stale";
+  await appendEvents(
+    tx,
+    [
+      {
+        kind: "clock.fired",
+        payload: {
+          scheduleId: row.id,
+          kind: row.kind,
+          scheduledFor: scheduledFor.toISOString(),
+          ...row.payload,
+        },
+      },
+    ],
+    { actor: "system", origin: "system", at: now },
+  );
+  return "fired";
+}
+
+/**
+ * Fires every due schedule. Returns how many fired (stale firings are skipped, not counted).
+ * Each row fires in a savepoint: one that can't (a cron or time zone that no longer parses) is
+ * marked with why, and tried again in an hour, and the rest still fire. It used to stay first in
+ * line and fail every tick, so nothing scheduled ran at all.
+ */
+export async function runDueSchedules(
+  db: Db,
+  clock: Clock,
+  limit = 50,
+  log: (line: string) => void = () => {},
+): Promise<number> {
   let fired = 0;
   for (let i = 0; i < limit; i++) {
     const now = clock.now();
@@ -103,30 +148,21 @@ export async function runDueSchedules(db: Db, clock: Clock, limit = 50): Promise
         .limit(1)
         .for("update", { skipLocked: true });
       if (!row?.nextRunAt) return "empty" as const;
-      const scheduledFor = row.nextRunAt;
-      const stale = isStaleFiring(scheduledFor, now, row.staleAfterSeconds);
-      const next = row.cron ? nextCronRun(row.cron, row.timeZone, now) : null;
-      await tx
-        .update(schedule)
-        .set({ nextRunAt: next, lastRunAt: now, lastOutcome: stale ? "skipped_stale" : "fired" })
-        .where(eq(schedule.id, row.id));
-      if (stale) return "stale" as const;
-      await appendEvents(
-        tx,
-        [
-          {
-            kind: "clock.fired",
-            payload: {
-              scheduleId: row.id,
-              kind: row.kind,
-              scheduledFor: scheduledFor.toISOString(),
-              ...row.payload,
-            },
-          },
-        ],
-        { actor: "system", origin: "system", at: now },
-      );
-      return "fired" as const;
+      try {
+        return await tx.transaction((sp) => fire(sp, row, now));
+      } catch (err) {
+        const why = err instanceof Error ? err.message : String(err);
+        log(`schedule ${row.id} couldn't fire: ${why}`);
+        await tx
+          .update(schedule)
+          .set({
+            nextRunAt: new Date(now.getTime() + SCHEDULE_RETRY_MS),
+            lastRunAt: now,
+            lastOutcome: `error: ${why}`.slice(0, 500),
+          })
+          .where(eq(schedule.id, row.id));
+        return "error" as const;
+      }
     });
     if (done === "empty") break;
     if (done === "fired") fired++;
@@ -134,7 +170,7 @@ export async function runDueSchedules(db: Db, clock: Clock, limit = 50): Promise
   return fired;
 }
 
-/** Polls for due schedules until stopped. */
+/** Polls for due schedules, and runs out approvals past their time (D58), until stopped. */
 export function startScheduler(
   db: Db,
   clock: Clock,
@@ -145,7 +181,12 @@ export function startScheduler(
     if (running) return;
     running = true;
     try {
-      await runDueSchedules(db, clock);
+      await runDueSchedules(db, clock, 50, (line) => opts.log?.(line));
+    } catch (err) {
+      opts.log?.(err);
+    }
+    try {
+      await expireApprovals(db, clock);
     } catch (err) {
       opts.log?.(err);
     } finally {

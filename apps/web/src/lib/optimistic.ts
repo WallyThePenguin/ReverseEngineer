@@ -44,7 +44,11 @@ function mailThreads(
   change: Record<string, unknown>,
   how: (list: Record<string, unknown>) => "gone" | Partial<MailThread> | null,
 ): Patch[] {
-  const edit = (data: unknown, input: Record<string, unknown>) => {
+  const edit = (data: unknown, input: Record<string, unknown>): unknown => {
+    // A list read a page at a time: each page is edited the same way.
+    const paged = data as { pages?: unknown } | undefined;
+    if (paged && Array.isArray(paged.pages))
+      return { ...paged, pages: paged.pages.map((page) => edit(page, input)) };
     const which = ids(change);
     const what = how(input);
     if (what === null || !Array.isArray(data)) return data;
@@ -67,9 +71,34 @@ function mailThreads(
   ];
 }
 
+/** Lists of records you can move to the trash. */
+const RECORD_LISTS = [
+  "task.list",
+  "note.list",
+  "canvas.list",
+  "sheet.list",
+  "person.list",
+  "memory.list",
+  "conversation.list",
+  "comment.list",
+  "page_watch.list",
+  "snippet.list",
+  "entity.recent",
+];
+
 /** The edits a change makes to cached reads, by action name. */
 export function patchesFor(action: string, change: Record<string, unknown>): Patch[] {
   switch (action) {
+    case "entity.trash":
+      // A record moved to the trash leaves every list it's in.
+      return RECORD_LISTS.map((read) => ({
+        read,
+        edit(data) {
+          if (!Array.isArray(data)) return data;
+          const which = ids(change);
+          return data.filter((r) => !which.has((r as { id?: string }).id ?? ""));
+        },
+      }));
     case "inbox.mark": {
       const state = change.state as "unseen" | "seen" | "done";
       return [

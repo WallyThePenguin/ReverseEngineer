@@ -11,6 +11,7 @@
 // io action only reads there. What it emits is kept until the record, so a failed step leaves no
 // events behind.
 import type { Tx } from "@hearth/db";
+import type { Deferred } from "./approvals.ts";
 import { isAudited, writeAudit } from "./audit.ts";
 import { ActionError, describeError, isDatabaseDown, logLine, stackFrames } from "./errors.ts";
 import { appendEvents } from "./events.ts";
@@ -19,7 +20,8 @@ import type { ActionDef, Caller, EmitEvent } from "./types.ts";
 
 export interface RunHooks {
   approvalId?: string;
-  inTx?: (tx: Tx, result: unknown) => Promise<void>;
+  /** Closes the approval; its events are appended after the action's own (see Deferred). */
+  inTx?: (tx: Tx, result: unknown) => Promise<Deferred>;
 }
 
 /** Runs an allowed io action: its reads and I/O outside any transaction, its record in one. */
@@ -41,14 +43,7 @@ export async function runIo<R>(
     const result = (await def.handler(input, ctx)) as R;
     // record: the events, the audit row and the approval, together or not at all.
     await kernel.db.transaction(async (tx) => {
-      await appendEvents(tx, buffered, {
-        actor: caller.principal,
-        origin: caller.origin,
-        correlationId: caller.correlationId,
-        causationId: caller.causationId ?? null,
-        at: now,
-      });
-      if (audited)
+      if (audited && (hooks.approvalId !== undefined || (def.auditWhen?.(result) ?? true)))
         await writeAudit(tx, {
           def,
           caller,
@@ -59,7 +54,16 @@ export async function runIo<R>(
           approvalId: hooks.approvalId ?? null,
           at: now,
         });
-      if (hooks.inTx) await hooks.inTx(tx, result);
+      // As in Kernel.run: the approval closes before the event log's lock is taken.
+      const after = hooks.inTx ? await hooks.inTx(tx, result) : null;
+      await appendEvents(tx, buffered, {
+        actor: caller.principal,
+        origin: caller.origin,
+        correlationId: caller.correlationId,
+        causationId: caller.causationId ?? null,
+        at: now,
+      });
+      if (after) await appendEvents(tx, after.events, after.stamp);
     });
     return { status: "ok", result };
   } catch (err) {

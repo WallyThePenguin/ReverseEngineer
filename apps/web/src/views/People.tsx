@@ -1,10 +1,14 @@
 // People you know and the companies they're at, built from your mail and meetings.
 
 import { createSignal, Show } from "solid-js";
-import { Empty, PaneHeader } from "../components/ui.tsx";
+import { NoRows } from "../components/QueryView.tsx";
+import { PaneHeader } from "../components/ui.tsx";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
+import { quickAdd } from "../lib/quickadd.ts";
+import { createSelection } from "../lib/selection.ts";
+import { trashKey } from "../lib/trash.ts";
 import type { Company, Person } from "../lib/types.ts";
 import { PeopleRows } from "./Person.tsx";
 
@@ -19,17 +23,23 @@ export function People(props: { pane: number }) {
     () => tab() === "companies",
   );
   const [name, setName] = createSignal("");
-  const [index, setIndex] = createSignal(0);
   const due = () => (people.data ?? []).filter((p) => p.overdueDays);
   const rows = (): { id: string }[] =>
     tab() === "companies" ? (companies.data ?? []) : tab() === "due" ? due() : (people.data ?? []);
+  const sel = createSelection(rows, (r) => r.id);
   const focused = () => layout.focused() === props.pane;
   const open = (r: { id: string } | undefined) =>
     r && layout.show({ view: "record", id: r.id }, props.pane);
 
   useHotkeys([
-    ...listKeys({ count: () => rows().length, index, setIndex, when: focused }),
-    { keys: "enter", run: () => open(rows()[index()]), when: focused, label: "Open" },
+    ...listKeys({
+      count: () => rows().length,
+      index: sel.index,
+      setIndex: sel.select,
+      when: focused,
+    }),
+    { keys: "enter", run: () => open(sel.current()), when: focused, label: "Open" },
+    trashKey(sel.current, focused),
   ]);
 
   const tabButton = (t: Tab, label: string) => (
@@ -39,7 +49,7 @@ export function People(props: { pane: number }) {
       classList={{ "bg-sunk text-ink": tab() === t, "text-muted": tab() !== t }}
       onClick={() => {
         setTab(t);
-        setIndex(0);
+        sel.reset();
       }}
     >
       {label}
@@ -57,9 +67,9 @@ export function People(props: { pane: number }) {
       <Show when={tab() === "people"}>
         <form
           class="border-b border-line px-4 py-2"
-          onSubmit={async (e) => {
+          onSubmit={(e) => {
             e.preventDefault();
-            if (name().trim() && (await act("person.create", { name: name().trim() }))) setName("");
+            void quickAdd({ get: name, set: setName }, (n) => act("person.create", { name: n }));
           }}
         >
           <input
@@ -71,15 +81,25 @@ export function People(props: { pane: number }) {
         </form>
       </Show>
       <div class="flex-1 overflow-auto">
-        <Show when={rows().length > 0} fallback={<Empty>No one yet.</Empty>}>
+        <Show
+          when={rows().length > 0}
+          fallback={
+            <NoRows
+              query={tab() === "companies" ? companies : people}
+              what={tab() === "companies" ? "companies" : "people"}
+            >
+              No one yet.
+            </NoRows>
+          }
+        >
           <Show
             when={tab() === "companies"}
             fallback={
               <PeopleRows
                 rows={tab() === "due" ? due() : (people.data ?? [])}
-                active={focused() ? index() : undefined}
+                active={focused() ? sel.index() : undefined}
                 onOpen={(p) => {
-                  setIndex(rows().indexOf(p));
+                  sel.select(rows().indexOf(p));
                   open(p);
                 }}
               />
@@ -89,9 +109,9 @@ export function People(props: { pane: number }) {
               {(companies.data ?? []).map((c, i) => (
                 <li
                   class="flex cursor-pointer items-baseline gap-3 border-b border-line px-4 py-2"
-                  data-active={focused() && i === index()}
+                  data-active={focused() && i === sel.index()}
                   onClick={() => {
-                    setIndex(i);
+                    sel.select(i);
                     open(c);
                   }}
                 >

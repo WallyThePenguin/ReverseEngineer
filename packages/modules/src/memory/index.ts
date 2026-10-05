@@ -1,6 +1,7 @@
 // Jarvis's memory: notes about you, how you work, your preferences and your projects. "Always"
 // notes go into every turn; topic notes come in when their keywords come up. Every change is
 // kept as a version you can look at and undo (PLAN.md section 6.2).
+import type { PrincipalKind } from "@hearth/core";
 import { entity, memoryNote, memoryRevision } from "@hearth/db";
 import { ActionError, type DigestItem, defineAction, defineModule } from "@hearth/kernel";
 import { and, asc, desc, eq, gte, isNull, ne } from "drizzle-orm";
@@ -23,6 +24,8 @@ const noteBody = z.string().max(20_000);
 const scope = z.enum(["always", "topic"]);
 const keywords = z.array(z.string().trim().min(1).max(60)).max(30);
 const reason = z.string().trim().max(500).optional();
+/** Only you and Jarvis: memory steers every turn, and outside agents aren't to read or plant it. */
+const MEMORY_CALLERS: PrincipalKind[] = ["owner", "agent"];
 
 export const memoryModule = defineModule({
   name: "memory",
@@ -55,6 +58,7 @@ export const memoryModule = defineModule({
       description: "Every memory note: title, when it's used (always, or by keywords), and size.",
       input: z.object({}),
       risk: "read",
+      callers: MEMORY_CALLERS,
       async handler(_i, ctx) {
         const rows = await ctx.tx
           .select({ e: entity, m: memoryNote })
@@ -74,6 +78,7 @@ export const memoryModule = defineModule({
       description: "One memory note in full, with its current version number.",
       input: z.object({ id }),
       risk: "read",
+      callers: MEMORY_CALLERS,
       handler: (i, ctx) => loadNote(ctx.tx, i.id),
     }),
     defineAction({
@@ -82,6 +87,7 @@ export const memoryModule = defineModule({
         "Look up what you remember about something: the always-on notes plus any topic notes whose keywords appear in the text.",
       input: z.object({ about: z.string().trim().min(1).max(2000) }),
       risk: "read",
+      callers: MEMORY_CALLERS,
       handler: (i, ctx) => recallMemory(ctx.tx, i.about),
     }),
     defineAction({
@@ -96,6 +102,7 @@ export const memoryModule = defineModule({
         reason,
       }),
       risk: "internal",
+      callers: MEMORY_CALLERS,
       summarize: (i) => `Remember "${i.title}"`,
       async handler(i, ctx): Promise<MemoryNoteView> {
         refuseUntrusted(ctx);
@@ -127,6 +134,7 @@ export const memoryModule = defineModule({
         expectedRevision: z.number().int().min(1).optional(),
       }),
       risk: "internal",
+      callers: MEMORY_CALLERS,
       async handler(i, ctx) {
         refuseUntrusted(ctx);
         const { id: noteId, reason: why, expectedRevision, ...patch } = i;
@@ -138,6 +146,7 @@ export const memoryModule = defineModule({
       description: "Every version of a memory note, newest first: who changed it, when and why.",
       input: z.object({ id }),
       risk: "read",
+      callers: MEMORY_CALLERS,
       handler: (i, ctx) =>
         ctx.tx
           .select()
@@ -150,6 +159,7 @@ export const memoryModule = defineModule({
       description: "Put a memory note back the way it was at an earlier version.",
       input: z.object({ id, revision: z.number().int().min(1) }),
       risk: "internal",
+      callers: MEMORY_CALLERS,
       async handler(i, ctx) {
         refuseUntrusted(ctx);
         const [old] = await ctx.tx

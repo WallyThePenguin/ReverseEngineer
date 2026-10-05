@@ -31,6 +31,12 @@ export interface FailureStreak {
 /** When a turn last ended (or was queued), with ids breaking ties: they're time-ordered. */
 const ENDED = sql`(coalesce(${jarvisTurn.finishedAt}, ${jarvisTurn.queuedAt}), ${jarvisTurn.id})`;
 
+/** Turns a restart didn't cut short: one it did isn't Jarvis failing. */
+const NOT_INTERRUPTED = or(
+  sql`${jarvisTurn.errorKind} IS NULL`,
+  ne(jarvisTurn.errorKind, "interrupted"),
+);
+
 /**
  * The turns since Jarvis last finished one: failed for good, or waiting to be tried again. A
  * restart cutting a turn short isn't Jarvis failing, so it doesn't count, and neither do failures
@@ -38,10 +44,7 @@ const ENDED = sql`(coalesce(${jarvisTurn.finishedAt}, ${jarvisTurn.queuedAt}), $
  * finished turn, not by a number of rows, so a long outage keeps one start and one set of alerts.
  */
 export async function failureStreak(db: DbOrTx, now: Date): Promise<FailureStreak> {
-  const counted = and(
-    gte(jarvisTurn.queuedAt, new Date(now.getTime() - WEEK_MS)),
-    or(sql`${jarvisTurn.errorKind} IS NULL`, ne(jarvisTurn.errorKind, "interrupted")),
-  );
+  const counted = and(gte(jarvisTurn.queuedAt, new Date(now.getTime() - WEEK_MS)), NOT_INTERRUPTED);
   const [done] = await db
     .select({
       at: sql<string>`coalesce(${jarvisTurn.finishedAt}, ${jarvisTurn.queuedAt})::text`,
@@ -117,20 +120,23 @@ export interface TurnStats {
   } | null;
 }
 
-/** How Jarvis's turns went lately, for `hearth doctor` and anyone else asking. */
+/**
+ * How Jarvis's turns went lately, for `hearth doctor` and anyone else asking. Turns a restart cut
+ * short aren't counted, as in deep health's (apps/server/src/deep-health.ts).
+ */
 export async function turnStats(db: DbOrTx, now: Date, hours = 24): Promise<TurnStats> {
   const since = new Date(now.getTime() - hours * 3600_000);
   const counts = await db
     .select({ status: jarvisTurn.status, n: count() })
     .from(jarvisTurn)
-    .where(gte(jarvisTurn.queuedAt, since))
+    .where(and(gte(jarvisTurn.queuedAt, since), NOT_INTERRUPTED))
     .groupBy(jarvisTurn.status);
   const byStatus = Object.fromEntries(counts.map((c) => [c.status, c.n]));
   const ended = (byStatus.done ?? 0) + (byStatus.failed ?? 0);
   const [last] = await db
     .select()
     .from(jarvisTurn)
-    .where(and(eq(jarvisTurn.status, "failed"), gte(jarvisTurn.queuedAt, since)))
+    .where(and(eq(jarvisTurn.status, "failed"), gte(jarvisTurn.queuedAt, since), NOT_INTERRUPTED))
     .orderBy(desc(jarvisTurn.finishedAt))
     .limit(1);
   return {

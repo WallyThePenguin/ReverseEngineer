@@ -1,6 +1,8 @@
 // Canvas boards (PLAN.md section 8.6): cards, shapes and arrows on a 2D plane, with @linked
-// records as cards. The board is saved whole, last write wins (D20); its body is the board as
-// markdown, so it links to the records on it and Jarvis can read it (D47).
+// records as cards. The board is saved whole, one save at a time under its row's lock; a save says
+// which version it was made from, and one made from an older version is refused so the screen can
+// merge card by card and try again (D59). Its body is the board as markdown, so it links to the
+// records on it and Jarvis can read it (D47).
 import { type Canvas, type CanvasNode, CanvasSchema, canvasMarkdown } from "@hearth/core";
 import { canvasBoard, entity } from "@hearth/db";
 import {
@@ -10,14 +12,16 @@ import {
   defineModule,
   updateEntity,
 } from "@hearth/kernel";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { describeRow, id, liveEntity, title } from "../shared.ts";
 
-async function board(db: Parameters<typeof liveEntity>[0], boardId: string) {
+/** The board and its version; `lock` holds its row so writes to it go one at a time. */
+async function board(db: Parameters<typeof liveEntity>[0], boardId: string, lock = false) {
   const row = await liveEntity(db, boardId, "canvas");
   if (!row) throw new ActionError("not_found", "No such canvas");
-  const [b] = await db.select().from(canvasBoard).where(eq(canvasBoard.entityId, boardId));
+  const read = db.select().from(canvasBoard).where(eq(canvasBoard.entityId, boardId));
+  const [b] = lock ? await read.for("update") : await read;
   return { row, data: CanvasSchema.parse(b?.data ?? {}), version: b?.version ?? 0 };
 }
 
@@ -82,16 +86,33 @@ export const canvasModule = defineModule({
     defineAction({
       name: "canvas.save",
       description:
-        "Save a whole canvas board (nodes and edges), replacing what was there. The last save wins.",
-      input: z.object({ id, board: CanvasSchema, title: title.optional() }),
+        "Save a whole canvas board (nodes and edges), replacing what was there. Pass baseVersion, the version you read with canvas.get: if it has changed since, the save fails with a conflict and you should read it again. To add cards, use canvas.add instead.",
+      input: z.object({
+        id,
+        board: CanvasSchema,
+        title: title.optional(),
+        baseVersion: z.number().int().min(0).optional(),
+      }),
       risk: "internal",
       async handler(i, ctx) {
-        const b = await board(ctx.tx, i.id);
-        const version = b.version + 1;
-        await ctx.tx
+        // Jarvis and outside agents save a whole board only over the version they read.
+        if (i.baseVersion === undefined && ["agent", "mcp_client"].includes(ctx.caller.kind))
+          throw new ActionError("invalid_input", "Pass baseVersion: the version from canvas.get.");
+        const b = await board(ctx.tx, i.id, true);
+        if (i.baseVersion !== undefined && i.baseVersion !== b.version)
+          throw new ActionError(
+            "conflict",
+            "This board changed since it was read. Read it again and redo the change.",
+          );
+        const [saved] = await ctx.tx
           .insert(canvasBoard)
-          .values({ entityId: i.id, data: i.board, version })
-          .onConflictDoUpdate({ target: canvasBoard.entityId, set: { data: i.board, version } });
+          .values({ entityId: i.id, data: i.board, version: 1 })
+          .onConflictDoUpdate({
+            target: canvasBoard.entityId,
+            set: { data: i.board, version: sql`${canvasBoard.version} + 1` },
+          })
+          .returning({ version: canvasBoard.version });
+        const version = saved!.version;
         await updateEntity(
           ctx,
           i.id,
@@ -116,7 +137,8 @@ export const canvasModule = defineModule({
       }),
       risk: "internal",
       async handler(i, ctx) {
-        const b = await board(ctx.tx, i.id);
+        // Held until the cards are saved, so a screen's save can't land in between and be lost.
+        const b = await board(ctx.tx, i.id, true);
         const at = below(b.data);
         const added: CanvasNode[] = [];
         for (const [k, card] of i.cards.entries()) {
@@ -146,7 +168,7 @@ export const canvasModule = defineModule({
           });
         }
         const next = { ...b.data, nodes: [...b.data.nodes, ...added] };
-        await ctx.call("canvas.save", { id: i.id, board: next });
+        await ctx.call("canvas.save", { id: i.id, board: next, baseVersion: b.version });
         return { ids: added.map((n) => n.id) };
       },
     }),

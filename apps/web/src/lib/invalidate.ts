@@ -39,7 +39,8 @@ const ANY_RECORD: Rule = ["entity.", "inbox.list", "person.view", "company.view"
 /** ...and in the lists of its own type. */
 const BY_TYPE: Record<string, Rule> = {
   task: ["task."],
-  note: ["note.list"],
+  // A Notion import is a note; Settings lists them.
+  note: ["note.list", "notion.imports"],
   canvas: ["canvas."],
   spreadsheet: ["sheet."],
   person: ["person.", "company."],

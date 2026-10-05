@@ -1,6 +1,6 @@
 // One task: its fields, description, subtasks, thread and links.
 
-import { createSignal, For, Show } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import { Backlinks } from "../components/Backlinks.tsx";
 import { Comments, JarvisWorking } from "../components/Comments.tsx";
 import { EditableBody, toggleLine } from "../components/EditableBody.tsx";
@@ -9,6 +9,7 @@ import { ago, PRIORITY_LABEL, STATUS_LABEL, who } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
+import { quickAdd } from "../lib/quickadd.ts";
 import type { Task } from "../lib/types.ts";
 import { TaskRow } from "./Tasks.tsx";
 
@@ -24,6 +25,9 @@ const select = "rounded-md border border-line bg-panel px-2 py-1 text-sm";
 
 export function TaskView(props: { id: string; pane: number }) {
   const task = useAction<Task>("task.get", () => ({ id: props.id }));
+  // The title box follows the saved title only when that changes, so a read of the task landing
+  // while you type (any task changing re-reads it) doesn't put the old title back.
+  const savedTitle = createMemo(() => task.data?.title);
   const subs = useAction<Task[]>("task.list", () => ({
     parentId: props.id,
     includeClosed: true,
@@ -43,19 +47,19 @@ export function TaskView(props: { id: string; pane: number }) {
     return r !== null;
   };
 
-  const addSubtask = async () => {
-    const title = subtask().trim();
-    if (!title) return;
-    if (await act("task.create", { title, parentId: props.id })) setSubtask("");
-  };
+  const addSubtask = () =>
+    quickAdd({ get: subtask, set: setSubtask }, (title) =>
+      act("task.create", { title, parentId: props.id }),
+    );
 
   return (
-    <Show when={task.data} fallback={<Placeholder missing={task.isError} what="task" />}>
+    <Show when={task.data} fallback={<Placeholder query={task} what="task" />}>
       {(t) => (
         <div class="flex h-full flex-col">
           <PaneHeader
             title={<span class="font-mono text-sm text-muted">{t().key}</span>}
             sub={`Created by ${who(t().createdBy)} ${ago(t().createdAt)}`}
+            record={{ id: t().id, type: "task" }}
           >
             <Show
               when={t().assignee !== "jarvis"}
@@ -80,7 +84,7 @@ export function TaskView(props: { id: string; pane: number }) {
           <div class="flex-1 space-y-5 overflow-auto px-5 py-4">
             <input
               class="w-full bg-transparent text-xl font-semibold outline-none"
-              value={t().title}
+              value={savedTitle()}
               onChange={(e) => {
                 const title = e.currentTarget.value.trim();
                 if (title && title !== t().title) void update({ title });

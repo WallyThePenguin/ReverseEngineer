@@ -1,9 +1,9 @@
 // Mail: every account's conversations in one list, split into Signal and Noise, plus what needs
 // your reply and what you're waiting on. j/k to move, Enter to open, e archive, s star, u read or
 // unread, n send the sender to the other lane, d no reply needed, # trash. Changes show at once
-// and reach Gmail within a minute.
+// and reach Gmail within a minute. Older conversations load as you scroll down to them.
 
-import { createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { Badge, Button, Empty, PaneHeader } from "../components/ui.tsx";
 import { debounced } from "../lib/debounce.ts";
 import { ago } from "../lib/format.ts";
@@ -11,8 +11,10 @@ import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
 import { toast } from "../lib/live.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
+import { createSelection } from "../lib/selection.ts";
 import type { MailAccount, MailAddress, MailDraft, MailThread } from "../lib/types.ts";
 import { Composer } from "./MailCompose.tsx";
+import { PAGE, useThreadPages, whenSeen } from "./MailPages.ts";
 import { MailSyncBanner } from "./MailSyncStatus.tsx";
 
 type View = "inbox" | "starred" | "sent" | "all" | "trash";
@@ -23,36 +25,41 @@ export function Mail(props: { pane: number }) {
   const [view, setView] = createSignal<View>("inbox");
   const [lane, setLane] = createSignal<"signal" | "noise" | "reply" | "waiting">("signal");
   const [query, setQuery] = createSignal("");
-  const [index, setIndex] = createSignal(0);
   const accounts = useAction<MailAccount[]>("mail.accounts");
   // What's searched for: what's typed, once typing pauses.
   const term = debounced(query);
   const searching = () => term().trim().length > 0;
-  const listed = useAction<MailThread[]>(
-    "mail.threads",
+  const listed = useThreadPages(
     () => {
-      if (view() !== "inbox") return { view: view(), limit: 100 };
+      if (view() !== "inbox") return { view: view(), limit: PAGE };
       if (lane() === "reply") return { view: "inbox", waiting: "you", limit: 100 };
       if (lane() === "waiting") return { view: "all", waiting: "them", limit: 100 };
-      return { view: "inbox", lane: lane(), limit: 100 };
+      return { view: "inbox", lane: lane(), limit: PAGE };
     },
     () => !searching(),
   );
   const found = useAction<MailThread[]>("mail.search", () => ({ query: term().trim() }), searching);
   const threads = {
     get data() {
-      return searching() ? found.data : listed.data;
+      return searching() ? found.data : listed.list();
     },
     get isLoading() {
-      return searching() ? found.isLoading : listed.isLoading;
+      return searching() ? found.isLoading : listed.query.isLoading;
     },
   };
   const list = () => threads.data ?? [];
+  const paging = () => !searching() && listed.query.hasNextPage;
   const drafts = useAction<MailDraft[]>("mail.drafts");
   // New messages (not replies) are written here, above the list.
   const fresh = () => (drafts.data ?? []).filter((d) => !d.threadId).map((d) => d.id);
   const compose = () => void act("mail.draft", { text: "" });
-  const current = () => list()[Math.min(index(), list().length - 1)];
+  // Kept by id: new mail arriving above doesn't move e or # onto a different conversation.
+  const sel = createSelection(list, (t) => t.id);
+  const current = sel.current;
+  // Moving down with j: the next page comes before you reach the end.
+  createEffect(() => {
+    if (paging() && sel.index() >= list().length - 5) listed.more();
+  });
   const focused = () => layout.focused() === props.pane;
 
   const open = (t: MailThread | undefined, beside = false) => {
@@ -77,7 +84,12 @@ export function Mail(props: { pane: number }) {
   };
 
   useHotkeys([
-    ...listKeys({ count: () => list().length, index, setIndex, when: focused }),
+    ...listKeys({
+      count: () => list().length,
+      index: sel.index,
+      setIndex: sel.select,
+      when: focused,
+    }),
     { keys: "enter", run: () => open(current()), when: focused, label: "Open" },
     { keys: "o", run: () => open(current()), when: focused },
     {
@@ -160,7 +172,7 @@ export function Mail(props: { pane: number }) {
           value={view()}
           onChange={(e) => {
             setView(e.currentTarget.value as View);
-            setIndex(0);
+            sel.reset();
           }}
         >
           <option value="inbox">Inbox</option>
@@ -180,7 +192,7 @@ export function Mail(props: { pane: number }) {
           value={query()}
           onInput={(e) => {
             setQuery(e.currentTarget.value);
-            setIndex(0);
+            sel.reset();
           }}
         />
       </PaneHeader>
@@ -215,9 +227,9 @@ export function Mail(props: { pane: number }) {
                   {(t, i) => (
                     <li
                       class="cursor-pointer border-b border-line px-4 py-2.5"
-                      data-active={focused() && i() === index()}
+                      data-active={focused() && i() === sel.index()}
                       onClick={(e) => {
-                        setIndex(i());
+                        sel.select(i());
                         open(t, e.shiftKey);
                       }}
                     >
@@ -260,6 +272,17 @@ export function Mail(props: { pane: number }) {
                   )}
                 </For>
               </ul>
+              <Show when={paging()}>
+                <div class="p-3 text-center" ref={(el) => onCleanup(whenSeen(el, listed.more))}>
+                  <Button
+                    small
+                    disabled={listed.query.isFetchingNextPage}
+                    onClick={() => listed.more()}
+                  >
+                    {listed.query.isFetchingNextPage ? "Loading…" : "Older conversations"}
+                  </Button>
+                </div>
+              </Show>
             </Show>
           </Show>
         </Show>

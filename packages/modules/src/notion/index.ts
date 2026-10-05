@@ -11,7 +11,7 @@ import {
   syncMentions,
   trashEntity,
 } from "@hearth/kernel";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { type ImportFile, MAX_PAGES, planImport } from "./parse.ts";
 
@@ -86,6 +86,33 @@ export const notionModule = defineModule({
           pages: plan.filter((p) => !p.database).length,
           databases: plan.filter((p) => p.database).length,
         };
+      },
+    }),
+    defineAction({
+      name: "notion.imports",
+      description:
+        "List your Notion imports, newest first: each one's page, and whether it's in the trash.",
+      input: z.object({ limit: z.number().int().min(1).max(100).default(20) }),
+      risk: "read",
+      callers: ["owner"],
+      async handler(i, ctx) {
+        return ctx.tx
+          .select({
+            id: entity.id,
+            title: entity.title,
+            createdAt: entity.createdAt,
+            trashedAt: entity.deletedAt,
+          })
+          .from(entity)
+          .where(
+            and(
+              eq(entity.type, "note"),
+              eq(entity.createdBy, "integration:notion"),
+              isNull(entity.parentId),
+            ),
+          )
+          .orderBy(desc(entity.createdAt))
+          .limit(i.limit);
       },
     }),
     defineAction({

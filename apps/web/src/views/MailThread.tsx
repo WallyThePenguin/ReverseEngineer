@@ -1,9 +1,10 @@
 // One email conversation. HTML mail is shown in a sandboxed frame that runs no scripts and loads
 // nothing from the internet (so senders can't see you opened it) until you ask for images.
 
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For, Show, useContext } from "solid-js";
+import { ActionBar } from "../components/ActionBar.tsx";
 import { Backlinks } from "../components/Backlinks.tsx";
-import { Badge, Button, PaneHeader, Placeholder } from "../components/ui.tsx";
+import { Badge, Button, PaneContext, PaneHeader, Placeholder } from "../components/ui.tsx";
 import { ago } from "../lib/format.ts";
 import { useHotkeys } from "../lib/hotkeys.ts";
 import { toast } from "../lib/live.ts";
@@ -23,21 +24,32 @@ const list = (xs: MailAddress[]) =>
   xs.map((a) => (a.name ? `${a.name} <${a.address}>` : a.address)).join(", ");
 
 /** An HTML message in its own frame, sized to fit. The frame runs no scripts. */
-function HtmlBody(props: { id: string }) {
+function HtmlBody(props: { id: string; text: string }) {
   const [images, setImages] = createSignal(false);
   const [remote, setRemote] = createSignal(false);
+  const [missing, setMissing] = createSignal(false);
   let frame: HTMLIFrameElement | undefined;
   const loaded = () => {
     const doc = frame?.contentDocument;
-    if (!frame || !doc?.body) return;
+    if (!frame || !doc?.body || doc.location.href === "about:blank") return;
+    const meta = doc.querySelector('meta[name="hearth-remote-images"]');
+    if (!meta) {
+      // Not the message page: its original couldn't be had, here or from the mail service.
+      setMissing(true);
+      return;
+    }
     frame.style.height = `${Math.min(doc.documentElement.scrollHeight + 4, 20000)}px`;
-    setRemote(
-      doc.querySelector('meta[name="hearth-remote-images"]')?.getAttribute("content") === "1",
-    );
+    setRemote(meta.getAttribute("content") === "1");
   };
   return (
     <div class="space-y-2">
-      <Show when={remote() && !images()}>
+      <Show when={missing()}>
+        <p class="text-xs text-muted">
+          The original of this message isn't available, so here's its text.
+        </p>
+        <pre class="whitespace-pre-wrap font-sans text-sm">{props.text}</pre>
+      </Show>
+      <Show when={remote() && !images() && !missing()}>
         <p class="text-xs text-muted">
           Pictures from the internet are hidden, so the sender can't tell you opened this.{" "}
           <button type="button" class="underline" onClick={() => setImages(true)}>
@@ -50,6 +62,7 @@ function HtmlBody(props: { id: string }) {
         ref={frame}
         title="Message"
         class="w-full rounded-md border border-line bg-white"
+        classList={{ hidden: missing() }}
         style={{ height: "120px" }}
         sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
         referrerpolicy="no-referrer"
@@ -82,10 +95,14 @@ function Invite(props: { invite: MailInvite }) {
           minute: "2-digit",
         });
   };
+  // A repeating meeting is answered for every time, unless you say this time only.
+  const [scope, setScope] = createSignal<"all" | "this">("all");
   const answer = (response: string) =>
-    void act("calendar.respond", { id: ev()!.id, response }).then(
-      (r) => r && toast.show("Answered. The organizer will see it."),
-    );
+    void act("calendar.respond", {
+      id: ev()!.id,
+      response,
+      ...(ev()!.recurring ? { scope: scope() } : {}),
+    }).then((r) => r && toast.show("Answered. The organizer will see it."));
   return (
     <div class="rounded-md border border-line bg-sunk px-3 py-2 text-sm">
       <Show
@@ -109,6 +126,17 @@ function Invite(props: { invite: MailInvite }) {
               </Show>
               <span class="flex-1" />
               <Show when={!e().cancelled && !e().selfOrganizer}>
+                <Show when={e().recurring}>
+                  <select
+                    class="rounded-md border border-line bg-panel px-2 py-1 text-xs"
+                    aria-label="Which times"
+                    value={scope()}
+                    onChange={(x) => setScope(x.currentTarget.value as "all" | "this")}
+                  >
+                    <option value="all">Every time</option>
+                    <option value="this">This time only</option>
+                  </select>
+                </Show>
                 <For each={ANSWERS}>
                   {(a) => (
                     <Button
@@ -163,7 +191,7 @@ function Message(props: { m: MailMessage; open: boolean; onToggle: () => void })
             when={props.m.hasHtml}
             fallback={<pre class="whitespace-pre-wrap font-sans text-sm">{props.m.text}</pre>}
           >
-            <HtmlBody id={props.m.id} />
+            <HtmlBody id={props.m.id} text={props.m.text} />
           </Show>
           <Show when={files().length > 0}>
             <ul class="flex flex-wrap gap-2 text-xs">
@@ -197,6 +225,7 @@ export function MailThreadPane(props: { id: string; pane: number }) {
     t.data && void act("mail.draft", { threadId: t.data.id, replyAll: all, text: "" });
   const [opened, setOpened] = createSignal<Set<string>>(new Set());
   const focused = () => layout.focused() === props.pane;
+  const pane = useContext(PaneContext);
   // The newest message and any unread ones start open.
   const isOpen = (m: MailMessage, last: boolean) => last || m.unread || opened().has(m.id);
   const toggle = (id: string) =>
@@ -232,7 +261,7 @@ export function MailThreadPane(props: { id: string; pane: number }) {
     { keys: "a", run: () => reply(true), when: focused, label: "Reply all" },
   ]);
   return (
-    <Show when={t.data} fallback={<Placeholder missing={t.isError} what="conversation" />}>
+    <Show when={t.data} fallback={<Placeholder query={t} what="conversation" />}>
       {(v) => (
         <div class="flex h-full flex-col">
           <PaneHeader
@@ -290,6 +319,36 @@ export function MailThreadPane(props: { id: string; pane: number }) {
             </div>
             <Backlinks id={v().id} />
           </div>
+          {/* On a phone: triage with the thumb, then back to the list. */}
+          <ActionBar
+            label="Conversation actions"
+            actions={[
+              {
+                label: v().inInbox ? "Archive" : "To inbox",
+                run: async () => {
+                  const archive = v().inInbox;
+                  const ok = await act(archive ? "mail.archive" : "mail.unarchive", {
+                    ids: [v().id],
+                  });
+                  if (ok && archive) pane.close?.();
+                },
+              },
+              {
+                label: v().starred ? "Unstar" : "Star",
+                on: v().starred,
+                run: () => void run("mail.star", { ids: [v().id], starred: !v().starred }),
+              },
+              { label: "Reply", run: () => reply(false) },
+              {
+                label: "Trash",
+                run: async () => {
+                  if (!(await act("mail.trash", { ids: [v().id] }))) return;
+                  toast.show("Moved to the trash.");
+                  pane.close?.();
+                },
+              },
+            ]}
+          />
         </div>
       )}
     </Show>

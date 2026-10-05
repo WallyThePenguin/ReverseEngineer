@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connect, jarvisTurn, loadMigrations } from "@hearth/db";
-import { systemCaller } from "@hearth/kernel";
+import { setSetting, systemCaller } from "@hearth/kernel";
 import { afterEach, describe, expect, it } from "vitest";
 import { type DeepHealth, deepHealth } from "./deep-health.ts";
 import { createTestServer, type TestServer } from "./testing/server.ts";
@@ -91,7 +91,7 @@ describe("deep health", () => {
       { component: "worker", status: "ok", detail: "Running" },
       systemCaller(),
     );
-    const turn = (status: "done" | "failed", minutesAgo: number) => ({
+    const turn = (status: "done" | "failed", minutesAgo: number, interrupted = false) => ({
       id: randomUUID(),
       trigger: "chat" as const,
       mode: "reactive" as const,
@@ -99,12 +99,23 @@ describe("deep health", () => {
       origin: "owner" as const,
       prompt: "hi",
       status,
-      error: status === "failed" ? "400 tools.124: invalid pattern\nstack..." : null,
+      error: interrupted
+        ? "Interrupted by a restart"
+        : status === "failed"
+          ? "400 tools.124: invalid pattern\nstack..."
+          : null,
+      errorKind: interrupted ? "interrupted" : status === "failed" ? "bad_tool" : null,
       finishedAt: new Date(t!.clock.now().getTime() - minutesAgo * 60_000),
     });
     await t.kernel.db
       .insert(jarvisTurn)
-      .values([turn("done", 60 * 30), turn("done", 90), turn("failed", 10)]);
+      // The newest was cut short by a restart (an update's own, say): that isn't Jarvis failing.
+      .values([
+        turn("done", 60 * 30),
+        turn("done", 90),
+        turn("failed", 10),
+        turn("failed", 2, true),
+      ]);
     t.clock.advance(5 * 60_000);
 
     const report = (await (await local(t)).json()) as DeepHealth;
@@ -117,6 +128,23 @@ describe("deep health", () => {
       last: { status: "failed", error: "400 tools.124: invalid pattern" },
     });
     expect(report.problems.some((p) => p.startsWith("Jarvis's last turn failed"))).toBe(true);
+  });
+
+  it("says when the Jarvis process last checked in, apart from the worker's word on it", async () => {
+    t = await createTestServer();
+    // The worker reports Jarvis failing when it hasn't checked in: that's no sign of Jarvis.
+    await t.kernel.execute(
+      "system.report",
+      { component: "jarvis", status: "failing", detail: "Jarvis hasn't checked in since 9:14." },
+      systemCaller(),
+    );
+    const quiet = (await (await local(t)).json()) as DeepHealth;
+    expect(quiet.components.jarvis).toMatchObject({ status: "failing" });
+    expect(quiet.jarvisAlive).toBeNull();
+
+    const alive = { at: t.clock.now().toISOString(), since: "2026-10-04T11:00:00.000Z", pid: 42 };
+    await setSetting(t.kernel.db, "jarvis.alive", alive);
+    expect(((await (await local(t)).json()) as DeepHealth).jarvisAlive).toEqual(alive);
   });
 
   it("notices a web build from other code than the server's", async () => {

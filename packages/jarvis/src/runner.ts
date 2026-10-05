@@ -1,7 +1,7 @@
 // Runs queued turns: builds the prompt and tools, runs the brain within its lane's time limit,
 // logs everything to the conversation, posts the reply where it was asked, and records how the
 // turn ended. A failure is told in plain words and tried again only when that's safe (D54).
-import { conversation, jarvisTurn, type TurnOutcome } from "@hearth/db";
+import { conversation, jarvisTurn } from "@hearth/db";
 import { getSetting, jarvisCaller, type Kernel } from "@hearth/kernel";
 import { type LogEntry, recallMemory, renderMemory } from "@hearth/modules";
 import { and, asc, desc, eq, lte, sql } from "drizzle-orm";
@@ -10,9 +10,10 @@ import type { Brain, BrainEvents, BrainRequest, BrainResult } from "./brain.ts";
 import { classifyFailure, type Failure, failure } from "./failures.ts";
 import { reportJarvisHealth } from "./health.ts";
 import { buildSystemPrompt } from "./prompt.ts";
+import { keepTaint, readFrom, restoreTaint } from "./taint.ts";
 import { ensureConversation, recapConversation, streamer, withRecap, writeLog } from "./threads.ts";
 import { buildTools, readRecord, type ToolCallRecord, type TurnState } from "./tools.ts";
-import { checkOpen, readOutsideContent } from "./trust.ts";
+import { checkOpen } from "./trust.ts";
 import { alertLeftOut } from "./turn-alerts.ts";
 import {
   bounded,
@@ -24,6 +25,7 @@ import {
   thinkOn,
 } from "./turn-budget.ts";
 import {
+  classifyOutcome,
   type Ending,
   expireQueued,
   failTurn,
@@ -53,19 +55,9 @@ export interface RunnerOptions {
 const REPLY_IN_THREAD = new Set(["mention", "assignment", "watch", "approval"]);
 /** Turns whose answer is pasted where nothing can approve it: they only rewrite text (D42). */
 const NO_TOOLS = new Set(["voice_command"]);
-const QUIET_ACTIONS = new Set(["inbox.notify", "jarvis.observe", "record.read"]);
 const WEB_TOOLS = new Set(["WebSearch", "WebFetch"]);
 /** What a tool says once its turn has been stopped or run out of time. */
 const ENDED = "Not run: this turn has been stopped. Don't call any more tools.";
-
-export function classifyOutcome(calls: ToolCallRecord[]): TurnOutcome {
-  const ok = calls.filter((c) => c.status === "ok");
-  if (ok.some((c) => c.risk !== "read" && !QUIET_ACTIONS.has(c.action))) return "act";
-  if (calls.some((c) => c.status === "pending_approval")) return "ask";
-  if (ok.some((c) => c.action === "inbox.notify")) return "tell";
-  if (ok.some((c) => c.action === "jarvis.observe")) return "note";
-  return "nothing";
-}
 
 /** A request without the tools Claude rejected, so one bad definition can't stop every turn. */
 function withoutTools(req: BrainRequest, leftOut: Set<string>): BrainRequest {
@@ -226,7 +218,10 @@ export class TurnRunner {
       seenUrls: new Set(),
       vouchedHosts: new Set(),
       sites: await getSetting(this.kernel.db, "browser.sites"),
+      ...(turn.origin === "untrusted" && turn.trigger === "chat" ? { taintedBy: "heard" } : {}),
     };
+    // A conversation that read outside content before starts this turn untrusted (D58).
+    const conv = await restoreTaint(this.kernel, cid, state);
     // Log writes are serialized so the log keeps the order things happened in.
     let chain: Promise<void> = Promise.resolve();
     const log = (entries: LogEntry[]) => {
@@ -253,7 +248,7 @@ export class TurnRunner {
     const now = this.kernel.clock.now();
     const record = turn.subjectId ? await readRecord(this.kernel, turn.subjectId) : null;
     // A turn about something an outside tool wrote starts untrusted.
-    if (record?.fromOutside) readOutsideContent(state, record.text);
+    if (record?.fromOutside) readFrom(state, record.source, record.text);
     const subject = record?.text ?? null;
     // A tool-less turn's answer leaves Hearth unseen, so it gets no memory either.
     const bare = NO_TOOLS.has(turn.trigger);
@@ -268,11 +263,11 @@ export class TurnRunner {
       paused: await getSetting(this.kernel.db, "jarvis.paused"),
       subject,
       memory,
+      // Untrusted only because of what an earlier turn here read: this one's ask is still yours.
+      ...(turn.origin !== "untrusted" && !record?.fromOutside && conv?.taintedAt
+        ? { readEarlier: conv.taintSource ?? "outside content" }
+        : {}),
     });
-    const [conv] = await this.kernel.db
-      .select()
-      .from(conversation)
-      .where(eq(conversation.entityId, cid));
     const built = bare
       ? []
       : buildTools(this.kernel, state, (kind, payload) => {
@@ -287,7 +282,7 @@ export class TurnRunner {
       onText: (d) => stream.push(d),
       onMessage: (text) =>
         void log([{ kind: "assistant_message", payload: { text }, turnId: turn.id }]),
-      onExternalContent: (_source, text) => readOutsideContent(state, text ?? ""),
+      onExternalContent: (source, text) => readFrom(state, source, text ?? ""),
       mayFetch: (url) => {
         const verdict = checkOpen(state, url, state.sites);
         if (verdict.kind === "ok") return null;
@@ -306,8 +301,14 @@ export class TurnRunner {
       signal: deadline.signal,
     };
     const think = (req: BrainRequest) => this.think(end, req, events);
-    const keep = (sessionId: string) => keepSession(this.kernel, cid, sessionId);
-    const result = await thinkOn(request, think, state.calls, keep).finally(() => stream.end());
+    // A kept session holds what was read, so the conversation remembers that first (D58).
+    const remember = () => keepTaint(this.kernel, cid, state, conv);
+    const keep = (id: string) => remember().then(() => keepSession(this.kernel, cid, id));
+    // However it ends, the next turn here knows what this one read.
+    const result = await thinkOn(request, think, state.calls, keep).finally(() => {
+      stream.end();
+      return remember();
+    });
     end.answered = true;
     end.firstTokenMs = result.firstTokenMs;
     // Out of steps isn't a failure: it stops with what it said and offers to carry on (B1).

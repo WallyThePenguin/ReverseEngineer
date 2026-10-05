@@ -69,7 +69,7 @@ describe("Jarvis's browser", () => {
 
   it("keeps everyone but you off your blocked sites", async () => {
     const res = await t.kernel.execute("browser.open", { url: "https://www.paypal.com/" }, jarvis);
-    expect(res).toMatchObject({ status: "error", code: "forbidden" });
+    expect(res).toMatchObject({ status: "denied", reason: expect.stringMatching(/never opens/) });
     const handed = chrome.hand("https://www.paypal.com/activity");
     const read = await t.kernel.execute("browser.read", { tabId: handed.tabId }, jarvis);
     expect(read).toMatchObject({ status: "error", code: "forbidden" });
@@ -169,7 +169,7 @@ describe("Jarvis's browser", () => {
       { tabId, url: "https://www.paypal.com/" },
       jarvis,
     );
-    expect(blocked).toMatchObject({ status: "error", code: "forbidden" });
+    expect(blocked).toMatchObject({ status: "denied" });
   });
 
   it("stops at a dialog until it's answered, and shows it in the tab list", async () => {

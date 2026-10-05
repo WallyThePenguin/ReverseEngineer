@@ -1,6 +1,6 @@
 // The shapes every module is built from: actions (hands), events (senses), knowledge and
 // reflexes. Together they are the Jarvis contract (PLAN.md section 6.1).
-import type { Origin, PrincipalKind, Risk, Via } from "@hearth/core";
+import type { Origin, PrincipalKind, Risk, SiteRules, Via } from "@hearth/core";
 import type { Db, TurnLane, TurnTrigger, Tx } from "@hearth/db";
 import type { z } from "zod";
 
@@ -20,6 +20,18 @@ export interface Caller {
    * opening an address an untrusted turn never saw (D25). The text is the approval's reason.
    */
   askFirst?: string;
+  /**
+   * What Jarvis's turn knows for D25/D30: the addresses outside content showed it, the sites it
+   * opened while still trusted, and the site lists it started with. A call made as Jarvis without
+   * these (a reflex, a self-test) is checked as a turn that has seen no addresses (D58).
+   */
+  trust?: CallerTrust;
+}
+
+export interface CallerTrust {
+  seenUrls: Set<string>;
+  vouchedHosts?: Set<string>;
+  sites?: SiteRules;
 }
 
 export interface EmitEvent {
@@ -87,6 +99,12 @@ export interface ActionDef<S extends z.ZodType = z.ZodType, R = unknown> {
   snapshot?(input: z.output<S>, ctx: ReadContext): Promise<Record<string, unknown>>;
   /** One line for an approval card: "Send email to Ana: Friday's agenda". */
   summarize?(input: z.output<S>): string;
+  /**
+   * Whether a call that worked gets its audit row, judged by its result. For a check-in that
+   * mostly changes nothing (system.report, every minute per component), only the calls that
+   * changed something are kept. Failures, refusals and approved calls are always kept.
+   */
+  auditWhen?(result: R): boolean;
   /**
    * It waits on the world (Chrome, a site's pace): it runs without holding a transaction, its
    * reads committed one by one, and its events, audit row and approval recorded in one short
@@ -159,6 +177,8 @@ export type ReflexOutcome =
       fallback?: ReflexOutcome[];
       /** The prompt carries outside content, so the turn starts untrusted (D25). */
       untrusted?: boolean;
+      /** The turn is no more trusted than this (a watch replays what set it up, D58). */
+      origin?: Origin;
     }
   | { kind: "tell"; notification: NewNotification }
   | { kind: "note"; observation: NewObservation }

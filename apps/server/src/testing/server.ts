@@ -26,6 +26,8 @@ export async function createTestServer(
     kernel: tk.kernel,
     bridge: opts.bridge,
     push: opts.push,
+    // Tests ask for refusals and missing things on purpose; a line for each would bury the rest.
+    requestLog: () => {},
     config: {
       host: "127.0.0.1",
       port: 4400,

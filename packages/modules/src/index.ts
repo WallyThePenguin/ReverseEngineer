@@ -78,6 +78,7 @@ export {
 export { VAULT_SERVICE, Vault, vaultFromEnv } from "./browser/vault.ts";
 export type { EventView } from "./calendar/store.ts";
 export { appendLog, type LogEntry, type LogKind, routeLane } from "./chat/index.ts";
+export { MENTION_SETTLE_MS } from "./chat/mention.ts";
 export { FakeGithub, GITHUB_SERVICE, type GithubApi, httpGithub } from "./github/index.ts";
 export { GOOGLE_SERVICE, GoogleClient, googleFromEnv, SCOPES } from "./google/client.ts";
 export {
@@ -99,6 +100,13 @@ export {
   UPLOADS_SERVICE,
   type Uploads,
 } from "./notion/index.ts";
+export {
+  isSealed,
+  openGoogleTokens,
+  type Sealer,
+  sealGoogleTokens,
+  secretMigrations,
+} from "./secrets.ts";
 export {
   FakeSlack,
   httpSlack,

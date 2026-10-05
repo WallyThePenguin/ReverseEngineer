@@ -15,15 +15,16 @@ import {
 } from "solid-js";
 import { Login } from "../auth/Login.tsx";
 import { UpdateNotice } from "../components/UpdateNotice.tsx";
-import { Kbd, PaneContext } from "../components/ui.tsx";
+import { PaneContext } from "../components/ui.tsx";
 import { ChatView } from "../jarvis/Conversation.tsx";
 import { JarvisPane, jarvis } from "../jarvis/JarvisPane.tsx";
 import { getMe, setSignedOutHandler } from "../lib/api.ts";
-import { forgetAllDocs } from "../lib/docStore.ts";
-import { listHotkeys, useHotkeys } from "../lib/hotkeys.ts";
+import { forgetAllDocs, sendKeptNotes } from "../lib/docStore.ts";
+import { useHotkeys } from "../lib/hotkeys.ts";
 import { live, queryClient, toast } from "../lib/live.ts";
 import { narrow } from "../lib/narrow.ts";
-import { type ListView, layout, type PaneRoute } from "../lib/panes.ts";
+import { type ListView, layout, type Pane, type PaneRoute } from "../lib/panes.ts";
+import { sendKeptOnRestore } from "../lib/trash.ts";
 import { Activity } from "../views/Activity.tsx";
 import { Browser } from "../views/Browser.tsx";
 import { Calendar } from "../views/Calendar.tsx";
@@ -39,10 +40,19 @@ import { Settings } from "../views/Settings.tsx";
 import { Sheets, SheetView } from "../views/Sheets.tsx";
 import { Tasks } from "../views/Tasks.tsx";
 import { TaskView } from "../views/TaskView.tsx";
+import { Trash } from "../views/Trash.tsx";
 import { Voice } from "../views/Voice.tsx";
 import { CommandPalette } from "./CommandPalette.tsx";
-import { Sidebar, useWaiting } from "./Sidebar.tsx";
-import { Crashed, PaneCrashed, Reconnecting, Unreachable, useAutoRetry } from "./Status.tsx";
+import { MenuDrawer, Shortcuts } from "./Overlays.tsx";
+import { Sidebar, SidebarRail, sidebar, useWaiting } from "./Sidebar.tsx";
+import {
+  Crashed,
+  Degraded,
+  PaneCrashed,
+  Reconnecting,
+  Unreachable,
+  useAutoRetry,
+} from "./Status.tsx";
 import { TabBar } from "./TabBar.tsx";
 
 function PaneView(props: { route: PaneRoute; index: number }) {
@@ -97,6 +107,9 @@ function PaneView(props: { route: PaneRoute; index: number }) {
       <Match when={props.route.view === "settings"}>
         <Settings />
       </Match>
+      <Match when={props.route.view === "trash"}>
+        <Trash pane={props.index} />
+      </Match>
       <Match when={props.route.view === "task"}>
         <TaskView id={id()} pane={props.index} />
       </Match>
@@ -113,31 +126,6 @@ function PaneView(props: { route: PaneRoute; index: number }) {
   );
 }
 
-function Shortcuts(props: { onClose: () => void }) {
-  return (
-    <div
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
-      onClick={props.onClose}
-    >
-      <div class="max-h-[80vh] w-[min(520px,92vw)] overflow-auto rounded-xl border border-line bg-panel p-5 shadow-2xl">
-        <h2 class="mb-3 font-semibold">Keyboard shortcuts</h2>
-        <ul class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-          <For each={listHotkeys()}>
-            {(h) => (
-              <>
-                <li>
-                  <Kbd>{h.keys}</Kbd>
-                </li>
-                <li class="text-muted">{h.label}</li>
-              </>
-            )}
-          </For>
-        </ul>
-      </div>
-    </div>
-  );
-}
-
 function Shell(props: { onSignOut: () => void }) {
   const [palette, setPalette] = createSignal(false);
   const [help, setHelp] = createSignal(false);
@@ -145,6 +133,9 @@ function Shell(props: { onSignOut: () => void }) {
   const waiting = useWaiting();
   onMount(() => {
     live.start();
+    // Note edits a closed tab never sent, and a deleted note's once it's restored (D59).
+    void sendKeptNotes();
+    onCleanup(sendKeptOnRestore());
     // The home screen's "Talk to Jarvis" shortcut.
     if (new URLSearchParams(location.search).has("jarvis")) jarvis.toggle(true);
   });
@@ -173,80 +164,91 @@ function Shell(props: { onSignOut: () => void }) {
     { keys: "g b", run: go("browser"), label: "Go to the browser" },
     { keys: "g a", run: go("activity"), label: "Go to Jarvis's activity" },
     { keys: "g s", run: go("settings"), label: "Go to Settings" },
+    { keys: "g d", run: go("trash"), label: "Go to the trash" },
     { keys: "mod+\\", run: () => layout.split(), inInputs: true, label: "Split pane" },
+    { keys: "mod+b", run: () => sidebar.toggle(), label: "Show or hide the sidebar" },
     { keys: "alt+w", run: () => layout.close(), inInputs: true, label: "Close pane" },
     { keys: "[", run: () => layout.focus(layout.focused() - 1), label: "Pane to the left" },
     { keys: "]", run: () => layout.focus(layout.focused() + 1), label: "Pane to the right" },
     { keys: "?", run: () => setHelp(true), label: "Keyboard shortcuts" },
     {
+      keys: "z",
+      label: "Undo (while it's offered)",
+      when: () => toast.latestAction() !== undefined,
+      run: () => {
+        const t = toast.latestAction();
+        if (!t) return;
+        toast.dismiss(t.id);
+        t.action?.run();
+      },
+    },
+    {
       keys: "escape",
       run: () => {
         setPalette(false);
         setHelp(false);
+        setMenu(false);
       },
-      when: () => palette() || help(),
+      when: () => palette() || help() || menu(),
     },
   ]);
 
-  const pane = (route: PaneRoute, i: number) => (
-    <section
-      class={`relative min-w-0 flex-1 overflow-hidden border-r border-line bg-panel last:border-r-0 ${layout.panes().length > 1 && layout.focused() === i && !narrow() ? "shadow-[inset_0_2px_0_var(--color-accent)]" : ""}`}
-      onMouseDown={() => layout.focus(i)}
-      onFocusIn={() => layout.focus(i)}
-    >
-      <PaneContext.Provider
-        value={{
-          get close() {
-            return layout.panes().length > 1 ? () => layout.close(i) : null;
-          },
-        }}
+  // A pane's position is read when it's used, never kept: panes to its left can close.
+  const pane = (entry: Pane) => {
+    const index = () => layout.indexOf(entry.key);
+    const focusHere = () => {
+      if (index() >= 0) layout.focus(index());
+    };
+    return (
+      <section
+        class={`relative min-w-0 flex-1 overflow-hidden border-r border-line bg-panel last:border-r-0 md:min-w-80 ${layout.panes().length > 1 && layout.focused() === index() && !narrow() ? "shadow-[inset_0_2px_0_var(--color-accent)]" : ""}`}
+        onMouseDown={focusHere}
+        onFocusIn={focusHere}
       >
-        {/* One broken view takes down its pane, not the app. */}
-        <ErrorBoundary fallback={(error, reset) => <PaneCrashed error={error} reset={reset} />}>
-          <PaneView route={route} index={i} />
-        </ErrorBoundary>
-      </PaneContext.Provider>
-    </section>
-  );
+        <PaneContext.Provider
+          value={{
+            get close() {
+              return layout.panes().length > 1 ? () => layout.close(index()) : null;
+            },
+          }}
+        >
+          {/* One broken view takes down its pane, not the app. */}
+          <ErrorBoundary fallback={(error, reset) => <PaneCrashed error={error} reset={reset} />}>
+            <PaneView route={entry.route} index={index()} />
+          </ErrorBoundary>
+        </PaneContext.Provider>
+      </section>
+    );
+  };
 
   return (
     <div class="flex h-full flex-col">
       <div class="flex min-h-0 flex-1">
         <Show
           when={narrow()}
-          fallback={<Sidebar onPalette={() => setPalette(true)} onSignOut={props.onSignOut} />}
+          fallback={
+            <Show when={!sidebar.hidden()} fallback={<SidebarRail />}>
+              <Sidebar onPalette={() => setPalette(true)} onSignOut={props.onSignOut} />
+            </Show>
+          }
         >
           <Show when={menu()}>
-            <div class="fixed inset-0 z-40 flex" onClick={() => setMenu(false)}>
-              <div
-                class="h-full pt-[env(safe-area-inset-top)] shadow-2xl"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <Sidebar
-                  onPalette={() => {
-                    setMenu(false);
-                    setPalette(true);
-                  }}
-                  onSignOut={props.onSignOut}
-                  onPicked={() => setMenu(false)}
-                />
-              </div>
-              <div class="flex-1 bg-black/30" />
-            </div>
+            <MenuDrawer
+              onClose={() => setMenu(false)}
+              onPalette={() => setPalette(true)}
+              onSignOut={props.onSignOut}
+            />
           </Show>
         </Show>
         {/* On a phone Jarvis takes the place of the pane. */}
         <main
-          class="flex min-w-0 flex-1 pt-[env(safe-area-inset-top)] md:pt-0"
+          class="flex min-w-0 flex-1 pt-[env(safe-area-inset-top)] md:overflow-x-auto md:pt-0"
           classList={{ hidden: narrow() && jarvis.open() }}
         >
-          <Show
-            when={narrow()}
-            fallback={<For each={layout.panes()}>{(route, i) => pane(route, i())}</For>}
-          >
+          <Show when={narrow()} fallback={<For each={layout.entries()}>{pane}</For>}>
             {/* One pane at a time on a phone: the one you're in. */}
-            <Show when={layout.panes()[layout.focused()]} keyed>
-              {(route) => pane(route, layout.focused())}
+            <Show when={layout.entries()[layout.focused()]} keyed>
+              {pane}
             </Show>
           </Show>
         </main>
@@ -263,15 +265,37 @@ function Shell(props: { onSignOut: () => void }) {
       <Show when={help()}>
         <Shortcuts onClose={() => setHelp(false)} />
       </Show>
-      <Reconnecting />
-      <UpdateNotice />
-      <div class="pointer-events-none fixed bottom-16 left-1/2 md:bottom-4 z-50 flex -translate-x-1/2 flex-col items-center gap-2">
+      {/* One above the other, so an update notice never hides "Reconnecting…". */}
+      <div class="pointer-events-none fixed left-1/2 top-[calc(env(safe-area-inset-top)+0.5rem)] z-50 flex -translate-x-1/2 flex-col items-center gap-2">
+        <Reconnecting />
+        <Degraded />
+        <UpdateNotice />
+      </div>
+      <div
+        class="pointer-events-none fixed bottom-16 left-1/2 z-50 flex w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col items-center gap-2 md:bottom-4"
+        role="status"
+        aria-live="polite"
+      >
         <For each={toast.toasts()}>
           {(t) => (
             <div
-              class={`rounded-lg px-4 py-2 text-sm shadow-lg ${t.tone === "error" ? "bg-bad text-white" : "bg-ink text-bg"}`}
+              class={`flex items-center gap-3 rounded-lg px-4 py-2 text-sm shadow-lg ${t.tone === "error" ? "bg-bad text-white" : "bg-ink text-bg"}`}
             >
-              {t.text}
+              <span>{t.text}</span>
+              <Show when={t.action}>
+                {(a) => (
+                  <button
+                    type="button"
+                    class="pointer-events-auto -my-1 min-h-9 shrink-0 rounded px-2 font-semibold underline underline-offset-2 hover:opacity-80"
+                    onClick={() => {
+                      toast.dismiss(t.id);
+                      a().run();
+                    }}
+                  >
+                    {a().label}
+                  </button>
+                )}
+              </Show>
             </div>
           )}
         </For>

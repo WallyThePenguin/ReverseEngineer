@@ -2,16 +2,7 @@
 // calendar directly and asking before anything guests would see, prep packets each morning,
 // conflict warnings, and time blocks for big tasks (PLAN.md sections 6.1, 6.2 and 8.2).
 import { formatTime, localDate } from "@hearth/core";
-import {
-  calendar,
-  calendarEvent,
-  entity,
-  googleAccount,
-  mailAccount,
-  mailDraft,
-  mailMessage,
-  mailThread,
-} from "@hearth/db";
+import { calendar, calendarEvent, entity } from "@hearth/db";
 import {
   type DigestItem,
   defineAction,
@@ -19,14 +10,16 @@ import {
   getSetting,
   type ReflexDef,
 } from "@hearth/kernel";
-import { and, asc, eq, gt, gte, inArray, isNull, lt, ne } from "drizzle-orm";
+import { and, asc, eq, gt, gte, isNull, lt, ne } from "drizzle-orm";
 import { z } from "zod";
-import { GOOGLE_SERVICE, type GoogleClient } from "../google/client.ts";
-import { describeRow, id, isoDateTime, liveEntity } from "../shared.ts";
+import { disconnectAction } from "../google/disconnect.ts";
+import { describeRow, id, isOutside, isoDateTime, liveEntity } from "../shared.ts";
 import { calendarWriteActions } from "./actions.ts";
 import { blockAction, blockReflex, blockRoutine } from "./blocks.ts";
+import { calendarSetupActions, inSelectedCalendar } from "./calendars.ts";
 import { freeSlots } from "./free.ts";
 import { prepPublish, prepRoutine } from "./prep.ts";
+import { respondAction } from "./respond.ts";
 import { guests, loadEvent, toEventView, whenText } from "./store.ts";
 import { syncCalendars } from "./sync.ts";
 
@@ -42,10 +35,12 @@ const conflicts: ReflexDef = {
     if (!event.entityId || event.payload.change === "cancelled") return [];
     const ev = await loadEvent(ctx.db, event.entityId);
     if (!ev || ev.allDay || !ev.busy || ev.selfResponse === "declined") return [];
+    // Only what's on calendars you sync: a colleague's calendar you've turned off isn't yours.
     const rows = await ctx.db
       .select({ e: entity, r: calendarEvent })
       .from(calendarEvent)
       .innerJoin(entity, eq(entity.id, calendarEvent.entityId))
+      .innerJoin(calendar, inSelectedCalendar)
       .where(
         and(
           ne(calendarEvent.entityId, ev.id),
@@ -251,37 +246,7 @@ export const calendarModule = defineModule({
         return slots.slice(0, 40);
       },
     }),
-    defineAction({
-      name: "calendar.calendars",
-      description: "Connected Google accounts and their calendars, and which ones Hearth syncs.",
-      input: z.object({}),
-      risk: "read",
-      async handler(_i, ctx) {
-        const google = ctx.service<GoogleClient>(GOOGLE_SERVICE);
-        const accounts = await ctx.tx
-          .select({
-            email: googleAccount.email,
-            scopes: googleAccount.scopes,
-            status: googleAccount.status,
-            lastError: googleAccount.lastError,
-            connectedAt: googleAccount.connectedAt,
-          })
-          .from(googleAccount);
-        const calendars = await ctx.tx.select().from(calendar).orderBy(asc(calendar.title));
-        return { configured: google.configured, accounts, calendars };
-      },
-    }),
-    defineAction({
-      name: "calendar.choose",
-      description: "Turn syncing on or off for one calendar.",
-      input: z.object({ id: z.string().min(1), selected: z.boolean() }),
-      risk: "internal",
-      callers: ["owner"],
-      async handler(i, ctx) {
-        await ctx.tx.update(calendar).set({ selected: i.selected }).where(eq(calendar.id, i.id));
-        return { ok: true };
-      },
-    }),
+    ...calendarSetupActions,
     defineAction({
       name: "calendar.sync",
       description: "Pull the latest from Google Calendar now.",
@@ -290,58 +255,9 @@ export const calendarModule = defineModule({
       callers: ["owner", "system", "integration"],
       handler: (_i, ctx) => syncCalendars(ctx),
     }),
-    defineAction({
-      name: "google.disconnect",
-      description: "Forget a Google account: its tokens, calendars and mail leave Hearth.",
-      input: z.object({ email: z.string().email() }),
-      risk: "internal",
-      callers: ["owner"],
-      async handler(i, ctx) {
-        const email = i.email.toLowerCase();
-        const cals = await ctx.tx
-          .select({ id: calendar.id })
-          .from(calendar)
-          .where(eq(calendar.account, email));
-        if (cals.length) {
-          const events = ctx.tx
-            .select({ id: calendarEvent.entityId })
-            .from(calendarEvent)
-            .where(
-              inArray(
-                calendarEvent.calendarId,
-                cals.map((c) => c.id),
-              ),
-            );
-          await ctx.tx.delete(entity).where(inArray(entity.id, events));
-        }
-        // Its mail too: messages, conversations, drafts and the account (raw copies stay on disk).
-        const mailId = `gmail:${email}`;
-        for (const table of [mailMessage, mailThread, mailDraft] as const)
-          await ctx.tx
-            .delete(entity)
-            .where(
-              inArray(
-                entity.id,
-                ctx.tx
-                  .select({ id: table.entityId })
-                  .from(table)
-                  .where(eq(table.accountId, mailId)),
-              ),
-            );
-        await ctx.tx.delete(mailAccount).where(eq(mailAccount.id, mailId));
-        const gone = await ctx.tx
-          .delete(googleAccount)
-          .where(eq(googleAccount.email, email))
-          .returning({ email: googleAccount.email, token: googleAccount.refreshToken });
-        let google: GoogleClient | null = null;
-        try {
-          google = ctx.service<GoogleClient>(GOOGLE_SERVICE);
-        } catch {}
-        for (const g of gone) await google?.revoke(g.token);
-        return { removed: gone.length };
-      },
-    }),
+    disconnectAction,
     ...calendarWriteActions,
+    respondAction,
     blockAction,
     prepPublish,
   ],
@@ -376,15 +292,23 @@ export const calendarModule = defineModule({
               v.selfResponse === "needsAction" ? " (not answered yet)" : ""
             }`,
         entityId: v.id,
+        // Someone else's invitation is titled by them, so it's outside content (D58).
+        outside: !v.selfOrganizer,
       }));
     const preps = await ctx.db
-      .select({ id: entity.id, title: entity.title })
+      .select({
+        id: entity.id,
+        title: entity.title,
+        createdBy: entity.createdBy,
+        outside: entity.outside,
+      })
       .from(entity)
       .where(
         and(eq(entity.type, "prep"), isNull(entity.deletedAt), gte(entity.createdAt, ctx.since)),
       )
       .limit(20);
-    for (const p of preps) items.push({ bucket: "prepared", text: p.title, entityId: p.id });
+    for (const p of preps)
+      items.push({ bucket: "prepared", text: p.title, entityId: p.id, outside: isOutside(p) });
     return items;
   },
 });

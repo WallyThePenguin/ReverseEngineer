@@ -4,16 +4,29 @@
 //   history there (falling back to Handy's own processing when Hearth can't be reached);
 // - command mode sends what you said, with the text you selected, to Jarvis and pastes its answer;
 // - talk mode sends what you said to Jarvis and reads the answer aloud.
+//
+// It's also how Hearth lives on the PC (D53): Hearth's own window (window.rs), hearth:// links
+// (deeplink.rs), Windows notifications (notify.rs), and the tray's status line and service
+// controls (status.rs, services.rs).
 
 pub mod bakeoff;
 pub mod capture;
 pub mod chunker;
 pub mod client;
+pub mod deeplink;
 pub mod foreground;
+pub mod links;
 pub mod meeting;
+pub mod notify;
+pub mod offline;
 pub mod relay;
 pub mod selection;
+pub mod services;
 pub mod speak;
+pub mod sse;
+pub mod status;
+pub mod toast;
+pub mod window;
 
 use crate::actions::{process_transcription_output, ProcessedTranscription};
 use crate::settings::{get_settings, write_settings};
@@ -25,6 +38,9 @@ use tauri::{AppHandle, Emitter};
 pub const DESKTOP_KEY: &str = "desktop";
 pub const COMMAND_BINDING: &str = "hearth_command";
 pub const TALK_BINDING: &str = "hearth_talk";
+pub const OPEN_BINDING: &str = "hearth_open";
+pub const CAPTURE_BINDING: &str = "hearth_capture";
+pub const ASK_BINDING: &str = "hearth_ask";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
@@ -64,9 +80,12 @@ fn take_pressed() -> (Target, Duration) {
         .unwrap_or_default()
 }
 
+/// Tells you something went wrong (or needs doing). The settings window may well be hidden, so
+/// it's a Windows notification too; clicking it opens voice settings.
 fn tell(app: &AppHandle, message: &str) {
     log::warn!("{message}");
     let _ = app.emit("transcription-error", message.to_string());
+    toast::show(app, "Hearth", message, Some("hearth://settings"));
 }
 
 fn nothing() -> ProcessedTranscription {
@@ -243,6 +262,8 @@ pub async fn change_hearth_settings(
         .is_ok_and(|old| old.origin() == parsed.origin());
     if !same {
         s.hearth_keys.remove(DESKTOP_KEY);
+        // Hearth's windows only go to the address they were opened for.
+        window::close_all(&app);
     }
     s.hearth_url = url;
     if !code.trim().is_empty() {
@@ -287,45 +308,21 @@ pub fn unpair_hearth(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Opens Hearth itself in its own window (from the tray). It's a web page like any other: it
-/// gets none of this app's commands.
-pub fn open_window(app: &AppHandle) {
-    open_window_at(app, "/");
-}
+/// Hotkeys that open Hearth's windows (D53): Hearth itself, quick capture, and asking Jarvis by
+/// typing.
+pub struct WindowHotkey;
 
-/// Opens Hearth's window at a page, like `/record/<id>`.
-pub fn open_window_at(app: &AppHandle, path: &str) {
-    use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
-    let base = get_settings(app).hearth_url;
-    let Ok(url) = base.parse::<tauri::Url>().and_then(|b| b.join(path)) else {
-        tell(app, "Set Hearth's address in Settings first.");
-        return;
-    };
-    if let Some(w) = app.get_webview_window("hearth") {
-        if path != "/" {
-            let _ = w.navigate(url);
+impl crate::actions::ShortcutAction for WindowHotkey {
+    fn start(&self, app: &AppHandle, binding_id: &str, _shortcut: &str) {
+        match binding_id {
+            OPEN_BINDING => window::open(app, "/"),
+            CAPTURE_BINDING => window::capture(app),
+            ASK_BINDING => window::ask(app),
+            _ => {}
         }
-        let _ = w.unminimize();
-        let _ = w.show();
-        let _ = w.set_focus();
-        return;
     }
-    let home = url.origin();
-    if let Err(e) = WebviewWindowBuilder::new(app, "hearth", WebviewUrl::External(url))
-        // Links elsewhere open in the browser, not in this window.
-        .on_navigation(move |to| {
-            let ok = to.origin() == home;
-            if !ok && matches!(to.scheme(), "http" | "https") {
-                let _ = tauri_plugin_opener::open_url(to.as_str(), None::<&str>);
-            }
-            ok
-        })
-        .title("Hearth")
-        .inner_size(1280.0, 860.0)
-        .build()
-    {
-        tell(app, &format!("Couldn't open Hearth: {e}"));
-    }
+
+    fn stop(&self, _app: &AppHandle, _binding_id: &str, _shortcut: &str) {}
 }
 
 #[cfg(test)]
