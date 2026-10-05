@@ -22,6 +22,10 @@ const ROUTINE_TITLES: Record<string, string> = {
   brief: "Morning brief",
   journal: "Evening journal",
   heartbeat: "Heartbeat",
+  prep: "Meeting prep",
+  memory: "Memory update",
+  follow_ups: "Email follow-ups",
+  reply_drafts: "Reply drafts",
 };
 
 /** Finds or creates the conversation a turn belongs to. */
