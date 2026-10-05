@@ -58,7 +58,7 @@ export function ToolLine(props: { item: Extract<ConversationItem, { type: "tool"
         </div>
       </Show>
       <Show when={open()}>
-        <pre class="mt-1 max-h-48 overflow-auto rounded bg-sunk p-2 font-mono text-[11px] whitespace-pre-wrap">
+        <pre class="mt-1 max-h-48 overflow-auto rounded bg-sunk p-2 font-mono text-micro font-normal whitespace-pre-wrap">
           {JSON.stringify(props.item.input, null, 2)}
           {props.item.output ? `\n→ ${props.item.output}` : ""}
         </pre>

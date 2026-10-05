@@ -78,9 +78,9 @@ export function PaneHeader(props: {
       <header class="flex min-h-12 items-start gap-2 border-b border-line px-4 py-2">
         <div class="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
           <div class="min-w-24 flex-1">
-            <h1 class="truncate text-base font-semibold">{props.title}</h1>
+            <h1 class="truncate text-title">{props.title}</h1>
             <Show when={props.sub}>
-              <p class="truncate text-xs text-muted">{props.sub}</p>
+              <p class="truncate text-meta text-muted">{props.sub}</p>
             </Show>
           </div>
           {props.children}
@@ -213,19 +213,17 @@ export function Badge(props: {
   const tone = () =>
     ({
       jarvis: "bg-jarvis-soft text-jarvis",
-      warn: "bg-accent-soft text-warn",
-      bad: "bg-accent-soft text-bad",
-      ok: "bg-sunk text-ok",
+      warn: "bg-warn-soft text-warn",
+      bad: "bg-bad-soft text-bad",
+      ok: "bg-ok-soft text-ok",
       muted: "bg-sunk text-muted",
     })[props.tone ?? "muted"];
-  return (
-    <span class={`rounded px-1.5 py-0.5 text-[11px] font-medium ${tone()}`}>{props.children}</span>
-  );
+  return <span class={`rounded-sm px-1.5 py-0.5 text-micro ${tone()}`}>{props.children}</span>;
 }
 
 export function Kbd(props: { children: JSX.Element }) {
   return (
-    <kbd class="rounded border border-line bg-sunk px-1 font-mono text-[11px] text-muted">
+    <kbd class="rounded-sm border border-line bg-sunk px-1 font-mono text-micro text-muted">
       {props.children}
     </kbd>
   );

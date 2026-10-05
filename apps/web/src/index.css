@@ -1,9 +1,12 @@
 @import "tailwindcss";
 
-/* Hearth's palette: warm neutrals with an ember accent. Everything reads from these tokens. */
+/* Hearth's look: warm neutrals with an ember accent. Everything reads from these tokens. Dark
+   values are in the block below; lib/tokens.test.ts checks both modes. */
 @theme {
   --color-bg: #faf8f5;
   --color-panel: #ffffff;
+  /* A card on a panel. */
+  --color-raised: #ffffff;
   --color-sunk: #f2efe9;
   --color-line: #e6e1d8;
   --color-ink: #1f1b16;
@@ -15,16 +18,95 @@
   --color-ok: #15803d;
   --color-warn: #b45309;
   --color-bad: #b91c1c;
+  /* Behind status text, each its own so a warning never looks like the accent highlight. */
+  --color-ok-soft: #ebf6ee;
+  --color-warn-soft: #fdf5d5;
+  --color-bad-soft: #fde6e6;
+  --color-info-soft: #e8f1fb;
+  /* Jarvis's colour stays its own: it means "Jarvis did this". */
   --color-jarvis: #4338ca;
   --color-jarvis-soft: #eef0ff;
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  /* Each sub-product's colour (lib/apps.ts). It says which part of Hearth you're in, on a tile,
+     the active sidebar row or the focused pane's top bar, and never stands for status. */
+  --color-today: #c2410c;
+  --color-mail: #0369a1;
+  --color-calendar: #0f766e;
+  --color-tasks: #4d7c0f;
+  --color-docs: #a16207;
+  --color-people: #be185d;
+  /* The colour of the sub-product something belongs to: text-hue, bg-hue/10, border-hue. Set
+     by [data-product] below; outside one, the accent. */
+  --color-hue: var(--color-accent);
+
+  /* The system's own font: nothing to download, and the CSP serves fonts only from Hearth. */
+  --font-sans:
+    "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --font-mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, monospace;
+
+  /* The type scale. Body text is text-sm (14px). Hierarchy comes from weight and space, not
+     ever smaller text: nothing goes below micro. */
+  /* 24px: the Today greeting, a document's title. */
+  --text-display: 1.5rem;
+  --text-display--line-height: 2rem;
+  --text-display--font-weight: 600;
+  /* 18px: a sub-product's or a record's title. */
+  --text-title: 1.125rem;
+  --text-title--line-height: 1.625rem;
+  --text-title--font-weight: 600;
+  /* 15px: a card's or a section's heading. */
+  --text-heading: 0.9375rem;
+  --text-heading--line-height: 1.375rem;
+  --text-heading--font-weight: 600;
+  /* 12px: times, second lines. */
+  --text-meta: 0.75rem;
+  --text-meta--line-height: 1rem;
+  /* 11px: badges, keys, tab labels. */
+  --text-micro: 0.6875rem;
+  --text-micro--line-height: 0.875rem;
+  --text-micro--font-weight: 500;
+
+  /* Badges and keys; buttons, inputs and rows; cards; dialogs and sheets. */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+
+  /* Tailwind writes a shadow's value into its class, so these name variables that dark mode
+     can change. */
+  --shadow-card: var(--elevation-card);
+  --shadow-pop: var(--elevation-pop);
+  --elevation-card: 0 1px 2px rgb(31 27 22 / 0.06), 0 0 0 1px var(--color-line);
+  --elevation-pop: 0 8px 24px rgb(31 27 22 / 0.14), 0 0 0 1px var(--color-line);
+
+  /* Things animate in and leave at once. Fast for a press or a tick, base for menus, the
+     palette and toasts, slow for sheets. */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 240ms;
+  --animate-enter: enter var(--duration-base) var(--ease-out);
+  --animate-sheet-up: sheet-up var(--duration-slow) var(--ease-out);
+
+  @keyframes enter {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+  }
+
+  @keyframes sheet-up {
+    from {
+      transform: translateY(100%);
+    }
+  }
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --color-bg: #15130f;
     --color-panel: #1c1a16;
+    --color-raised: #23201b;
     --color-sunk: #24211c;
     --color-line: #34302a;
     --color-ink: #ece7df;
@@ -35,9 +117,58 @@
     --color-ok: #4ade80;
     --color-warn: #fbbf24;
     --color-bad: #f87171;
+    --color-ok-soft: #15301f;
+    --color-warn-soft: #33260f;
+    --color-bad-soft: #3a1a1a;
+    --color-info-soft: #162636;
     --color-jarvis: #a5b4fc;
     --color-jarvis-soft: #23234a;
+    --color-today: #fb923c;
+    --color-mail: #7dd3fc;
+    --color-calendar: #5eead4;
+    --color-tasks: #a3e635;
+    --color-docs: #fcd34d;
+    --color-people: #f9a8d4;
+    --elevation-card: 0 0 0 1px var(--color-line);
+    --elevation-pop: 0 8px 24px rgb(0 0 0 / 0.5), 0 0 0 1px var(--color-line);
   }
+}
+
+/* A pane, row or tile marked with its sub-product takes that sub-product's colour. */
+[data-product="today"] {
+  --color-hue: var(--color-today);
+}
+[data-product="mail"] {
+  --color-hue: var(--color-mail);
+}
+[data-product="calendar"] {
+  --color-hue: var(--color-calendar);
+}
+[data-product="tasks"] {
+  --color-hue: var(--color-tasks);
+}
+[data-product="docs"] {
+  --color-hue: var(--color-docs);
+}
+[data-product="people"] {
+  --color-hue: var(--color-people);
+}
+[data-product="jarvis"] {
+  --color-hue: var(--color-jarvis);
+}
+
+/* When the system asks for less motion, every animation and transition ends at once. */
+@media (prefers-reduced-motion: reduce) {
+  /* biome-ignore-start lint/complexity/noImportantStyles: it beats every rule, the editors' own too. */
+  *,
+  ::before,
+  ::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* biome-ignore-end lint/complexity/noImportantStyles: it beats every rule, the editors' own too. */
 }
 
 html,
