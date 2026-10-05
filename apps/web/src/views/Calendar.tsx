@@ -1,11 +1,13 @@
 // Your calendar as a list: the next week, day by day, with focus blocks and answers marked.
 
 import { createSignal, For, Show } from "solid-js";
+import { InviteAnswers } from "../components/InviteAnswers.tsx";
 import { Icon } from "../components/icons.tsx";
 import { Badge, Button, Empty, PaneHeader } from "../components/ui.tsx";
 import { hours, plural, span, time } from "../lib/format.ts";
 import { layout } from "../lib/panes.ts";
 import { useAction } from "../lib/query.ts";
+import { unanswered } from "../lib/today.ts";
 import type { CalEvent } from "../lib/types.ts";
 import { takeNotes } from "./Meeting.tsx";
 
@@ -74,7 +76,7 @@ export function Calendar(props: { pane: number }) {
                   <For each={list}>
                     {(e) => (
                       <li
-                        class="flex cursor-pointer items-baseline gap-3 border-b border-line px-4 py-2"
+                        class="flex cursor-pointer flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line px-4 py-2"
                         onClick={() =>
                           layout.open(
                             { view: "record", id: e.id },
@@ -93,13 +95,19 @@ export function Calendar(props: { pane: number }) {
                         <Show when={e.taskId}>
                           <Badge tone="jarvis">focus</Badge>
                         </Show>
-                        <Show when={e.selfResponse === "needsAction"}>
-                          <Badge tone="warn">not answered</Badge>
-                        </Show>
                         <Show when={e.attendees.filter((a) => !a.self).length > 0}>
                           <span class="text-xs text-faint">
                             {plural(e.attendees.filter((a) => !a.self).length, "guest")}
                           </span>
+                        </Show>
+                        {/* Not answered yet: answered right here, under its name on a phone. */}
+                        <Show when={unanswered(e)}>
+                          <InviteAnswers
+                            eventId={e.id}
+                            response={e.selfResponse}
+                            recurring={e.recurringEventId !== null}
+                            class="w-full pl-23 md:w-auto md:pl-0"
+                          />
                         </Show>
                       </li>
                     )}
