@@ -1,8 +1,8 @@
 // An approval, as a card wherever one shows (the inbox, a conversation with Jarvis): what Jarvis
 // (or another asker) wants to do, why it needs your yes, and exactly what would happen, in full.
-// Long text opens with "Show all" and is never cut short, and a card waiting for you has no way
-// to put it off: no snooze, no dismiss, only a yes or a no (D58). Once it's decided, it says what
-// became of it.
+// Long text scrolls in its box and opens with "Show all", never cut short, and a card waiting for
+// you has no way to put it off: no snooze, no dismiss, only a yes or a no (D58). Once it's
+// decided, it says what became of it.
 
 import {
   children,
@@ -17,7 +17,6 @@ import {
 } from "solid-js";
 import { approvalStateText, decide, deciding, isWaiting } from "../lib/approvals.ts";
 import { humanTimes } from "../lib/format.ts";
-import { narrow } from "../lib/narrow.ts";
 import { Icon, type IconName } from "./icons.tsx";
 import { Card } from "./kit/Card.tsx";
 import { JarvisMark } from "./Mark.tsx";
@@ -147,10 +146,11 @@ export function ApprovalCard(props: {
 }
 
 /**
- * Exactly what would happen, as plain text and in full. Long text starts folded, with a shade at
- * its bottom edge, and "Show all" opens the rest right there: on a computer the box scrolls first
- * (the arrow keys scroll it once it has the focus, rather than move the list's selection off the
- * card you're reading); on a phone it shows a few lines, so a list of cards still fits a screen.
+ * Exactly what would happen, as plain text and in full. Long text sits in a box that scrolls, on a
+ * phone as on a computer, with a shade at the edge that has more, and "Show all" opens the rest
+ * right there. Nothing in it is ever out of reach: no line is hidden where it can't be scrolled
+ * to, since you decide on all of it (D58). The arrow keys scroll it once it has the focus, rather
+ * than move the list's selection off the card you're reading.
  */
 function ExactText(props: { text: string }) {
   const [all, setAll] = createSignal(false);
@@ -164,9 +164,9 @@ function ExactText(props: { text: string }) {
     resized.observe(box);
     onCleanup(() => resized.disconnect());
   });
-  createEffect(on([() => props.text, narrow], () => queueMicrotask(measure)));
-  const fold = () =>
-    all() ? "" : narrow() ? "max-h-24 overflow-hidden" : "max-h-64 overflow-auto";
+  createEffect(on([() => props.text], () => queueMicrotask(measure)));
+  // A phone's box is shorter, so a card's buttons and the next card stay in sight.
+  const fold = () => (all() ? "" : "max-h-48 overflow-auto md:max-h-64");
   return (
     <>
       <pre
