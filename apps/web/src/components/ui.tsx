@@ -2,6 +2,7 @@
 
 import type { JSX } from "solid-js";
 import { createContext, Show, useContext } from "solid-js";
+import { listFor } from "../lib/apps.ts";
 import { layout } from "../lib/panes.ts";
 import { failedMessage, isMissing } from "../lib/readState.ts";
 import { moveToTrash, restore, TRASHABLE } from "../lib/trash.ts";
@@ -40,17 +41,6 @@ export function ForRecord(props: { record: PaneRecord | undefined; children: JSX
   );
 }
 
-/** Where you land after trashing the record a lone pane showed. */
-const HOME: Record<string, Parameters<typeof layout.open>[0]> = {
-  task: { view: "tasks" },
-  note: { view: "notes" },
-  canvas: { view: "canvases" },
-  spreadsheet: { view: "sheets" },
-  person: { view: "people" },
-  company: { view: "people" },
-  memory_note: { view: "memory" },
-};
-
 export function PaneHeader(props: {
   title: JSX.Element;
   children?: JSX.Element;
@@ -76,8 +66,9 @@ export function PaneHeader(props: {
         danger: true,
         run: async () => {
           if (!(await moveToTrash(r.id))) return;
+          // A lone pane can't close: it goes to the list the record was in, or the inbox.
           if (pane.close) pane.close();
-          else layout.open(HOME[r.type] ?? { view: "inbox" });
+          else layout.open({ view: listFor(r.type) ?? "inbox" });
         },
       },
     ];

@@ -1,0 +1,183 @@
+// Hearth is Today plus six sub-products, with Settings as a utility (D65). This is the one list
+// of them, and of the places you go: the sidebar, the phone's tab bar, Cmd+K, the g-keys and
+// where a pane lands when its record goes to the trash all read it from here.
+
+import type { ListView, RecordView } from "./routes.ts";
+
+export type AppId =
+  | "today"
+  | "mail"
+  | "calendar"
+  | "tasks"
+  | "docs"
+  | "people"
+  | "jarvis"
+  | "settings";
+
+/** A sub-product (or Settings): the views it owns, and how it looks. */
+export interface App {
+  id: AppId;
+  label: string;
+  /** Its icon: a Lucide name, or "mark" for Jarvis's own mark. */
+  icon: string;
+  /**
+   * Its colour token in index.css. A pane or row marked `data-product="<id>"` takes it as
+   * `--color-hue`. Settings has none, so it keeps the accent.
+   */
+  hue?: `--color-${AppId}`;
+  /** The list views it owns, its home first. */
+  views: readonly ListView[];
+  /** The record views that open inside it. */
+  records: readonly RecordView[];
+  /** Settings: a utility, not a sub-product. */
+  utility?: true;
+  /** Its slot on the phone's tab bar, counting from the left. Without one, it's behind More. */
+  phoneTab?: number;
+}
+
+export const APPS: readonly App[] = [
+  {
+    id: "today",
+    label: "Today",
+    icon: "sun",
+    hue: "--color-today",
+    views: ["inbox"],
+    records: [],
+    phoneTab: 1,
+  },
+  {
+    id: "mail",
+    label: "Mail",
+    icon: "mail",
+    hue: "--color-mail",
+    views: ["mail"],
+    records: ["thread"],
+  },
+  {
+    id: "calendar",
+    label: "Calendar",
+    icon: "calendar-days",
+    hue: "--color-calendar",
+    views: ["calendar"],
+    records: [],
+    phoneTab: 3,
+  },
+  {
+    id: "tasks",
+    label: "Tasks",
+    icon: "circle-check-big",
+    hue: "--color-tasks",
+    views: ["tasks"],
+    records: ["task"],
+    phoneTab: 2,
+  },
+  {
+    id: "docs",
+    label: "Docs",
+    icon: "file-text",
+    hue: "--color-docs",
+    views: ["notes", "sheets", "canvases"],
+    records: ["note", "sheet", "canvas"],
+  },
+  {
+    id: "people",
+    label: "People",
+    icon: "users",
+    hue: "--color-people",
+    views: ["people"],
+    // A record pane can hold any type (a person, a meeting, an event), and its route doesn't say
+    // which, so it sits with People, whose pages are all records.
+    records: ["record"],
+  },
+  {
+    id: "jarvis",
+    label: "Jarvis",
+    icon: "mark",
+    hue: "--color-jarvis",
+    views: ["memory", "activity", "browser"],
+    records: ["chat"],
+  },
+  {
+    id: "settings",
+    label: "Settings",
+    icon: "settings",
+    views: ["settings", "voice", "trash"],
+    records: [],
+    utility: true,
+  },
+];
+
+/** A place you go to by name: a list view in the sidebar, in Cmd+K and on a g-key. */
+export interface Place {
+  view: ListView;
+  /** Its name in the sidebar and on the phone's tab bar. */
+  label: string;
+  /** The keys that go there. */
+  keys: string;
+  /** What follows "Go to" in the shortcuts sheet and Cmd+K, when it isn't the label. */
+  go?: string;
+  /** What Cmd+K adds in brackets, to say what's there. */
+  about?: string;
+  /** The record types it lists: a lone pane lands here once its record goes to the trash. */
+  lists?: readonly string[];
+}
+
+/** In the sidebar's order. */
+export const PLACES: readonly Place[] = [
+  { view: "inbox", label: "Inbox", keys: "g i" },
+  { view: "mail", label: "Mail", keys: "g e" },
+  { view: "tasks", label: "Tasks", keys: "g t", lists: ["task"] },
+  { view: "notes", label: "Notes", keys: "g n", lists: ["note"] },
+  { view: "calendar", label: "Calendar", keys: "g c" },
+  { view: "canvases", label: "Canvas", keys: "g w", about: "boards", lists: ["canvas"] },
+  { view: "sheets", label: "Spreadsheets", keys: "g x", lists: ["spreadsheet"] },
+  { view: "people", label: "People", keys: "g p", lists: ["person", "company"] },
+  {
+    view: "memory",
+    label: "Memory",
+    keys: "g m",
+    about: "what Jarvis remembers",
+    lists: ["memory_note"],
+  },
+  { view: "voice", label: "Voice", keys: "g v", about: "dictation history, dictionary, snippets" },
+  { view: "browser", label: "Browser", keys: "g b", go: "the browser", about: "your Chrome, live" },
+  { view: "activity", label: "Jarvis's activity", keys: "g a" },
+  { view: "settings", label: "Settings", keys: "g s" },
+  {
+    view: "trash",
+    label: "Trash",
+    keys: "g d",
+    go: "the trash",
+    about: "restore what you deleted",
+  },
+];
+
+/** "Go to the trash": the shortcuts sheet's name for a place. */
+export const goLabel = (p: Place) => `Go to ${p.go ?? p.label}`;
+
+/** "Go to the trash (restore what you deleted)": Cmd+K's name for a place. */
+export const paletteLabel = (p: Place) => (p.about ? `${goLabel(p)} (${p.about})` : goLabel(p));
+
+/** The sub-product (or Settings) a view belongs to. */
+export function appOf(view: ListView | RecordView): App {
+  const app = APPS.find((a) => [...a.views, ...a.records].includes(view));
+  if (!app) throw new Error(`No app owns the view "${view}"`);
+  return app;
+}
+
+/** The place for a list view. */
+export function placeOf(view: ListView): Place {
+  const place = PLACES.find((p) => p.view === view);
+  if (!place) throw new Error(`No place for the view "${view}"`);
+  return place;
+}
+
+/** The list a record of this type belongs in, if it has one. */
+export const listFor = (type: string): ListView | undefined =>
+  PLACES.find((p) => p.lists?.includes(type))?.view;
+
+/** The phone's tabs, left to right: each one's sub-product home. */
+export const phoneTabs = (): Place[] =>
+  APPS.filter((a) => a.phoneTab !== undefined)
+    .sort((a, b) => a.phoneTab! - b.phoneTab!)
+    .map((a) => placeOf(a.views[0]!));

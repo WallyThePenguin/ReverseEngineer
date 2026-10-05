@@ -19,6 +19,7 @@ import { PaneContext } from "../components/ui.tsx";
 import { ChatView } from "../jarvis/Conversation.tsx";
 import { JarvisPane, jarvis } from "../jarvis/JarvisPane.tsx";
 import { getMe, setSignedOutHandler } from "../lib/api.ts";
+import { goLabel, PLACES } from "../lib/apps.ts";
 import { forgetAllDocs, sendKeptNotes } from "../lib/docStore.ts";
 import { useHotkeys } from "../lib/hotkeys.ts";
 import { live, queryClient, toast } from "../lib/live.ts";
@@ -151,20 +152,7 @@ function Shell(props: { onSignOut: () => void }) {
     },
     { keys: "/", run: () => setPalette(true) },
     { keys: "mod+j", run: () => jarvis.toggle(), inInputs: true, label: "Show or hide Jarvis" },
-    { keys: "g i", run: go("inbox"), label: "Go to Inbox" },
-    { keys: "g e", run: go("mail"), label: "Go to Mail" },
-    { keys: "g t", run: go("tasks"), label: "Go to Tasks" },
-    { keys: "g n", run: go("notes"), label: "Go to Notes" },
-    { keys: "g c", run: go("calendar"), label: "Go to Calendar" },
-    { keys: "g w", run: go("canvases"), label: "Go to Canvas" },
-    { keys: "g x", run: go("sheets"), label: "Go to Spreadsheets" },
-    { keys: "g p", run: go("people"), label: "Go to People" },
-    { keys: "g m", run: go("memory"), label: "Go to Memory" },
-    { keys: "g v", run: go("voice"), label: "Go to Voice" },
-    { keys: "g b", run: go("browser"), label: "Go to the browser" },
-    { keys: "g a", run: go("activity"), label: "Go to Jarvis's activity" },
-    { keys: "g s", run: go("settings"), label: "Go to Settings" },
-    { keys: "g d", run: go("trash"), label: "Go to the trash" },
+    ...PLACES.map((p) => ({ keys: p.keys, run: go(p.view), label: goLabel(p) })),
     { keys: "mod+\\", run: () => layout.split(), inInputs: true, label: "Split pane" },
     { keys: "mod+b", run: () => sidebar.toggle(), label: "Show or hide the sidebar" },
     { keys: "alt+w", run: () => layout.close(), inInputs: true, label: "Close pane" },

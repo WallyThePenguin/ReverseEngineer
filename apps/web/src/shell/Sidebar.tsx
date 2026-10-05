@@ -3,6 +3,7 @@
 import { createRoot, createSignal, For, Show } from "solid-js";
 import { JarvisDot, jarvis } from "../jarvis/JarvisPane.tsx";
 import { authPost } from "../lib/api.ts";
+import { PLACES } from "../lib/apps.ts";
 import { okToSignOut } from "../lib/docStore.ts";
 import { MOD } from "../lib/hotkeys.ts";
 import { live } from "../lib/live.ts";
@@ -51,23 +52,6 @@ export function SidebarRail() {
     </div>
   );
 }
-
-const NAV: { view: ListView; label: string; keys: string }[] = [
-  { view: "inbox", label: "Inbox", keys: "g i" },
-  { view: "mail", label: "Mail", keys: "g e" },
-  { view: "tasks", label: "Tasks", keys: "g t" },
-  { view: "notes", label: "Notes", keys: "g n" },
-  { view: "calendar", label: "Calendar", keys: "g c" },
-  { view: "canvases", label: "Canvas", keys: "g w" },
-  { view: "sheets", label: "Spreadsheets", keys: "g x" },
-  { view: "people", label: "People", keys: "g p" },
-  { view: "memory", label: "Memory", keys: "g m" },
-  { view: "voice", label: "Voice", keys: "g v" },
-  { view: "browser", label: "Browser", keys: "g b" },
-  { view: "activity", label: "Jarvis's activity", keys: "g a" },
-  { view: "settings", label: "Settings", keys: "g s" },
-  { view: "trash", label: "Trash", keys: "g d" },
-];
 
 /** What's waiting for you: unseen inbox items and approvals, each approval once (its inbox
  * card and the approval itself are the same thing). */
@@ -134,7 +118,7 @@ export function Sidebar(props: {
         <span class="hidden text-xs md:inline">{MOD === "⌘" ? "⌘K" : "Ctrl K"}</span>
       </button>
       <ul class="min-h-0 space-y-0.5 overflow-y-auto">
-        <For each={NAV}>
+        <For each={PLACES}>
           {(item) => (
             <li>
               <button

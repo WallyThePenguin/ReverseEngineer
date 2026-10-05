@@ -1526,3 +1526,47 @@ learn the backup stopped). Alerts outside the budget (a bad night could wake the
 **Why:** Owner's call, taking the defaults proposed with the daily-loops work: the audit log has
 to stay fast to query and small to back up, and a failure nobody hears about is the kind that
 loses a week of mail or backups.
+
+## D65. Hearth is Today plus six sub-products (2026-10-05)
+
+**Decision:** Hearth is one product: a first screen, Today, and six sub-products, Mail, Calendar,
+Tasks, Docs, People and Jarvis. Settings is a utility, not a sub-product. `lib/apps.ts` in the web
+app is the one list of them: the views each owns, its name, icon and colour, and its slot on the
+phone's tab bar, along with the places you go by name and their g-keys. The sidebar, the phone's
+tab bar, Cmd+K, the g-keys and the shortcuts sheet all read it.
+
+- **What each holds.** Today: what needs you now, approvals first and in full (D58), with the
+  inbox shown as Updates. Mail: mail and its threads. Calendar: the agenda, events and meetings.
+  Tasks. Docs: notes, sheets and boards in one list; the three editors stay as they are. People:
+  people and companies. Jarvis: chats, memory, automations (routines and page watches move
+  there), its activity and the Chrome view. Settings: settings, the trash and dictation.
+- **Nothing goes away.** Every route and g-key keeps working, and no view name is ever removed,
+  since push, the service worker, the desktop app and installed home-screen icons carry them
+  (`lib/apps.test.ts` opens every one). The new screens (Today, the Jarvis and Docs homes,
+  Meetings, Automations) only combine reads Hearth already has: no new server actions and no new
+  dependencies, which keeps within the feature freeze.
+- **The phone** has Today, Mail, Jarvis, Tasks and More. Calendar is behind More, since Today
+  shows your day. Jarvis is the button in the middle and keeps its names (Jarvis, Talk to Jarvis,
+  Stop and send).
+- **Colour says which part, or how something is; never decoration.** Each sub-product has a
+  colour, used only on its tile, its sidebar row while active, the focused pane's top bar and its
+  empty state; a pane takes it through `data-product`. Status always comes with an icon, so a
+  green Tasks tile never reads as "ok". Every colour reads at 4.5:1 on a panel in light and dark
+  mode (`lib/tokens.test.ts`).
+- **The system's own font, nothing downloaded.** Segoe UI Variable on Windows and each phone's
+  own font elsewhere: the CSP serves fonts only from Hearth, and a downloaded font would cost
+  every first load. Icons are Lucide's, kept in the code as paths.
+- **The look comes first.** The visual system, icons and shared pieces land before navigation
+  changes. Today becomes the first screen after it has stood on its own at `/today`. Then each
+  sub-product is finished in turn.
+
+**Alternatives:** Today and five places, with People as a tab inside Mail (one row fewer, but
+People is weekly use with a job of its own: getting back to someone). Seven coloured
+sub-products built from a new kit first, with `lucide-solid` and Inter as packages (two
+dependencies, a font the CSP blocks, and much changed at once). An icon-only rail (harder to read
+than a labelled sidebar). Keeping the fourteen-item sidebar (what the owner found too complex).
+
+**Why:** The owner's brief: each part of Hearth should be a sub-product of one product, since as
+it stands "it feels too complex for me to use in my day to day, the visual ui isnt there, it feels
+barebones." The owner approved the plan on 2026-10-05 with four choices: the look first; phone
+tabs Today, Mail, Jarvis, Tasks and More; People as its own part; and the name "Docs".

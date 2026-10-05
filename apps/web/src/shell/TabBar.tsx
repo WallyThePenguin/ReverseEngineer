@@ -2,14 +2,12 @@
 
 import { For, Show } from "solid-js";
 import { JarvisDot, jarvis } from "../jarvis/JarvisPane.tsx";
-import { type ListView, layout } from "../lib/panes.ts";
+import { phoneTabs } from "../lib/apps.ts";
+import { layout } from "../lib/panes.ts";
 import { askToTalk, mic } from "../lib/speech.ts";
 
-const TABS: { view: ListView; label: string }[] = [
-  { view: "inbox", label: "Inbox" },
-  { view: "tasks", label: "Tasks" },
-  { view: "calendar", label: "Calendar" },
-];
+/** Each tab is a sub-product's home (lib/apps.ts). */
+const TABS = phoneTabs();
 
 export function TabBar(props: { waiting: number; onMenu: () => void }) {
   const current = () => (jarvis.open() ? null : layout.panes()[layout.focused()]?.view);
