@@ -36,7 +36,7 @@ describe("speech through the desktop app", () => {
     })();
     // The desktop app is waiting for work before the recording comes in. Its request is checked
     // against the database first, which on a busy machine can outlast a set wait.
-    await vi.waitFor(() => expect(t.server.speech.available()).toBe(true));
+    await vi.waitFor(() => expect(t.server.speech.available()).toBe(true), { timeout: 10_000 });
     const res = await t.browser("/api/voice/transcribe", { method: "POST", body: wav() });
     expect(await res.json()).toEqual({ text: "Remind me to call Sam." });
     await desktop;

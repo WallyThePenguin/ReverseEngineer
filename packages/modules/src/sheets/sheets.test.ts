@@ -108,7 +108,7 @@ describe("spreadsheets", () => {
       expect(results(renameSheetRefs(book, 0, name))[1]!.A1).toBe("18000");
   });
 
-  it("works out a 3,000-cell sheet in under 50 ms", async () => {
+  it("works out a 3,000-cell sheet in under 100 ms", async () => {
     // Nine formulas to a value, as the audit measured it: 2.7 s before evaluation was paused.
     const cells: Record<string, string> = {};
     for (let r = 1; r <= 300; r++)
@@ -118,10 +118,11 @@ describe("spreadsheets", () => {
     expect(results(book)[0]!.J300).toBe("9000");
     // The first few runs are slow while V8 compiles IronCalc's WebAssembly fully (100+ ms), so
     // they don't count: a server works out sheets all day. The best of ten then allows for a
-    // machine busy with other work. It's about 20 ms on a developer's PC, so 50 still fails a
-    // 10x slowdown; budget() gives slower machines more.
+    // machine busy with other work. It's about 20 ms on a developer's PC, where 50 still failed
+    // now and then under the suite's load (50.6 ms), so 100 leaves room and still fails a 10x
+    // slowdown (200 ms); budget() gives slower machines more.
     const best = await fastest(() => results(book), { runs: 10, warmup: 3 });
-    expect(best).toBeLessThan(budget(50));
+    expect(best).toBeLessThan(budget(100));
   });
 
   it("works out NOW() and TODAY() in the owner's time zone", async () => {

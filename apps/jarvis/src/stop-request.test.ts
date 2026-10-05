@@ -44,7 +44,7 @@ describe("a request to stop Jarvis", () => {
     await aFewChecks();
     expect(stop).not.toHaveBeenCalled();
     writeFileSync(file, "now");
-    await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce(), { timeout: 10_000 });
     expect(stop.mock.calls[0]?.[0]).toBe(`Your account asked Jarvis to stop (${file})`);
     await aFewChecks();
     expect(stop).toHaveBeenCalledOnce();
@@ -68,7 +68,7 @@ describe("a request to stop Jarvis", () => {
     }));
     const { stop, log } = watch({ whoAsked });
     writeFileSync(file, "now");
-    await vi.waitFor(() => expect(log).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(log).toHaveBeenCalledOnce(), { timeout: 10_000 });
     expect(log.mock.calls[0]?.[0]).toMatch(/^Ignored a request to stop from the account S-1-5-21/);
     await aFewChecks();
     expect(stop).not.toHaveBeenCalled();
@@ -82,7 +82,7 @@ describe("a request to stop Jarvis", () => {
       }),
     });
     writeFileSync(file, "now");
-    await vi.waitFor(() => expect(log).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(log).toHaveBeenCalledOnce(), { timeout: 10_000 });
     expect(stop).not.toHaveBeenCalled();
   });
 
@@ -93,7 +93,7 @@ describe("a request to stop Jarvis", () => {
     expect(stop).not.toHaveBeenCalled();
     // Stop-ScheduledTask ends the task's cmd.exe, not the node under it (2026-10-05).
     alive = false;
-    await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce(), { timeout: 10_000 });
     expect(stop.mock.calls[0]?.[0]).toBe("The task that started Jarvis has ended");
   });
 

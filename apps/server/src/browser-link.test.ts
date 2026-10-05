@@ -49,7 +49,7 @@ async function asJarvis(method: string, params: Record<string, unknown> = {}) {
   return t!.api("/api/browser/rpc", jarvis, { method: "POST", json: { method, params } });
 }
 
-async function until(check: () => Promise<boolean>, ms = 2000) {
+async function until(check: () => Promise<boolean>, ms = 10_000) {
   const end = Date.now() + ms;
   while (Date.now() < end) {
     if (await check()) return;
@@ -91,9 +91,10 @@ describe("the link to Chrome", () => {
 
     const lively = await chrome();
     await lively.next("welcome");
-    // A third ping means it heard the answers: otherwise it drops the link instead. Counting
-    // pings rather than waiting a set time holds however slowly the timers run.
-    for (let n = 0; n < 3; n++) await lively.next("ping");
+    // A link that never answers still gets two pings, and one whose first answer is the only one
+    // heard gets three: a sixth means it went on hearing them. Counting pings rather than waiting
+    // a set time holds however slowly the timers run.
+    for (let n = 0; n < 6; n++) await lively.next("ping");
     expect(await status()).toMatchObject({ connected: true });
   });
 

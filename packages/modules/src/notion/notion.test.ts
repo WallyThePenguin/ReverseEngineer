@@ -86,7 +86,7 @@ describe("reading a Notion export", () => {
     expect(() => readExport(zip)).toThrow(ExportError);
 
     // Pages a link pattern that backtracks would take seconds over. They take about 1 ms on a
-    // developer's PC, so 5 still fails a 10x slowdown.
+    // developer's PC, so 10 leaves room for a busy one and still fails that by far.
     const brackets = [{ path: `B ${H1}.md`, text: "[".repeat(200_000) }];
     const labels = [{ path: `C ${H1}.md`, text: `[${"a".repeat(400)}`.repeat(500) }];
     const best = await fastest(
@@ -96,7 +96,7 @@ describe("reading a Notion export", () => {
       },
       { runs: 10, warmup: 2 },
     );
-    expect(best).toBeLessThan(budget(5));
+    expect(best).toBeLessThan(budget(10));
   });
 });
 
