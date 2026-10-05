@@ -147,7 +147,10 @@ export function JarvisPane() {
       }
     >
       <header class="flex min-h-12 items-center gap-2 border-b border-line px-3">
-        <JarvisMark size={18} state={status.data?.jarvisPaused ? "paused" : "idle"} />
+        <JarvisMark
+          size={18}
+          state={liveness().unwell ? "down" : status.data?.jarvisPaused ? "paused" : "idle"}
+        />
         <span class="font-semibold text-jarvis">Jarvis</span>
         <Show when={status.data?.jarvisPaused}>
           <Badge tone="warn">Paused</Badge>

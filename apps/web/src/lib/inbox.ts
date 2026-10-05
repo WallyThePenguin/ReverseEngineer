@@ -14,7 +14,7 @@ export const waitingOnYou = (row: InboxRow | undefined) =>
 export const NEEDS_DECISION = "This one needs a yes or a no first: press a or d.";
 
 /**
- * A row's ⋯ menu: what e and s do, for a finger. An approval waiting for you isn't offered a
+ * A row's "more" menu: what e and s do, for a finger. An approval waiting for you isn't offered a
  * snooze at all: Hearth refuses it, and the card would blink out of the list and back first.
  */
 export function rowMenu(

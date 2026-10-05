@@ -5,14 +5,18 @@
 import type { ConversationItem } from "@hearth/core";
 import { For, Match, Show, Switch } from "solid-js";
 import { Body } from "../components/Body.tsx";
+import { JarvisMark } from "../components/Mark.tsx";
 import { act } from "../lib/query.ts";
 import { ToolLine } from "./ToolLine.tsx";
 
-/** Something Jarvis said, or is saying as it streams in. */
-export function JarvisSays(props: { text: string }) {
+/** Something Jarvis said, or is saying as it streams in (its mark pulses while it does). */
+export function JarvisSays(props: { text: string; streaming?: boolean }) {
   return (
     <div class="mr-2">
-      <p class="mb-0.5 text-xs font-medium text-jarvis">Jarvis</p>
+      <p class="mb-0.5 flex items-center gap-1.5 text-xs font-medium text-jarvis">
+        <JarvisMark size={12} state={props.streaming ? "thinking" : "idle"} />
+        Jarvis
+      </p>
       <Body text={props.text} />
     </div>
   );

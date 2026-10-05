@@ -4,6 +4,7 @@
 import { foldConversation, fromEditForm } from "@hearth/core";
 import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js";
 import { Icon } from "../components/icons.tsx";
+import { JarvisMark } from "../components/Mark.tsx";
 import { MentionEditor } from "../components/MentionEditor.tsx";
 import { Button, PaneHeader } from "../components/ui.tsx";
 import { MOD } from "../lib/hotkeys.ts";
@@ -173,11 +174,11 @@ export function Conversation(props: {
             <p class="text-sm text-muted">Loading…</p>
           </Show>
           <For each={view().items}>{(item) => <LogItem item={item} />}</For>
-          <For each={streaming()}>{(text) => <JarvisSays text={text} />}</For>
+          <For each={streaming()}>{(text) => <JarvisSays text={text} streaming />}</For>
           <Show when={busy()}>
             <div class="flex items-center gap-2 text-sm text-jarvis">
               <Show when={streaming().length === 0}>
-                <span class="inline-block size-2 animate-pulse rounded-full bg-jarvis" /> Thinking…
+                <JarvisMark size={12} state="thinking" /> Thinking…
               </Show>
               <span class="flex-1" />
               <Button small disabled={stopping()} title="Stop Jarvis" onClick={() => void stop()}>
