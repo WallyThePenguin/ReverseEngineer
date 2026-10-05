@@ -45,35 +45,61 @@ describe("humanTimes", () => {
   const start = iso(new Date(2026, 9, 7, 16));
   const end = iso(new Date(2026, 9, 7, 16, 30));
 
-  it("turns a meeting's range into words", () => {
+  it("puts a meeting's times in words", () => {
     expect(
       humanTimes(`Invite a@x.example, b@x.example to "Offsite prep" ${start} to ${end}`, NOW),
     ).toBe('Invite a@x.example, b@x.example to "Offsite prep" Wed, Oct 7, 4 to 4:30 p.m.');
-  });
-
-  it("turns a single time and an all-day range into words", () => {
+    expect(humanTimes(`Jarvis asks: Add "Call" ${start} to ${end} to your calendar`, NOW)).toBe(
+      'Jarvis asks: Add "Call" Wed, Oct 7, 4 to 4:30 p.m. to your calendar',
+    );
     expect(humanTimes(`Update a meeting to start ${start}, telling its guests`, NOW)).toBe(
       "Update a meeting to start Wed, Oct 7, 4 p.m., telling its guests",
     );
-    expect(humanTimes('Add "Away" 2026-10-07 to 2026-10-09 to your calendar', NOW)).toBe(
+    expect(
+      humanTimes(
+        `Update a meeting to start ${start} as "Plan 2026-10-09", telling its guests`,
+        NOW,
+      ),
+    ).toBe('Update a meeting to start Wed, Oct 7, 4 p.m. as "Plan 2026-10-09", telling its guests');
+  });
+
+  it("says an all-day event's last day, not the day after it", () => {
+    // Google's end for an all-day event is the day after its last (calendar/actions.ts).
+    expect(humanTimes('Add "Dentist" 2026-10-07 to 2026-10-08 to your calendar', NOW)).toBe(
+      'Add "Dentist" Wed, Oct 7, all day to your calendar',
+    );
+    expect(humanTimes('Add "Away" 2026-10-07 to 2026-10-10 to your calendar', NOW)).toBe(
       'Add "Away" Wed, Oct 7 to Fri, Oct 9 to your calendar',
     );
-    expect(humanTimes(`Add "Call" ${start} to 2026-10-08 to your calendar`, NOW)).toBe(
-      'Add "Call" Wed, Oct 7, 4 p.m. to Thu, Oct 8 to your calendar',
+    // A day with a time, or an end before its start, isn't an event Hearth makes: as written.
+    for (const odd of [
+      `Add "Call" ${start} to 2026-10-08 to your calendar`,
+      'Add "Back to front" 2026-10-08 to 2026-10-07 to your calendar',
+      'Add "Not a day" 2026-02-30 to 2026-03-01 to your calendar',
+    ])
+      expect(humanTimes(odd, NOW)).toBe(odd);
+  });
+
+  it("only reads the event's own times, never ones in its title", () => {
+    const tricky = `Add "Lunch" 2026-10-09 to 2026-10-10 "${start}" ${start} to ${end} to your calendar`;
+    expect(humanTimes(tricky, NOW)).toBe(
+      `Add "Lunch" 2026-10-09 to 2026-10-10 "${start}" Wed, Oct 7, 4 to 4:30 p.m. to your calendar`,
     );
   });
 
-  it("leaves quoted titles, file names and anything else alone", () => {
-    const quoted = `Add "Standup ${start}" ${start} to ${end} to your calendar`;
-    expect(humanTimes(quoted, NOW)).toBe(
-      `Add "Standup ${start}" Wed, Oct 7, 4 to 4:30 p.m. to your calendar`,
-    );
-    expect(humanTimes("Attach report-2026-10-07.pdf and v2026-10-07", NOW)).toBe(
+  it("leaves links, paths, file names, quotes and any other sentence exactly as written", () => {
+    for (const asis of [
+      "Open https://example.com/events/2026-10-07 in Chrome",
+      "Go to https://example.com/book?date=2026-10-07&t=2026-10-07T16:00",
+      "Watch https://example.com/#2026-10-07 to 2026-10-08",
+      "Attach report 2026-10-07.pdf",
       "Attach report-2026-10-07.pdf and v2026-10-07",
-    );
-    expect(humanTimes("Send email to dana@example.com", NOW)).toBe(
+      "Save to C:/Reports/2026-10-07/notes.txt",
+      "Rename 'Plan 2026-10-07' and “2026-10-07”",
+      'Create a task "Trip" 2026-10-07 to 2026-10-08',
+      `Remind me ${start}`,
       "Send email to dana@example.com",
-    );
-    expect(humanTimes("Remind me on 2026-13-45", NOW)).toBe("Remind me on 2026-13-45");
+    ])
+      expect(humanTimes(asis, NOW)).toBe(asis);
   });
 });

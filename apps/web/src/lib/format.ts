@@ -59,10 +59,18 @@ export function span(start: Date, end: Date, now = new Date()): string {
 
 /** A date-time as JSON writes it ("2026-10-07T16:00:00-04:00"), or a day ("2026-10-07"). */
 const ISO = String.raw`\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?`;
-/** Not part of a longer word, number or file name. */
-const ALONE = (re: string) => String.raw`(?<![\w.:-])${re}(?![\w:-])`;
-const RANGE = new RegExp(ALONE(`(${ISO}) to (${ISO})`), "g");
-const ONE = new RegExp(ALONE(ISO), "g");
+/**
+ * The only sentences whose times are put in words: the calendar's own, exactly as
+ * calendar/actions.ts writes them. An event's times come last, after its quoted title, so a time
+ * inside the title (or anywhere else) is never taken for them.
+ */
+const EVENT = [
+  new RegExp(String.raw`(\bAdd ".*" )(${ISO}) to (${ISO})( to your calendar)$`),
+  new RegExp(String.raw`(\bInvite .+ to ".*" )(${ISO}) to (${ISO})()$`),
+];
+const NEW_START = new RegExp(
+  String.raw`(\bUpdate a meeting to start )(${ISO})((?: as ".*")?, telling its guests)$`,
+);
 
 function parseIso(s: string): Date | null {
   const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
@@ -76,33 +84,42 @@ function parseIso(s: string): Date | null {
   return d.getMonth() === m && d.getDate() === day ? d : null;
 }
 
+/** An event's start and end as you'd say them, or null to leave them as written. */
+function eventTimes(a: string, b: string, now: Date): string | null {
+  const start = parseIso(a);
+  const end = parseIso(b);
+  if (!start || !end) return null;
+  const [timedStart, timedEnd] = [a.includes("T"), b.includes("T")];
+  if (timedStart && timedEnd) return span(start, end, now);
+  // A day with a time isn't an event Hearth makes, so it stays as written.
+  if (timedStart || timedEnd) return null;
+  // All day: the end is the day after the last day, as Google has it (calendar/actions.ts).
+  const last = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 1);
+  if (last < start) return null;
+  return last.getTime() === start.getTime()
+    ? `${date(start, now)}, all day`
+    : `${date(start, now)} to ${date(last, now)}`;
+}
+
 /**
- * Times in a sentence Hearth wrote, the way you'd say them: `Invite dana@… to "Offsite"
- * 2026-10-07T16:00:00-04:00 to 2026-10-07T16:30:00-04:00` reads "… Wed, Oct 7, 4 to 4:30 p.m.",
- * in your own time zone. Quoted text is left exactly as it is, since that's a title or a subject
- * that will be used as written.
+ * The times in an approval's heading that the calendar wrote, the way you'd say them: `Invite
+ * dana@… to "Offsite" 2026-10-07T16:00:00-04:00 to 2026-10-07T16:30:00-04:00` reads "… Wed,
+ * Oct 7, 4 to 4:30 p.m.", in your own time zone, and a one-day `2026-10-07 to 2026-10-08` reads
+ * "Wed, Oct 7, all day". Nothing else changes: a link, a file name, a title or any other date
+ * shows exactly as written, since that's what will be used.
  */
 export function humanTimes(text: string, now = new Date()): string {
-  const one = (s: string) => {
-    const d = parseIso(s);
-    if (!d) return s;
-    return s.includes("T") ? dateTime(d, now) : date(d, now);
-  };
-  const plain = (part: string) =>
-    part
-      .replace(RANGE, (all: string, a: string, b: string) => {
-        const start = parseIso(a);
-        const end = parseIso(b);
-        if (!start || !end) return all;
-        return a.includes("T") && b.includes("T")
-          ? span(start, end, now)
-          : `${one(a)} to ${one(b)}`;
-      })
-      .replace(ONE, one);
-  return text
-    .split(/("[^"]*")/)
-    .map((part, i) => (i % 2 === 1 ? part : plain(part)))
-    .join("");
+  let out = text;
+  for (const re of EVENT)
+    out = out.replace(re, (all: string, lead: string, a: string, b: string, tail: string) => {
+      const said = eventTimes(a, b, now);
+      return said === null ? all : `${lead}${said}${tail}`;
+    });
+  return out.replace(NEW_START, (all: string, lead: string, a: string, tail: string) => {
+    const d = parseIso(a);
+    if (!d) return all;
+    return `${lead}${a.includes("T") ? dateTime(d, now) : date(d, now)}${tail}`;
+  });
 }
 
 /** "1 guest", "3 guests". */

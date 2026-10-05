@@ -63,7 +63,7 @@ export function ApprovalCard(props: {
   const meta = children(() => props.meta);
   const menu = children(() => props.menu);
   const waiting = () => isWaiting(props.approvalId, props.status);
-  // Times as you'd say them; quoted titles and the text itself stay exactly as they are.
+  // The calendar's times as you'd say them; the rest of it, and the text, exactly as written.
   const what = () => humanTimes(props.what);
   // Decided here a moment ago, before the lists catch up with what became of it.
   const outcome = () =>
