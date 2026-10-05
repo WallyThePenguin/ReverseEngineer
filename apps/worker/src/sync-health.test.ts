@@ -249,8 +249,11 @@ describe("checkSyncs", () => {
 
 describe("Jarvis's Slack socket (D62)", () => {
   let t: TestKernel;
+  /** When the socket last said it was connected. */
+  let lastUp: Date;
   beforeEach(async () => {
     t = await createTestKernel(ALL_MODULES);
+    lastUp = t.kernel.clock.now();
   });
   afterEach(() => t.destroy());
 
@@ -272,10 +275,15 @@ describe("Jarvis's Slack socket (D62)", () => {
     await setSetting(t.tdb.db, "slack.bot.membersOn", true);
     t.kernel.services[INSTALL_SERVICE] = { id: () => "install-live" };
   }
-  /** The socket's word on itself, as it would give it, `minutes` from now. */
-  async function socket(minutes: number, code: string | null) {
+  /**
+   * The socket's word on itself, as it would give it, `minutes` from now. Down, it's been down
+   * since `went`, when the worker saw it go: by default right after it was last connected.
+   */
+  async function socket(minutes: number, code: string | null, went = lastUp) {
     t.clock.advance(minutes * 60_000);
-    return saveBotHealth(t.kernel.db, "T1", at(), code ? botTrouble(code) : null);
+    if (!code) lastUp = at();
+    const down = code ? { trouble: botTrouble(code), since: went } : null;
+    return saveBotHealth(t.kernel.db, "T1", at(), down);
   }
   const bot = (reports: HealthReport[]) => reports.find((r) => r.component === "sync.slack_bot");
   const check = () => checkSyncs(t.kernel, new ErrorClock());
@@ -312,6 +320,29 @@ describe("Jarvis's Slack socket (D62)", () => {
     await socket(1, null);
     await reportHealth(t.kernel, await check());
     for (const m of [1, 1, 1, 30]) await socket(m, "socket_unreachable");
+    reports = await check();
+    expect(bot(reports)).toMatchObject({ status: "failing" });
+    await reportHealth(t.kernel, reports);
+    expect(await alerts(t)).toHaveLength(1);
+  });
+
+  it("counts the time down from when the worker saw the socket go, so a PC waking from sleep isn't failing", async () => {
+    await connectBot();
+    await socket(0, null);
+    // The PC sleeps for an hour. Waking, the worker finds the socket gone, and the Wi-Fi isn't
+    // back for three tries a few seconds apart: the last hello is an hour old, but it isn't failing.
+    t.clock.advance(60 * 60_000);
+    const went = at();
+    for (let i = 0; i < 3; i++) await socket(0.05, "socket_unreachable", went);
+    let reports = await check();
+    expect(bot(reports)).toMatchObject({ status: "degraded" });
+    await reportHealth(t.kernel, reports);
+    expect(await alerts(t)).toEqual([]);
+
+    // Still down half an hour after the worker saw it go: failing.
+    await socket(29, "socket_unreachable", went);
+    expect(bot(await check())).toMatchObject({ status: "degraded" });
+    await socket(1, "socket_unreachable", went);
     reports = await check();
     expect(bot(reports)).toMatchObject({ status: "failing" });
     await reportHealth(t.kernel, reports);

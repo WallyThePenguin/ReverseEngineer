@@ -112,6 +112,7 @@ export {
   ackOf,
   BACKOFF_RESET_MS,
   BACKOFF_S,
+  type BotDown,
   type BotRow,
   backoffMs,
   botTrouble,

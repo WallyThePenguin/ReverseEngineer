@@ -1,8 +1,9 @@
 // How Jarvis's Slack socket is doing (D62), kept on slack_bot the way the pollers keep theirs
 // (connector-health.ts, D61) and reported as sync.slack_bot. A round here is a connection: the
 // socket says it's connected, and keeps saying so while it is, or that it couldn't connect. It
-// counts as failing only after 30 minutes without a connection, longer than an update's restart
-// takes, and at once when Slack has revoked it; either way you're told once a day (D60).
+// counts as failing only after 30 minutes that the worker saw without a connection, longer than
+// an update's restart takes, and at once when Slack has revoked it; either way you're told once
+// a day (D60).
 import { type DbOrTx, slackBot } from "@hearth/db";
 import { eq } from "drizzle-orm";
 import { type Health, type NextHealth, nextHealth, type Trouble } from "../../connector-health.ts";
@@ -58,20 +59,33 @@ export const botHealth = (row: BotRow): Health => ({
   syncedAt: row.syncedAt ?? row.connectedAt,
 });
 
+/** Why the socket isn't connected, and since when the worker has seen it without one. */
+export interface BotDown {
+  trouble: Trouble;
+  /** When this process saw the socket go, or started without one. */
+  since: Date;
+}
+
 /**
- * Saves how the socket is doing: `trouble` null while it's connected. Returns what changed, or
- * null when there's no bot or it's revoked: then nothing changes until slack.bot_replace_tokens
- * takes new tokens, whatever the socket says.
+ * Saves how the socket is doing: `down` null while it's connected. Returns what changed, or null
+ * when there's no bot or it's revoked: then nothing changes until slack.bot_replace_tokens takes
+ * new tokens, whatever the socket says.
  */
 export async function saveBotHealth(
   db: DbOrTx,
   teamId: string,
   now: Date,
-  trouble: Trouble | null,
+  down: BotDown | null,
 ): Promise<NextHealth | null> {
   const [row] = await db.select().from(slackBot).where(eq(slackBot.teamId, teamId));
   if (!row || row.syncState === "revoked") return null;
-  const next = nextHealth(botHealth(row), now, trouble, trouble === null);
+  const h = botHealth(row);
+  // The time down counts from when this process saw the socket go, not from the last hello: after
+  // the PC sleeps or the worker restarts that can be hours ago, and three tries failing in the
+  // seconds before the Wi-Fi is back would read as half an hour down and buzz your phone (D60).
+  // As sync-health's ErrorClock does, failing comes half an hour after that, never sooner (D62).
+  if (down && (!h.syncedAt || h.syncedAt < down.since)) h.syncedAt = down.since;
+  const next = nextHealth(h, now, down?.trouble ?? null, down === null);
   await db.update(slackBot).set(next.values).where(eq(slackBot.teamId, teamId));
   return next;
 }

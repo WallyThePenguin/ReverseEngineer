@@ -27,6 +27,7 @@ describe("storing, then acking", () => {
       k.fake.send(k.fake.payload(dm("UANA", `message ${i}`, ts(i)))),
     );
     const took = await Promise.all(ids.map((id) => k.fake.acked(id)));
+    // Slack's own limit, the same on any machine, so it isn't scaled for a slow one.
     expect(Math.max(...took)).toBeLessThan(3000);
     const rows = await k.rows();
     expect(rows).toHaveLength(50);
@@ -104,11 +105,14 @@ describe("swapping sockets", () => {
   });
 
   it("keeps a quiet socket that answers its pings", async () => {
-    k.start({ helloWaitMs: 200 });
-    await k.fake.socket(1);
+    k.start({ helloWaitMs: 2000 });
+    const socket = await k.fake.socket(1);
     await until(() => k.bot!.connected(), 5000, "the socket");
-    // Well past the wait for hello, and several pings later.
-    await pause(800);
+    // Past the wait for hello (2 s here, 15 s in the worker) with nothing said on the socket.
+    await pause(2500);
+    // A ping goes only once the last one's pong was heard, so five of them well inside the 5 s
+    // pong wait mean the socket heard its pongs.
+    await until(() => k.fake.pings(socket) >= 5, 4000, "five pings");
     expect(k.bot!.connected()).toBe(true);
     expect(k.fake.opens).toBe(1);
     expect(k.waits).toEqual([]);
@@ -116,15 +120,18 @@ describe("swapping sockets", () => {
   });
 
   it("drops a socket that stops answering pings, and connects again", async () => {
-    await listening();
-    const first = k.fake.sockets[0]!;
-    k.fake.silence(first);
     // Pings every 100 ms here, 20 s in the worker; no pong in 100 ms (10 s) means it's dead.
+    k.start({ pongWaitMs: 100 });
+    const first = await k.fake.socket(1);
+    await until(() => k.bot!.connected(), 5000, "the socket");
+    k.fake.silence(first);
     await k.fake.socket(2, 3000);
     await until(() => first.readyState === first.CLOSED, 3000, "the dead socket to go");
     await until(() => k.bot!.connected(), 3000, "the new socket");
     expect(k.logs.join("\n")).toMatch(/closed \(no pong\); connecting again/);
-    expect(k.waits).toEqual([1000]);
+    // The ladder's first step. Later ones aren't checked: the new socket also waits only 100 ms
+    // for its pongs, which a busy machine can miss.
+    expect(k.waits[0]).toBe(1000);
   });
 });
 

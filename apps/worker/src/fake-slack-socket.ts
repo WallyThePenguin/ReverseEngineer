@@ -1,7 +1,8 @@
 // Slack's Socket Mode in a test (D62): a real WebSocket server on this PC that hands out the
 // address apps.connections.open would, says hello for Jarvis's app, sends envelopes and notes when
 // each is acked, sends them again as Slack does when no ack came, says disconnect (a warning,
-// refresh_requested, link_disabled), stops answering pings, and turns opens away with a 429.
+// refresh_requested, link_disabled), stops answering pings, and turns opens away with a 429 or as
+// a network that isn't back yet would.
 import type { AddressInfo } from "node:net";
 import { JARVIS_APP_ID, type SlackBotApi, SlackError } from "@hearth/modules";
 import { type WebSocket, WebSocketServer } from "ws";
@@ -13,8 +14,11 @@ export class FakeSlackSocket {
   readonly sockets: WebSocket[] = [];
   /** How many times apps.connections.open was answered with an address. */
   opens = 0;
-  /** The next opens are refused with these, in turn: a Slack error code, and Retry-After in s. */
-  refusals: { code: string; retryAfter?: number }[] = [];
+  /**
+   * The next opens are refused with these, in turn: a Slack error code and Retry-After in s, or
+   * a network that can't reach Slack (`network`, such as ENOTFOUND while the Wi-Fi comes back).
+   */
+  refusals: ({ code: string; retryAfter?: number } | { network: string })[] = [];
   /** The app hello names. */
   helloApp = JARVIS_APP_ID;
   /** Holds hello back until sayHello(), to have two sockets open at once. */
@@ -25,6 +29,7 @@ export class FakeSlackSocket {
   readonly acks = new Map<string, number>();
   private readonly sent = new Map<string, { at: number; envelope: Raw }>();
   private readonly silent = new Set<WebSocket>();
+  private readonly pinged = new Map<WebSocket, number>();
   private readonly arrivals: (() => void)[] = [];
   private next = 0;
   private readonly server: WebSocketServer;
@@ -34,6 +39,7 @@ export class FakeSlackSocket {
     server.on("connection", (socket) => {
       this.sockets.push(socket);
       socket.on("ping", (data) => {
+        this.pinged.set(socket, (this.pinged.get(socket) ?? 0) + 1);
         if (!this.silent.has(socket)) socket.pong(data);
       });
       socket.on("message", (data) => {
@@ -63,6 +69,11 @@ export class FakeSlackSocket {
       openSocket: async (token) => {
         const { scopes } = await base.openSocket(token);
         const refused = this.refusals.shift();
+        // fetch's own words when Slack can't be reached.
+        if (refused && "network" in refused)
+          throw new TypeError("fetch failed", {
+            cause: new Error(`getaddrinfo ${refused.network} slack.com`),
+          });
         if (refused) throw new SlackError(refused.code, refused.retryAfter);
         this.opens++;
         return { url: this.url, scopes };
@@ -147,6 +158,11 @@ export class FakeSlackSocket {
   /** Stops answering this socket's pings, as a socket that died while the PC slept. */
   silence(socket = this.latest) {
     this.silent.add(socket);
+  }
+
+  /** How many pings this socket has had from Hearth. */
+  pings(socket = this.latest): number {
+    return this.pinged.get(socket) ?? 0;
   }
 
   /** Resolves with how long the ack took; rejects if none came in `ms`. */

@@ -128,6 +128,58 @@ describe("waiting between tries", () => {
   });
 });
 
+describe("telling you it's down", () => {
+  it("counts the time down from when it saw the socket go, not from the last hello before the PC slept", async () => {
+    // Each wait between tries passes on Hearth's clock, and the worker's minute-by-minute health
+    // check looks in during it, as it would in a real wait.
+    const errors = new ErrorClock();
+    const looks: { minutes: number; status?: string }[] = [];
+    let wentAt = 0;
+    k.start({
+      sleep: async (ms) => {
+        k.waits.push(ms);
+        k.t.clock.advance(ms);
+        const reports = await checkSyncs(k.t.kernel, errors);
+        const status = reports.find((r) => r.component === "sync.slack_bot")?.status;
+        looks.push({ minutes: (k.t.clock.now().getTime() - wentAt) / 60_000, status });
+        await reportHealth(k.t.kernel, reports);
+      },
+    });
+    await k.fake.socket(1);
+    await until(() => k.bot!.connected(), 5000, "the socket");
+    const wifiOff = (tries: number) =>
+      k.fake.refusals.push(...Array.from({ length: tries }, () => ({ network: "ENOTFOUND" })));
+
+    // The PC sleeps for 45 minutes. Waking, the worker finds the socket dead, and the Wi-Fi isn't
+    // back for three tries: 23 seconds down that it saw, not 45 minutes, so no alert.
+    k.t.clock.advance(45 * 60_000);
+    wentAt = k.t.clock.now().getTime();
+    wifiOff(3);
+    k.fake.latest.terminate();
+    await k.fake.socket(2);
+    await until(() => k.bot!.connected(), 5000, "the socket once the Wi-Fi is back");
+    expect(k.waits).toEqual([1000, 2000, 5000, 15_000]);
+    expect(k.logs.filter((l) => l.includes("couldn't connect: fetch failed"))).toHaveLength(3);
+    expect(looks.map((l) => l.status)).not.toContain("failing");
+    expect(await k.alerts()).toEqual([]);
+
+    // Down again, and the Wi-Fi stays off: half an hour down that it saw is failing, told once.
+    looks.length = 0;
+    wentAt = k.t.clock.now().getTime();
+    wifiOff(20);
+    k.fake.latest.terminate();
+    await k.fake.socket(3, 10_000);
+    await until(() => k.bot!.connected(), 5000, "the socket once the Wi-Fi is back");
+    const failing = looks.filter((l) => l.status === "failing").map((l) => l.minutes);
+    // The first look after the try that crossed half an hour; tries are 2 minutes apart by then.
+    expect(failing.length, "looks that said failing").toBeGreaterThan(0);
+    expect(failing[0]).toBeGreaterThanOrEqual(30);
+    expect(failing[0]).toBeLessThanOrEqual(34);
+    expect(await k.alerts()).toEqual([{ title: "Jarvis's Slack bot is failing" }]);
+    expect(await k.row()).toMatchObject({ syncState: "ok", failures: 0 });
+  });
+});
+
 describe("catching up on hello", () => {
   it("starts at now on the first hello, and reads back what it missed on the next", async () => {
     const now = Math.floor(k.t.clock.now().getTime() / 1000);

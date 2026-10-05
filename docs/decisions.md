@@ -1781,7 +1781,9 @@ process only writes outbox rows. The client uses `ws`, as the server does.
   words don't come back in as Slack messages.
 - **Health:** `slack_bot` keeps its own `nextHealth` state, reported as the `sync.slack_bot`
   component. It counts as failing after 30 minutes disconnected, which is outside the update
-  gate's window, and deep health treats it as external. Revoked counts at once. It alerts once a
+  gate's window, and deep health treats it as external. The 30 minutes count from when the worker
+  saw the socket go, or started without one, never from the last hello: a PC waking from a long
+  sleep isn't failing while its Wi-Fi comes back. Revoked counts at once. It alerts once a
   day (D60).
 - **Loop breaker:** after 20 Jarvis posts in one conversation within 10 minutes, that
   conversation pauses for an hour and you're told.

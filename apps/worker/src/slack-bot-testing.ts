@@ -1,6 +1,11 @@
 // What the Slack socket tests share (D62): a kernel with your Slack and Jarvis's bot connected the
 // real way, against FakeSlack and a FakeSlackSocket, members on, and a worker's socket started
 // with quick pings and waits that are noted instead of slept.
+//
+// A pong or a hello comes back through the same event loop as the timer waiting for it, so those
+// waits are seconds long here: a GC pause or a busy CI runner (#44: Windows runs the suite 2.5
+// times slower) mustn't end a healthy socket. Only the test of a socket that stops answering
+// waits just 100 ms for a pong.
 import { randomBytes } from "node:crypto";
 import { notification, slackBot, slackInbound } from "@hearth/db";
 import { type Caller, ownerCaller, setSetting } from "@hearth/kernel";
@@ -100,8 +105,8 @@ export async function botTest(): Promise<BotTest> {
         checkEveryMs: 3_600_000,
         catchUpEveryMs: 3_600_000,
         pingEveryMs: 100,
-        pongWaitMs: 100,
-        helloWaitMs: 2000,
+        pongWaitMs: 5000,
+        helloWaitMs: 10_000,
         random: () => 0.5,
         sleep: async (ms) => {
           k.waits.push(ms);

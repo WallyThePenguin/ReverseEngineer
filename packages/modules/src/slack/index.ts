@@ -20,7 +20,13 @@ export {
 } from "./api.ts";
 export { httpSlackBot, SLACK_BOT_SERVICE, type SlackBotApi } from "./bot/api.ts";
 export { CATCH_UP_EVERY_MS, type CatchUp, catchUp } from "./bot/catchup.ts";
-export { botTrouble, holdsSocket, REVOKED_CODES, saveBotHealth } from "./bot/health.ts";
+export {
+  type BotDown,
+  botTrouble,
+  holdsSocket,
+  REVOKED_CODES,
+  saveBotHealth,
+} from "./bot/health.ts";
 export {
   clearOldInbound,
   INBOUND_POOL,

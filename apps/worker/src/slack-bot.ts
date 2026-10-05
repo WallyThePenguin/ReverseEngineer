@@ -17,6 +17,7 @@ import { slackBot } from "@hearth/db";
 import { getSetting, type Kernel } from "@hearth/kernel";
 import {
   BACKOFF_RESET_MS,
+  type BotDown,
   type BotRow,
   backoffMs,
   botTrouble,
@@ -136,6 +137,9 @@ class Listener {
 
   /** A socket Slack said hello on, or null once stopped or revoked. */
   private async connect(waitFirst: boolean): Promise<BotSocket | null> {
+    // Down since now, when this process saw the socket go or started without one: the last hello
+    // may be from before the PC slept, and only 30 minutes down that the worker saw is failing.
+    const since = this.now;
     let wait = waitFirst;
     let retryAfter: number | undefined;
     while (!this.stopped) {
@@ -167,7 +171,7 @@ class Listener {
         }
         retryAfter = after;
         this.o.log(`Jarvis's Slack socket couldn't connect: ${code}`);
-        await this.health(botTrouble(code));
+        await this.health({ trouble: botTrouble(code), since });
         continue;
       }
       if (this.stopped) {
@@ -183,8 +187,8 @@ class Listener {
   }
 
   /** Saves how the socket is doing; a database blip here mustn't drop a good socket. */
-  private async health(trouble: ReturnType<typeof botTrouble> | null) {
-    await saveBotHealth(this.o.kernel.db, this.row.teamId, this.now, trouble).catch((err) =>
+  private async health(down: BotDown | null) {
+    await saveBotHealth(this.o.kernel.db, this.row.teamId, this.now, down).catch((err) =>
       this.o.log("Saving the Slack socket's health failed", err),
     );
   }
@@ -212,7 +216,7 @@ class Listener {
 
   private async revoke(code: string) {
     this.halt();
-    await this.health(botTrouble(code));
+    await this.health({ trouble: botTrouble(code), since: this.now });
     this.o.log(`Slack revoked Jarvis's bot (${code}); it waits for new tokens.`);
   }
 
