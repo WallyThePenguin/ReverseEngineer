@@ -1681,6 +1681,21 @@ or your spending limit needs to be increased"), but still dispatched to a self-h
 (probe run 37350213541). The PC is the only machine, and the live Hearth is on it, so CI there is
 worth having only if a slip in a workflow or a default can't touch the real thing.
 
+## D67. Jarvis adds guest-free events to your own calendar without asking (2026-10-05)
+
+**Decision:** `calendar.create_event` is internal: Jarvis may put an event with no guests on your
+own calendar (primary, or the one new events go to) without a yes, even in a turn that read an
+email. It has no guests field, so it can't invite anyone. A shared calendar is refused, since
+other people would see the event there. Moving and removing events still ask (`self_external`),
+and anything with guests still needs your yes. This loosens D25 for this one action.
+
+**Alternatives:** Keep the card for every new event (what the owner called "very manual"). Make
+update and delete internal too (an injected email could then move or remove real events).
+
+**Why:** The owner chose it on 2026-10-05: "Jarvis can't do things". The worst an injected email
+can do is add an event only you see, perhaps with a link in its notes, which you can see and
+delete.
+
 ## D68. Your Notion tickets come in through Notion's API, read-only, for Jarvis to make tasks from (2026-10-06)
 
 *This narrows D50's "not as a live link": imports stay exports; tasks are read live.*
