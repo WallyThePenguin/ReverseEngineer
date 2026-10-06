@@ -1684,7 +1684,10 @@ conversation of `caller.turnId` and that conversation's member. It writes one ou
   (`started_via = 'slack_member'`), so an owner turn never resumes a member's agent session with
   your data in it. "Ask Jarvis about this" starts a new owner conversation instead, which becomes
   tainted once it reads.
-- **Sessions start over after 12 idle hours**, from a Hearth recap (`recapConversation`).
+- **A DM's session starts over after 12 idle hours**, from a Hearth recap (`recapConversation`).
+  **A channel thread's turns never carry one:** each starts from the thread as Slack has it. Each
+  member there is answered at their own tier, and a kept session or recap would carry an earlier
+  turn's tool results and unsent words (a reply you declined) to someone else.
 
 **You asking Jarvis to message someone.**
 - **Finding them:** `slack.find_member {query}` (read) returns candidates with id, real name,
@@ -1823,7 +1826,8 @@ authorization names the bot user.
 - **Jarvis's activity** gets a Slack filter showing each member conversation, read-only, with
   Reply as Jarvis, Ask Jarvis about this, tier, Block and Pause (`slack.conversations`,
   `slack.conversation`, `slack.conversation_pause`, all yours only). It also shows the turns your
-  own Slack DM started, as "You asked in Slack".
+  own Slack DM started, as "You asked in Slack". A member conversation is read-only under that bar
+  wherever it shows, Jarvis's pane included, whose list marks it "Slack".
 - **Settings → Slack** gets the channels Jarvis may answer in, each with its tier, replies and
   last check, and the switch for full answers in your own DM.
 - **The inbox** gets relays, one card per member per hour (a VIP's may interrupt once a day,

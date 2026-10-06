@@ -1,6 +1,7 @@
 // What the screens need to know about Jarvis in your Slack (D62), kept apart from the views so it's
-// tested: which turns Slack started, how a member's conversation is named, where a reply as Jarvis
-// goes, and how "Ask Jarvis about this" asks without putting your turn in their conversation.
+// tested: which turns Slack started, how a member's conversation is named, that what you say never
+// goes into one, where a reply as Jarvis goes, and how "Ask Jarvis about this" asks without
+// putting your turn in their conversation.
 
 /** Who Jarvis goes how far for: a member's tier, or a channel's. */
 export type SlackTier = "blocked" | "off" | "relay" | "schedule";
@@ -32,6 +33,13 @@ export interface SlackConversation {
 export const MEMBER_CONVERSATION = "slack_member";
 export const isMemberConversation = (startedVia: string | null | undefined) =>
   startedVia === MEMBER_CONVERSATION;
+
+/**
+ * The conversation what you say goes into: the one showing, or a new one of yours (null). Never a
+ * Slack member's, wherever it shows: your words there would reach their next turn (D62).
+ */
+export const sendsInto = (id: string | null, startedVia: string | null | undefined) =>
+  id && !isMemberConversation(startedVia) ? id : null;
 
 /** A turn Slack started: someone in your workspace, or you in your DM with Jarvis. */
 export function isSlackTurn(t: { trigger: string; context?: Record<string, unknown> | null }) {

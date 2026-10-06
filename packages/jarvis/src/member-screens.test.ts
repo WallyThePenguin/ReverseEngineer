@@ -49,6 +49,14 @@ describe("the Slack screens", () => {
       ownerCaller(),
     );
     expect(res).toMatchObject({ status: "error", code: "not_found" });
+    // Your everyday list has theirs too, marked, so each screen showing one shows it read-only.
+    const listed = await t.ok<{ id: string; startedVia: string | null }[]>("conversation.list");
+    expect(listed.find((c) => c.id === dm!.id)?.startedVia).toBe("slack_member");
+    expect(listed.find((c) => c.id === mine.conversationId)?.startedVia).toBeNull();
+    const got = await t.ok<{ conversation: { startedVia: string } }>("conversation.get", {
+      id: dm!.id,
+    });
+    expect(got.conversation.startedVia).toBe("slack_member");
   });
 
   it("pause one conversation: what they write is passed on to you until you resume it", async () => {

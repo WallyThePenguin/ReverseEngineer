@@ -2,8 +2,9 @@
 // org, can be on, checked when you turn it on and every hour after; one that fails is turned off
 // and you're told. Everyone in a channel reads the answer, so a turn there gets the lower of the
 // member's tier and the channel's (yours too), only the answers for everyone, and the thread so
-// far as untrusted data. Anywhere Jarvis doesn't answer, the member hears so once a day.
-import { approval, notification, slackChannel, slackInbound } from "@hearth/db";
+// far as untrusted data, in a session of its own. Anywhere Jarvis doesn't answer, the member hears
+// so once a day.
+import { approval, conversation, notification, slackChannel, slackInbound } from "@hearth/db";
 import { integrationCaller, jarvisCaller, ownerCaller } from "@hearth/kernel";
 import { storeInbound } from "@hearth/modules";
 import { eq } from "drizzle-orm";
@@ -176,6 +177,55 @@ describe("a turn in a channel's thread", () => {
     expect(t.h.brain.requests.at(-1)!.system).toContain("Ana asked you there, but in front of");
     await turnOn("CLAUNCH", "schedule");
     expect(await offered("UME")).toContain("member_free_time");
+  });
+
+  it("starts each turn afresh, so one person's tool results and unsent words never reach another", async () => {
+    // The channel shares free time, so your turn there may look; Sam is at relay.
+    await turnOn("CLAUNCH", "schedule");
+    t.h.brain.next([
+      { call: "member_free_time", input: { minutes: 30, days: 1 } },
+      { say: "You're free at 2. CANARY-HELD" },
+    ]);
+    const root = await mention("UME", "CLAUNCH", "when am I free?");
+    await t.tick();
+    await t.drain();
+    // Channel replies wait for your yes, and you say no: the channel never sees it.
+    const [held] = await t.h.tdb.db
+      .select()
+      .from(approval)
+      .where(eq(approval.action, "slack.reply"));
+    await t.h.kernel.decideApproval(held!.id, "deny", ownerCaller());
+    t.h.brain.otherwise([{ say: "I'll pass that on." }]);
+    await mention(SAM, "CLAUNCH", "and when is she free for me?", root);
+    await t.tick();
+    await t.drain();
+    const [yours, sams] = t.h.brain.requests;
+    expect(yours!.tools.map((x) => x.name)).toContain("member_free_time");
+    // Not your turn's session, with its free time in it: a new one, at Sam's own tier.
+    expect(sams!.sessionId).toBeNull();
+    expect(sams!.tools.map((x) => x.name)).toEqual(["member_leave_message"]);
+    // Nor, 13 hours on, a recap of what Hearth kept, which has the reply you declined.
+    t.h.clock.advance(13 * 3_600_000);
+    t.s.clock += 13 * 3600;
+    await t.ok("slack.check_channels", {}, slack);
+    await mention(SAM, "CLAUNCH", "still there?", root);
+    await t.tick();
+    await t.drain();
+    const later = t.h.brain.requests[2]!;
+    expect(later.sessionId).toBeNull();
+    for (const req of [sams!, later]) {
+      expect(req.prompt).not.toContain("CANARY-HELD");
+      expect(req.system).not.toContain("CANARY-HELD");
+    }
+    // The thread as Slack has it is what they see.
+    expect(later.prompt).toContain("when am I free?");
+    const turns = await t.turns();
+    expect(turns.map((x) => x.status)).toEqual(["done", "done", "done"]);
+    const [c] = await t.h.tdb.db
+      .select()
+      .from(conversation)
+      .where(eq(conversation.entityId, turns[0]!.conversationId!));
+    expect(c!.agentSessionId).toBeNull();
   });
 });
 

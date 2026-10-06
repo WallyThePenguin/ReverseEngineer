@@ -9,6 +9,7 @@ import { jarvisLiveness } from "../lib/jarvis-health.ts";
 import { narrow } from "../lib/narrow.ts";
 import { layout } from "../lib/panes.ts";
 import { useAction } from "../lib/query.ts";
+import { isMemberConversation } from "../lib/slack.ts";
 import { moveToTrash } from "../lib/trash.ts";
 import type { ConversationRow, SystemStatus } from "../lib/types.ts";
 import { Conversation } from "./Conversation.tsx";
@@ -241,6 +242,10 @@ export function JarvisPane() {
                         }}
                       >
                         <span class="flex-1 truncate text-sm">{c.title || "Untitled"}</span>
+                        {/* Someone in your Slack's, which you read but don't write in (D62). */}
+                        <Show when={isMemberConversation(c.startedVia)}>
+                          <Badge>Slack</Badge>
+                        </Show>
                         <span class="text-xs text-faint">{ago(c.lastTurnAt ?? c.updatedAt)}</span>
                       </button>
                     }

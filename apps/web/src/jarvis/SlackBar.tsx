@@ -6,7 +6,6 @@
 import { createSignal, For, Show } from "solid-js";
 import { Badge, Button } from "../components/ui.tsx";
 import { toast } from "../lib/live.ts";
-import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
 import {
   askAbout,
@@ -20,7 +19,11 @@ import {
 
 const select = "rounded-md border border-line bg-panel px-2 py-1 text-sm";
 
-export function SlackBar(props: { id: string }) {
+export function SlackBar(props: {
+  id: string;
+  /** Shows the conversation of yours that "Ask Jarvis about this" started. */
+  onAsked: (id: string) => void;
+}) {
   const c = useAction<SlackConversation>("slack.conversation", () => ({ id: props.id }));
   const [reply, setReply] = createSignal("");
   const [replying, setReplying] = createSignal(false);
@@ -36,7 +39,7 @@ export function SlackBar(props: { id: string }) {
   };
   const ask = async () => {
     const r = await act<{ conversationId: string }>("chat.send", { text: askAbout(props.id) });
-    if (r) layout.open({ view: "chat", id: r.conversationId }, { beside: true });
+    if (r) props.onAsked(r.conversationId);
   };
   const pause = (hours: number) => void act("slack.conversation_pause", { id: props.id, hours });
 

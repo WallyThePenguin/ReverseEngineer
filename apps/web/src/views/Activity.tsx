@@ -125,26 +125,33 @@ export function Activity() {
             <ul class="divide-y divide-line">
               <For each={shown()}>
                 {(t) => (
-                  <li class="cursor-pointer py-2.5" onClick={(e) => openTurn(t, e.shiftKey)}>
-                    <div class="flex items-center gap-2 text-sm">
-                      <span class="font-medium">{triggerOf(t)}</span>
-                      <Show when={t.mode === "proactive"}>
-                        <Badge tone="jarvis">On its own</Badge>
+                  <li>
+                    {/* A button, so Tab reaches it and Enter opens it: spans inside, not blocks. */}
+                    <button
+                      type="button"
+                      class="block w-full py-2.5 text-left hover:bg-sunk"
+                      onClick={(e) => openTurn(t, e.shiftKey)}
+                    >
+                      <span class="flex items-center gap-2 text-sm">
+                        <span class="font-medium">{triggerOf(t)}</span>
+                        <Show when={t.mode === "proactive"}>
+                          <Badge tone="jarvis">On its own</Badge>
+                        </Show>
+                        <Badge tone={outcomeTone(t)}>
+                          {t.status === "done" ? (t.outcome ?? "done") : t.status}
+                        </Badge>
+                        <span class="flex-1" />
+                        <span class="text-xs text-faint">{ago(t.queuedAt)}</span>
+                      </span>
+                      <span class="mt-0.5 line-clamp-2 text-sm text-muted">
+                        {t.reply ?? t.skipReason ?? t.error ?? t.prompt}
+                      </span>
+                      <Show when={t.toolsUsed.length > 0}>
+                        <span class="mt-0.5 block text-xs text-faint">
+                          Used {[...new Set(t.toolsUsed)].join(", ")}
+                        </span>
                       </Show>
-                      <Badge tone={outcomeTone(t)}>
-                        {t.status === "done" ? (t.outcome ?? "done") : t.status}
-                      </Badge>
-                      <span class="flex-1" />
-                      <span class="text-xs text-faint">{ago(t.queuedAt)}</span>
-                    </div>
-                    <p class="mt-0.5 line-clamp-2 text-sm text-muted">
-                      {t.reply ?? t.skipReason ?? t.error ?? t.prompt}
-                    </p>
-                    <Show when={t.toolsUsed.length > 0}>
-                      <p class="mt-0.5 text-xs text-faint">
-                        Used {[...new Set(t.toolsUsed)].join(", ")}
-                      </p>
-                    </Show>
+                    </button>
                   </li>
                 )}
               </For>

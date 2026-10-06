@@ -113,6 +113,8 @@ export const chatModule = defineModule({
             updatedAt: entity.updatedAt,
             subjectId: conversation.subjectId,
             lastTurnAt: conversation.lastTurnAt,
+            // A Slack member's shows as theirs in your list: you read it, never write in it (D62).
+            startedVia: conversation.startedVia,
           })
           .from(entity)
           .innerJoin(conversation, eq(conversation.entityId, entity.id))

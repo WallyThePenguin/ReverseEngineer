@@ -1,6 +1,8 @@
 // A conversation with Jarvis: messages, the tools it used, approvals it's waiting on, and the
 // reply streaming in as it's written. Live and reloaded views come from the same fold. A Slack
-// member's conversation is read-only, under a bar you act from (SlackBar.tsx, D62).
+// member's conversation is read-only, under a bar you act from (SlackBar.tsx, D62), wherever it
+// shows, in its own pane or in Jarvis's. That's decided here, from the conversation, so no screen
+// that shows one can forget it.
 
 import { foldConversation, fromEditForm } from "@hearth/core";
 import { createEffect, createSignal, For, Match, on, onCleanup, Show, Switch } from "solid-js";
@@ -10,8 +12,9 @@ import { Button, PaneHeader } from "../components/ui.tsx";
 import { MOD } from "../lib/hotkeys.ts";
 import { live } from "../lib/live.ts";
 import { narrow } from "../lib/narrow.ts";
+import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
-import { isMemberConversation } from "../lib/slack.ts";
+import { isMemberConversation, sendsInto } from "../lib/slack.ts";
 import { hush, mic, say, talkTaken, talkWanted } from "../lib/speech.ts";
 import type { LogRecord } from "../lib/types.ts";
 import { RenameInput, renameConversation } from "./Rename.tsx";
@@ -34,12 +37,11 @@ interface ConversationData {
 
 export function Conversation(props: {
   id: string | null;
+  /** A conversation of yours started from here: one you wrote, or "Ask Jarvis about this". */
   onCreated?: (id: string) => void;
   /** The conversation is gone (trashed, or from before a restore). */
   onMissing?: () => void;
   compact?: boolean;
-  /** A Slack member's: only their turns write here (D62). */
-  readOnly?: boolean;
 }) {
   const data = useAction<ConversationData>(
     "conversation.get",
@@ -49,6 +51,11 @@ export function Conversation(props: {
   createEffect(() => {
     if ((data.error as { code?: string } | null)?.code === "not_found") props.onMissing?.();
   });
+  // A Slack member's: only their turns write here (D62).
+  const member = () => !!props.id && isMemberConversation(data.data?.conversation.startedVia);
+  // Shown where you are if this place can show it, or in a pane beside it.
+  const started = (id: string) =>
+    props.onCreated ? props.onCreated(id) : layout.open({ view: "chat", id }, { beside: true });
   const view = () => foldConversation(data.data?.log ?? []);
   const streaming = () =>
     Object.entries(live.streams())
@@ -136,21 +143,24 @@ export function Conversation(props: {
     if (!text || sending()) return false;
     if (!spoken) setSpeakFrom(null);
     setSending(true);
+    // In a member's conversation only the phone's mic gets here, and starts one of yours.
+    const into = sendsInto(props.id, data.data?.conversation.startedVia);
     const r = await act<{ conversationId: string }>("chat.send", {
       text,
       ...(spoken ? { heard: true } : {}),
-      ...(props.id ? { conversationId: props.id } : {}),
+      ...(into ? { conversationId: into } : {}),
     });
     setSending(false);
     if (!r) return false;
     setDraft("");
     toBottom();
-    if (!props.id) props.onCreated?.(r.conversationId);
+    if (!into) started(r.conversationId);
     return true;
   };
 
   return (
     <div class="relative flex h-full flex-col">
+      <Show when={member() && props.id}>{(id) => <SlackBar id={id()} onAsked={started} />}</Show>
       <div
         ref={scroller}
         class="flex-1 space-y-3 overflow-auto px-4 py-3"
@@ -257,12 +267,12 @@ export function Conversation(props: {
           </button>
         </div>
       </Show>
-      <Show when={props.readOnly}>
+      <Show when={member()}>
         <p class="border-t border-line px-4 py-2 text-xs text-muted">
           Only their own Jarvis turns write here. Reply as Jarvis, or ask Jarvis about it, above.
         </p>
       </Show>
-      <div class={`border-t border-line p-3 ${props.readOnly ? "hidden" : ""}`}>
+      <div class={`border-t border-line p-3 ${member() ? "hidden" : ""}`}>
         <MentionEditor
           value={draft()}
           onInput={setDraft}
@@ -355,11 +365,8 @@ export function ChatView(props: { id: string }) {
         menu={data.data ? [{ label: "Rename", run: () => setRenaming(true) }] : []}
         record={data.data ? { id: props.id, type: "conversation" } : undefined}
       />
-      <Show when={member()}>
-        <SlackBar id={props.id} />
-      </Show>
       <div class="min-h-0 flex-1">
-        <Conversation id={props.id} readOnly={member()} />
+        <Conversation id={props.id} />
       </div>
     </div>
   );

@@ -23,23 +23,27 @@ export function SlackConversations() {
         <ul class="divide-y divide-line">
           <For each={list.data}>
             {(c) => (
-              <li
-                class="flex cursor-pointer items-center gap-2 py-2 text-sm"
-                onClick={(e) => layout.open({ view: "chat", id: c.id }, { beside: e.shiftKey })}
-              >
-                <span class="flex-1 font-medium">{placeOf(c)}</span>
-                <Show when={pausedNow(c)}>
-                  <Badge tone="warn">Paused</Badge>
-                </Show>
-                <Show when={c.heldReplies > 0}>
-                  <Badge tone="jarvis">Needs your yes</Badge>
-                </Show>
-                <Show when={c.waiting > 0}>
-                  <Badge>{`${c.waiting} waiting`}</Badge>
-                </Show>
-                <Show when={c.lastAt}>
-                  {(at) => <span class="text-xs text-faint">{ago(at())}</span>}
-                </Show>
+              <li>
+                {/* A button, so Tab reaches it and Enter opens it. */}
+                <button
+                  type="button"
+                  class="flex w-full items-center gap-2 py-2 text-left text-sm hover:bg-sunk"
+                  onClick={(e) => layout.open({ view: "chat", id: c.id }, { beside: e.shiftKey })}
+                >
+                  <span class="flex-1 font-medium">{placeOf(c)}</span>
+                  <Show when={pausedNow(c)}>
+                    <Badge tone="warn">Paused</Badge>
+                  </Show>
+                  <Show when={c.heldReplies > 0}>
+                    <Badge tone="jarvis">Needs your yes</Badge>
+                  </Show>
+                  <Show when={c.waiting > 0}>
+                    <Badge>{`${c.waiting} waiting`}</Badge>
+                  </Show>
+                  <Show when={c.lastAt}>
+                    {(at) => <span class="text-xs text-faint">{ago(at())}</span>}
+                  </Show>
+                </button>
               </li>
             )}
           </For>
