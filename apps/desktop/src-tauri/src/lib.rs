@@ -938,6 +938,8 @@ pub fn run(cli_args: CliArgs) {
             Some(vec!["--start-hidden"]),
         ))
         // Hearth's window opens where you left it. Only that window: the others place themselves.
+        // It puts itself back (hearth/sight.rs), so loading out of sight at login it isn't
+        // maximized, which would show it.
         .plugin(
             tauri_plugin_window_state::Builder::new()
                 .with_state_flags(
@@ -946,6 +948,7 @@ pub fn run(cli_args: CliArgs) {
                         | tauri_plugin_window_state::StateFlags::MAXIMIZED,
                 )
                 .with_filter(|label| label == hearth::window::MAIN)
+                .skip_initial_state(hearth::window::MAIN)
                 .build(),
         )
         .manage(cli_args.clone())
@@ -1115,11 +1118,16 @@ pub fn run(cli_args: CliArgs) {
             let tray_available = settings.show_tray_icon && !cli_args.no_tray;
 
             // Hearth (D53): opening the app opens Hearth's window, or the page a hearth:// link
-            // asked for. The voice settings window comes up as well while voice isn't set up
-            // (no speech model yet), or when Windows blocks the microphone.
+            // asked for. Starting hidden (with Windows), Hearth's window loads out of sight, so
+            // it's ready when you first open it. The voice settings window comes up as well while
+            // voice isn't set up (no speech model yet), or when Windows blocks the microphone.
             let opened_by_link = hearth::deeplink::init(&app_handle);
-            if !opened_by_link && (!should_hide || !tray_available) {
-                hearth::window::open(&app_handle, "/");
+            if !opened_by_link {
+                if should_hide && tray_available {
+                    hearth::window::preload(&app_handle);
+                } else {
+                    hearth::window::open(&app_handle, "/");
+                }
             }
             if should_force_show || (!should_hide && !has_downloaded_model(&app_handle)) {
                 show_main_window(&app_handle);
@@ -1131,6 +1139,8 @@ pub fn run(cli_args: CliArgs) {
             tauri::WindowEvent::CloseRequested { api, .. } => {
                 api.prevent_close();
                 let _res = window.hide();
+                // Hearth's page rests out of sight, as in a background tab.
+                hearth::sight::hidden(window);
 
                 #[cfg(target_os = "macos")]
                 {
@@ -1151,6 +1161,8 @@ pub fn run(cli_args: CliArgs) {
             }
             // Hearth's small windows (quick capture, ask Jarvis) tuck away on clicking elsewhere.
             tauri::WindowEvent::Focused(false) => hearth::window::blurred(window),
+            // Minimized, Hearth's page rests as it does in the tray.
+            tauri::WindowEvent::Resized(_) => hearth::sight::resized(window),
             tauri::WindowEvent::ThemeChanged(theme) => {
                 log::info!("Theme changed to: {:?}", theme);
                 // Re-apply the current tray state with the new theme's icon set
@@ -1184,6 +1196,8 @@ pub fn run(cli_args: CliArgs) {
             }
             show_main_window(app);
         }
+        // Before the window-state plugin saves Hearth's window on the way out (hearth/sight.rs).
+        tauri::RunEvent::ExitRequested { .. } => hearth::sight::quitting(app),
         // Teardown transcribe.cpp before exit
         tauri::RunEvent::Exit => {
             if let Some(tm) = app.try_state::<Arc<TranscriptionManager>>() {

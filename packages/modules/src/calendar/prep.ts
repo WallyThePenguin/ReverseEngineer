@@ -2,7 +2,16 @@
 // with what Hearth knows about it: the guests, the last time you met, linked records and open
 // tasks. Jarvis writes it up; if it can't, you get the plain facts (PLAN.md section 6.2).
 import { formatDateTime, localDate } from "@hearth/core";
-import { calendar, calendarEvent, entity, link, meeting, personEmail, task } from "@hearth/db";
+import {
+  calendar,
+  calendarEvent,
+  type DbOrTx,
+  entity,
+  link,
+  meeting,
+  personEmail,
+  task,
+} from "@hearth/db";
 import {
   addLink,
   createEntity,
@@ -59,22 +68,35 @@ export async function eventsToPrep(ctx: ReadContext, hours = 48): Promise<EventV
       ),
     )
     .orderBy(asc(calendarEvent.startsAt));
-  return rows
-    .map((x) => toEventView(x.e, x.r))
-    .filter((v) => v.selfResponse !== "declined")
-    .filter(
-      (v) => guests(v).length > 0 || v.endsAt.getTime() - v.startsAt.getTime() >= min * 60_000,
-    );
+  return rows.map((x) => toEventView(x.e, x.r)).filter((v) => worthPrep(v, min));
 }
 
-async function hasPrep(ctx: ReadContext, eventId: string): Promise<boolean> {
-  const [row] = await ctx.db
-    .select({ id: link.id })
+/**
+ * A real meeting: not cancelled, all-day, declined or a time block, and with guests or at least
+ * `minMinutes` long.
+ */
+export function worthPrep(v: EventView, minMinutes: number): boolean {
+  if (v.status === "cancelled" || v.allDay || v.taskId || v.selfResponse === "declined")
+    return false;
+  return guests(v).length > 0 || v.endsAt.getTime() - v.startsAt.getTime() >= minMinutes * 60_000;
+}
+
+/** Each event's prep packet, if it has one: event id → the packet's record. */
+export async function prepsFor(
+  db: DbOrTx,
+  eventIds: string[],
+): Promise<Map<string, { id: string; body: string }>> {
+  if (eventIds.length === 0) return new Map();
+  const rows = await db
+    .select({ eventId: link.toId, id: entity.id, body: entity.body })
     .from(link)
     .innerJoin(entity, eq(entity.id, link.fromId))
-    .where(and(eq(link.toId, eventId), eq(entity.type, "prep"), isNull(entity.deletedAt)));
-  return Boolean(row);
+    .where(and(inArray(link.toId, eventIds), eq(entity.type, "prep"), isNull(entity.deletedAt)));
+  return new Map(rows.map((r) => [r.eventId, { id: r.id, body: r.body ?? "" }]));
 }
+
+const hasPrep = async (ctx: ReadContext, eventId: string) =>
+  (await prepsFor(ctx.db, [eventId])).has(eventId);
 
 /**
  * The plain facts for one event's packet. `outside` says they quote a meeting's notes, which hold

@@ -1,5 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CHECK_EVERY_MS, noticeFor, pageBuild, watchBuild } from "./version.ts";
+import {
+  CHECK_EVERY_MS,
+  freeze,
+  noticeFor,
+  pageBuild,
+  reloadedFor,
+  reloadInto,
+  reloadOnReturn,
+  watchBuild,
+  wouldLoseWork,
+} from "./version.ts";
 
 describe("whether the page is the Hearth that's running", () => {
   const fits = { ok: true };
@@ -42,33 +52,207 @@ describe("asking which build is running", () => {
     const doc = Object.assign(new EventTarget(), {
       visibilityState: "visible" as DocumentVisibilityState,
     });
-    let asked = 0;
-    const stop = watchBuild(
-      () => {
-        asked += 1;
-      },
-      win,
-      doc,
-    );
-    expect(asked).toBe(1);
+    // Each ask, and whether it was for the page coming back into view.
+    const asked: boolean[] = [];
+    const stop = watchBuild((idle) => asked.push(idle !== undefined), win, doc);
+    expect(asked).toEqual([false]);
     vi.advanceTimersByTime(CHECK_EVERY_MS);
-    expect(asked).toBe(2);
+    expect(asked).toEqual([false, false]);
     // A tab left in the background doesn't ask, not even when the network comes back (a laptop
     // waking up).
     doc.visibilityState = "hidden";
     doc.dispatchEvent(new Event("visibilitychange"));
     vi.advanceTimersByTime(6 * CHECK_EVERY_MS);
     win.dispatchEvent(new Event("online"));
-    expect(asked).toBe(2);
-    // Back in view, or back online: it asks at once.
+    expect(asked).toEqual([false, false]);
+    // Back in view, or back online: it asks at once. Only coming back counts as coming back.
     doc.visibilityState = "visible";
     doc.dispatchEvent(new Event("visibilitychange"));
-    expect(asked).toBe(3);
+    expect(asked).toEqual([false, false, true]);
     win.dispatchEvent(new Event("online"));
-    expect(asked).toBe(4);
+    expect(asked).toEqual([false, false, true, false]);
     stop();
     vi.advanceTimersByTime(CHECK_EVERY_MS);
     win.dispatchEvent(new Event("online"));
-    expect(asked).toBe(4);
+    doc.dispatchEvent(new Event("visibilitychange"));
+    expect(asked).toHaveLength(4);
+  });
+});
+
+describe("whether you've done anything since the page came back", () => {
+  it("knows of a key, a tap, a paste or a drop after it came back, for that return", () => {
+    const win = new EventTarget();
+    const doc = Object.assign(new EventTarget(), {
+      visibilityState: "visible" as DocumentVisibilityState,
+    });
+    const returns: (() => boolean)[] = [];
+    const stop = watchBuild(
+      (idle) => {
+        if (idle) returns.push(idle);
+      },
+      win,
+      doc,
+    );
+    const away = () => {
+      doc.visibilityState = "hidden";
+      doc.dispatchEvent(new Event("visibilitychange"));
+    };
+    const back = () => {
+      doc.visibilityState = "visible";
+      doc.dispatchEvent(new Event("visibilitychange"));
+      return returns.at(-1)!;
+    };
+    for (const kind of ["keydown", "pointerdown", "input", "paste", "drop"]) {
+      away();
+      const idle = back();
+      expect(idle()).toBe(true);
+      // Asked again later (the server took a while to answer): it's what's happened since.
+      win.dispatchEvent(new Event(kind));
+      expect(idle()).toBe(false);
+    }
+    // Each return starts afresh; what you did after an earlier one still counts for that one.
+    const first = returns.at(-1)!;
+    away();
+    const second = back();
+    expect(second()).toBe(true);
+    expect(first()).toBe(false);
+    // Moving the mouse over it or scrolling isn't doing something.
+    win.dispatchEvent(new Event("pointermove"));
+    win.dispatchEvent(new Event("wheel"));
+    expect(second()).toBe(true);
+    stop();
+    win.dispatchEvent(new Event("keydown"));
+    expect(second()).toBe(true);
+  });
+});
+
+describe("coming back to a page from before an update", () => {
+  const fits = { ok: true };
+  const newer = { build: "def", migrations: fits };
+  const loses = (lost: boolean) => () => lost;
+
+  it("reloads into the new build when that loses nothing", () => {
+    expect(reloadOnReturn("updated", newer, null, loses(false))).toBe("def");
+  });
+
+  it("asks first when something on the page would be lost", () => {
+    expect(reloadOnReturn("updated", newer, null, loses(true))).toBeNull();
+  });
+
+  it("leaves a page that's up to date, or can't be fixed by reloading, as it is", () => {
+    let asked = false;
+    const lost = () => {
+      asked = true;
+      return false;
+    };
+    expect(reloadOnReturn(null, { build: "abc", migrations: fits }, null, lost)).toBeNull();
+    expect(
+      reloadOnReturn("mismatch", { build: "def", migrations: { ok: false } }, null, lost),
+    ).toBe(null);
+    expect(reloadOnReturn(null, null, null, lost)).toBeNull();
+    // Nothing to reload for, so the page isn't asked what it would lose.
+    expect(asked).toBe(false);
+  });
+
+  it("doesn't reload again for a build it reloaded into and still came up old", () => {
+    expect(reloadOnReturn("updated", newer, "def", loses(false))).toBeNull();
+    // A later build is worth another try.
+    expect(reloadOnReturn("updated", { build: "ghi", migrations: fits }, "def", loses(false))).toBe(
+      "ghi",
+    );
+  });
+
+  it("notes the build it reloads into, for this tab", () => {
+    const kept = new Map<string, string>();
+    const store = {
+      getItem: (k: string) => kept.get(k) ?? null,
+      setItem: (k: string, v: string) => void kept.set(k, v),
+    };
+    let reloaded = 0;
+    expect(reloadedFor(store)).toBeNull();
+    reloadInto("def", store, () => {
+      reloaded += 1;
+    });
+    expect(reloaded).toBe(1);
+    expect(reloadedFor(store)).toBe("def");
+    // Storage blocked: it reloads all the same, and knows of no earlier reload.
+    const blocked = {
+      getItem: (): string | null => {
+        throw new Error("blocked");
+      },
+      setItem: () => {
+        throw new Error("blocked");
+      },
+    };
+    reloadInto("def", blocked, () => {
+      reloaded += 1;
+    });
+    expect(reloaded).toBe(2);
+    expect(reloadedFor(blocked)).toBeNull();
+  });
+
+  it("takes nothing more into the page it's leaving", () => {
+    let blurred = 0;
+    const blur = () => {
+      blurred += 1;
+    };
+    const field = { blur } as unknown as Element;
+    const page = { activeElement: field, body: { inert: false } };
+    freeze(page);
+    expect(blurred).toBe(1);
+    expect(page.body.inert).toBe(true);
+    // Nothing focused, or no body yet: nothing to do there.
+    freeze({ activeElement: null, body: null });
+  });
+});
+
+describe("whether reloading would lose something", () => {
+  type Field = {
+    type: string;
+    value: string;
+    defaultValue: string;
+    readOnly?: boolean;
+    disabled?: boolean;
+  };
+  const page = (...fields: Field[]) =>
+    ({ querySelectorAll: () => fields }) as unknown as Pick<ParentNode, "querySelectorAll">;
+  const empty = (type: string): Field => ({ type, value: "", defaultValue: "" });
+
+  it("loses nothing when no field has anything in it and nothing's waiting to be saved", () => {
+    const fields = page(empty("text"), empty("search"), empty("textarea"));
+    expect(wouldLoseWork(new EventTarget(), fields)).toBe(false);
+    expect(wouldLoseWork(new EventTarget(), page())).toBe(false);
+  });
+
+  it("would lose text typed into a field", () => {
+    const typed = { ...empty("textarea"), value: "Ask Jarvis to" };
+    expect(wouldLoseWork(new EventTarget(), page(empty("text"), typed))).toBe(true);
+    expect(wouldLoseWork(new EventTarget(), page({ ...empty("text"), value: "Buy milk" }))).toBe(
+      true,
+    );
+  });
+
+  it("doesn't count boxes, buttons and fields you can't type into", () => {
+    const fields = page(
+      { ...empty("checkbox"), value: "on" },
+      { ...empty("hidden"), value: "token" },
+      { ...empty("range"), value: "50" },
+      { ...empty("text"), value: "https://example.test", readOnly: true },
+      { ...empty("text"), value: "kept", disabled: true },
+      // What the page itself wrote into the field's markup is what it was given.
+      { type: "text", value: "Groceries", defaultValue: "Groceries" },
+    );
+    expect(wouldLoseWork(new EventTarget(), fields)).toBe(false);
+  });
+
+  it("asks the page's own leave-this-page guards, as the browser does", () => {
+    const win = new EventTarget();
+    let unsaved = true;
+    win.addEventListener("beforeunload", (e) => {
+      if (unsaved) e.preventDefault();
+    });
+    expect(wouldLoseWork(win, page())).toBe(true);
+    unsaved = false;
+    expect(wouldLoseWork(win, page())).toBe(false);
   });
 });
