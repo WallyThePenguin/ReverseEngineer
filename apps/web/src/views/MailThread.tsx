@@ -108,7 +108,12 @@ export function MailThreadPane(props: { id: string; pane: number }) {
             </For>
             {/* Keyed by id, so a draft being typed in isn't redrawn when it saves. */}
             <For each={draftIds()}>
-              {(id) => <Composer draft={(drafts.data ?? []).find((d) => d.id === id)!} />}
+              {(id) => (
+                <Composer
+                  draft={(drafts.data ?? []).find((d) => d.id === id)!}
+                  conversation={v().subject}
+                />
+              )}
             </For>
             <div class="flex gap-2">
               <Button small onClick={() => reply(false)}>
