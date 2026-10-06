@@ -3,8 +3,8 @@
 
 import { createQuery } from "@tanstack/solid-query";
 import { createSignal } from "solid-js";
+import { alertsOnThisDevice } from "./alertsHere.ts";
 import { request } from "./api.ts";
-import { inDesktopApp } from "./desktop.ts";
 import { queryClient, reportError, toast } from "./live.ts";
 
 export interface PushDevice {
@@ -54,9 +54,12 @@ export function usePush() {
     void queryClient.invalidateQueries({ queryKey: ["system.status"] });
   };
   const [busy, setBusy] = createSignal(false);
+  const here = alertsOnThisDevice();
   // In Hearth's Windows app, its own notifications take the place of the browser's.
-  const desktopApp = inDesktopApp();
-  const supported = !desktopApp && "serviceWorker" in navigator && "PushManager" in window;
+  const desktopApp = here === "desktop";
+  const supported = here === "push";
+  /** An iPhone or iPad in Safari: notifications come once Hearth is on the Home Screen. */
+  const needsHomeScreen = here === "home-screen";
   /** This device gets notifications. */
   const on = () => {
     const s = query.data;
@@ -105,5 +108,16 @@ export function usePush() {
       reportError(err);
     }
   };
-  return { query, busy, desktopApp, supported, on, canTurnOn, turnOn, remove, test };
+  return {
+    query,
+    busy,
+    desktopApp,
+    supported,
+    needsHomeScreen,
+    on,
+    canTurnOn,
+    turnOn,
+    remove,
+    test,
+  };
 }

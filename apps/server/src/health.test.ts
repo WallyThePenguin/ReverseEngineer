@@ -116,6 +116,16 @@ describe("deep health", () => {
         turn("failed", 10),
         turn("failed", 2, true),
       ]);
+    // Two days' failures say which routine, but one of yours only as "owner_routine".
+    const routine = (name: string) => ({
+      ...turn("failed", 60 * 30),
+      trigger: "routine" as const,
+      errorKind: "timeout",
+      context: { routine: name },
+    });
+    await t.kernel.db
+      .insert(jarvisTurn)
+      .values([routine("brief"), routine("Water the plants"), routine("Ask Sam about rent")]);
     t.clock.advance(5 * 60_000);
 
     const report = (await (await local(t)).json()) as DeepHealth;
@@ -126,6 +136,11 @@ describe("deep health", () => {
       total: 2,
       failed: 1,
       last: { status: "failed", error: "400 tools.124: invalid pattern" },
+      failures48h: [
+        { trigger: "routine", routine: "owner_routine", errorKind: "timeout", n: 2 },
+        { trigger: "chat", routine: null, errorKind: "bad_tool", n: 1 },
+        { trigger: "routine", routine: "brief", errorKind: "timeout", n: 1 },
+      ],
     });
     expect(report.problems.some((p) => p.startsWith("Jarvis's last turn failed"))).toBe(true);
   });

@@ -124,8 +124,8 @@ function Assert-Healthy([string]$Sha, [datetime]$Since, $Before) {
 
 $exit = 1
 $applied = @()
-# $stopped: nothing runs the code on disk, so it can change. $startAgain: this run stopped Hearth
-# and hasn't started it all again, so the catch does. They differ once a start fails partway: on
+# $stopped: nothing runs the code on disk, so it can change. $startAgain: this run stopped Hearth,
+# or began to, and hasn't started it all again, so the catch does. They differ once a start fails partway: on
 # the same commit (-Force) there's nothing to roll back, but Hearth must still start again.
 $stopped = $false
 $startAgain = $false
@@ -163,9 +163,12 @@ try {
     $dump = "$Root\data\backups\pre-update-$stamp.dump"
     Invoke-Native "Safety dump: $dump" { pg_dump --format=custom --file $dump --dbname (Get-EnvValue "HEARTH_DATABASE_URL") }
 
+    # Before the stop, not after: one that fails partway has already stopped what came before it
+    # (WinSW can fail to stop a service, as on 2026-10-06), and the catch must start that again,
+    # on this same commit, rather than leave Hearth down.
+    $startAgain = $true
     Stop-Hearth
     $stopped = $true
-    $startAgain = $true
     Invoke-Native "Moving to $($new.Substring(0, 7))" { git merge --ff-only $new }
   } elseif ((git rev-parse HEAD).Trim() -ne $new) {
     throw "The Hearth folder isn't on $($new.Substring(0, 7)), where the update left off."

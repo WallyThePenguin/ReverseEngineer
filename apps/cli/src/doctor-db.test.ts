@@ -177,7 +177,8 @@ describe("hearth doctor, what the database says", () => {
     const checks = await checkDatabase(t.tdb, t.clock.now());
     expect(find(checks, "Jarvis turns")).toMatchObject({
       mark: "fail",
-      detail: "1 of 3 failed in the last 24 hours. Last error: 400 tools.124: invalid pattern",
+      detail:
+        "1 of 3 failed in the last 24 hours. Last error: 400 tools.124: invalid pattern Failures in 48 hours: chat/unknown x1.",
     });
   });
 
@@ -206,5 +207,20 @@ describe("hearth doctor, what the database says", () => {
     expect(checkTurns(stats(40, 0)).mark).toBe("ok");
     expect(checkTurns(stats(40, 2)).mark).toBe("warn");
     expect(checkTurns(stats(40, 5)).mark).toBe("fail");
+  });
+
+  it("says which turns failed and how, from counts alone", () => {
+    const check = checkTurns({
+      total: 5,
+      failed: 2,
+      last: null,
+      failures48h: [
+        { trigger: "routine", routine: "heartbeat", errorKind: "timeout", n: 2 },
+        { trigger: "chat", routine: null, errorKind: null, n: 1 },
+      ],
+    });
+    expect(check.detail).toBe(
+      "2 of 5 failed in the last 24 hours. Failures in 48 hours: heartbeat/timeout x2, chat/unknown x1.",
+    );
   });
 });
