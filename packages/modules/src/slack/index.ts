@@ -7,10 +7,12 @@ import { and, desc, eq, gte, ilike } from "drizzle-orm";
 import { z } from "zod";
 import { syncFailedReflex } from "../connector-health.ts";
 import { describeRow, liveEntity, preview } from "../shared.ts";
+import { slackForYou } from "./asks.ts";
 import { connectActions } from "./connect.ts";
 import { syncSlack } from "./sync.ts";
 
 export { httpSlack, SLACK_SERVICE, type SlackApi } from "./api.ts";
+export { SLACK_ASKS, SLACK_FOR_YOU, slackContext, slackCovered, taskAbout } from "./asks.ts";
 export { SLACK_SCOPES } from "./connect.ts";
 export { FakeSlack } from "./fake.ts";
 
@@ -189,6 +191,6 @@ export const slackModule = defineModule({
       handler: (_i, ctx) => syncSlack(ctx),
     }),
   ],
-  reflexes: [syncFailed],
+  reflexes: [syncFailed, slackForYou],
   digest,
 });

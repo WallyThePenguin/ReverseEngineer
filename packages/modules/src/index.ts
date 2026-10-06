@@ -113,9 +113,14 @@ export {
 export {
   FakeSlack,
   httpSlack,
+  SLACK_ASKS,
+  SLACK_FOR_YOU,
   SLACK_SCOPES,
   SLACK_SERVICE,
   type SlackApi,
+  slackContext,
+  slackCovered,
+  taskAbout,
 } from "./slack/index.ts";
 export {
   type HealthRecord,
