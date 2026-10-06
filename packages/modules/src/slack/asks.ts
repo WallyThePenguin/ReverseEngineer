@@ -12,13 +12,27 @@ export const SLACK_ASKS = 15;
 /** How a Slack message set aside for the heartbeat is worded: the heartbeat looks for it. */
 export const SLACK_FOR_YOU = "Slack message for you";
 
-/** A task that links to this record (an m-ref in its body, say), if one is still around. */
-export async function taskAbout(db: DbOrTx, recordId: string): Promise<string | null> {
+/**
+ * A task that links to this record (an m-ref in its body, say), if one is still around; with
+ * `since`, only one made since then.
+ */
+export async function taskAbout(
+  db: DbOrTx,
+  recordId: string,
+  since?: Date,
+): Promise<string | null> {
   const [t] = await db
     .select({ id: entity.id })
     .from(link)
     .innerJoin(entity, eq(entity.id, link.fromId))
-    .where(and(eq(link.toId, recordId), eq(entity.type, "task"), isNull(entity.deletedAt)))
+    .where(
+      and(
+        eq(link.toId, recordId),
+        eq(entity.type, "task"),
+        isNull(entity.deletedAt),
+        since ? gte(entity.createdAt, since) : undefined,
+      ),
+    )
     .limit(1);
   return t?.id ?? null;
 }

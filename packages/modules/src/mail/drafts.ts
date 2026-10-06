@@ -4,6 +4,7 @@ import { PRINCIPAL } from "@hearth/core";
 import {
   type DbOrTx,
   entity,
+  jarvisTurn,
   type MailAddress,
   mailAccount,
   mailDraft,
@@ -23,6 +24,7 @@ import { z } from "zod";
 import { body, id } from "../shared.ts";
 import { cleanName, newMessageId } from "./mime.ts";
 import { loadThread } from "./views.ts";
+import { threadsToDraft } from "./waiting.ts";
 
 const address = z.string().trim().max(320).describe('An email address, or "Name <address>".');
 const addresses = z.array(address).max(50);
@@ -199,6 +201,27 @@ async function oneDraftEach(ctx: ActionContext, threadId: string): Promise<void>
     );
 }
 
+/** Jarvis's own rounds of reply drafts, as opposed to a draft you asked for. */
+const ON_ITS_OWN = new Set(["heartbeat", "reply_drafts"]);
+
+/**
+ * In a round Jarvis does on its own, the conversation must still need a draft when it writes:
+ * you may have replied, archived it or pressed Reply since the round began.
+ */
+async function stillNeedsDraft(ctx: ActionContext, threadId: string): Promise<void> {
+  if (!ctx.caller.turnId) return;
+  const [turn] = await ctx.tx
+    .select({ context: jarvisTurn.context })
+    .from(jarvisTurn)
+    .where(eq(jarvisTurn.id, ctx.caller.turnId));
+  if (!ON_ITS_OWN.has(String(turn?.context.routine))) return;
+  if ((await threadsToDraft({ db: ctx.tx, now: ctx.now }, threadId)).length > 0) return;
+  throw new ActionError(
+    "conflict",
+    "The owner has this conversation in hand now (they replied, archived it or started a reply), or it needs no reply. Leave it.",
+  );
+}
+
 export const draftActions = [
   defineAction({
     name: "mail.draft",
@@ -216,8 +239,10 @@ export const draftActions = [
     }),
     risk: "internal",
     async handler(i, ctx) {
-      if (i.threadId && ctx.caller.principal === PRINCIPAL.jarvis)
+      if (i.threadId && ctx.caller.principal === PRINCIPAL.jarvis) {
         await oneDraftEach(ctx, i.threadId);
+        await stillNeedsDraft(ctx, i.threadId);
+      }
       const reply = i.threadId ? await replyHeaders(ctx, i.threadId, i.replyAll) : null;
       const account = reply?.account ?? (await accountFor(ctx, i.account));
       const subject = i.subject ?? reply?.subject ?? "";
