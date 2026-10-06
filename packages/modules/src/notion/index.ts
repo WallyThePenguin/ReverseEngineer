@@ -21,6 +21,7 @@ import { syncFailedReflex } from "../connector-health.ts";
 import { describeRow, liveEntity } from "../shared.ts";
 import { connectActions } from "./connect.ts";
 import { type ImportFile, MAX_PAGES, planImport } from "./parse.ts";
+import { notionToTasks } from "./to-tasks.ts";
 
 export { httpNotion, NOTION_SERVICE, type NotionApi } from "./api.ts";
 export { FakeNotion } from "./fake.ts";
@@ -230,6 +231,6 @@ export const notionModule = defineModule({
       },
     }),
   ],
-  reflexes: [syncFailed],
+  reflexes: [syncFailed, notionToTasks],
   digest,
 });
