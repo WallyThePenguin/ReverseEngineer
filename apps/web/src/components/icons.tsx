@@ -85,6 +85,8 @@ const LUCIDE = {
   menu: '<path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/>',
   mic: '<path d="M12 19v3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><rect x="9" y="2" width="6" height="13" rx="3"/>',
   minus: '<path d="M5 12h14"/>',
+  monitor:
+    '<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>',
   "mouse-pointer-2":
     '<path d="M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z"/>',
   "move-up-right": '<path d="M13 5H19V11"/><path d="M19 5L5 19"/>',

@@ -1,5 +1,5 @@
 // Hearth's own marks: the flame, which stands for Hearth itself as on its app icon
-// (public/icon.svg), and Jarvis's mark, an indigo circle that shows how Jarvis is doing.
+// (public/icon.svg), and Jarvis's mark, an ember circle that shows how Jarvis is doing.
 
 import { Show } from "solid-js";
 
@@ -35,7 +35,7 @@ export function Flame(props: { size?: number; tile?: boolean; class?: string }) 
 export type JarvisState = "idle" | "thinking" | "listening" | "paused" | "down";
 
 /**
- * Jarvis's mark: an indigo circle with a bright core. It pulses while Jarvis works, is ringed in
+ * Jarvis's mark: an ember circle with a bright core. It pulses while Jarvis works, is ringed in
  * red while it listens, greys while paused, and carries a red dot while it isn't running. It
  * stands for Jarvis wherever Jarvis is named; `label` says its state to a screen reader when no
  * text beside it does.

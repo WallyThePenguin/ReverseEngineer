@@ -322,9 +322,10 @@ try {
 
   await step("sign out and back in with the passkey", async (p) => {
     signedOut = true;
-    await p.getByRole("button", { name: "Sign out" }).click();
+    await p.getByRole("button", { name: "Hearth menu" }).click();
+    await p.getByRole("menuitem", { name: "Sign out" }).click();
     await p.getByRole("button", { name: "Sign in with your passkey" }).click();
-    await p.getByRole("button", { name: "Sign out" }).waitFor();
+    await p.getByRole("button", { name: "Hearth menu" }).waitFor();
     signedOut = false;
   });
 
