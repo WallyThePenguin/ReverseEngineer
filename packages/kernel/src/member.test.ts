@@ -286,6 +286,17 @@ describe("the kernel, for a member", () => {
     expect(byKey.hearth?.deliveredAt).not.toBeNull();
   });
 
+  it("counts a member's own deadlines in the day's budget, so they can't buzz you without end", async () => {
+    // A day on from the test above, whose interrupts spent that day's budget.
+    t.clock.advance(86_400_000);
+    for (let i = 0; i < 9; i++)
+      await t.kernel.execute("probe.interrupt", { key: `buzz${i}` }, member(OWN));
+    const rows = await t.tdb.db.select().from(notification).where(eq(notification.kind, "test"));
+    const byKey = Object.fromEntries(rows.map((r) => [r.dedupeKey, r]));
+    for (let i = 0; i < 8; i++) expect(byKey[`buzz${i}`]?.deliveredAt).not.toBeNull();
+    expect(byKey.buzz8).toMatchObject({ deliveredAt: null, deferredReason: "budget_spent" });
+  });
+
   it("refuses a member before a guarded action's snapshot or pin reads anything", async () => {
     // Not naming members, by list or by having none, and naming them but too risky for them.
     // Bad input is refused the same way: what an action expects is no business of theirs.
