@@ -1,21 +1,25 @@
-// Today's "Due": open tasks that are late, then the ones due today, each ticked off with one tap
-// (with Undo, in case the tap was a slip).
+// Today's "Due": your open tasks that are late, then the ones due today, each ticked off with one
+// tap (with Undo, in case the tap was a slip). A long list stops after a few, with the rest in
+// Tasks, so a backlog doesn't take over the morning.
 
 import { createSignal, For, Show } from "solid-js";
 import { Checkbox } from "../../components/kit/Checkbox.tsx";
 import type { QueryRead } from "../../components/QueryView.tsx";
 import { due } from "../../lib/format.ts";
 import { toast } from "../../lib/live.ts";
-import { layout } from "../../lib/panes.ts";
 import { act } from "../../lib/query.ts";
 import type { Task } from "../../lib/types.ts";
-import { CardEmpty, CardWaiting, TodayCard, TodayRow } from "./parts.tsx";
+import { CardEmpty, CardWaiting, type Go, TodayCard, TodayRow } from "./parts.tsx";
+
+/** How many tasks the card lists; the rest are a tap away in Tasks. */
+const SHOWN = 6;
 
 export function Due(props: {
   query: QueryRead<unknown>;
   overdue: readonly Task[];
   today: readonly Task[];
   now: Date;
+  go: Go;
 }) {
   // Ticked here, until the list catches up and lets it go.
   const [ticked, setTicked] = createSignal<ReadonlySet<string>>(new Set());
@@ -39,6 +43,10 @@ export function Due(props: {
     });
   };
   const count = () => props.overdue.length + props.today.length;
+  // The late ones first, then today's, up to SHOWN in all.
+  const late = () => props.overdue.slice(0, SHOWN);
+  const today = () => props.today.slice(0, Math.max(0, SHOWN - late().length));
+  const more = () => count() - late().length - today().length;
 
   const row = (t: Task, late: boolean) => {
     const when = () => due(t.dueAt, t.dueIsDate, props.now)?.text ?? "";
@@ -64,7 +72,7 @@ export function Due(props: {
             `Due ${when()}`
           )
         }
-        onOpen={(beside) => layout.open({ view: "task", id: t.id }, { beside })}
+        onOpen={(beside) => props.go({ view: "task", id: t.id }, beside)}
       />
     );
   };
@@ -75,7 +83,8 @@ export function Due(props: {
       icon="tasks"
       title="Due"
       count={count()}
-      more={{ run: () => layout.open({ view: "tasks" }) }}
+      more={{ run: () => props.go({ view: "tasks" }) }}
+      jump="today-due"
     >
       <Show
         when={props.query.data !== undefined}
@@ -83,8 +92,14 @@ export function Due(props: {
       >
         <Show when={count() > 0} fallback={<CardEmpty>Nothing due today.</CardEmpty>}>
           <ul>
-            <For each={props.overdue}>{(t) => row(t, true)}</For>
-            <For each={props.today}>{(t) => row(t, false)}</For>
+            <For each={late()}>{(t) => row(t, true)}</For>
+            <For each={today()}>{(t) => row(t, false)}</For>
+            <Show when={more() > 0}>
+              <TodayRow
+                title={<span class="text-muted">{`${more()} more in Tasks`}</span>}
+                onOpen={(beside) => props.go({ view: "tasks" }, beside)}
+              />
+            </Show>
           </ul>
         </Show>
       </Show>

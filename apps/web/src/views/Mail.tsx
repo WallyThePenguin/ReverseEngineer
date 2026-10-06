@@ -26,19 +26,28 @@ type View = "inbox" | "starred" | "sent" | "all" | "trash";
 export const named = (a: MailAddress | undefined) => a?.name || a?.address || "someone";
 
 type Lane = "signal" | "noise" | "reply" | "waiting";
-/** A lane Mail was asked to open on from elsewhere, until it does. */
-const [asked, setAsked] = createSignal<Lane | null>(null);
+/** A lane Mail was asked to open on from elsewhere, and in which pane, until that pane does. */
+const [asked, setAsked] = createSignal<{ lane: Lane; pane: number } | null>(null);
 
-/** Opens Mail on the conversations that need your reply (Today's "All" under Replies you owe). */
-export function openToReply() {
-  setAsked("reply");
-  layout.open({ view: "mail" });
+/**
+ * Opens Mail beside pane `from` on the conversations that need your reply (Today's "All" under
+ * Replies you owe). Only that Mail pane turns to them; any other Mail pane stays as it is.
+ */
+export function openToReply(from: number) {
+  layout.show({ view: "mail" }, from);
+  // Where show put it: the pane to the right, or the last one when there's no room for another.
+  setAsked({ lane: "reply", pane: Math.min(from + 1, layout.panes().length - 1) });
 }
 
 export function Mail(props: { pane: number }) {
   const [view, setView] = createSignal<View>("inbox");
-  const [lane, setLane] = createSignal<Lane>(untrack(asked) ?? "signal");
-  setAsked(null);
+  // Asked before this pane was drawn: it opens on that lane.
+  const mine = untrack(() => {
+    const a = asked();
+    return a?.pane === props.pane ? a : null;
+  });
+  if (mine) setAsked(null);
+  const [lane, setLane] = createSignal<Lane>(mine?.lane ?? "signal");
   const [query, setQuery] = createSignal("");
   const accounts = useAction<MailAccount[]>("mail.accounts");
   // What's searched for: what's typed, once typing pauses.
@@ -82,14 +91,14 @@ export function Mail(props: { pane: number }) {
   createEffect(() => {
     if (paging() && sel.index() >= list().length - 5) listed.more();
   });
-  // Asked again while it's open: it turns to that lane.
+  // Asked while it's open, as this pane: it turns to that lane.
   createEffect(() => {
     const to = asked();
-    if (!to) return;
+    if (!to || to.pane !== props.pane) return;
     setAsked(null);
     setView("inbox");
     setQuery("");
-    setLane(to);
+    setLane(to.lane);
     sel.reset();
   });
   const focused = () => layout.focused() === props.pane;

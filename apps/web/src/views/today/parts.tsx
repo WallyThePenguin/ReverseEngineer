@@ -10,6 +10,13 @@ import { JarvisMark } from "../../components/Mark.tsx";
 import type { QueryRead } from "../../components/QueryView.tsx";
 import { Failed } from "../../components/ui.tsx";
 import type { AppId } from "../../lib/apps.ts";
+import type { PaneRoute } from "../../lib/panes.ts";
+
+/**
+ * Opens what a row of Today is about the way the other lists do: beside Today, which stays (on a
+ * phone, over it, and closing goes back), or in a new pane beside that with shift.
+ */
+export type Go = (route: PaneRoute, beside?: boolean) => void;
 
 /** A card of Today's in its sub-product's colour: what's on today, what's due, what Jarvis did. */
 export function TodayCard(props: {
@@ -20,11 +27,13 @@ export function TodayCard(props: {
   count?: number;
   /** The whole list, in its own place. */
   more?: { label?: string; run: () => void };
+  /** Where the line under the greeting takes you to it. */
+  jump?: string;
   children: JSX.Element;
 }) {
   const id = createUniqueId();
   return (
-    <div data-product={props.product}>
+    <div data-product={props.product} data-jump={props.jump} class="scroll-mt-4">
       <Card labelledby={id} flush>
         <SectionHeader
           id={id}

@@ -8,8 +8,16 @@ vi.mock("./live.ts", () => ({
   toast: { show: (text: string, tone = "info") => shown.push({ text, tone }) },
 }));
 
-const { approvalStateText, decide, decidedAs, deciding, isDecided, isWaiting, settledAs } =
-  await import("./approvals.ts");
+const {
+  approvalStateText,
+  decide,
+  decideQuietly,
+  decidedAs,
+  deciding,
+  isDecided,
+  isWaiting,
+  settledAs,
+} = await import("./approvals.ts");
 
 let calls = 0;
 function reply(status: number, body: unknown, wait = 0) {
@@ -74,25 +82,27 @@ describe("deciding an approval", () => {
   });
 
   it("says how each decision went, quietly when its caller reports them together", async () => {
+    const quietly = async (id: string) => (await decideQuietly(id, "approve")).outcome;
     reply(200, { status: "ok", result: {} });
-    expect(await decide("b1", "approve", { quiet: true })).toBe("done");
+    expect(await decideQuietly("b1", "approve")).toEqual({ outcome: "done", message: null });
     // Decided a moment ago: not the one Approve all saw waiting.
-    expect(await decide("b1", "approve", { quiet: true })).toBe("changed");
+    expect(await quietly("b1")).toBe("changed");
     reply(409, { status: "error", code: "conflict", message: "This was already denied." });
-    expect(await decide("b2", "approve", { quiet: true })).toBe("changed");
-    reply(400, {
-      status: "error",
-      code: "conflict",
-      message: "The draft changed since you were asked, so nothing was sent.",
-    });
-    expect(await decide("b3", "approve", { quiet: true })).toBe("changed");
+    expect(await quietly("b2")).toBe("changed");
+    const changed = "The draft changed since you were asked, so nothing was sent.";
+    reply(400, { status: "error", code: "conflict", message: changed });
+    // With Hearth's reason, for the line that reports them.
+    expect(await decideQuietly("b3", "approve")).toEqual({ outcome: "changed", message: changed });
     expect(decidedAs("b3")).toBe("failed");
     reply(404, { status: "error", code: "not_found", message: "Approval not found" });
-    expect(await decide("b4", "approve", { quiet: true })).toBe("changed");
+    expect(await quietly("b4")).toBe("changed");
     reply(502, { status: "error", code: "failed", message: "Gmail said no." });
-    expect(await decide("b5", "approve", { quiet: true })).toBe("failed");
+    expect(await decideQuietly("b5", "approve")).toEqual({
+      outcome: "failed",
+      message: "Gmail said no.",
+    });
     reply(503, { status: "error", code: "unavailable", message: "Hearth is busy." });
-    expect(await decide("b6", "approve", { quiet: true })).toBe("failed");
+    expect(await quietly("b6")).toBe("failed");
     expect(isDecided("b6")).toBe(false);
     expect(shown).toEqual([]);
     // Without quiet, the same answer is a toast.

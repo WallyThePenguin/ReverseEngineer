@@ -61,6 +61,8 @@ export function ApprovalCard(props: {
   level?: 2 | 3;
   /** Its exact text shown in full from the start, as under Today's "Approve all", which covers it. */
   open?: boolean;
+  /** More about what it would do, over its text: who a send reaches that's new, on Today. */
+  children?: JSX.Element;
   /** Placement only (a margin); the look is the card's. */
   class?: string;
 }) {
@@ -110,6 +112,7 @@ export function ApprovalCard(props: {
         </Show>
       </div>
       <Show when={props.why}>{(why) => <p class="mt-1 text-sm text-muted">{why()}</p>}</Show>
+      {props.children}
       <Show when={props.text}>{(text) => <ExactText text={text()} open={props.open} />}</Show>
       <Show when={state() || meta()}>
         <div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-meta text-muted">

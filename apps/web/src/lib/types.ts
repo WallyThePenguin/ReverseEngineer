@@ -129,6 +129,8 @@ export interface Turn {
   lane: string;
   origin: string;
   prompt: string;
+  /** What it was asked with; `readOutside` once it read outside content on the way. */
+  context?: { readOutside?: boolean } & Record<string, unknown>;
   conversationId: string | null;
   subjectId: string | null;
   status: string;

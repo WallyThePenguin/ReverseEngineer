@@ -74,42 +74,51 @@ export type Decided = "done" | "changed" | "failed";
 /** Hearth's answers that something changed under the decision, rather than that it failed. */
 const CHANGED = new Set(["conflict", "not_found"]);
 
+/** How a decision went, with what Hearth said when it wasn't done as asked. */
+export interface Decision {
+  outcome: Decided;
+  /** Hearth's own words for why it wasn't done ("The draft changed since…"), if it said any. */
+  message: string | null;
+}
+
+/** Sends your yes or no, and says how it went in a toast. */
+export async function decide(approvalId: string, decision: "approve" | "deny"): Promise<Decided> {
+  // A second press while the first is on its way (or just after) does nothing, quietly.
+  if (deciding(approvalId) || isDecided(approvalId)) return "changed";
+  const d = await decideQuietly(approvalId, decision);
+  if (d.outcome === "done") toast.show(decision === "approve" ? "Approved and done." : "Denied.");
+  else if (d.message)
+    toast.show(d.message, d.message.startsWith("This was already") ? "info" : "error");
+  return d.outcome;
+}
+
 /**
- * Sends your yes or no, and says how it went. `quiet` leaves the saying to the caller: Today's
- * "Approve all" sends several and reports them in one line.
+ * Sends your yes or no and says nothing: the caller says how it went. Today's "Approve all" sends
+ * several and reports them together, each with Hearth's reason when it wasn't done.
  */
-export async function decide(
+export async function decideQuietly(
   approvalId: string,
   decision: "approve" | "deny",
-  opts: { quiet?: boolean } = {},
-): Promise<Decided> {
+): Promise<Decision> {
   // On its way already, or decided a moment ago: not the one you were looking at any more.
-  if (deciding(approvalId) || isDecided(approvalId)) return "changed";
-  const say = (text: string, tone?: "info" | "error") => {
-    if (!opts.quiet) toast.show(text, tone);
-  };
+  if (deciding(approvalId) || isDecided(approvalId))
+    return { outcome: "changed", message: "It was decided a moment ago." };
   setInFlight((s) => add(s, approvalId));
   try {
     const r = await decideApproval(approvalId, decision).catch((err: Error) => err);
-    if (r instanceof Error) {
-      // It may still have gone through; asking again is safe, since it runs at most once.
-      say(r.message, "error");
-      return "failed";
-    }
+    // It may still have gone through; asking again is safe, since it runs at most once.
+    if (r instanceof Error) return { outcome: "failed", message: r.message };
     if (r.status === "ok") {
       settle(approvalId, decision === "approve" ? "executed" : "denied");
-      say(decision === "approve" ? "Approved and done." : "Denied.");
-      return "done";
+      return { outcome: "done", message: null };
     }
     if (r.status === "error") {
       // Decided elsewhere, ran out, or approved and then failed: it's no longer waiting either
       // way. Only Hearth being out of reach leaves it to decide again.
       if (r.code !== "unavailable") settle(approvalId, settledAs(decision, r));
-      say(r.message, r.message.startsWith("This was already") ? "info" : "error");
-      return CHANGED.has(r.code) ? "changed" : "failed";
+      return { outcome: CHANGED.has(r.code) ? "changed" : "failed", message: r.message };
     }
-    if (r.status === "denied") say(r.reason, "error");
-    return "failed";
+    return { outcome: "failed", message: r.status === "denied" ? r.reason : null };
   } finally {
     setInFlight((s) => drop(s, approvalId));
     // What the approved action changed arrives as its own live events.
@@ -124,7 +133,7 @@ export function approvalStateText(status: string): string {
       executing: "Being done…",
       executed: "Approved and done",
       denied: "Denied",
-      failed: "Approved, but it failed",
+      failed: "Approved, but it didn't go through",
       expired: "Ran out before you decided",
       gone: "No longer waiting",
     }[status] ?? `Approval ${status}`

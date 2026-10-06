@@ -1,21 +1,9 @@
-// Today's sums, apart from how it looks: which approvals go together and what "Approve all" says
-// it did, who a draft would reach that isn't in its conversation yet, what's due, what's on today,
-// and what Jarvis did since yesterday.
+// Today's sums, apart from how it looks: the line under the greeting, the drafts it offers, what's
+// due, what's on today, and what Jarvis did since yesterday. What needs your yes is needsYou.ts.
 
-import type { Decided } from "./approvals.ts";
-import { plural, who } from "./format.ts";
-import { approvalParts, summaryParts } from "./inbox.ts";
+import { plural } from "./format.ts";
 import { toolSentence } from "./toolNames.ts";
-import type {
-  Approval,
-  CalEvent,
-  InboxRow,
-  MailAddress,
-  MailDraft,
-  MailThreadView,
-  Task,
-  Turn,
-} from "./types.ts";
+import type { CalEvent, MailAddress, MailDraft, MailThread, Task, Turn } from "./types.ts";
 
 const DAY = 86_400_000;
 const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -30,61 +18,34 @@ export function greeting(now = new Date()): string {
   return "Good evening";
 }
 
-/** The line under the greeting: "3 things need you · 2 meetings · 4 tasks due". */
-export function summary(n: { needs: number; meetings: number; due: number }): string {
-  const parts = [
-    n.needs
-      ? `${plural(n.needs, "thing")} ${n.needs === 1 ? "needs" : "need"} you`
-      : "Nothing needs you",
-  ];
-  if (n.meetings) parts.push(plural(n.meetings, "meeting"));
-  if (n.due) parts.push(`${plural(n.due, "task")} due`);
-  return parts.join(" · ");
-}
-
-// --- Needs you ---
-
-/** Approvals that ask for the same kind of thing, where the first of them was asked. */
-export interface ApprovalGroup {
-  action: string;
-  items: Approval[];
-}
-
-export function groupApprovals(list: readonly Approval[] | undefined): ApprovalGroup[] {
-  const groups = new Map<string, Approval[]>();
-  for (const a of list ?? []) groups.set(a.action, [...(groups.get(a.action) ?? []), a]);
-  return [...groups].map(([action, items]) => ({ action, items }));
+/** A part of the line under the greeting, and the section it takes you to. */
+export interface SummaryPart {
+  text: string;
+  /** The id of the section it's about. */
+  to: string;
 }
 
 /**
- * An approval as its card shows it: as the inbox has it when it's there (its title names records
- * by their titles, and says who asks), and otherwise from the approval itself.
+ * The line under the greeting, "3 need your yes · 2 ready to send · 2 meetings · 4 tasks due",
+ * each part counting what its section shows, or "Nothing needs you".
  */
-export function approvalCard(
-  a: Approval,
-  row: InboxRow | undefined,
-): { what: string; why: string | null; text: string | null } {
-  if (row) return approvalParts(row.notification);
-  const parts = summaryParts(a.summary);
-  return {
-    what: `${who(a.requestedBy)} asks: ${parts.what ?? a.action}`,
-    why: a.reason || null,
-    text: parts.text,
-  };
-}
-
-/**
- * What "Approve all" did, in a line: "3 approved." when all went through; otherwise how many did
- * and what became of the rest, and to look again: "2 approved, 1 changed — look again."
- */
-export function approveAllMessage(outcomes: readonly Decided[]): { text: string; ok: boolean } {
-  const count = (k: Decided) => outcomes.filter((o) => o === k).length;
-  const [done, changed, failed] = [count("done"), count("changed"), count("failed")];
-  const parts = [`${done} approved`];
-  if (changed) parts.push(`${changed} changed`);
-  if (failed) parts.push(`${failed} didn't go through`);
-  const ok = changed + failed === 0;
-  return { text: ok ? `${parts[0]}.` : `${parts.join(", ")} — look again.`, ok };
+export function summary(n: {
+  approvals: number;
+  ready: number;
+  meetings: number;
+  due: number;
+}): SummaryPart[] {
+  const parts: SummaryPart[] = [];
+  if (n.approvals)
+    parts.push({
+      text: `${n.approvals} ${n.approvals === 1 ? "needs" : "need"} your yes`,
+      to: "today-needs",
+    });
+  if (n.ready) parts.push({ text: `${n.ready} ready to send`, to: "today-drafts" });
+  if (!parts.length) parts.push({ text: "Nothing needs you", to: "today-needs" });
+  if (n.meetings) parts.push({ text: plural(n.meetings, "meeting"), to: "today-day" });
+  if (n.due) parts.push({ text: `${plural(n.due, "task")} due`, to: "today-due" });
+  return parts;
 }
 
 // --- Ready to send ---
@@ -93,14 +54,18 @@ export function approveAllMessage(outcomes: readonly Decided[]): { text: string;
 export const jarvisDrafts = (drafts: readonly MailDraft[] | undefined): MailDraft[] =>
   (drafts ?? []).filter((d) => d.by === "jarvis");
 
-/** The drafts Jarvis already asked to send: they wait in Needs you, so they aren't offered twice. */
-export function askedToSend(approvals: readonly Approval[] | undefined): Set<string> {
-  const ids = new Set<string>();
-  for (const a of approvals ?? []) {
-    const id = (a.input as { id?: unknown } | null)?.id;
-    if (a.action === "mail.send" && typeof id === "string") ids.add(id);
-  }
-  return ids;
+/**
+ * The conversations waiting on your reply that still need you to write one: up to `shown` of
+ * them, and how many more have a reply drafted (it's on Today already, ready to send or asked).
+ */
+export function owed(
+  threads: readonly MailThread[] | undefined,
+  drafted: ReadonlySet<string>,
+  shown = 5,
+): { rows: MailThread[]; drafted: number } {
+  const all = threads ?? [];
+  const rows = all.filter((t) => !drafted.has(t.id));
+  return { rows: rows.slice(0, shown), drafted: all.length - rows.length };
 }
 
 /** An address as Hearth writes it in a send's snapshot: "ana@x.example (Ana Silva)". */
@@ -119,25 +84,6 @@ export function draftSnapshot(d: MailDraft) {
     subject: d.subject,
     text: d.text,
   };
-}
-
-const key = (a: MailAddress) => a.address.trim().toLowerCase();
-
-/** Everyone already in a conversation: you, whoever wrote in it, and whoever it went to. */
-export function participantsOf(
-  t: Pick<MailThreadView, "account" | "participants" | "messages">,
-): Set<string> {
-  const all = new Set([t.account.toLowerCase(), ...t.participants.map(key)]);
-  for (const m of t.messages) for (const a of [m.from, ...m.to, ...m.cc]) all.add(key(a));
-  return all;
-}
-
-/** A reply's recipients who aren't in its conversation yet: it would reach someone new. */
-export function strangers(
-  d: Pick<MailDraft, "to" | "cc" | "bcc">,
-  inThread: ReadonlySet<string>,
-): Set<string> {
-  return new Set([...d.to, ...d.cc, ...d.bcc].map(key).filter((a) => !inThread.has(a)));
 }
 
 // --- Your day ---
@@ -186,7 +132,8 @@ export const nextMeeting = (today: readonly CalEvent[], now = new Date()) =>
 
 /**
  * Open tasks due by the end of today: the late ones and today's, each soonest first. A task due
- * on a day is late from the next day; one due at a time, from that time.
+ * on a day is late from the next day; one due at a time, from that time. Jarvis's own tasks are
+ * left out, as the brief leaves them out of what's due (tasks/index.ts).
  */
 export function splitDue(
   tasks: readonly Task[] | undefined,
@@ -196,6 +143,7 @@ export function splitDue(
   const out = { overdue: [] as Task[], today: [] as Task[] };
   for (const t of tasks ?? []) {
     if (!t.dueAt || t.status === "completed" || t.status === "canceled") continue;
+    if (t.assignee === "jarvis") continue;
     const due = new Date(t.dueAt);
     const late = t.dueIsDate ? dayKey(due) < today : due.getTime() < now.getTime();
     if (late) out.overdue.push(t);
@@ -218,14 +166,30 @@ export const startOfYesterday = (now = new Date()) =>
 
 /**
  * What Jarvis did since the start of yesterday, newest first: the turns that ran or are running,
- * not the ones it skipped (while paused, say) or hasn't started.
+ * not the ones it skipped (while paused, say) or hasn't started, and not the ones that came to
+ * nothing: a look round that found nothing to do, or one you stopped before it did or said a thing.
  */
 export function sinceYesterday(turns: readonly Turn[] | undefined, now = new Date()): Turn[] {
   const from = startOfYesterday(now).getTime();
   return (turns ?? []).filter(
-    (t) => Date.parse(t.queuedAt) >= from && t.status !== "skipped" && t.status !== "queued",
+    (t) =>
+      Date.parse(t.queuedAt) >= from &&
+      t.status !== "skipped" &&
+      t.status !== "queued" &&
+      !cameToNothing(t),
   );
 }
+
+/** A turn that finished (or was stopped) having changed nothing and said nothing. */
+const cameToNothing = (t: Turn) =>
+  (t.outcome === "nothing" || t.status === "canceled") && t.writes === 0 && !t.reply?.trim();
+
+/**
+ * A turn that read outside content (an email, a web page) or started from some: asked by it, or
+ * marked so once it was over, however it began (packages/jarvis turn-end.ts).
+ */
+export const readOutside = (t: Pick<Turn, "origin" | "context">) =>
+  t.origin === "untrusted" || t.context?.readOutside === true;
 
 /** A turn in a line: the first line of its reply, without markdown's marks. */
 export function replyLine(t: Pick<Turn, "reply" | "status">): string {
@@ -241,6 +205,7 @@ export function replyLine(t: Pick<Turn, "reply" | "status">): string {
   if (line) return line;
   if (t.status === "running") return "Working on it…";
   if (t.status === "failed") return "It hit a problem and stopped.";
+  if (t.status === "canceled") return "You stopped it.";
   return "Done, with nothing to say.";
 }
 

@@ -1,101 +1,23 @@
-// Today's sums: approvals of a kind go together and "Approve all" says plainly how it went, a
-// reply that would reach someone new is caught, only Jarvis's drafts are offered, the late and
-// today's tasks are told apart, and the day and Jarvis's work are read the way you'd say them.
+// Today's sums: only Jarvis's drafts are offered, a reply drafted above isn't listed again as owed,
+// the late and today's tasks are told apart (yours, not Jarvis's), and the day and Jarvis's work
+// are read the way you'd say them. What needs your yes is in needsYou.test.ts.
 import { describe, expect, it } from "vitest";
 import {
-  approvalCard,
-  approveAllMessage,
-  askedToSend,
   dayPlan,
   draftSnapshot,
   greeting,
-  groupApprovals,
   jarvisDrafts,
   meetingState,
   nextMeeting,
-  participantsOf,
+  owed,
+  readOutside,
   replyLine,
   sinceYesterday,
   splitDue,
-  strangers,
   summary,
   toolsSaid,
 } from "./today.ts";
-import type {
-  Approval,
-  CalEvent,
-  InboxRow,
-  MailDraft,
-  MailThreadView,
-  Task,
-  Turn,
-} from "./types.ts";
-
-const approval = (id: string, action: string, extra: Partial<Approval> = {}): Approval => ({
-  id,
-  action,
-  input: {},
-  risk: "outward",
-  summary: `Do ${id}`,
-  reason: "It reaches someone outside Hearth.",
-  requestedBy: "jarvis",
-  origin: "agent",
-  status: "pending",
-  error: null,
-  conversationId: null,
-  createdAt: "2026-10-05T11:00:00Z",
-  ...extra,
-});
-
-describe("Needs you", () => {
-  it("puts approvals of the same kind together, where the first of them was asked", () => {
-    const groups = groupApprovals([
-      approval("a", "mail.send"),
-      approval("b", "calendar.schedule_meeting"),
-      approval("c", "mail.send"),
-    ]);
-    expect(groups.map((g) => [g.action, g.items.map((a) => a.id)])).toEqual([
-      ["mail.send", ["a", "c"]],
-      ["calendar.schedule_meeting", ["b"]],
-    ]);
-    expect(groupApprovals(undefined)).toEqual([]);
-  });
-
-  it("says how Approve all went, and never that all went through when some didn't", () => {
-    expect(approveAllMessage(["done", "done", "done"])).toEqual({ text: "3 approved.", ok: true });
-    expect(approveAllMessage(["done", "changed", "done"])).toEqual({
-      text: "2 approved, 1 changed — look again.",
-      ok: false,
-    });
-    expect(approveAllMessage(["failed", "changed", "done"])).toEqual({
-      text: "1 approved, 1 changed, 1 didn't go through — look again.",
-      ok: false,
-    });
-    expect(approveAllMessage(["failed", "failed"])).toEqual({
-      text: "0 approved, 2 didn't go through — look again.",
-      ok: false,
-    });
-  });
-
-  it("shows an approval as the inbox has it, or from the approval when the inbox hasn't", () => {
-    const a = approval("a", "mail.send", {
-      summary: 'Send email from me@x.example to dana@x.example: "Lease"\n\nHi Dana,\n\nYes.',
-    });
-    expect(approvalCard(a, undefined)).toEqual({
-      what: 'Jarvis asks: Send email from me@x.example to dana@x.example: "Lease"',
-      why: "It reaches someone outside Hearth.",
-      text: "Hi Dana,\n\nYes.",
-    });
-    const row = {
-      notification: { title: "Jarvis asks: Send the lease", body: "Hi Dana\n\nIt reaches out." },
-    } as InboxRow;
-    expect(approvalCard(a, row)).toEqual({
-      what: "Jarvis asks: Send the lease",
-      why: "It reaches out.",
-      text: "Hi Dana",
-    });
-  });
-});
+import type { CalEvent, MailDraft, MailThread, Task, Turn } from "./types.ts";
 
 const draft = (extra: Partial<MailDraft> = {}): MailDraft => ({
   id: "d1",
@@ -118,16 +40,6 @@ describe("Ready to send", () => {
     expect(jarvisDrafts(undefined)).toEqual([]);
   });
 
-  it("leaves out the drafts already waiting for your yes to send", () => {
-    const asked = askedToSend([
-      approval("a1", "mail.send", { input: { id: "d1", snapshot: {} } }),
-      approval("a2", "calendar.schedule_meeting", { input: { id: "d2" } }),
-      approval("a3", "mail.send", { input: null }),
-    ]);
-    expect([...asked]).toEqual(["d1"]);
-    expect(askedToSend(undefined).size).toBe(0);
-  });
-
   it("sends the draft exactly as shown, written the way Hearth checks it", () => {
     expect(
       draftSnapshot(
@@ -144,30 +56,14 @@ describe("Ready to send", () => {
     expect(draftSnapshot(draft({ account: null })).from).toBe("");
   });
 
-  it("catches a reply that would reach someone who isn't in the conversation", () => {
-    const thread = {
-      account: "Sam@x.example",
-      participants: [{ address: "dana@x.example" }],
-      messages: [
-        {
-          from: { address: "dana@x.example" },
-          to: [{ address: "sam@x.example" }],
-          cc: [{ address: "Leo@X.example" }],
-        },
-      ],
-    } as unknown as MailThreadView;
-    const inThread = participantsOf(thread);
-    expect([...inThread].sort()).toEqual(["dana@x.example", "leo@x.example", "sam@x.example"]);
-    const reply = draft({
-      to: [{ address: "DANA@x.example" }],
-      cc: [{ address: "leo@x.example" }, { address: "stranger@elsewhere.example", name: "Eve" }],
-      bcc: [{ address: "watcher@elsewhere.example" }],
-    });
-    expect([...strangers(reply, inThread)]).toEqual([
-      "stranger@elsewhere.example",
-      "watcher@elsewhere.example",
-    ]);
-    expect(strangers(draft(), inThread).size).toBe(0);
+  it("lists as owed only the replies nobody has drafted yet, and counts the rest", () => {
+    const thread = (id: string) => ({ id }) as MailThread;
+    const waiting = ["a", "b", "c", "d", "e", "f", "g"].map(thread);
+    const { rows, drafted } = owed(waiting, new Set(["b", "d", "x"]));
+    expect(rows.map((t) => t.id)).toEqual(["a", "c", "e", "f", "g"]);
+    expect(drafted).toBe(2);
+    expect(owed(waiting, new Set(), 3).rows.map((t) => t.id)).toEqual(["a", "b", "c"]);
+    expect(owed(undefined, new Set())).toEqual({ rows: [], drafted: 0 });
   });
 });
 
@@ -190,12 +86,15 @@ describe("Due", () => {
         task("tomorrow", at(6, 0, 30), false),
         task("no-date", null, false),
         task("done", at(4, 12), true, { status: "completed" }),
+        // Jarvis's own, as the brief leaves them out; yours and nobody's stay.
+        task("jarvis", at(4, 12), true, { assignee: "jarvis" }),
+        task("yours", at(5, 18), false, { assignee: "owner" }),
       ],
       NOW,
     );
     expect(overdue.map((t) => t.id)).toEqual(["friday", "yesterday", "this-morning"]);
     // A day's task isn't late until the day is over, even past noon.
-    expect(today.map((t) => t.id)).toEqual(["today-date", "tonight"]);
+    expect(today.map((t) => t.id)).toEqual(["today-date", "yours", "tonight"]);
   });
 });
 
@@ -249,7 +148,17 @@ describe("Your day", () => {
 });
 
 const turn = (queuedAt: string, extra: Partial<Turn> = {}) =>
-  ({ id: queuedAt, queuedAt, status: "done", reply: null, toolsUsed: [], ...extra }) as Turn;
+  ({
+    id: queuedAt,
+    queuedAt,
+    status: "done",
+    outcome: "tell",
+    reply: "Done.",
+    writes: 0,
+    toolsUsed: [],
+    origin: "system",
+    ...extra,
+  }) as Turn;
 
 describe("What Jarvis did", () => {
   it("keeps the turns since the start of yesterday that ran", () => {
@@ -265,6 +174,31 @@ describe("What Jarvis did", () => {
       at(4, 0, 5),
       at(5, 9, 59),
     ]);
+  });
+
+  it("leaves out turns that came to nothing, and keeps a stopped one that did something", () => {
+    const turns = [
+      // A look round that found nothing to do.
+      turn(at(5, 8, 25), { outcome: "nothing", reply: null }),
+      turn(at(5, 8, 50), { outcome: "nothing", reply: "  " }),
+      // Stopped before it did or said anything.
+      turn(at(5, 9), { status: "canceled", outcome: null, reply: null }),
+      // Stopped after it drafted something: that's worth knowing.
+      turn(at(5, 9, 5), { status: "canceled", outcome: null, reply: null, writes: 1 }),
+      // Found nothing to do, but said so in words.
+      turn(at(5, 9, 10), { outcome: "nothing", reply: "Nothing new in your inbox." }),
+    ];
+    expect(sinceYesterday(turns, NOW).map((t) => t.queuedAt)).toEqual([at(5, 9, 5), at(5, 9, 10)]);
+    expect(replyLine({ reply: null, status: "canceled" })).toBe("You stopped it.");
+  });
+
+  it("marks a turn that read outside content, however it began", () => {
+    expect(readOutside(turn(at(5, 8), { origin: "untrusted" }))).toBe(true);
+    expect(readOutside(turn(at(5, 8), { origin: "owner", context: { readOutside: true } }))).toBe(
+      true,
+    );
+    expect(readOutside(turn(at(5, 8), { origin: "owner", context: {} }))).toBe(false);
+    expect(readOutside(turn(at(5, 8), { origin: "system" }))).toBe(false);
   });
 
   it("says each in a line, and what it used in plain words, each once", () => {
@@ -289,12 +223,22 @@ describe("the greeting", () => {
     expect(greeting(new Date(2026, 9, 5, 2))).toBe("Good evening");
   });
 
-  it("sums up the day under it, and says so when nothing needs you", () => {
-    expect(summary({ needs: 6, meetings: 2, due: 4 })).toBe(
-      "6 things need you · 2 meetings · 4 tasks due",
+  it("sums up the day under it, each part counting what its section shows", () => {
+    const line = (n: Parameters<typeof summary>[0]) =>
+      summary(n)
+        .map((p) => `${p.text} > ${p.to}`)
+        .join(" · ");
+    expect(line({ approvals: 3, ready: 3, meetings: 2, due: 4 })).toBe(
+      "3 need your yes > today-needs · 3 ready to send > today-drafts · 2 meetings > today-day · 4 tasks due > today-due",
     );
-    expect(summary({ needs: 1, meetings: 1, due: 0 })).toBe("1 thing needs you · 1 meeting");
-    expect(summary({ needs: 0, meetings: 2, due: 0 })).toBe("Nothing needs you · 2 meetings");
-    expect(summary({ needs: 0, meetings: 0, due: 0 })).toBe("Nothing needs you");
+    expect(line({ approvals: 1, ready: 0, meetings: 1, due: 0 })).toBe(
+      "1 needs your yes > today-needs · 1 meeting > today-day",
+    );
+    expect(line({ approvals: 0, ready: 2, meetings: 0, due: 1 })).toBe(
+      "2 ready to send > today-drafts · 1 task due > today-due",
+    );
+    expect(line({ approvals: 0, ready: 0, meetings: 2, due: 0 })).toBe(
+      "Nothing needs you > today-needs · 2 meetings > today-day",
+    );
   });
 });
