@@ -91,7 +91,7 @@ try {
 
   await step("a live note that @mentions a task", async (p) => {
     await keys("Escape");
-    await p.locator("nav").click({ position: { x: 100, y: 600 } });
+    await p.getByRole("navigation", { name: "Places" }).click({ position: { x: 100, y: 600 } });
     await keys("g", "n");
     await p.getByRole("button", { name: "New note" }).click();
     const title = p.locator("input[placeholder=Untitled]");
@@ -179,7 +179,7 @@ try {
   });
 
   await step("something for Jarvis to remember, changed and put back", async (p) => {
-    await p.locator("nav").click({ position: { x: 100, y: 600 } });
+    await p.getByRole("navigation", { name: "Places" }).click({ position: { x: 100, y: 600 } });
     await keys("g", "m");
     await p.getByRole("heading", { name: "Memory" }).waitFor();
     await p.getByPlaceholder("Add something for Jarvis to remember…").fill(`Coffee ${tag}`);
@@ -198,7 +198,7 @@ try {
   });
 
   await step("dictation cleaned with your dictionary, in the voice history", async (p) => {
-    await p.locator("nav").click({ position: { x: 100, y: 600 } });
+    await p.getByRole("navigation", { name: "Places" }).click({ position: { x: 100, y: 600 } });
     await keys("g", "v");
     await p.getByRole("heading", { name: "Dictation" }).waitFor();
     await p.getByRole("tab", { name: "Dictionary" }).click();
@@ -223,7 +223,7 @@ try {
   });
 
   await step("the calendar, mail, Google, Slack and GitHub in Settings", async (p) => {
-    await p.locator("nav").click({ position: { x: 100, y: 600 } });
+    await p.getByRole("navigation", { name: "Places" }).click({ position: { x: 100, y: 600 } });
     await keys("g", "c");
     await p.getByRole("heading", { name: "Calendar" }).waitFor();
     await keys("g", "e");
@@ -345,7 +345,7 @@ try {
     "on a phone: one pane, a tab bar, Jarvis full screen, the phone settings",
     async (p) => {
       await p.setViewportSize({ width: 390, height: 844 });
-      const tabs = p.locator("nav").last();
+      const tabs = p.getByRole("navigation", { name: "Main" });
       await tabs.getByRole("button", { name: "Tasks" }).click();
       await p.getByRole("heading", { name: "Tasks" }).waitFor();
       await p.getByText(`Pack for the trip ${tag}`).first().click();

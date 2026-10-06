@@ -16,6 +16,7 @@ import {
   SHARED_WHY,
   sendReach,
   sendRecipients,
+  sendSubject,
   strangers,
 } from "./needsYou.ts";
 import type { Approval, InboxRow, MailDraft, MailThreadView } from "./types.ts";
@@ -228,6 +229,20 @@ describe("each as a row", () => {
     });
     expect(askRow(a, parts, false).title).toBe("Email Dana Ruiz");
     expect(askRow(a, parts, null).title).toBe("Send to Dana Ruiz");
+  });
+
+  it("keeps a send's whole subject for its open part, however long, and none for anything else", () => {
+    const long = `Re: ${"the lease renewal and the deposit ".repeat(6)}`;
+    const a = approval("long", "mail.send", {
+      input: { id: "d", snapshot: { to: ["dana@x.example"], subject: long, text: "Hi" } },
+    });
+    expect(sendSubject(a)).toBe(long);
+    const blank = approval("b", "mail.send", {
+      input: { id: "d", snapshot: { to: ["dana@x.example"], subject: "", text: "Hi" } },
+    });
+    expect(sendSubject(blank)).toBe("");
+    expect(askRow(blank, { what: "Send", text: "Hi" }, true).sub).toBe("(no subject)");
+    expect(sendSubject(approval("t", "task.create"))).toBeNull();
   });
 
   it("puts a yes on the row only when the row shows all of it", () => {

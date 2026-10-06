@@ -1,10 +1,12 @@
 // Today's "What Jarvis did": what it made since yesterday, one line each (a drafted reply, a task,
 // a meeting's prep, the brief), read from the records themselves (jarvis.did), so a line is never
-// Jarvis's own claim about what it did. Each opens what it made. Runs that stopped before they
-// finished are counted under them, so a failure never goes quiet.
+// Jarvis's own claim about what it did. Each opens what it made, and one written after reading
+// outside content says so (D58). Runs that stopped before they finished are counted under them, so
+// a failure never goes quiet.
 
 import { For, Show } from "solid-js";
 import { Icon, type IconName } from "../../components/icons.tsx";
+import { OutsideMark } from "../../components/OutsideMark.tsx";
 import type { QueryRead } from "../../components/QueryView.tsx";
 import { day, plural, time } from "../../lib/format.ts";
 import type { PaneRoute } from "../../lib/panes.ts";
@@ -64,6 +66,7 @@ export function JarvisDid(props: {
                 <TodayRow
                   lead={<Icon name={KIND[d.entityType] ?? "docs"} class="text-muted" />}
                   title={<span class="line-clamp-2">{d.text}</span>}
+                  meta={d.outside ? <OutsideMark>Read outside content</OutsideMark> : undefined}
                   end={<span class="text-meta text-muted tabular-nums">{when(d.at)}</span>}
                   onOpen={(beside) => props.go(props.routeOf(d), beside)}
                 />

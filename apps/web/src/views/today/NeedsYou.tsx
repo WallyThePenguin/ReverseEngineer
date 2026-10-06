@@ -23,7 +23,9 @@ import { decideQuietly, deciding, isWaiting } from "../../lib/approvals.ts";
 import {
   type ApproveAllResult,
   type ApprovedItem,
+  approvalCard,
   approveAllResult,
+  askRow,
   coverable,
   groupApprovals,
   type Reach,
@@ -93,6 +95,12 @@ export function NeedsYou(props: {
   const toggle = (id: string) =>
     setOpen((s) => (s.has(id) ? new Set([...s].filter((x) => x !== id)) : new Set([...s, id])));
   const openAll = (ids: readonly string[]) => setOpen((s) => new Set([...s, ...ids]));
+  const inboxOf = (a: Approval) => props.inbox?.find((r) => r.notification.approvalId === a.id);
+  // A row whose line is all there is to it doesn't open: it's read as it stands.
+  const read = createMemo<ReadonlySet<string>>(() => {
+    const whole = props.approvals.filter((a) => askRow(a, approvalCard(a, inboxOf(a)), null).whole);
+    return new Set([...open(), ...whole.map((a) => a.id)]);
+  });
 
   const draftOf = (a: Approval) => props.drafts?.find((d) => d.id === sendDraftId(a));
   // The conversations the sends answer, read as a draft's row reads them (the same cache).
@@ -127,7 +135,7 @@ export function NeedsYou(props: {
   const row = (a: Approval) => (
     <AskRow
       approval={a}
-      inbox={props.inbox?.find((r) => r.notification.approvalId === a.id)}
+      inbox={inboxOf(a)}
       draft={draftOf(a)}
       reach={reach(a)}
       checking={!!draftOf(a) || !props.drafts}
@@ -154,7 +162,7 @@ export function NeedsYou(props: {
                 row={row}
                 approving={props.approving}
                 seen={onScreen.armed()}
-                open={open()}
+                open={read()}
                 openAll={openAll}
               />
             </div>
@@ -174,7 +182,7 @@ function Group(props: {
   approving: ApproveAll;
   /** The approvals on screen a moment. */
   seen: readonly string[];
-  /** The rows you've opened. */
+  /** The rows you've opened, and those that show all of themselves on their line. */
   open: ReadonlySet<string>;
   openAll: (ids: readonly string[]) => void;
 }) {

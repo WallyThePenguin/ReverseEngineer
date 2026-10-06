@@ -214,10 +214,10 @@ describe("phone notifications", () => {
     warn.mockRestore();
   });
 
-  it("opens the brief on Today, and everything else on the inbox", () => {
+  it("opens an approval and the brief on Today, and everything else on the inbox", () => {
     const row = { id: "n1", title: "Jarvis asks: Send an email", body: null };
     expect(messageFor({ ...row, kind: "brief" }).url).toBe("/today");
-    expect(messageFor({ ...row, kind: "approval" }).url).toBe("/inbox");
+    expect(messageFor({ ...row, kind: "approval" }).url).toBe("/today");
     expect(messageFor({ ...row, kind: "alert" }).url).toBe("/inbox");
   });
 

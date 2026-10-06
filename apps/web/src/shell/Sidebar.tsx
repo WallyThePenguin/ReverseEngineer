@@ -13,10 +13,10 @@ import { okToSignOut } from "../lib/docStore.ts";
 import { MOD } from "../lib/hotkeys.ts";
 import { live } from "../lib/live.ts";
 import { layout } from "../lib/panes.ts";
-import { inboxInput, useAction, usePendingApprovals } from "../lib/query.ts";
+import { useAction } from "../lib/query.ts";
 import type { ListView } from "../lib/routes.ts";
 import { openSettings } from "../lib/settingsNav.ts";
-import type { InboxRow } from "../lib/types.ts";
+import { useWaiting } from "../lib/waiting.ts";
 
 /** Whether the sidebar is tucked away on a computer (it gives the panes room), remembered. */
 export const sidebar = createRoot(() => {
@@ -64,21 +64,8 @@ export function SidebarRail() {
   );
 }
 
-/** What's waiting for you: unseen inbox items and approvals, each approval once (its inbox
- * card and the approval itself are the same thing). */
-export function useWaiting() {
-  const inbox = useAction<InboxRow[]>("inbox.list", () => inboxInput("live", "signal"));
-  const approvals = usePendingApprovals();
-  return () => {
-    const pending = new Set((approvals.data ?? []).map((a) => a.id));
-    const unseen = (inbox.data ?? []).filter(
-      (r) =>
-        r.notification.state === "unseen" &&
-        !(r.notification.approvalId && pending.has(r.notification.approvalId)),
-    );
-    return unseen.length + pending.size;
-  };
-}
+/** What Today shows needing you, for its badge here and on the phone's tab bar. */
+export { useWaiting } from "../lib/waiting.ts";
 
 export function Sidebar(props: {
   onPalette: () => void;
@@ -93,7 +80,7 @@ export function Sidebar(props: {
     return view ? appOf(view).id : undefined;
   };
 
-  // Today counts what's waiting for your yes or a look; Mail, the replies you owe.
+  // Today counts what it shows needing you (approvals, drafts ready to send); Mail, replies you owe.
   const count = (id: AppId) => {
     if (id === "today") return waiting() || null;
     if (id === "mail") return mail.data?.toReply || null;
@@ -144,7 +131,10 @@ export function Sidebar(props: {
   );
 
   return (
-    <nav class="flex h-full w-52 shrink-0 flex-col border-r border-line bg-sunk/50 px-2 py-3">
+    <nav
+      aria-label="Places"
+      class="flex h-full w-52 shrink-0 flex-col border-r border-line bg-sunk/50 px-2 py-3"
+    >
       <div class="mb-3 flex min-h-7 items-center gap-1 pl-0.5">
         <Overflow
           label="Hearth menu"

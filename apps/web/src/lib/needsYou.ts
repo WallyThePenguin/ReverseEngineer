@@ -90,6 +90,12 @@ export function sendRecipients(
   return { to: listOf(s.to), cc: listOf(s.cc), bcc: listOf(s.bcc) };
 }
 
+/** A send's subject as asked ("" when it has none), or null for anything that isn't a send. */
+export function sendSubject(a: Approval): string | null {
+  const subject = sendInput(a)?.snapshot?.subject;
+  return typeof subject === "string" ? subject : null;
+}
+
 /** Which of your accounts a send goes from, as asked. */
 export function sendFrom(a: Approval): string | null {
   const from = sendInput(a)?.snapshot?.from;
@@ -172,10 +178,10 @@ export function askRow(
 ): { title: string; sub: string | null; whole: boolean } {
   const to = sendRecipients(a);
   if (to) {
-    const subject = sendInput(a)?.snapshot?.subject;
+    const subject = sendSubject(a);
     return {
       title: mailTitle(to.to, reply),
-      sub: typeof subject === "string" ? subject || "(no subject)" : null,
+      sub: subject === null ? null : subject || "(no subject)",
       whole: false,
     };
   }
@@ -206,8 +212,8 @@ export interface ApproveAllResult {
 
 /** An approval in a few words: a send by its subject, anything else by what it would do. */
 export function approvalLabel(a: Approval): string {
-  const subject = sendInput(a)?.snapshot?.subject;
-  if (typeof subject === "string") return `“${subject || "(no subject)"}”`;
+  const subject = sendSubject(a);
+  if (subject !== null) return `“${subject || "(no subject)"}”`;
   const what = summaryParts(a.summary).what ?? a.action;
   return what.length > 80 ? `${what.slice(0, 79)}…` : what;
 }

@@ -1,10 +1,10 @@
 // Today's "Ready to send": the replies Jarvis drafted, one line each (who it goes to and the
-// subject), opening in place to the whole draft (who it goes to, every word) with Send, Edit and
-// Discard. Send is only there once it's open, and sends exactly what's shown: Hearth refuses a
-// draft that changed since (mail/send.ts), and one that changes while it's shown here says so and
-// keeps Send off a moment, so what goes is what you read. Anyone it would reach who isn't in the
-// conversation yet is marked in red (on a new email, everyone), on its line as well, and Send waits
-// until the draft and its conversation have just been read.
+// subject), opening in place to the whole draft (who it goes to, the whole subject, every word)
+// with Send, Edit and Discard. Send is only there once it's open, and sends exactly what's shown:
+// Hearth refuses a draft that changed since (mail/send.ts), and one that changes while it's shown
+// here says so and keeps Send off a moment, so what goes is what you read. Anyone it would reach
+// who isn't in the conversation yet is marked in red (on a new email, everyone), on its line as
+// well, and Send waits until the draft and its conversation have just been read.
 
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { Icon } from "../../components/icons.tsx";
@@ -148,7 +148,7 @@ function DraftRow(props: { draft: MailDraft; fresh: boolean; go: Go }) {
       open={open()}
       onToggle={() => setOpen(!open())}
     >
-      <RecipientList to={d().to} cc={d().cc} bcc={d().bcc} mark={mark} />
+      <RecipientList to={d().to} cc={d().cc} bcc={d().bcc} subject={d().subject} mark={mark} />
       <Show when={shown.changed()}>
         <p role="status" class="mt-3 flex items-start gap-1.5 text-meta text-warn">
           <Icon name="warn" size={14} class="mt-px shrink-0" />

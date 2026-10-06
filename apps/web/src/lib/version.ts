@@ -85,6 +85,23 @@ export function reloadOnReturn(
   return wouldLose() ? null : build;
 }
 
+/**
+ * What to do when a screen's code didn't load (opened the first time on a page from before an
+ * update, whose files the update replaced): reload into the build that's running, once per build
+ * and only when that loses nothing; otherwise say why, "updated" (reload to open it) or "offline"
+ * (the PC didn't answer, or answered with this same build).
+ */
+export function afterLoadFailed(
+  mine: string | null,
+  server: ServerBuild | null,
+  reloadedFor: string | null,
+  wouldLose: () => boolean,
+): { reload: string } | { why: "updated" | "offline" } {
+  if (noticeFor(mine, server) !== "updated" || !server?.build) return { why: "offline" };
+  if (server.build === reloadedFor || wouldLose()) return { why: "updated" };
+  return { reload: server.build };
+}
+
 /** Fields you click rather than type into. */
 const CLICKED = new Set([
   "button",

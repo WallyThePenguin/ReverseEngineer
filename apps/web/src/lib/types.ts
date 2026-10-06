@@ -305,6 +305,8 @@ export interface Did {
   entityType: string;
   /** The turn that made it, when one did. */
   turnId?: string;
+  /** Written after reading outside content (D58). */
+  outside?: boolean;
 }
 
 export type * from "./integration-types.ts";

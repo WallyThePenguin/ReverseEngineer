@@ -1,9 +1,10 @@
 // One approval on Today's "Needs you", as a line. A send says who it goes to by name and its
 // subject, and opens in place to exactly what a yes would send: who it reaches, addresses first
-// and in full so a name can't pass for another, anyone new in red, and every word, with Deny and
-// Approve under it (D33, D58). Anything else says what it would do; when that line is all there is
-// to it (an invitation, say), its yes sits on the line, and otherwise it opens like a send. A
-// reason other than Hearth's usual one, which Today says once over the list, stays on the row.
+// and in full so a name can't pass for another, anyone new in red, the whole subject and every
+// word, with Deny and Approve under it (D33, D58). Anything else says what it would do; when that
+// line is all there is to it (an invitation, say), its yes sits on the line, and otherwise it opens
+// like a send. A reason other than Hearth's usual one, which Today says once over the list, stays
+// on the row.
 
 import { type JSX, Show } from "solid-js";
 import { Decide, ExactText } from "../../components/ApprovalCard.tsx";
@@ -19,6 +20,7 @@ import {
   type Reach,
   sendFrom,
   sendRecipients,
+  sendSubject,
 } from "../../lib/needsYou.ts";
 import type { Approval, InboxRow, MailAddress, MailDraft } from "../../lib/types.ts";
 import { FoldRow, KindMark } from "./FoldRow.tsx";
@@ -85,7 +87,7 @@ export function AskRow(props: {
       title={humanTimes(line().title)}
       sub={[line().sub, line().whole ? why() : null, asked()].filter(Boolean).join(" · ")}
       end={end()}
-      open={props.open}
+      open={props.open && !line().whole}
       onToggle={line().whole ? undefined : props.onToggle}
     >
       <Show when={why()}>{(w) => <p class="mb-2 text-meta text-muted">{w()}</p>}</Show>
@@ -121,7 +123,16 @@ function SendsTo(props: { approval: Approval; reach: Reach; checking: boolean })
   return (
     <>
       <Show when={list()}>
-        {(l) => <RecipientList class="mb-3" to={l().to} cc={l().cc} bcc={l().bcc} mark={mark} />}
+        {(l) => (
+          <RecipientList
+            class="mb-3"
+            to={l().to}
+            cc={l().cc}
+            bcc={l().bcc}
+            subject={sendSubject(props.approval) ?? ""}
+            mark={mark}
+          />
+        )}
       </Show>
       <Show when={props.reach.kind === "unknown" && props.checking}>
         <p class="mb-2 text-meta text-muted">Checking who it goes to…</p>

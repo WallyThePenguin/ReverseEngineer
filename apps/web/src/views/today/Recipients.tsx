@@ -1,6 +1,7 @@
-// Who a draft or a send goes to, on Today: the address first and in full, the name after it and
-// quieter, so a name can't pass for another recipient (mail/drafts.ts). Anyone who isn't already
-// in the conversation is in red and says so; on a new email everyone is new, so each says that.
+// Who a draft or a send goes to, on Today, and its subject in full: the address first and in full,
+// the name after it and quieter, so a name can't pass for another recipient (mail/drafts.ts).
+// Anyone who isn't already in the conversation is in red and says so; on a new email everyone is
+// new, so each says that. With the text under it, that's all of what a yes sends (D33).
 
 import { For, Show } from "solid-js";
 import { Pill } from "../../components/kit/Pill.tsx";
@@ -14,10 +15,15 @@ export function RecipientList(props: {
   cc: readonly MailAddress[];
   bcc: readonly MailAddress[];
   mark: (a: MailAddress) => Mark;
+  /** The subject, "" for none. */
+  subject: string;
   class?: string;
 }) {
+  // The labels are one column as wide as the widest, each row's contents beside its label.
   return (
-    <dl class={`space-y-1.5 text-sm ${props.class ?? ""}`}>
+    <dl
+      class={`grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-sm ${props.class ?? ""}`}
+    >
       <Row label="To" list={props.to} mark={props.mark} />
       <Show when={props.cc.length > 0}>
         <Row label="Cc" list={props.cc} mark={props.mark} />
@@ -25,6 +31,12 @@ export function RecipientList(props: {
       <Show when={props.bcc.length > 0}>
         <Row label="Bcc" list={props.bcc} mark={props.mark} />
       </Show>
+      <div class="contents">
+        <dt class="text-muted">Subject</dt>
+        <dd class={`min-w-0 break-words ${props.subject ? "font-medium" : "text-muted"}`}>
+          {props.subject || "(no subject)"}
+        </dd>
+      </div>
     </dl>
   );
 }
@@ -35,9 +47,9 @@ function Row(props: {
   mark: (a: MailAddress) => Mark;
 }) {
   return (
-    <div class="flex gap-3">
-      <dt class="w-8 shrink-0 text-muted">{props.label}</dt>
-      <dd class="flex min-w-0 flex-1 flex-col gap-1">
+    <div class="contents">
+      <dt class="text-muted">{props.label}</dt>
+      <dd class="flex min-w-0 flex-col gap-1">
         <Show when={props.list.length > 0} fallback={<span class="text-muted">Nobody yet</span>}>
           <For each={props.list}>
             {(a) => {

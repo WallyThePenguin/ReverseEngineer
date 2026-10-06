@@ -77,11 +77,17 @@ export function Today(props: { pane: number }) {
   const turns = useAction<Turn[]>("jarvis.activity", () => ({ limit: 100 }));
   const push = usePush();
   const approving = useApproveAll();
-  // Needs you's first showing is what Today opened on; after the list was empty, what shows is new.
-  // Asking counts as showing it.
+  // What was waiting when Today first heard: Needs you's first showing is what Today opened on
+  // only if it's those. If Today opened with nothing waiting, what shows later has only just come,
+  // and Approve all waits a moment before covering it. Asking counts as showing it.
+  const openedOn = createMemo<ReadonlySet<string> | null>(
+    (prev) => prev ?? (approvals.data ? new Set(approvals.data.map((a) => a.id)) : null),
+    null,
+  );
   let shownOnce = false;
   const opening = () => {
-    const first = !shownOnce;
+    const on = openedOn();
+    const first = !shownOnce && on !== null && pending().every((a) => on.has(a.id));
     shownOnce = true;
     return first;
   };
@@ -116,8 +122,8 @@ export function Today(props: { pane: number }) {
   );
   const line = () =>
     summary({
-      approvals: pending().length,
-      ready: ready().length,
+      approvals: approvals.data ? pending().length : null,
+      ready: drafts.data ? ready().length : null,
       meetings: plan().today.filter((e) => !e.allDay).length,
       due: due().overdue.length + due().today.length,
     });

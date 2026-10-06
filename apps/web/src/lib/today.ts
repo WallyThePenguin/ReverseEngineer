@@ -27,11 +27,12 @@ export interface SummaryPart {
 
 /**
  * The line under the greeting, "3 need your yes · 2 ready to send · 2 meetings · 4 tasks due",
- * each part counting what its section shows, or "Nothing needs you".
+ * each part counting what its section shows, or "Nothing needs you". A count that isn't known yet
+ * (null: still being read, or it couldn't be) is left out, and "Nothing needs you" waits for both.
  */
 export function summary(n: {
-  approvals: number;
-  ready: number;
+  approvals: number | null;
+  ready: number | null;
   meetings: number;
   due: number;
 }): SummaryPart[] {
@@ -42,7 +43,8 @@ export function summary(n: {
       to: "today-needs",
     });
   if (n.ready) parts.push({ text: `${n.ready} ready to send`, to: "today-drafts" });
-  if (!parts.length) parts.push({ text: "Nothing needs you", to: "today-needs" });
+  if (n.approvals === 0 && n.ready === 0)
+    parts.push({ text: "Nothing needs you", to: "today-needs" });
   if (n.meetings) parts.push({ text: plural(n.meetings, "meeting"), to: "today-day" });
   if (n.due) parts.push({ text: `${plural(n.due, "task")} due`, to: "today-due" });
   return parts;

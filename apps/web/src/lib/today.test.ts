@@ -222,5 +222,8 @@ describe("the greeting", () => {
     expect(line({ approvals: 0, ready: 0, meetings: 2, due: 0 })).toBe(
       "Nothing needs you > today-needs · 2 meetings > today-day",
     );
+    // Not "Nothing needs you" while what needs you is still being read, or couldn't be.
+    expect(line({ approvals: null, ready: 0, meetings: 2, due: 0 })).toBe("2 meetings > today-day");
+    expect(line({ approvals: 0, ready: null, meetings: 0, due: 0 })).toBe("");
   });
 });
