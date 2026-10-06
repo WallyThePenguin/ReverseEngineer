@@ -335,10 +335,9 @@ export class GoogleClient {
   private async slowDown(email: string, service: GoogleService, err: GoogleApiError) {
     const pauseMs = Math.max(MIN_PAUSE_MS, err.retryAfterMs ?? 0);
     const until = this.now().getTime() + pauseMs;
-    await this.budget.pause(email, service, until);
-    this.log(
-      `${service} for ${email} paused until ${new Date(until).toISOString()}: ${err.message} (quota limit: ${err.quotaLimit ?? "not given"})`,
-    );
+    const reason = `${err.message}${err.quotaLimit ? ` (quota limit: ${err.quotaLimit})` : ""}`;
+    await this.budget.pause(email, service, until, reason.slice(0, 500));
+    this.log(`${service} for ${email} paused until ${new Date(until).toISOString()}: ${reason}`);
     return new GoogleApiError(err.status, err.message, {
       kind: "rate_limited",
       reason: err.reason,

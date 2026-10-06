@@ -1,11 +1,15 @@
 // How mail syncing is going, in plain words, for Settings and the Mail page. Catching up and a
-// pause Gmail asked for are normal and shown quietly; only a sync that keeps failing is red (D55).
+// pause Gmail asked for are normal and shown quietly; only a sync that keeps failing is red (D55),
+// or a pause that has kept new mail out for two hours (Gmail isn't letting up).
 
 import { Show } from "solid-js";
 import { ago, time } from "../lib/format.ts";
 import type { MailAccount } from "../lib/types.ts";
 
 const count = (n: number) => n.toLocaleString("en-US");
+/** Paused with nothing new for this long: say since when; for PAUSED_BAD_MS, in red. */
+const PAUSED_LONG_MS = 30 * 60_000;
+const PAUSED_BAD_MS = 2 * 3600_000;
 
 export interface SyncLine {
   badge: string;
@@ -25,13 +29,19 @@ export function syncLine(a: MailAccount): SyncLine {
           ? `Mail for ${a.address} last synced ${ago(a.syncedAt)}. Hearth keeps trying.`
           : `Mail for ${a.address} hasn't synced yet. Hearth keeps trying.`,
     };
-  if (a.state === "paused" && a.pausedUntil)
+  if (a.state === "paused" && a.pausedUntil) {
+    const quiet = a.syncedAt ? Date.now() - new Date(a.syncedAt).getTime() : 0;
+    // The time ends in "a.m." or "p.m.", which ends the sentence too.
+    const resuming = time(new Date(a.pausedUntil));
     return {
       badge: "mail paused",
-      tone: "muted",
-      // The time ends in "a.m." or "p.m.", which ends the sentence too.
-      text: `Gmail asked Hearth to slow down; resuming at ${time(new Date(a.pausedUntil))}`,
+      tone: quiet >= PAUSED_BAD_MS ? "bad" : "muted",
+      text:
+        a.syncedAt && quiet >= PAUSED_LONG_MS
+          ? `Gmail keeps asking Hearth to slow down; last synced ${ago(a.syncedAt)}. Trying again at ${resuming}`
+          : `Gmail asked Hearth to slow down; resuming at ${resuming}`,
     };
+  }
   if (a.state === "catching_up" || !a.firstSyncDone)
     return {
       badge: "catching up",
