@@ -96,7 +96,9 @@ export async function saveMail(
     (r) => r !== messageId,
   );
   const outbound = mail.labels.includes("SENT") || p.from?.address === account.address;
-  const sentAt = p.date ?? ctx.now;
+  // A sender's fast clock can't date it after Hearth got it: "since their message" (whether
+  // there's a reply or a draft yet) is measured from this.
+  const sentAt = p.date && p.date < ctx.now ? p.date : ctx.now;
   const subject = p.subject || "(no subject)";
 
   let threadId = await findThread(ctx, account.id, messageId, refs);
