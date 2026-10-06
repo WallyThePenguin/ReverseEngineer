@@ -7,6 +7,7 @@ import { startOfLocalDay } from "@hearth/core";
 import { calendar, calendarEvent, entity, googleAccount } from "@hearth/db";
 import { type ActionContext, getSetting, savepoint } from "@hearth/kernel";
 import { and, arrayContains, asc, eq, gt, isNull, lt, ne, notInArray } from "drizzle-orm";
+import type { Trouble } from "../connector-health.ts";
 import { CalendarApi, type GEvent } from "../google/calendar-api.ts";
 import { cleanDeep } from "../google/clean.ts";
 import { GOOGLE_SERVICE, GoogleApiError, type GoogleClient, SCOPES } from "../google/client.ts";
@@ -81,7 +82,7 @@ export async function syncCalendars(ctx: ActionContext): Promise<SyncResult> {
     skipped: 0,
   };
   for (const acct of accounts) {
-    const troubles: ReturnType<typeof troubleOf>[] = [];
+    const troubles: Trouble[] = [];
     let progressed = false;
     let paused = false;
     const cals = () =>

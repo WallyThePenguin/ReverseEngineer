@@ -126,6 +126,8 @@ export function syncFailedReflex(
     ctx: ReadContext,
     payload: Record<string, unknown>,
   ) => Promise<Date | null | undefined>,
+  /** What to do when access stopped working; by default, paste a new token in Settings. */
+  reconnect = `${label} stopped accepting Hearth's token. Paste a new one in Settings; reading waits until then.`,
 ): ReflexDef {
   return {
     name: `${module}.sync_failed`,
@@ -138,7 +140,7 @@ export function syncFailedReflex(
       const since = typeof p.since === "string" ? p.since : null;
       if (since && (await failingSince(ctx, p))?.toISOString() !== since) return [];
       const what = p.reconnect
-        ? `${label} stopped accepting Hearth's token. Paste a new one in Settings; reading waits until then.`
+        ? reconnect
         : `Hearth hasn't been able to read ${label} for a while. It keeps trying every few minutes.`;
       const dedupeKey = since
         ? alertKey(module, since, Boolean(p.reconnect))

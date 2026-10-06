@@ -1407,8 +1407,8 @@ without happening twice.
   `replace_token` takes a new one for the same workspace or login, keeping everything read in.
   GitHub's token expiry is warned of a week ahead, once. *Later (2026-10-06):* each Google
   account's calendars are judged the same way (migration 0046), not with a notice a day for any
-  failed round that never closed; Google turning down Hearth's access is told by the account,
-  not again by Calendar. A pause Google asked for that keeps a sync quiet is worth a look after
+  failed round that never closed; Google signing Hearth out is told at once, with how to
+  connect again. A pause Google asked for that keeps a sync quiet is worth a look after
   half an hour and failing after two, with what Google said in Settings and `hearth doctor`.
 - **Read everything in, a budget at a time.** Slack channels and threads and GitHub's pull
   requests are read a page at a time, newest first; what a round can't read waits for the next,

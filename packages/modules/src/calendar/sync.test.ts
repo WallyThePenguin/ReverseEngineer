@@ -124,6 +124,21 @@ describe("calendar sync", () => {
     expect(await health()).toMatchObject({ calendarState: "ok", calendarError: null });
   });
 
+  it("tells you at once when Google signs Hearth out, and how to connect again", async () => {
+    await sync();
+    await t.tdb.db.update(googleAccount).set({ accessExpiresAt: new Date(0) });
+    g.revoked = true;
+    expect((await sync()).failed).toHaveLength(1);
+    const [e] = await t.events("calendar.sync_failed");
+    expect(e?.payload).toMatchObject({ account: ME, reconnect: true });
+    expect(await health()).toMatchObject({ calendarState: "revoked" });
+    const reflex = ALL_MODULES.flatMap((m) => m.reflexes ?? []).find(
+      (r) => r.name === "calendar.sync_failed",
+    )!;
+    const [out] = await reflex.run(e!, { db: t.tdb.db, now: t.clock.now() } as never);
+    expect(JSON.stringify(out)).toContain("Connect the account again in Settings");
+  });
+
   it("tells you at once about a calendar Google won't show", async () => {
     await sync();
     g.failCalendar(1, 404);
