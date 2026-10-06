@@ -70,7 +70,12 @@ const STARTERS = [
   "Watch for any task due this week that I haven't started, and tell me.",
 ];
 
-export function Starter(props: { onPick: (text: string) => void }) {
+/** A new conversation's first words: things to ask, or with a record open, things to ask about it. */
+export function Starter(props: {
+  onPick: (text: string) => void;
+  /** Asks that fit the record you have open (lib/looking.ts). */
+  about?: readonly string[] | null;
+}) {
   return (
     <div class="space-y-3 py-6">
       <p class="text-muted">
@@ -78,7 +83,7 @@ export function Starter(props: { onPick: (text: string) => void }) {
         the web, and set up watches. Anything other people would see waits for your yes.
       </p>
       <div class="space-y-1">
-        <For each={STARTERS}>
+        <For each={props.about ?? STARTERS}>
           {(s) => (
             <button
               type="button"
