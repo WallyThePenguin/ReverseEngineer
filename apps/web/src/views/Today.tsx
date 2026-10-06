@@ -6,6 +6,7 @@
 // opens goes beside Today, as from any list, so Today stays where it was.
 
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { HomeScreenSteps } from "../components/HomeScreenSteps.tsx";
 import { Card } from "../components/kit/Card.tsx";
 import { SectionHeader } from "../components/kit/SectionHeader.tsx";
 import { SetupChecklist } from "../components/SetupChecklist.tsx";
@@ -76,6 +77,8 @@ export function Today(props: { pane: number }) {
   const made = useAction<Did[]>("jarvis.did", () => ({ since: since(), limit: 50 }));
   const turns = useAction<Turn[]>("jarvis.activity", () => ({ limit: 100 }));
   const push = usePush();
+  // On an iPhone in Safari, Turn on notifications shows the step that makes them possible.
+  const [homeScreenSteps, showHomeScreenSteps] = createSignal(false);
   const approving = useApproveAll();
   // What was waiting when Today first heard: Needs you's first showing is what Today opened on
   // only if it's those. If Today opened with nothing waiting, what shows later has only just come,
@@ -177,12 +180,21 @@ export function Today(props: { pane: number }) {
                 </For>
               </p>
             </div>
-            <Show when={push.canTurnOn()}>
-              <Button icon="bell" disabled={push.busy()} onClick={() => void push.turnOn()}>
+            <Show when={push.canTurnOn() || (push.needsHomeScreen && !homeScreenSteps())}>
+              <Button
+                icon="bell"
+                disabled={push.busy()}
+                onClick={() =>
+                  push.needsHomeScreen ? showHomeScreenSteps(true) : void push.turnOn()
+                }
+              >
                 Turn on notifications
               </Button>
             </Show>
           </header>
+          <Show when={homeScreenSteps()}>
+            <HomeScreenSteps class="mt-4 max-w-xl" />
+          </Show>
           {/* Hearth opens here, so what's still to connect shows here first. */}
           <SetupChecklist pane={props.pane} class="mt-6" />
           <UpNext today={plan().today} now={now()} go={go} class="mt-4 @4xl:hidden" />

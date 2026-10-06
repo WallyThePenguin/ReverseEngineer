@@ -2,14 +2,12 @@
 // approvals, the morning brief and the interruptions Jarvis is allowed to make (lib/push.ts).
 
 import { For, Show } from "solid-js";
+import { HomeScreenSteps } from "../components/HomeScreenSteps.tsx";
 import { QueryView } from "../components/QueryView.tsx";
 import { Button } from "../components/ui.tsx";
+import { installed } from "../lib/alertsHere.ts";
 import { ago } from "../lib/format.ts";
 import { usePush } from "../lib/push.ts";
-
-const installed = () =>
-  window.matchMedia("(display-mode: standalone)").matches ||
-  (navigator as { standalone?: boolean }).standalone === true;
 
 export function PhoneSettings() {
   const push = usePush();
@@ -17,7 +15,10 @@ export function PhoneSettings() {
   return (
     <section class="space-y-3">
       <h2 class="font-semibold">Phone</h2>
-      <Show when={!installed() && !push.desktopApp}>
+      <Show when={push.needsHomeScreen}>
+        <HomeScreenSteps />
+      </Show>
+      <Show when={!installed() && !push.desktopApp && !push.needsHomeScreen}>
         <p class="text-sm text-muted">
           On your phone, open Hearth in Safari, tap Share, then Add to Home Screen. It opens like an
           app, and on an iPhone that's also what lets it show notifications.
@@ -32,11 +33,13 @@ export function PhoneSettings() {
                   Notifications{" "}
                   {push.desktopApp
                     ? "here come from the Windows app"
-                    : push.supported
-                      ? push.on()
-                        ? "on here"
-                        : "off here"
-                      : "aren't available here"}
+                    : push.needsHomeScreen
+                      ? "here need Hearth on your Home Screen"
+                      : push.supported
+                        ? push.on()
+                          ? "on here"
+                          : "off here"
+                        : "aren't available here"}
                 </p>
                 <p class="text-sm text-muted">
                   Approvals, your morning brief, and the interruptions Jarvis is allowed to make.
