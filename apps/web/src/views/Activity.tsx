@@ -7,6 +7,8 @@ import { Badge, Button, PaneHeader } from "../components/ui.tsx";
 import { ago } from "../lib/format.ts";
 import { layout, routeFor } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
+import { toolsSaid } from "../lib/today.ts";
+import { plainReply, turnResult } from "../lib/turns.ts";
 import type { Observation, Turn, Watch } from "../lib/types.ts";
 
 const TRIGGER_LABEL: Record<string, string> = {
@@ -102,19 +104,15 @@ export function Activity() {
                       <Show when={t.mode === "proactive"}>
                         <Badge tone="jarvis">On its own</Badge>
                       </Show>
-                      <Badge tone={outcomeTone(t)}>
-                        {t.status === "done" ? (t.outcome ?? "done") : t.status}
-                      </Badge>
+                      <Badge tone={outcomeTone(t)}>{turnResult(t)}</Badge>
                       <span class="flex-1" />
                       <span class="text-xs text-faint">{ago(t.queuedAt)}</span>
                     </div>
                     <p class="mt-0.5 line-clamp-2 text-sm text-muted">
-                      {t.reply ?? t.skipReason ?? t.error ?? t.prompt}
+                      {plainReply(t.reply ?? t.skipReason ?? t.error ?? t.prompt)}
                     </p>
                     <Show when={t.toolsUsed.length > 0}>
-                      <p class="mt-0.5 text-xs text-faint">
-                        Used {[...new Set(t.toolsUsed)].join(", ")}
-                      </p>
+                      <p class="mt-0.5 text-xs text-faint">{toolsSaid(t.toolsUsed).join(" · ")}</p>
                     </Show>
                   </li>
                 )}
