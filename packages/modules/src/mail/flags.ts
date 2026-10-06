@@ -123,20 +123,23 @@ const withFlags = (labels: string[], add: string[], remove: string[]) => [
 ];
 
 /**
- * Changes flags on whole conversations, here and now, and queues the change for the provider.
- * Returns how many conversations changed.
+ * Changes flags on whole conversations, here and now, and queues the change for the provider:
+ * on every message in them, or only on `only` (message ids) when given. Returns how many
+ * conversations changed.
  */
 export async function changeFlags(
   ctx: ActionContext,
   threadIds: string[],
   add: string[],
   remove: string[],
+  only?: readonly string[],
 ): Promise<number> {
   if (threadIds.length === 0) return 0;
-  const msgs = await ctx.tx
+  const all = await ctx.tx
     .select()
     .from(mailMessage)
     .where(inArray(mailMessage.threadId, threadIds));
+  const msgs = only ? all.filter((m) => only.includes(m.entityId)) : all;
   let changed = 0;
   for (const threadId of new Set(msgs.map((m) => m.threadId))) {
     const mine = msgs.filter((m) => m.threadId === threadId);

@@ -8,7 +8,7 @@ import { action } from "../lib/api.ts";
 import { PLACES, type Place, paletteLabel } from "../lib/apps.ts";
 import { TYPING_PAUSE_MS } from "../lib/debounce.ts";
 import { useDialogFocus } from "../lib/focus.ts";
-import { due, TYPE_LABEL } from "../lib/format.ts";
+import { dueInFull, TYPE_LABEL } from "../lib/format.ts";
 import { MOD } from "../lib/hotkeys.ts";
 import { arrange, type PaletteItem } from "../lib/palette.ts";
 import { layout, routeFor } from "../lib/panes.ts";
@@ -148,7 +148,7 @@ export function CommandPalette(props: { onClose: () => void }) {
     const w = readWhen(q);
     if (!w) return [make("task", `New task: “${q}”`, { title: q })];
     return [
-      make("task", `New task: “${w.title}”, due ${due(w.dueAt, w.dueIsDate)?.text}`, w),
+      make("task", `New task: “${w.title}”, due ${dueInFull(w.dueAt, w.dueIsDate)}`, w),
       make("task-as-typed", `New task: “${q}” (no date)`, { title: q }),
     ];
   };
