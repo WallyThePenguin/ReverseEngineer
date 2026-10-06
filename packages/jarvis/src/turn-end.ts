@@ -24,6 +24,7 @@ import type { LogEntry } from "@hearth/modules";
 import { and, count, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import { BACKOFF_MINUTES, type Failure, failure, friendlyError, PASSING } from "./failures.ts";
 import { applyOutcomes } from "./outcomes.ts";
+import { tellSlack } from "./slack-owner.ts";
 import { writeLog } from "./threads.ts";
 import type { ToolCallRecord } from "./tools.ts";
 import { alertFailure } from "./turn-alerts.ts";
@@ -32,10 +33,13 @@ import type { TurnLog } from "./turn-log.ts";
 type TurnRow = typeof jarvisTurn.$inferSelect;
 
 /** How long after it was asked a turn is still worth running: a chat for an hour, a voice
- * command for two minutes (the owner is waiting with the cursor in place). */
+ * command for two minutes (the owner is waiting with the cursor in place), and a Slack member's
+ * ten minutes from their first message (D62): by then the worker has passed it on to the owner
+ * with an apology, so an answer would come after that. */
 export const TURN_TTL_MS: Readonly<Record<string, number>> = {
   chat: 3600_000,
   voice_command: 120_000,
+  slack_member: 10 * 60_000,
 };
 
 /** When the owner asked, which can be well before the turn was queued if Jarvis was down. */
@@ -145,6 +149,11 @@ export async function recordEnd(
       { actor: "jarvis", origin: "agent", correlationId: turn.id, at: now },
     ),
   );
+  // Your DM with Jarvis in Slack started it: Slack hears how it went (D62).
+  if (turn.context.via === "slack")
+    await tellSlack(env, e, patch.status, patch.outcome ?? null, patch.reply ?? null).catch((err) =>
+      env.log(`couldn't tell Slack how turn ${turn.id} ended`, err),
+    );
 }
 
 /** Whether the attempt used a Hearth tool, or started one that may still be running. */

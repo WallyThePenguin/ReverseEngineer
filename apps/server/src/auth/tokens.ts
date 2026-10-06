@@ -68,7 +68,8 @@ export async function checkToken(
   if (!row) return { ok: false, reason: "unknown" };
   if (row.revokedAt) return { ok: false, reason: "revoked" };
   if (row.expiresAt && row.expiresAt <= now) return { ok: false, reason: "expired" };
-  if (row.disabled) return { ok: false, reason: "disabled" };
+  // A Slack member is only ever a turn the worker starts: they never get a session (D62).
+  if (row.disabled || row.kind === "member") return { ok: false, reason: "disabled" };
   const result: TokenCheck = {
     ok: true,
     session: {
@@ -169,10 +170,18 @@ export async function createApiToken(
     throw new Error("Token names are lowercase letters, digits and dashes, like claude-desktop.");
   }
   const id = `mcp:${name}`;
-  await db
+  // Only ever an outside agent's: a principal of any other kind under that id (a Slack member,
+  // who never gets a token, D62) is refused, and stays as it was.
+  const [made] = await db
     .insert(principal)
     .values({ id, kind: "mcp_client", displayName: name, createdAt: now })
-    .onConflictDoUpdate({ target: principal.id, set: { disabledAt: null } });
+    .onConflictDoUpdate({
+      target: principal.id,
+      set: { disabledAt: null },
+      setWhere: eq(principal.kind, "mcp_client"),
+    })
+    .returning({ id: principal.id });
+  if (!made) throw new Error(`${id} isn't an outside agent, so it can't have a token.`);
   const token = await createSession(
     db,
     { principal: id, kind: "api", label: name, ttlDays: null },

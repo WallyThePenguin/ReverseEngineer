@@ -21,9 +21,13 @@ import {
   httpGithub,
   httpNotion,
   httpSlack,
+  httpSlackBot,
+  INSTALL_SERVICE,
+  installFromEnv,
   NOTION_SERVICE,
   POLISH_SERVICE,
   polisherFromEnv,
+  SLACK_BOT_SERVICE,
   SLACK_SERVICE,
   VAULT_SERVICE,
   vaultFromEnv,
@@ -101,6 +105,10 @@ export function createApp(opts: AppOptions) {
   opts.kernel.services[GOOGLE_SERVICE] ??= googleFromEnv(opts.kernel.db);
   opts.kernel.services[VAULT_SERVICE] ??= vaultFromEnv();
   opts.kernel.services[SLACK_SERVICE] ??= httpSlack();
+  // Connecting Jarvis's Slack bot proves its tokens, and records this install as the one that
+  // listens on its socket (D62).
+  opts.kernel.services[SLACK_BOT_SERVICE] ??= httpSlackBot();
+  opts.kernel.services[INSTALL_SERVICE] ??= installFromEnv();
   opts.kernel.services[GITHUB_SERVICE] ??= httpGithub();
   opts.kernel.services[NOTION_SERVICE] ??= httpNotion();
   opts.kernel.services[BLOB_SERVICE] ??= blobsFromEnv();

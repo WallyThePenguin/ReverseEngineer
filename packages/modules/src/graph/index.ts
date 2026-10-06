@@ -11,17 +11,16 @@ import {
   notFound,
   removeLink,
 } from "@hearth/kernel";
-import { and, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { refuseUntrusted } from "../memory/store.ts";
-import { hiddenTypes, id, preview } from "../shared.ts";
+import { hiddenTypes, hides, id, preview, visibleTypes } from "../shared.ts";
 import { listTrash, restoreTree, trashTree } from "./trash.ts";
 
-/** Leaves out the record types this caller can't read (memory, for outside agents: D58). */
-const readable = (ctx: { caller: Parameters<typeof hiddenTypes>[0] }) => {
-  const hidden = hiddenTypes(ctx.caller);
-  return hidden.length ? notInArray(entity.type, hidden) : undefined;
-};
+/** Leaves out the record types this caller can't read (memory, for outside agents: D58; every
+ * type, for a Slack member: D62). */
+const readable = (ctx: { caller: Parameters<typeof hiddenTypes>[0] }) =>
+  visibleTypes(hiddenTypes(ctx.caller));
 
 /** A record's type. One this caller can't read (D58) isn't there for it to trash or restore. */
 async function readableType(ctx: ActionContext, recordId: string): Promise<string> {
@@ -29,7 +28,7 @@ async function readableType(ctx: ActionContext, recordId: string): Promise<strin
     .select({ type: entity.type })
     .from(entity)
     .where(eq(entity.id, recordId));
-  if (!row || hiddenTypes(ctx.caller).includes(row.type)) throw notFound("Record");
+  if (!row || hides(hiddenTypes(ctx.caller), row.type)) throw notFound("Record");
   return row.type;
 }
 
@@ -65,7 +64,7 @@ export const graphModule = defineModule({
       risk: "read",
       async handler(input, ctx) {
         const row = await getEntity(ctx.tx, input.id);
-        if (!row || hiddenTypes(ctx.caller).includes(row.type)) throw notFound("Record");
+        if (!row || hides(hiddenTypes(ctx.caller), row.type)) throw notFound("Record");
         return row;
       },
     }),

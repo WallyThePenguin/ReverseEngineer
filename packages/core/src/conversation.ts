@@ -17,6 +17,10 @@ export type ConversationItem =
       at: string;
       turnId: string | null;
       idx: number;
+      /** Who wrote it when it isn't you: someone in Slack, by the name Hearth knows (D62). */
+      author?: string;
+      /** Where you wrote it, when not in Hearth: your DM with Jarvis in Slack (D62). */
+      via?: "slack";
     }
   | {
       type: "tool";
@@ -65,10 +69,13 @@ export function foldConversation(log: LogRecord[]): ConversationView {
     if (r.kind === "turn_started" || ((r.kind === "error" || r.kind === "notice") && !running))
       waitingSince = null;
     switch (r.kind) {
-      case "user_message":
+      case "user_message": {
         settle();
         // A routine's prompt is logged by its own turn; only what you send waits for one.
         if (r.turnId === null) waitingSince = iso(r.at);
+        // In a Slack member's conversation the line is theirs, not yours (D62).
+        const member = String(p.by ?? "").startsWith("member:");
+        const name = typeof p.name === "string" && p.name ? p.name : "Someone in Slack";
         items.push({
           type: "message",
           role: "you",
@@ -76,8 +83,11 @@ export function foldConversation(log: LogRecord[]): ConversationView {
           at: iso(r.at),
           turnId: r.turnId,
           idx: r.idx,
+          ...(member ? { author: name } : {}),
+          ...(p.via === "slack" ? { via: "slack" as const } : {}),
         });
         break;
+      }
       case "assistant_message":
         items.push({
           type: "message",

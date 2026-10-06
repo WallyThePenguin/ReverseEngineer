@@ -94,9 +94,14 @@ export interface ActionDef<S extends z.ZodType = z.ZodType, R = unknown> {
   /**
    * What the call will do, captured from the records it acts on before it runs or waits for your
    * yes (an email's recipients and text). It's added to the input, so the approval card shows it
-   * and the call refuses to run if the records changed by the time you say yes.
+   * and the call refuses to run if the records changed by the time you say yes. `service`, which
+   * the guard always gives, reaches what lives outside the database: who a Slack message would go
+   * to is asked of Slack (D62).
    */
-  snapshot?(input: z.output<S>, ctx: ReadContext): Promise<Record<string, unknown>>;
+  snapshot?(
+    input: z.output<S>,
+    ctx: ReadContext & { service?<T>(name: string): T },
+  ): Promise<Record<string, unknown>>;
   /** One line for an approval card: "Send email to Ana: Friday's agenda". */
   summarize?(input: z.output<S>): string;
   /**

@@ -12,7 +12,28 @@ import { and, eq, sql } from "drizzle-orm";
 import { VAULT_SERVICE, type Vault } from "../browser/vault.ts";
 import { SLACK_SERVICE, type SlackApi, type SlackMessage } from "./api.ts";
 
-export type WorkspaceRow = typeof slackWorkspace.$inferSelect;
+/**
+ * The workspace as a sync round reads it. `jarvis` is Jarvis's own bot, when it's connected: its
+ * DM with you and its posts are never read back in, so its words don't come back as Slack
+ * messages (D62).
+ */
+export type WorkspaceRow = typeof slackWorkspace.$inferSelect & { jarvis?: JarvisBot | null };
+
+/** What the poller needs to know of Jarvis's bot to leave its words out. */
+export interface JarvisBot {
+  ownerIm: string;
+  botId: string;
+  botUserId: string;
+}
+
+/** Your DM with Jarvis, or something Jarvis posted: not read in (D62). */
+export const isJarvis = (ws: WorkspaceRow, channelId: string, m: SlackMessage) =>
+  Boolean(
+    ws.jarvis &&
+      (channelId === ws.jarvis.ownerIm ||
+        m.botId === ws.jarvis.botId ||
+        m.user === ws.jarvis.botUserId),
+  );
 export type ChannelRow = typeof slackChannel.$inferSelect;
 
 const MAX_TEXT = 20_000;
@@ -69,7 +90,7 @@ export function plainText(text: string, names: Map<string, string>): string {
 }
 
 /** A name someone else chose (a person, a channel), safe to put in Hearth's text. */
-const named = (s: string) => s.replace(/<(\/?m-ref)/gi, "‹$1");
+export const named = (s: string) => s.replace(/<(\/?m-ref)/gi, "‹$1");
 
 /** A Slack user's name, asked of Slack once and kept (with the person they are, by email). */
 export async function userName(ctx: ActionContext, ws: WorkspaceRow, token: string, id: string) {
@@ -134,6 +155,7 @@ export async function saveMessage(
   opts: { announce: boolean; mention?: boolean },
 ): Promise<string | null> {
   if ((m.subtype && NOISE.has(m.subtype)) || (!m.text.trim() && !m.subtype)) return null;
+  if (isJarvis(ws, channel.id, m)) return null;
   const [seen] = await ctx.tx
     .select({ id: slackMessage.entityId })
     .from(slackMessage)

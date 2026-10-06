@@ -39,6 +39,7 @@ const PART: Record<string, string> = {
   "sync.slack": "Slack",
   "sync.github": "GitHub",
   "sync.notion": "Notion",
+  "sync.slack_bot": "Slack bot",
   browser: "Chrome",
 };
 

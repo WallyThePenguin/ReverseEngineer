@@ -19,9 +19,41 @@ export const RISKS = [
 ] as const;
 export type Risk = (typeof RISKS)[number];
 
-/** What kind of identity is calling. */
-export const PRINCIPAL_KINDS = ["owner", "agent", "mcp_client", "integration", "system"] as const;
+/**
+ * What kind of identity is calling. A `member` is someone in your Slack workspace writing to
+ * Jarvis's bot: their turn runs as them, and the kernel refuses them every action that doesn't
+ * name `member` as a caller (D62).
+ */
+export const PRINCIPAL_KINDS = [
+  "owner",
+  "agent",
+  "mcp_client",
+  "integration",
+  "system",
+  "member",
+] as const;
 export type PrincipalKind = (typeof PRINCIPAL_KINDS)[number];
+
+/** A Slack member's principal, made the first time they write to Jarvis (D62). */
+export function memberPrincipal(teamId: string, userId: string): string {
+  return `member:slack:${teamId}:${userId}`;
+}
+
+/**
+ * The wildcard principal for every member of a member's team, `member:slack:<team>:*`. It holds
+ * the standing rule "Jarvis answers members on its own" (D62). Null for anything else.
+ */
+export function memberWildcard(principal: string): string | null {
+  const parts = principal.split(":");
+  if (parts.length !== 4 || parts[0] !== "member" || parts[1] !== "slack" || !parts[2]) return null;
+  return memberPrincipal(parts[2], "*");
+}
+
+/**
+ * `conversation.started_via` for a member's conversation with Jarvis. Only that member's turns
+ * run there: an owner turn resuming its agent session would bring your data into it (D62).
+ */
+export const MEMBER_CONVERSATION = "slack_member";
 
 /**
  * Where the request ultimately came from. A turn Jarvis takes because an email arrived is
@@ -30,8 +62,17 @@ export type PrincipalKind = (typeof PRINCIPAL_KINDS)[number];
 export const ORIGINS = ["owner", "agent", "untrusted", "system"] as const;
 export type Origin = (typeof ORIGINS)[number];
 
-/** The surface a call came through. */
-export const VIAS = ["ui", "cli", "device", "mcp", "jarvis", "integration", "system"] as const;
+/** The surface a call came through. "slack": a message to Jarvis's Slack bot (D62). */
+export const VIAS = [
+  "ui",
+  "cli",
+  "device",
+  "mcp",
+  "jarvis",
+  "integration",
+  "system",
+  "slack",
+] as const;
 export type Via = (typeof VIAS)[number];
 
 /** The weaker of two origins. Trust only ever goes down along a chain of causes. */

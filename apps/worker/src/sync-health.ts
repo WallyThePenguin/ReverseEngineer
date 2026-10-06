@@ -1,10 +1,11 @@
 // How the Google, Slack and GitHub syncs are doing, as health components the worker reports every
-// minute with the rest (sync.google, sync.slack, sync.github). Read from what each sync already
-// records, its last error and when it last worked, so Settings and `hearth doctor` show a sync
-// that's failing or has quietly stopped, and system.report tells you when one starts failing,
-// whether or not Jarvis is running. Mail, Slack and GitHub save their own verdict (D55, D61),
-// which is taken as it is; Google access and calendars keep only their last error, which counts
-// as failing once it has lasted half an hour. A slowdown Google asked for isn't a failure (D55).
+// minute with the rest (sync.google, sync.slack, sync.github, and sync.slack_bot for Jarvis's own
+// Slack socket, D62). Read from what each sync already records, its last error and when it last
+// worked, so Settings and `hearth doctor` show a sync that's failing or has quietly stopped, and
+// system.report tells you when one starts failing, whether or not Jarvis is running. Mail, Slack,
+// GitHub and the Slack socket save their own verdict (D55, D61), which is taken as it is; Google
+// access and calendars keep only their last error, which counts as failing once it has lasted
+// half an hour. A slowdown Google asked for isn't a failure (D55).
 import { formatTime } from "@hearth/core";
 import {
   calendar,
@@ -13,10 +14,11 @@ import {
   mailAccount,
   notionAccount,
   setting,
+  slackBot,
   slackWorkspace,
 } from "@hearth/db";
 import { getSetting, type Kernel } from "@hearth/kernel";
-import { roughly } from "@hearth/modules";
+import { holdsSocket, INSTALL_SERVICE, type Install, roughly } from "@hearth/modules";
 import { eq } from "drizzle-orm";
 import type { HealthReport } from "./health.ts";
 
@@ -146,6 +148,27 @@ async function slack(kernel: Kernel): Promise<SyncSource[]> {
   }));
 }
 
+// Jarvis's Slack socket keeps its verdict the same way (D62): failing after 30 minutes without a
+// connection, which a restart for an update never reaches, and at once when Slack revoked it.
+// It's judged only where the socket is held: with members off, or on another install, nothing
+// listens, so a quiet socket there isn't a failure.
+async function slackBotSource(kernel: Kernel): Promise<SyncSource[]> {
+  const rows = await kernel.db
+    .select({ bot: slackBot, team: slackWorkspace.teamName })
+    .from(slackBot)
+    .innerJoin(slackWorkspace, eq(slackWorkspace.teamId, slackBot.teamId));
+  const membersOn = await getSetting(kernel.db, "slack.bot.membersOn");
+  const install = kernel.services[INSTALL_SERVICE] as Install | undefined;
+  const here = install?.id() ?? null;
+  const held = rows.filter(({ bot }) => holdsSocket(bot, membersOn, here));
+  return held.map(({ bot, team }) => ({
+    name: `Jarvis in ${team}`,
+    error: bot.lastError,
+    failing: bot.syncState !== "ok",
+    lastGood: bot.syncedAt,
+  }));
+}
+
 async function github(kernel: Kernel): Promise<SyncSource[]> {
   const rows = await kernel.db.select().from(githubAccount);
   return rows.map((a) => ({
@@ -174,6 +197,7 @@ const SOURCES = {
   "sync.slack": slack,
   "sync.github": github,
   "sync.notion": notion,
+  "sync.slack_bot": slackBotSource,
 } as const;
 
 /**

@@ -58,12 +58,13 @@ export function callerFor(s: SessionPrincipal): Caller {
   if (s.kind === "owner" && s.scopes) return ownerCaller("device", { origin: "untrusted" });
   if (s.kind === "owner") return ownerCaller(s.sessionKind === "browser" ? "ui" : "cli");
   // An outside agent or integration writes outside content: what it adds lowers the trust of
-  // whatever reads it, and it can't leave standing instructions (D58).
-  const outside = s.kind === "mcp_client" || s.kind === "integration";
+  // whatever reads it, and it can't leave standing instructions (D58). Only Jarvis and Hearth
+  // itself are named as inside, so a new kind of caller starts outside (D62).
+  const inside = s.kind === "agent" || s.kind === "system";
   return {
     principal: s.principal,
     kind: s.kind,
-    origin: s.kind === "system" ? "system" : outside ? "untrusted" : "agent",
+    origin: s.kind === "system" ? "system" : inside ? "agent" : "untrusted",
     via: s.kind === "mcp_client" ? "mcp" : s.kind === "integration" ? "integration" : "system",
   };
 }

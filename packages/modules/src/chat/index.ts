@@ -1,8 +1,9 @@
 // Chat with Jarvis, and comment threads on any record. Jarvis answers chat messages and
 // @mentions wherever they appear. Its own routines' runs stay out of the conversation list.
-import { formatDateTime } from "@hearth/core";
+import { formatDateTime, MEMBER_CONVERSATION } from "@hearth/core";
 import { conversation, conversationLog, entity, jarvisTurn } from "@hearth/db";
 import {
+  ActionError,
   createEntity,
   defineAction,
   defineModule,
@@ -20,6 +21,16 @@ const lane = z.enum(["fast", "deep"]);
 
 /** Words to find in a title as typed: % and _ match themselves, not anything. */
 const likeText = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
+
+/**
+ * Who wrote a line: you, or in a Slack member's conversation the member by name, since there
+ * "You" would be someone else (D62).
+ */
+function authorOf(kind: string, payload: Record<string, unknown>): string {
+  if (kind !== "user_message") return "Jarvis";
+  if (!String(payload.by ?? "").startsWith("member:")) return "You";
+  return typeof payload.name === "string" && payload.name ? payload.name : "Someone in Slack";
+}
 
 /** A paired device (the desktop app) only sees the conversations it started (D42). */
 const deviceMay = (via: string, startedVia: string | null | undefined) =>
@@ -54,7 +65,7 @@ export const chatModule = defineModule({
         .filter((l) => l.kind === "user_message" || l.kind === "assistant_message")
         .map(
           (l) =>
-            `- ${l.kind === "user_message" ? "You" : "Jarvis"} (${formatDateTime(l.at)}): ${preview(String(l.payload.text ?? ""), 500)}`,
+            `- ${authorOf(l.kind, l.payload)} (${formatDateTime(l.at)}): ${preview(String(l.payload.text ?? ""), 500)}`,
         );
       return describeRow(row, [], lines.length ? `## Latest messages\n${lines.join("\n")}` : "");
     },
@@ -106,6 +117,8 @@ export const chatModule = defineModule({
             updatedAt: entity.updatedAt,
             subjectId: conversation.subjectId,
             lastTurnAt: conversation.lastTurnAt,
+            // A Slack member's shows as theirs in your list: you read it, never write in it (D62).
+            startedVia: conversation.startedVia,
           })
           .from(entity)
           .innerJoin(conversation, eq(conversation.entityId, entity.id))
@@ -152,6 +165,8 @@ export const chatModule = defineModule({
           conversation: {
             ...e,
             subjectId: c?.subjectId ?? null,
+            // A Slack member's is read-only, and your Slack DM's says where you wrote (D62).
+            startedVia: c?.startedVia ?? null,
             // Once it has read outside content, Jarvis asks more here: the app says why (D58).
             taintedAt: c?.taintedAt ?? null,
             taintSource: c?.taintSource ?? null,
@@ -183,16 +198,26 @@ export const chatModule = defineModule({
             .from(conversation)
             .where(eq(conversation.entityId, conversationId));
           if (!deviceMay(ctx.caller.via, c?.startedVia)) throw notFound("Conversation");
+          // Your turn there would resume the member's agent session with your data in it, and
+          // their next turn would see it (D62). "Ask Jarvis about this" starts a new one.
+          if (c?.startedVia === MEMBER_CONVERSATION)
+            throw new ActionError(
+              "forbidden",
+              "This is a Slack member's conversation with Jarvis. Ask about it in a new conversation.",
+            );
         } else {
           const e = await createEntity(ctx, {
             type: "conversation",
             title: preview(i.text, 60) || "New conversation",
           });
-          await ctx.tx
-            .insert(conversation)
-            .values({ entityId: e.id, startedVia: ctx.caller.via === "device" ? "device" : null });
+          // Started from the desktop app (D42), or from your DM with Jarvis in Slack (D62).
+          const via =
+            ctx.caller.via === "device" || ctx.caller.via === "slack" ? ctx.caller.via : null;
+          await ctx.tx.insert(conversation).values({ entityId: e.id, startedVia: via });
           conversationId = e.id;
         }
+        // From your DM with Jarvis: its turn tells Slack how it went (D62).
+        const fromSlack = ctx.caller.via === "slack" ? { via: "slack" } : {};
         const chosen = i.lane ?? routeLane(i.text);
         // Heard, or sent by a device on its own say-so (D42): kept as such, so the nightly memory
         // update doesn't take it for your words (D58).
@@ -203,7 +228,12 @@ export const chatModule = defineModule({
           [
             {
               kind: "user_message",
-              payload: { text: i.text, by: ctx.caller.principal, ...(heard ? { heard } : {}) },
+              payload: {
+                text: i.text,
+                by: ctx.caller.principal,
+                ...(heard ? { heard } : {}),
+                ...fromSlack,
+              },
             },
           ],
           ctx.now,
@@ -216,7 +246,14 @@ export const chatModule = defineModule({
         ctx.emit({
           kind: "chat.message_posted",
           entityId: conversationId,
-          payload: { conversationId, text: i.text, lane: chosen, idx, heard: i.heard === true },
+          payload: {
+            conversationId,
+            text: i.text,
+            lane: chosen,
+            idx,
+            heard: i.heard === true,
+            ...fromSlack,
+          },
         });
         return { conversationId, idx };
       },
@@ -272,6 +309,7 @@ export const chatModule = defineModule({
           lane: "fast" | "deep";
           heard?: boolean;
           idx: number;
+          via?: string;
         };
         // You pressed Stop before Jarvis saw this (it was down): let it go (D54).
         const [stopped] = await ctx.db
@@ -292,6 +330,7 @@ export const chatModule = defineModule({
             kind: "turn",
             trigger: "chat",
             ...(p.heard ? { untrusted: true } : {}),
+            ...(p.via === "slack" ? { context: { via: "slack" } } : {}),
             lane: p.lane,
             conversationId: p.conversationId,
             prompt: p.text,

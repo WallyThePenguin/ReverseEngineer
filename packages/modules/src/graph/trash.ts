@@ -3,7 +3,8 @@
 // record keep their own lifecycle: their sync owns them.
 import { entity, type Tx } from "@hearth/db";
 import { type ActionContext, notFound } from "@hearth/kernel";
-import { and, desc, eq, inArray, isNotNull, isNull, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { type HiddenTypes, visibleTypes } from "../shared.ts";
 
 /** Records that go to the trash, and come back, with the record they're under. */
 export const FOLLOWS_PARENT = ["comment", "task", "note"] as const;
@@ -119,10 +120,11 @@ export interface TrashRow {
 /**
  * What's in the trash, most recently trashed first. A record that went with the record it's
  * under is counted on that record's row instead of having its own. `hidden` are the types the
- * caller can't read (memory, for outside agents: D58): they're neither listed nor counted.
+ * caller can't read (memory, for outside agents: D58; all, for a Slack member: D62): they're
+ * neither listed nor counted.
  */
-export async function listTrash(tx: Tx, limit: number, hidden: string[]): Promise<TrashRow[]> {
-  const visible = hidden.length ? notInArray(entity.type, hidden) : undefined;
+export async function listTrash(tx: Tx, limit: number, hidden: HiddenTypes): Promise<TrashRow[]> {
+  const visible = visibleTypes(hidden);
   const parent = sql`(SELECT p.deleted_at FROM entity p WHERE p.id = ${entity.parentId})`;
   const rows = await tx
     .select({

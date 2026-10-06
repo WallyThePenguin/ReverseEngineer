@@ -1,18 +1,95 @@
 // Slack (M7, PLAN.md section 8.3): your team's Slack read in with your own token. What people
-// write there is outside content for Jarvis, @mentions and direct messages land in the inbox, and
-// Jarvis never posts: Hearth only reads.
-import { entity, slackChannel, slackMessage, slackWorkspace } from "@hearth/db";
+// write there is outside content for Jarvis, and @mentions and direct messages land in the inbox.
+// Your token only reads. Jarvis posts as its own bot, connected here too, through one outbox the
+// worker sends (bot/, D62).
+import { entity, slackBot, slackChannel, slackMessage, slackWorkspace } from "@hearth/db";
 import { ActionError, type DigestItem, defineAction, defineModule } from "@hearth/kernel";
 import { and, desc, eq, gte, ilike } from "drizzle-orm";
 import { z } from "zod";
 import { syncFailedReflex } from "../connector-health.ts";
 import { describeRow, liveEntity, preview } from "../shared.ts";
+import { botActions } from "./bot/connect.ts";
+import { ownerReplyAction, takeOwnerAction } from "./bot/owner-dm.ts";
+import { sendActions } from "./bot/send.ts";
 import { connectActions } from "./connect.ts";
+import { channelActions } from "./member/channels.ts";
+import { checkMembersAction } from "./member/check.ts";
+import { conversationActions } from "./member/conversations.ts";
+import { ownerMemberActions } from "./member/owner.ts";
+import { replyAction } from "./member/reply.ts";
+import { takeAction } from "./member/take.ts";
 import { syncSlack } from "./sync.ts";
 
-export { httpSlack, SLACK_SERVICE, type SlackApi } from "./api.ts";
+export {
+  httpSlack,
+  SLACK_SERVICE,
+  type SlackApi,
+  SlackError,
+  type SlackUser,
+  USER_TOKEN_METHODS,
+} from "./api.ts";
+export { httpSlackBot, SLACK_BOT_SERVICE, type SlackBotApi } from "./bot/api.ts";
+export { CATCH_UP_EVERY_MS, type CatchUp, catchUp } from "./bot/catchup.ts";
+export { POST_FLAGS, POST_MAX, slackText } from "./bot/filter.ts";
+export {
+  type BotDown,
+  botTrouble,
+  holdsSocket,
+  REVOKED_CODES,
+  saveBotHealth,
+} from "./bot/health.ts";
+export {
+  clearOldInbound,
+  INBOUND_POOL,
+  type InboundStore,
+  inboundStore,
+  receive,
+  storeInbound,
+} from "./bot/inbound.ts";
+export { JARVIS_APP_ID, slackManifest } from "./bot/manifest.ts";
+export { type OutboxRound, sendOutbox } from "./bot/outbox.ts";
+export { isYou, OWNER_DM_IDLE_MS, OWNER_REPLIES } from "./bot/owner-dm.ts";
+export {
+  enqueue,
+  type NewPost,
+  OUTBOX_CHANNEL,
+  OUTBOX_EXPIRES_MS,
+  OUTBOX_POLL_MS,
+  type OutboxRow,
+  PACE_MS,
+  PER_MINUTE,
+  SENDING_STALE_MS,
+} from "./bot/queue.ts";
+export { REPLY_ACTION } from "./bot/settings.ts";
+export {
+  ackOf,
+  BACKOFF_RESET_MS,
+  BACKOFF_S,
+  backoffMs,
+  type Frame,
+  type Hearing,
+  type InboundRow,
+  type Ours,
+  onDisconnect,
+  parseFrame,
+  slackTs,
+} from "./bot/socket.ts";
+export { type BotRow, openBotToken } from "./bot/tokens.ts";
 export { SLACK_SCOPES } from "./connect.ts";
 export { FakeSlack } from "./fake.ts";
+export { CHANNEL_CHECK_MS } from "./member/channels.ts";
+export { THREAD_LINES, type ThreadLine } from "./member/in-channel.ts";
+export { MEMBER_TIERS, memberModule } from "./member/index.ts";
+export { plainOf, SLOW_MS, writtenAt } from "./member/messages.ts";
+export { replaceHeldReplies } from "./member/reply.ts";
+export { SETTLE_MS, type TakeRound } from "./member/take.ts";
+export {
+  claimMessages,
+  holdMessages,
+  type MemberBrief,
+  memberBrief,
+  memberGate,
+} from "./member/turn.ts";
 
 const syncFailed = syncFailedReflex("slack", "Slack", async (ctx) => {
   const [ws] = await ctx.db
@@ -53,7 +130,8 @@ async function digest(
 
 export const slackModule = defineModule({
   name: "slack",
-  description: "Slack: your team's channels and direct messages, read in. Hearth never posts.",
+  description:
+    "Slack: your team's channels and direct messages, read in with your own token, which never posts. Jarvis's own Slack bot is connected here too.",
   entityTypes: ["slack_message"],
   // Other people write Slack: reading it makes the rest of Jarvis's turn untrusted (D25).
   outsideTypes: ["slack_message"],
@@ -97,6 +175,18 @@ export const slackModule = defineModule({
   },
   actions: [
     ...connectActions,
+    ...botActions,
+    ...sendActions,
+    // A member's turn answering them, the worker's take loop, what you decide about members and
+    // channels, your own DM with Jarvis, and the screens you read their conversations on (D62).
+    replyAction,
+    checkMembersAction,
+    takeAction,
+    ...ownerMemberActions,
+    ...channelActions,
+    takeOwnerAction,
+    ownerReplyAction,
+    ...conversationActions,
     defineAction({
       name: "slack.channels",
       description: "The Slack channels and direct messages you're in, and which are read in.",
@@ -112,6 +202,10 @@ export const slackModule = defineModule({
             kind: slackChannel.kind,
             ingest: slackChannel.ingest,
             polledAt: slackChannel.polledAt,
+            // Whether Jarvis answers @mentions there, and when that was last checked (D62).
+            jarvisTier: slackChannel.jarvisTier,
+            jarvisReplies: slackChannel.jarvisReplies,
+            jarvisCheckedAt: slackChannel.jarvisCheckedAt,
           })
           .from(slackChannel)
           .orderBy(slackChannel.kind, slackChannel.name),
@@ -123,6 +217,16 @@ export const slackModule = defineModule({
       risk: "internal",
       callers: ["owner"],
       async handler(i, ctx) {
+        // Your DM with Jarvis stays out: Jarvis hears it over its own socket (D62).
+        const [im] = await ctx.tx
+          .select({ id: slackBot.ownerIm })
+          .from(slackBot)
+          .where(eq(slackBot.ownerIm, i.id));
+        if (im && i.ingest)
+          throw new ActionError(
+            "invalid_input",
+            "Your DM with Jarvis isn't read in: Jarvis hears it.",
+          );
         const [row] = await ctx.tx
           .update(slackChannel)
           .set({ ingest: i.ingest })
