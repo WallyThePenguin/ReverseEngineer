@@ -30,7 +30,12 @@ export function checkTurns(turns: TurnStats): Check {
   if (!turns.total) return { name, mark: "ok", detail: "None in the last 24 hours" };
   const last = turns.last?.error ? ` Last error: ${turns.last.error}` : "";
   const share = turns.failed / turns.total;
-  const detail = `${turns.failed} of ${turns.total} failed in the last 24 hours.${last}`;
+  // Older reports (a Hearth not yet updated) don't have the breakdown.
+  const kinds = (turns.failures48h ?? [])
+    .map((f) => `${f.routine ?? f.trigger}/${f.errorKind ?? "unknown"} x${f.n}`)
+    .join(", ");
+  const by = kinds ? ` Failures in 48 hours: ${kinds}.` : "";
+  const detail = `${turns.failed} of ${turns.total} failed in the last 24 hours.${last}${by}`;
   if (share > TURN_FAILURE_LIMIT) return { name, mark: "fail", detail };
   if (turns.failed) return { name, mark: "warn", detail };
   return { name, mark: "ok", detail: `${turns.total} in the last 24 hours, none failed` };
