@@ -39,7 +39,9 @@ const base = () => ({
   dataDir: join(dir, "data"),
 });
 
-describe("hearth restore", () => {
+// Each case backs up and restores whole databases: a few seconds alone, but 30 s and more while
+// an update builds on the same PC, so they get longer than the 20 s default.
+describe("hearth restore", { timeout: 90_000 }, () => {
   beforeEach(async () => {
     db = await createTestDatabase();
     dir = await mkdtemp(join(tmpdir(), "hearth-restore-test-"));

@@ -41,10 +41,14 @@ function Test-TestDb {
   & "$PgBin\pg_isready.exe" -q -h 127.0.0.1 -p 5499
   $LASTEXITCODE -eq 0
 }
+# pg_ctl runs in its own hidden window, never piped: postgres keeps any output handle it inherits
+# open, so reading pg_ctl's output would wait as long as the cluster runs and the runner never start.
 function Start-TestDb {
   if (Test-TestDb) { Write-Host "The test cluster on 5499 is up."; return }
   if (-not (Test-Path (Join-Path $TestDb "PG_VERSION"))) { Write-Host "No test cluster in $TestDb (docs\ci.md)."; return }
-  & "$PgBin\pg_ctl.exe" start -D $TestDb -l (Join-Path $TestDb "server.log") -w -t 60 | Out-Null
+  $ctl = Start-Process -FilePath "$PgBin\pg_ctl.exe" -WindowStyle Hidden -PassThru `
+    -ArgumentList "start -D `"$TestDb`" -l `"$(Join-Path $TestDb 'server.log')`" -w -t 60"
+  if (-not $ctl.WaitForExit(90000)) { Write-Host "pg_ctl is still waiting; the runner starts anyway." }
   if (Test-TestDb) { Write-Host "Started the test cluster on 5499." } else { Write-Host "The test cluster didn't start; see $TestDb\server.log." }
 }
 
@@ -98,7 +102,8 @@ if ($Stop) {
 }
 
 if ($Start) {
-  Start-TestDb
+  # The runner starts whatever the test cluster does: a job without it fails and says why.
+  try { Start-TestDb } catch { Write-Host "Couldn't start the test cluster: $_" }
   if (Get-RunnerProcess) {
     Write-Host "The runner is already running."
   } else {

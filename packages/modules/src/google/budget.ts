@@ -42,8 +42,8 @@ export type Take = { ok: true } | { ok: false; paused: boolean; retryAt: number 
 export interface QuotaStore {
   /** Writes down `units` unless a pause holds or they'd take the minute over `limit`. */
   take(account: string, service: string, units: number, limit: number, now: number): Promise<Take>;
-  /** Holds every call for this account and service until `until`. */
-  pause(account: string, service: string, until: number): Promise<void>;
+  /** Holds every call for this account and service until `until`; `reason` is what Google said. */
+  pause(account: string, service: string, until: number, reason?: string): Promise<void>;
 }
 
 /** When enough of the spending has aged out of the minute for `need` more units to fit. */
@@ -95,15 +95,18 @@ export class DbQuotaStore implements QuotaStore {
     });
   }
 
-  async pause(account: string, service: string, until: number) {
+  async pause(account: string, service: string, until: number, reason?: string) {
     const at = new Date(until);
     await this.db
       .insert(googleQuota)
-      .values({ account, service, pausedUntil: at })
+      .values({ account, service, pausedUntil: at, reason: reason ?? null })
       .onConflictDoUpdate({
         target: [googleQuota.account, googleQuota.service],
-        // A shorter pause never cuts a longer one short.
-        set: { pausedUntil: sql`greatest(${googleQuota.pausedUntil}, excluded.paused_until)` },
+        // A shorter pause never cuts a longer one short; the latest word from Google is kept.
+        set: {
+          pausedUntil: sql`greatest(${googleQuota.pausedUntil}, excluded.paused_until)`,
+          reason: sql`coalesce(excluded.reason, ${googleQuota.reason})`,
+        },
       });
   }
 }
@@ -175,7 +178,7 @@ export class GoogleBudget {
     });
   }
 
-  pause(account: string, service: GoogleService, until: number): Promise<void> {
-    return this.store.pause(account, service, until);
+  pause(account: string, service: GoogleService, until: number, reason?: string): Promise<void> {
+    return this.store.pause(account, service, until, reason);
   }
 }

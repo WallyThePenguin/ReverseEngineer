@@ -13,6 +13,7 @@ import {
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { id, isoDateTime } from "../shared.ts";
+import { archiveAction, unarchiveAction } from "./archive.ts";
 import { newMailNeedsReply } from "./arrivals.ts";
 import { describeDraft, draftActions } from "./drafts.ts";
 import { changeFlags, pendingChanges, recomputeThread } from "./flags.ts";
@@ -212,18 +213,8 @@ export const mailModule = defineModule({
         return t;
       },
     }),
-    flagAction(
-      "mail.archive",
-      "Archive conversations: out of the inbox, kept in All mail.",
-      () => ({
-        add: [],
-        remove: ["INBOX"],
-      }),
-    ),
-    flagAction("mail.unarchive", "Move conversations back to the inbox.", () => ({
-      add: ["INBOX"],
-      remove: ["TRASH"],
-    })),
+    archiveAction,
+    unarchiveAction,
     flagAction(
       "mail.mark_read",
       "Mark conversations read, or unread with read: false.",

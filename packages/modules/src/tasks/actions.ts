@@ -82,8 +82,15 @@ function completedAtFor(
 export const createTask = defineAction({
   name: "task.create",
   description:
-    "Create a task. Optional: status, priority, dueAt (ISO; set dueIsDate for a whole-day due date), estimateMinutes, assignee (owner or jarvis), parentId for a subtask.",
-  input: z.object({ title, body: body.optional(), parentId: id.optional(), ...fields }),
+    "Create a task. Optional: status, priority, dueAt (ISO; set dueIsDate for a whole-day due date), estimateMinutes, assignee (owner or jarvis), parentId for a subtask, outside: true when its words came from someone else (an email's subject).",
+  input: z.object({
+    title,
+    body: body.optional(),
+    parentId: id.optional(),
+    // Only ever marks more as outside content (D58); a turn that read some marks it anyway.
+    outside: z.boolean().optional(),
+    ...fields,
+  }),
   risk: "internal",
   async handler(i, ctx): Promise<TaskView> {
     const e = await createEntity(ctx, {
@@ -91,6 +98,7 @@ export const createTask = defineAction({
       title: i.title,
       body: i.body ?? "",
       parentId: i.parentId ?? null,
+      outside: i.outside === true,
     });
     const status = i.status ?? "not_started";
     const [t] = await ctx.tx
