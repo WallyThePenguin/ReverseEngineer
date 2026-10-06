@@ -12,8 +12,8 @@ afterAll(() => tdb.destroy());
 
 const q = (sql: string, params: unknown[] = []) => tdb.pool.query(sql, params);
 const NAME = "0032_integrations";
-/** This migration and the ones after it (0033_slack_bot on), oldest first: what going below it
- * reverts, and applies again. */
+/** This migration and the ones after it, oldest first: what going below it reverts, and applies
+ * again. */
 const SINCE = loadMigrations()
   .map((m) => m.name)
   .filter((n) => n >= NAME);

@@ -29,9 +29,10 @@
   When the update changes the service definitions or install.ps1, it says to run install.ps1
   again as administrator; everything else still updates.
 
-  When the update changes this script or control.ps1, the new copy takes over right after the
-  merge (-Relaunched), so the new gate and rollback judge the new code. This run keeps the lock,
-  waits for it and exits with its exit code; should it not start, this run rolls back.
+  When the update changes this script or control.ps1 (or control-jarvis.ps1), the new copy takes
+  over right after the merge (-Relaunched), so the new gate and rollback judge the new code. This
+  run keeps the lock, waits for it and exits with its exit code; should it not start, this run
+  rolls back.
 
   Log: data\logs\update-<date>.log, one per day, appended. Exit code 0 means Hearth is up and
   healthy on the new code.
@@ -123,7 +124,11 @@ function Assert-Healthy([string]$Sha, [datetime]$Since, $Before) {
 
 $exit = 1
 $applied = @()
+# $stopped: nothing runs the code on disk, so it can change. $startAgain: this run stopped Hearth
+# and hasn't started it all again, so the catch does. They differ once a start fails partway: on
+# the same commit (-Force) there's nothing to roll back, but Hearth must still start again.
 $stopped = $false
+$startAgain = $false
 if ($Relaunched) {
   # Where the run that started this one left off: Hearth stopped, the new commit merged. Deleting
   # the file says this copy has taken over, rollback included.
@@ -133,6 +138,7 @@ if ($Relaunched) {
   $new = $state.New
   $before = $state.Before
   $stopped = $true
+  $startAgain = $true
   Write-Host "== Carrying on with the updated update.ps1"
 } else {
   $old = (git rev-parse HEAD).Trim()
@@ -159,6 +165,7 @@ try {
 
     Stop-Hearth
     $stopped = $true
+    $startAgain = $true
     Invoke-Native "Moving to $($new.Substring(0, 7))" { git merge --ff-only $new }
   } elseif ((git rev-parse HEAD).Trim() -ne $new) {
     throw "The Hearth folder isn't on $($new.Substring(0, 7)), where the update left off."
@@ -168,14 +175,20 @@ try {
     Write-Host "== Making sure Jarvis has stopped"
     $stuck = Stop-Jarvis
     if ($stuck) {
-      throw "$stuck. (The Hearth you're updating from stops Jarvis the old way: if its worker starts that Jarvis again first, in about three minutes, the next update will leave it running too.)"
+      $why = "$stuck."
+      # A Hearth since D63 asks Jarvis to stop (control-jarvis.ps1 writes hearth-jarvis.stop).
+      git grep -q -F "hearth-jarvis.stop" $old -- ops/windows
+      if ($LASTEXITCODE -ne 0) {
+        $why += " (The Hearth you're updating from stops Jarvis the old way: if its worker starts that Jarvis again first, in about three minutes, the next update will leave it running too.)"
+      }
+      throw $why
     }
   }
   $needsInstall = @(git diff --name-only $old $new -- ops/windows/install.ps1 "ops/windows/*.xml").Count -gt 0
   # This script was read before the merge; an update that changes it (or control.ps1) is carried
   # on by its new copy, which never hands over again.
   $updaterChanged = -not $Relaunched -and
-    @(git diff --name-only $old $new -- ops/windows/update.ps1 ops/windows/control.ps1).Count -gt 0
+    @(git diff --name-only $old $new -- ops/windows/update.ps1 ops/windows/control.ps1 ops/windows/control-jarvis.ps1).Count -gt 0
   if ($updaterChanged) {
     Write-Host "== This update changes the updater: its new copy carries on from here"
     $exe = if ($PSVersionTable.PSEdition -eq "Core") { "$PSHOME\pwsh.exe" } else { "$PSHOME\powershell.exe" }
@@ -202,8 +215,12 @@ try {
     $applied = @(Get-AppliedMigrations $out)
     if ($code -ne 0) { throw "Migrating the database failed (exit $code)." }
     $since = [datetime]::UtcNow
-    Start-Hearth
+    # From here the new code may be running, even when Start-Hearth fails partway: a rollback
+    # stops it before anything on disk changes. Until Start-Hearth returns, the rollback (or, on
+    # the same commit with -Force, the catch) starts Hearth again.
     $stopped = $false
+    Start-Hearth
+    $startAgain = $false
     Assert-Healthy $new $since $before
     if ($needsInstall) {
       Write-Warning "This update changed how the services are installed. Run ops\windows\install.ps1 again from an elevated PowerShell."
@@ -217,9 +234,22 @@ try {
 } catch {
   Write-Host "UPDATE FAILED: $_"
   if ((git rev-parse HEAD).Trim() -ne $old) {
-    if (-not $stopped) { Stop-Hearth -Anyway; $stopped = $true }
+    if (-not $stopped) {
+      try {
+        Stop-Hearth -Anyway
+        $stopped = $true
+        $startAgain = $true
+      } catch {
+        Write-Host "Couldn't stop Hearth: $_"
+        # Left as it is, on the new code, for you to see why.
+        $startAgain = $false
+      }
+    }
     if ($applied.Count) { Write-Host "This update applied $($applied -join ', ')." }
-    if (Undo-Migrations $applied) {
+    if (-not $stopped) {
+      # Never git reset, pnpm install or build under services running the new code: mixed code.
+      Write-Host "HEARTH IS LEFT ON $(Format-Sha $new), not rolled back: it couldn't be stopped. Run pnpm hearth doctor to see why."
+    } elseif (Undo-Migrations $applied) {
       Write-Host "== Putting the previous code back ($($old.Substring(0, 7)))"
       git reset --hard $old
       pnpm install --frozen-lockfile
@@ -235,7 +265,7 @@ try {
       }
     }
   }
-  if ($stopped) {
+  if ($startAgain) {
     # Hearth was stopped above, maybe only seconds ago: no margin, so only the restart counts.
     $since = [datetime]::UtcNow
     # An older Jarvis that wouldn't stop is left running, as it was before the update: its task

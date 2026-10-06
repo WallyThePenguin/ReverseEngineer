@@ -1,7 +1,7 @@
 // Chat with Jarvis, and comment threads on any record. Jarvis answers chat messages and
-// @mentions wherever they appear.
+// @mentions wherever they appear. Its own routines' runs stay out of the conversation list.
 import { formatDateTime, MEMBER_CONVERSATION } from "@hearth/core";
-import { conversation, conversationLog, entity } from "@hearth/db";
+import { conversation, conversationLog, entity, jarvisTurn } from "@hearth/db";
 import {
   ActionError,
   createEntity,
@@ -89,13 +89,17 @@ export const chatModule = defineModule({
     defineAction({
       name: "conversation.list",
       description:
-        "List conversations with Jarvis, most recent first, optionally those whose title has some words.",
+        "List conversations with Jarvis, most recent first, optionally those whose title has some words. Jarvis's own routine runs (the brief, prep, drafting) are left out unless routines is true.",
       input: z.object({
         limit: z.number().int().min(1).max(100).default(30),
         query: z.string().trim().max(200).optional(),
+        routines: z.boolean().default(false),
       }),
       risk: "read",
       async handler(i, ctx) {
+        // A routine's run: no record it's about, and only Jarvis's own turns in it. A chat you
+        // started, or one you wrote in afterwards, has a turn that answers you, so it stays.
+        const routineRun = sql`(${conversation.subjectId} IS NULL AND (SELECT bool_and(${jarvisTurn.mode} = 'proactive') FROM ${jarvisTurn} WHERE ${jarvisTurn.conversationId} = ${entity.id}))`;
         return ctx.tx
           .select({
             id: entity.id,
@@ -110,6 +114,7 @@ export const chatModule = defineModule({
             and(
               isNull(entity.deletedAt),
               i.query ? ilike(entity.title, `%${likeText(i.query)}%`) : undefined,
+              i.routines ? undefined : sql`${routineRun} IS NOT TRUE`,
             ),
           )
           .orderBy(desc(entity.updatedAt))

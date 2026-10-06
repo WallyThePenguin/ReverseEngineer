@@ -21,7 +21,7 @@ import { sendAction } from "./send.ts";
 import { syncMail, syncProgress } from "./sync.ts";
 import { alertKey } from "./sync-state.ts";
 import { listThreads, loadThread, searchThreads, threadText, who } from "./views.ts";
-import { followUpRoutine, waitingActions, waitingDigest } from "./waiting.ts";
+import { followUpRoutine, replyDraftRoutine, waitingActions, waitingDigest } from "./waiting.ts";
 
 export { BLOB_SERVICE, BlobStore, blobsFromEnv } from "./blobs.ts";
 export type { DraftView } from "./drafts.ts";
@@ -357,7 +357,7 @@ export const mailModule = defineModule({
     restoreAction,
     ...waitingActions,
   ],
-  routines: [followUpRoutine],
+  routines: [replyDraftRoutine, followUpRoutine],
   reflexes: [syncFailed, changeFailed],
   async digest(ctx): Promise<DigestItem[]> {
     const rows = await listThreads(ctx.db, {

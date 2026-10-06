@@ -120,4 +120,6 @@ export interface MailDraft {
   subject: string;
   text: string;
   updatedAt: string;
+  /** Who started it: Jarvis, or you. */
+  by: "jarvis" | "owner";
 }

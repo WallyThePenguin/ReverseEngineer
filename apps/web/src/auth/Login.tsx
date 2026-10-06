@@ -72,7 +72,7 @@ export function Login(props: { needsSetup: boolean; onSignedIn: () => void }) {
           fallback={
             <button
               type="button"
-              class="w-full rounded-md bg-accent px-3 py-2 font-medium text-white disabled:opacity-50"
+              class="w-full rounded-md bg-accent px-3 py-2 font-medium text-on-fill disabled:opacity-50"
               disabled={busy()}
               onClick={() => void login()}
             >
@@ -101,7 +101,7 @@ export function Login(props: { needsSetup: boolean; onSignedIn: () => void }) {
             </label>
             <button
               type="submit"
-              class="w-full rounded-md bg-accent px-3 py-2 font-medium text-white disabled:opacity-50"
+              class="w-full rounded-md bg-accent px-3 py-2 font-medium text-on-fill disabled:opacity-50"
               disabled={busy() || code().trim().length < 6}
             >
               Create passkey

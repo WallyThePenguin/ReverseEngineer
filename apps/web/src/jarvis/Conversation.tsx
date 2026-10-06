@@ -2,8 +2,9 @@
 // reply streaming in as it's written. Live and reloaded views come from the same fold.
 
 import { foldConversation, fromEditForm } from "@hearth/core";
-import { createEffect, createSignal, For, Match, on, onCleanup, Show, Switch } from "solid-js";
-import { Body } from "../components/Body.tsx";
+import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js";
+import { Icon } from "../components/icons.tsx";
+import { JarvisMark } from "../components/Mark.tsx";
 import { MentionEditor } from "../components/MentionEditor.tsx";
 import { Button, PaneHeader } from "../components/ui.tsx";
 import { MOD } from "../lib/hotkeys.ts";
@@ -12,8 +13,9 @@ import { narrow } from "../lib/narrow.ts";
 import { act, useAction } from "../lib/query.ts";
 import { hush, mic, say, talkTaken, talkWanted } from "../lib/speech.ts";
 import type { LogRecord } from "../lib/types.ts";
+import { JarvisSays, LogItem, Starter } from "./Message.tsx";
 import { RenameInput, renameConversation } from "./Rename.tsx";
-import { OutsideNote, ToolLine } from "./ToolLine.tsx";
+import { OutsideNote } from "./ToolLine.tsx";
 
 /** How long what you sent may wait for Jarvis to start before it says so. */
 const SLOW_MS = 20_000;
@@ -171,56 +173,12 @@ export function Conversation(props: {
           <Show when={!data.data && data.isLoading}>
             <p class="text-sm text-muted">Loading…</p>
           </Show>
-          <For each={view().items}>
-            {(item) => (
-              <Switch>
-                <Match when={item.type === "message" && item}>
-                  {(m) => (
-                    <div class={m().role === "you" ? "ml-8 rounded-lg bg-sunk px-3 py-2" : "mr-2"}>
-                      <Show when={m().role === "jarvis"}>
-                        <p class="mb-0.5 text-xs font-medium text-jarvis">Jarvis</p>
-                      </Show>
-                      <Body text={m().text} />
-                    </div>
-                  )}
-                </Match>
-                <Match when={item.type === "tool" && item}>{(t) => <ToolLine item={t()} />}</Match>
-                <Match when={item.type === "notice" && item}>
-                  {(n) => (
-                    <p class={`text-xs ${n().tone === "error" ? "text-bad" : "text-muted"}`}>
-                      {n().text}
-                      <Show when={n().retry && n().turnId}>
-                        {(turnId) => (
-                          <>
-                            {" "}
-                            <button
-                              type="button"
-                              class="font-medium underline hover:text-ink"
-                              onClick={() => void act("jarvis.retry_turn", { turnId: turnId() })}
-                            >
-                              Retry
-                            </button>
-                          </>
-                        )}
-                      </Show>
-                    </p>
-                  )}
-                </Match>
-              </Switch>
-            )}
-          </For>
-          <For each={streaming()}>
-            {(text) => (
-              <div class="mr-2">
-                <p class="mb-0.5 text-xs font-medium text-jarvis">Jarvis</p>
-                <Body text={text} />
-              </div>
-            )}
-          </For>
+          <For each={view().items}>{(item) => <LogItem item={item} />}</For>
+          <For each={streaming()}>{(text) => <JarvisSays text={text} streaming />}</For>
           <Show when={busy()}>
             <div class="flex items-center gap-2 text-sm text-jarvis">
               <Show when={streaming().length === 0}>
-                <span class="inline-block size-2 animate-pulse rounded-full bg-jarvis" /> Thinking…
+                <JarvisMark size={12} state="thinking" /> Thinking…
               </Show>
               <span class="flex-1" />
               <Button small disabled={stopping()} title="Stop Jarvis" onClick={() => void stop()}>
@@ -240,10 +198,11 @@ export function Conversation(props: {
         <div class="pointer-events-none relative">
           <button
             type="button"
-            class="pointer-events-auto absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full border border-line bg-panel px-3 py-1 text-xs font-medium shadow"
+            class="pointer-events-auto absolute bottom-2 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-line bg-panel px-3 py-1 text-xs font-medium shadow-pop"
             onClick={toBottom}
           >
-            ↓ Latest
+            <Icon name="arrow-down" size={14} />
+            Latest
           </button>
         </div>
       </Show>
@@ -264,6 +223,7 @@ export function Conversation(props: {
           <Button
             small
             kind={mic.state() === "listening" ? "danger" : "plain"}
+            icon={mic.state() === "listening" ? "square" : "mic"}
             disabled={mic.state() === "working"}
             title="Talk to Jarvis: tap, speak, tap again. The answer is read aloud."
             onClick={() => void talk()}
@@ -279,37 +239,6 @@ export function Conversation(props: {
             Send
           </Button>
         </div>
-      </div>
-    </div>
-  );
-}
-
-const STARTERS = [
-  "What's on my plate today?",
-  "What did you do for me since yesterday?",
-  "Make me a task to call the dentist tomorrow at 10 a.m.",
-  "Watch for any task due this week that I haven't started, and tell me.",
-];
-
-function Starter(props: { onPick: (text: string) => void }) {
-  return (
-    <div class="space-y-3 py-6">
-      <p class="text-muted">
-        Ask for anything in Hearth. Jarvis can read and change your tasks, notes and people, search
-        the web, and set up watches. Anything other people would see waits for your yes.
-      </p>
-      <div class="space-y-1">
-        <For each={STARTERS}>
-          {(s) => (
-            <button
-              type="button"
-              class="block w-full rounded-md border border-line px-3 py-2 text-left text-sm hover:bg-sunk"
-              onClick={() => props.onPick(s)}
-            >
-              {s}
-            </button>
-          )}
-        </For>
       </div>
     </div>
   );
