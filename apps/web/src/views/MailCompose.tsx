@@ -3,10 +3,12 @@
 // draft still matches it, so nothing you can't see (a change Jarvis made meanwhile) goes out.
 // With more than one account, From picks which it goes from; a draft kept from an account you
 // disconnected waits for you to pick one. A reply starts with the cursor in the message, and its
-// Bcc and Subject (and Cc, while it's empty) folded behind "More".
+// Bcc and Subject (and an empty Cc) folded behind "More", unless its Bcc has anyone on it
+// (lib/compose.ts).
 
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { Button } from "../components/ui.tsx";
+import { foldsExtras, showsCc } from "../lib/compose.ts";
 import { toast } from "../lib/live.ts";
 import { cursorFor, cursorPlaced } from "../lib/mailActions.ts";
 import { act, useAction } from "../lib/query.ts";
@@ -32,7 +34,8 @@ export function Composer(props: { draft: MailDraft; onDone?: () => void }) {
   const accounts = useAction<MailAccount[]>("mail.accounts");
   const choose = () => (accounts.data ?? []).length > 1 || !from();
   // A reply's recipients and subject come from the conversation: the message is what's left.
-  const [more, setMore] = createSignal(!props.draft.threadId);
+  const [more, setMore] = createSignal(!foldsExtras(props.draft));
+  const ccShown = showsCc(props.draft);
   let message: HTMLTextAreaElement | undefined;
   let timer: number | undefined;
   let dirty = false;
@@ -130,8 +133,8 @@ export function Composer(props: { draft: MailDraft; onDone?: () => void }) {
         </label>
       </Show>
       <input class={field} aria-label="To" placeholder="To" value={to()} onInput={typed(setTo)} />
-      {/* Who else it goes to is never hidden: a Cc with anyone on it stays out. */}
-      <Show when={more() || cc().trim()}>
+      {/* Who else it goes to is never hidden: a Cc with anyone on it stays out, even emptied. */}
+      <Show when={more() || ccShown || cc().trim()}>
         <input class={field} aria-label="Cc" placeholder="Cc" value={cc()} onInput={typed(setCc)} />
       </Show>
       <Show
@@ -142,7 +145,7 @@ export function Composer(props: { draft: MailDraft; onDone?: () => void }) {
             class="text-xs text-muted hover:text-ink"
             onClick={() => setMore(true)}
           >
-            More: {cc().trim() ? "" : "Cc, "}Bcc, Subject
+            More: {ccShown || cc().trim() ? "" : "Cc, "}Bcc, Subject
           </button>
         }
       >
