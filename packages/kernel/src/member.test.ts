@@ -125,8 +125,8 @@ const probe = defineModule({
     }),
     defineAction({
       name: "probe.interrupt",
-      description: "An interrupt with a deadline",
-      input: z.object({ key: z.string() }),
+      description: "An interrupt, with a deadline unless `untimed`",
+      input: z.object({ key: z.string(), untimed: z.boolean().default(false) }),
       risk: "internal",
       callers: everyone,
       handler: (i, ctx) =>
@@ -135,7 +135,7 @@ const probe = defineModule({
           title: i.key,
           urgency: "interrupt",
           dedupeKey: i.key,
-          deadline: new Date("2026-10-01T16:00:00Z"),
+          ...(i.untimed ? {} : { deadline: new Date("2026-10-01T16:00:00Z") }),
         }),
     }),
   ],
@@ -274,8 +274,9 @@ describe("the kernel, for a member", () => {
   });
 
   it("doesn't let a member's deadline break through the day's budget", async () => {
+    // Alerts with no set time spend the day's budget (Hearth's own timed reminders don't).
     for (let i = 0; i < 8; i++)
-      await t.kernel.execute("probe.interrupt", { key: `day${i}` }, systemCaller());
+      await t.kernel.execute("probe.interrupt", { key: `day${i}`, untimed: true }, systemCaller());
     await t.kernel.execute("probe.interrupt", { key: "member" }, member(OWN));
     await t.kernel.execute("probe.interrupt", { key: "hearth" }, systemCaller());
     const rows = await t.tdb.db.select().from(notification).where(eq(notification.kind, "test"));
