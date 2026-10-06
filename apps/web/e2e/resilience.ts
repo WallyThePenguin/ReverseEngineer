@@ -195,6 +195,11 @@ try {
       .getByRole("status")
       .filter({ hasText: "Reconnecting…" })
       .waitFor({ state: "detached", timeout: 40_000 });
+    // Hearth opens on Today; a notice shows under Updates. Opened first, so the row can only
+    // arrive over the feed that just came back.
+    await p.keyboard.press("g");
+    await p.keyboard.press("i");
+    await p.getByRole("heading", { name: "Updates" }).waitFor();
     const title = `Call the bank ${tag}`;
     await runAction(p, "inbox.notify", { title });
     await inboxRow(p, title).waitFor({ timeout: 5_000 });

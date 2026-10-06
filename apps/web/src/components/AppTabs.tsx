@@ -28,7 +28,7 @@ export function AppTabs(props: { view: ListView; pane: number }) {
           return (
             <button
               type="button"
-              class={`rounded-md px-2 py-0.5 text-title whitespace-nowrap ${on() ? "text-ink" : "font-medium text-faint hover:bg-sunk hover:text-muted"}`}
+              class={`inline-flex min-h-11 items-center rounded-md px-2 py-0.5 text-title whitespace-nowrap md:min-h-0 ${on() ? "text-ink" : "font-medium text-faint hover:bg-sunk hover:text-muted"}`}
               aria-current={on() ? "page" : undefined}
               title={`${place.label} (${place.keys})`}
               onClick={(e) => {
