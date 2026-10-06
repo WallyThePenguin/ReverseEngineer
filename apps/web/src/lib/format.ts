@@ -167,8 +167,8 @@ export const PRIORITY_LABEL: Record<string, string> = {
 export const TYPE_LABEL: Record<string, string> = {
   task: "Task",
   note: "Note",
-  canvas: "Canvas",
-  spreadsheet: "Spreadsheet",
+  canvas: "Board",
+  spreadsheet: "Sheet",
   person: "Person",
   company: "Company",
   meeting: "Meeting",
@@ -184,6 +184,7 @@ export const TYPE_LABEL: Record<string, string> = {
   routine: "Routine",
   email_thread: "Email",
   email: "Email",
+  email_draft: "Draft",
   slack_message: "Slack",
   github_pr: "Pull request",
 };
