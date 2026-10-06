@@ -52,14 +52,16 @@ async function setPairing(db: DbOrTx, next: Settings["browser.pairing"]) {
 
 /**
  * Where this server can be reached from this PC: the address and port the request came in on, so
- * Chrome and Jarvis's client reach the very server that runs the test. Null when the request
- * didn't come over a socket (only in tests).
+ * Chrome and Jarvis's client reach the very server that runs the test. On this PC that's always
+ * 127.0.0.1, even when the request came in on [::1] (listen.ts): Jarvis's steps name a site by the
+ * page's host, and an IPv6 address isn't one. Null when the request didn't come over a socket
+ * (only in tests).
  */
-function selfUrl(env: unknown): string | null {
+export function selfUrl(env: unknown): string | null {
   const socket = (env as { incoming?: IncomingMessage } | undefined)?.incoming?.socket;
   const address = socket?.localAddress?.replace(/^::ffff:/, "");
   if (!address || !socket?.localPort) return null;
-  const host = address === "::" || address === "0.0.0.0" ? "127.0.0.1" : address;
+  const host = ["::", "::1", "0.0.0.0"].includes(address) ? "127.0.0.1" : address;
   return `http://${host.includes(":") ? `[${host}]` : host}:${socket.localPort}`;
 }
 
