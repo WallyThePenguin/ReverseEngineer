@@ -1,9 +1,11 @@
 // The left rail: Hearth's seven places (Today and six sub-products), where you are, what's waiting
-// on you, and whether the live connection is up. Settings sits at the bottom, with Jarvis's chat.
+// on you, and whether the live connection is up. Hearth's own menu is at the top (Trash, the
+// desktop app, signing out); Settings and Jarvis's chat sit at the bottom.
 
 import { createRoot, createSignal, For, type JSX, Show } from "solid-js";
 import { Icon } from "../components/icons.tsx";
 import { Flame } from "../components/Mark.tsx";
+import { Overflow } from "../components/Menu.tsx";
 import { JarvisStatusMark, jarvis } from "../jarvis/JarvisPane.tsx";
 import { authPost } from "../lib/api.ts";
 import { APPS, type App, type AppId, appOf } from "../lib/apps.ts";
@@ -12,6 +14,8 @@ import { MOD } from "../lib/hotkeys.ts";
 import { live } from "../lib/live.ts";
 import { layout } from "../lib/panes.ts";
 import { inboxInput, useAction, usePendingApprovals } from "../lib/query.ts";
+import type { ListView } from "../lib/routes.ts";
+import { openSettings } from "../lib/settingsNav.ts";
 import type { InboxRow } from "../lib/types.ts";
 
 /** Whether the sidebar is tucked away on a computer (it gives the panes room), remembered. */
@@ -97,13 +101,20 @@ export function Sidebar(props: {
   };
 
   /** Opens a place at its home, beside on shift-click; on a phone, in place of what's there. */
-  const go = (app: App, beside: boolean) => {
-    const route = { view: app.views[0]! };
+  const go = (app: App, beside: boolean) => open(app.views[0]!, beside);
+  const open = (view: ListView, beside = false) => {
+    const route = { view };
     if (props.onPicked) {
       jarvis.toggle(false);
       layout.reset(route);
       props.onPicked();
     } else layout.open(route, { beside });
+  };
+  const signOut = async () => {
+    // Signing out deletes this device's copies, edits Hearth hasn't got included.
+    if (!(await okToSignOut())) return;
+    await authPost("logout").catch(() => {});
+    props.onSignOut();
   };
 
   const row = (app: App): JSX.Element => (
@@ -134,13 +145,32 @@ export function Sidebar(props: {
 
   return (
     <nav class="flex h-full w-52 shrink-0 flex-col border-r border-line bg-sunk/50 px-2 py-3">
-      <div class="mb-3 flex min-h-7 items-center gap-2 px-2">
-        <Flame size={20} />
-        <span class="font-semibold">Hearth</span>
-        <span
-          class={`size-1.5 rounded-full ${live.connected() ? "bg-ok" : "bg-faint"}`}
-          title={live.connected() ? "Live" : "Reconnecting…"}
-        />
+      <div class="mb-3 flex min-h-7 items-center gap-1 pl-0.5">
+        <Overflow
+          label="Hearth menu"
+          start
+          class="flex min-h-11 min-w-0 items-center gap-2 rounded-md px-1.5 hover:bg-panel md:min-h-7"
+          items={[
+            { label: "Trash", icon: "trash-2", run: () => open("trash") },
+            {
+              label: "Desktop app",
+              icon: "monitor",
+              run: () => {
+                openSettings("desktop");
+                props.onPicked?.();
+              },
+            },
+            { label: "Sign out", icon: "log-out", run: () => void signOut() },
+          ]}
+        >
+          <Flame size={20} />
+          <span class="font-semibold">Hearth</span>
+          <span
+            class={`size-1.5 rounded-full ${live.connected() ? "bg-ok" : "bg-faint"}`}
+            title={live.connected() ? "Live" : "Reconnecting…"}
+          />
+          <Icon name="chevron-down" size={14} class="text-faint" />
+        </Overflow>
         <span class="flex-1" />
         <Show when={!props.onPicked}>
           <button
@@ -175,24 +205,11 @@ export function Sidebar(props: {
           jarvis.toggle();
           props.onPicked?.();
         }}
-        title="Ctrl+J"
       >
         {/* Jarvis's chat, at the side: the Jarvis row above is what it did and knows. */}
         <Icon name="panel-right" class="text-faint" />
-        {jarvis.open() ? "Hide Jarvis" : "Ask Jarvis"}
-      </button>
-      <button
-        type="button"
-        class="flex min-h-11 items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm text-muted hover:text-ink md:min-h-0"
-        onClick={async () => {
-          // Signing out deletes this device's copies, edits Hearth hasn't got included.
-          if (!(await okToSignOut())) return;
-          await authPost("logout").catch(() => {});
-          props.onSignOut();
-        }}
-      >
-        <Icon name="log-out" class="text-faint" />
-        Sign out
+        <span class="flex-1">{jarvis.open() ? "Hide Jarvis" : "Ask Jarvis"}</span>
+        <span class="hidden text-xs text-faint md:inline">{MOD === "⌘" ? "⌘J" : "Ctrl J"}</span>
       </button>
     </nav>
   );
