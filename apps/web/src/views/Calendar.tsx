@@ -1,12 +1,18 @@
-// Your calendar as a list: the next week, day by day, with focus blocks and answers marked.
+// Your calendar as a list: the next week, day by day, with focus blocks and answers marked. The
+// box at the top adds an event to your own calendar from a line like "Dentist Fri 3pm 1h"; one
+// with guests still goes through Jarvis, who asks first.
 
-import { createSignal, For, Show } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import { Icon } from "../components/icons.tsx";
+import { Pill } from "../components/kit/Pill.tsx";
 import { Badge, Button, Empty, PaneHeader } from "../components/ui.tsx";
 import { hours, plural, span, time } from "../lib/format.ts";
+import { toast } from "../lib/live.ts";
 import { layout } from "../lib/panes.ts";
-import { useAction } from "../lib/query.ts";
+import { act, useAction } from "../lib/query.ts";
+import { quickAdd } from "../lib/quickadd.ts";
 import type { CalEvent } from "../lib/types.ts";
+import { type EventDraft, readEvent } from "../lib/when.ts";
 import { takeNotes } from "./Meeting.tsx";
 
 const DAY_MS = 24 * 3600_000;
@@ -19,6 +25,51 @@ const when = (start: Date, end: Date) =>
     : span(start, end);
 /** The tick or cross after the name of someone who has answered an invitation. */
 const ANSWERED = "ml-0.5 inline align-[-2px]";
+/** When a typed event is, before it's added: "Friday, Oct 9, 3 to 4 p.m." */
+const planned = (ev: EventDraft) =>
+  ev.allDay
+    ? `${dayLabel(new Date(`${ev.start}T00:00`))}, all day`
+    : when(new Date(ev.start), new Date(ev.end));
+
+/** The box that adds an event from a line of text. */
+function NewEvent() {
+  const [text, setText] = createSignal("");
+  const read = createMemo(() => readEvent(text().trim()));
+  const add = async () => {
+    if (!text().trim()) return;
+    // Read again as it's added, so "in 20 min" counts from now.
+    const ev = readEvent(text().trim());
+    if (!ev) return toast.show("Say when, like “Dentist Fri 3pm 1h”.");
+    const made = await quickAdd({ get: text, set: setText }, () =>
+      act("calendar.create_event", { title: ev.title, start: ev.start, end: ev.end }),
+    );
+    if (made) toast.show(`Added ${ev.title}: ${planned(ev)}.`);
+  };
+  return (
+    <form
+      class="flex items-center gap-2 border-b border-line px-4 py-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void add();
+      }}
+    >
+      <input
+        class="min-w-0 flex-1 bg-transparent py-1 outline-none placeholder:text-faint"
+        aria-label="New event"
+        placeholder="New event… “Dentist Fri 3pm 1h”"
+        value={text()}
+        onInput={(e) => setText(e.currentTarget.value)}
+      />
+      <Show when={read()}>
+        {(ev) => (
+          <Pill tone="accent" icon="calendar">
+            {planned(ev())}
+          </Pill>
+        )}
+      </Show>
+    </form>
+  );
+}
 
 export function Calendar(props: { pane: number }) {
   const [offset, setOffset] = createSignal(0);
@@ -55,6 +106,7 @@ export function Calendar(props: { pane: number }) {
           </Button>
         </div>
       </PaneHeader>
+      <NewEvent />
       <div class="flex-1 overflow-auto">
         <Show
           when={days().length > 0}

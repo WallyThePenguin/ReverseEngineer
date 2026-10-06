@@ -8,12 +8,13 @@ import { action } from "../lib/api.ts";
 import { PLACES, type Place, paletteLabel } from "../lib/apps.ts";
 import { TYPING_PAUSE_MS } from "../lib/debounce.ts";
 import { useDialogFocus } from "../lib/focus.ts";
-import { TYPE_LABEL } from "../lib/format.ts";
+import { due, TYPE_LABEL } from "../lib/format.ts";
 import { MOD } from "../lib/hotkeys.ts";
 import { arrange, type PaletteItem } from "../lib/palette.ts";
 import { layout, routeFor } from "../lib/panes.ts";
 import { act } from "../lib/query.ts";
 import type { SearchHit } from "../lib/types.ts";
+import { readWhen } from "../lib/when.ts";
 import { newCanvas } from "../views/Canvas.tsx";
 import { newNote } from "../views/Notes.tsx";
 import { setPaused } from "../views/Settings.tsx";
@@ -130,6 +131,28 @@ export function CommandPalette(props: { onClose: () => void }) {
     },
   };
 
+  /**
+   * A new task from what's typed. When it names a time ("dentist fri 3pm") the line says the due
+   * date, and a second line makes it as typed, so a misread date is one arrow key away.
+   */
+  const newTask = (q: string): PaletteItem[] => {
+    const make = (id: string, label: string, fields: { title: string }): PaletteItem => ({
+      id,
+      label,
+      hint: "Create",
+      run: async (beside) => {
+        const t = await act<{ id: string }>("task.create", fields);
+        if (t) layout.open({ view: "task", id: t.id }, { beside });
+      },
+    });
+    const w = readWhen(q);
+    if (!w) return [make("task", `New task: “${q}”`, { title: q })];
+    return [
+      make("task", `New task: “${w.title}”, due ${due(w.dueAt, w.dueIsDate)?.text}`, w),
+      make("task-as-typed", `New task: “${q}” (no date)`, { title: q }),
+    ];
+  };
+
   const items = (): PaletteItem[] => {
     const q = text().trim();
     return arrange({
@@ -144,20 +167,7 @@ export function CommandPalette(props: { onClose: () => void }) {
           run: (beside) => layout.open(routeFor(h.type, h.id), { beside }),
         })),
       },
-      extra: q
-        ? [
-            { ...ask, label: `Ask Jarvis: “${q}”` },
-            {
-              id: "task",
-              label: `New task: “${q}”`,
-              hint: "Create",
-              run: async (beside) => {
-                const t = await act<{ id: string }>("task.create", { title: q });
-                if (t) layout.open({ view: "task", id: t.id }, { beside });
-              },
-            },
-          ]
-        : [],
+      extra: q ? [{ ...ask, label: `Ask Jarvis: “${q}”` }, ...newTask(q)] : [],
     });
   };
   const active = () =>
