@@ -180,6 +180,22 @@ describe("who's answered", () => {
     });
   });
 
+  it("when Slack can't say who wrote for a day: passed on to you unanswered, and nothing said back", async () => {
+    t.s.failWith = "ratelimited";
+    await t.write("UNEW", "Can someone call me back?");
+    await t.tick();
+    // It waits for Slack to say who they are.
+    expect(await t.cards()).toEqual([]);
+    t.h.clock.advance(86_400_000 + 60_000);
+    await t.tick();
+    expect(await t.turns()).toEqual([]);
+    expect(await t.outbox()).toEqual([]);
+    const [card] = await t.cards("slack.member");
+    expect(card!.title).toBe("UNEW wrote to Jarvis on Slack, and it couldn't answer");
+    expect(card!.body).toContain("Can someone call me back?");
+    expect((await t.inbound()).map((r) => r.outcome)).toEqual(["relayed"]);
+  });
+
   it("not someone you've blocked: one note a day, and nothing passed on", async () => {
     await t.setSam({ tier: "blocked" });
     await t.write(SAM, "Hello");
