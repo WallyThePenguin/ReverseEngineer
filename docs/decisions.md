@@ -2057,9 +2057,10 @@ picked Otopair's board, and only tickets assigned to them. Every 5 minutes the w
 ticket assigned to you on that board (its columns, then its pages a hundred at a time, about
 three requests a second at most) into `notion_task` records written by `integration:notion`
 (outside content, D25). It compares each reading with the last and emits `notion.task_assigned`
-(new to you, handed back, or reopened), `notion.task_done` (its status in the Complete group) and
-`notion.task_changed` (title or due date). The Jarvis lane's reflex makes and closes your Hearth
-tasks from them, unasked (the owner's decision of 2026-10-05). The first read brings in your open
+(new to you, handed back, or reopened), `notion.task_done` (its status in the Complete group),
+`notion.task_changed` (title or due date) and `notion.task_unassigned` (an open one handed to
+someone else or deleted, seen only on a whole read). The Jarvis lane's reflex makes, closes and
+cancels your Hearth tasks from them, unasked (the owner's decision of 2026-10-05). The first read brings in your open
 tickets quietly (`backfill: true`), at the owner's choice. Which columns mean who, done and due is
 picked from their names and kinds (Otopair: Assignee, Status, End date). Hearth never writes to
 Notion. The secret is sealed like GitHub's, and failures follow D61.

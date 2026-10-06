@@ -85,6 +85,10 @@ export const notionModule = defineModule({
       description: `An open ticket of yours on your Notion board has a new title or due date. ${TASK_PAYLOAD}, changed ("title" | "due")[].`,
     },
     {
+      kind: "notion.task_unassigned",
+      description: `An open ticket of yours on your Notion board isn't yours any more: handed to someone else, or deleted. ${TASK_PAYLOAD}.`,
+    },
+    {
       kind: "notion.sync_failed",
       description:
         "Notion stopped syncing: its secret stopped working (reconnect), the board can't be read, or it kept failing. Sent once when it starts. Payload: errors, since, reconnect.",

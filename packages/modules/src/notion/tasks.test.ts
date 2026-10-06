@@ -147,15 +147,30 @@ describe("notion tasks", () => {
   it("notices a ticket handed to someone else, and one handed back", async () => {
     await connected();
     ticket("a");
+    ticket("b");
     await sync();
     ticket("a", { assignees: ["user-sam"] });
-    await sync();
-    const [row] = await t.tdb.db.select().from(notionTask);
-    expect(row?.assigned).toBe(false);
-    expect(await kinds()).toEqual(["notion.task_assigned"]);
+    ticket("b", { status: "Done" });
+    expect(await sync()).toMatchObject({ unassigned: 1, done: 1 });
+    // b is done: its task closed already, so handing it on says nothing more.
+    ticket("b", { status: "Done", assignees: ["user-sam"] });
+    expect(await sync()).toMatchObject({ unassigned: 0 });
+    const rows = await t.tdb.db.select().from(notionTask);
+    expect(rows.map((r) => r.assigned)).toEqual([false, false]);
+    expect(await kinds()).toEqual([
+      "notion.task_assigned",
+      "notion.task_assigned",
+      "notion.task_done",
+      "notion.task_unassigned",
+    ]);
+    expect((await t.events("notion.task_unassigned"))[0]?.payload).toMatchObject({
+      title: "Ticket a",
+      backfill: false,
+      database: "Otopair",
+    });
     ticket("a");
     await sync();
-    expect(await kinds()).toEqual(["notion.task_assigned", "notion.task_assigned"]);
+    expect((await kinds()).at(-1)).toBe("notion.task_assigned");
   });
 
   it("stops at a revoked secret until you paste a new one, and lets a slowdown pass", async () => {

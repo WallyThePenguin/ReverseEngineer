@@ -1,7 +1,8 @@
 // The Notion loop (D68). Each round reads every ticket assigned to you on your task board (a few
 // requests: the board's columns, then its pages a hundred at a time) and compares them with what
 // it read before. What changed becomes an event for Jarvis, which makes and closes your Hearth
-// tasks: a ticket newly yours, one that's done, one whose title or due date moved. The first
+// tasks: a ticket newly yours, one that's done, one whose title or due date moved, an open one
+// that isn't yours any more. The first
 // round brings in your open tickets quietly (backfill: true). Tickets are other people's words.
 import { entity, notionAccount, notionTask } from "@hearth/db";
 import { type ActionContext, createEntity, savepoint, updateEntity } from "@hearth/kernel";
@@ -29,6 +30,22 @@ export const openToken = (ctx: Pick<ActionContext, "service">, a: AccountRow) =>
 const defuse = (s: string) => s.replace(/<(\/?m-ref)/gi, "‹$1");
 
 type Change = "notion.task_assigned" | "notion.task_done" | "notion.task_changed";
+
+/** What every notion.task_* event says about its ticket (the module's TASK_PAYLOAD). */
+const payloadOf = (
+  t: { title: string; status: string | null; dueAt: string | null; dueIsDate: boolean },
+  url: string,
+  board: { title: string },
+  first: boolean,
+) => ({
+  title: t.title,
+  status: t.status,
+  dueAt: t.dueAt,
+  dueIsDate: t.dueIsDate,
+  url,
+  database: board.title,
+  backfill: first,
+});
 
 /** The event a ticket's new reading makes, compared with the last one (none on a quiet round). */
 export function changeOf(
@@ -84,13 +101,7 @@ async function follow(
     kind: change.kind,
     entityId: id,
     payload: {
-      title,
-      status: t.status,
-      dueAt: t.dueAt,
-      dueIsDate: t.dueIsDate,
-      url: p.url,
-      database: board.title,
-      backfill: first,
+      ...payloadOf({ ...t, title }, p.url, board, first),
       ...(change.changed ? { changed: change.changed } : {}),
     },
   });
@@ -102,6 +113,7 @@ export interface NotionSyncResult {
   assigned: number;
   done: number;
   changed: number;
+  unassigned: number;
   failed: string[];
 }
 
@@ -134,7 +146,7 @@ async function readBoard(ctx: ActionContext, account: AccountRow, token: string,
   const known = new Map(rows.map((r) => [r.row.pageId, { ...r.row, title: r.title }]));
   const first = account.syncedAt === null;
   const board = { id: sourceId, title: schema.title };
-  const out = { tickets: pages.size, assigned: 0, done: 0, changed: 0 };
+  const out = { tickets: pages.size, assigned: 0, done: 0, changed: 0, unassigned: 0 };
   for (const p of pages.values()) {
     const kind = await follow(ctx, board, p, ticketOf(p, cols), known.get(p.id), first);
     if (kind === "notion.task_assigned") out.assigned++;
@@ -143,7 +155,7 @@ async function readBoard(ctx: ActionContext, account: AccountRow, token: string,
   }
   // Only a whole read can tell a ticket is no longer yours (reassigned, or deleted in Notion).
   const gone = [...known.values()].filter((k) => k.assigned && !pages.has(k.pageId));
-  if (whole && gone.length)
+  if (whole && gone.length) {
     await ctx.tx
       .update(notionTask)
       .set({ assigned: false })
@@ -153,6 +165,16 @@ async function readBoard(ctx: ActionContext, account: AccountRow, token: string,
           gone.map((g) => g.entityId),
         ),
       );
+    // An open one leaving you is news (its task can go); a done one's task is closed already.
+    for (const g of gone.filter((k) => !k.done)) {
+      ctx.emit({
+        kind: "notion.task_unassigned",
+        entityId: g.entityId,
+        payload: payloadOf(g, g.url, board, first),
+      });
+      out.unassigned++;
+    }
+  }
   await ctx.tx
     .update(notionAccount)
     .set({ columns: cols, sourceTitle: schema.title })
@@ -161,7 +183,14 @@ async function readBoard(ctx: ActionContext, account: AccountRow, token: string,
 }
 
 export async function syncNotion(ctx: ActionContext): Promise<NotionSyncResult> {
-  const result: NotionSyncResult = { tickets: 0, assigned: 0, done: 0, changed: 0, failed: [] };
+  const result: NotionSyncResult = {
+    tickets: 0,
+    assigned: 0,
+    done: 0,
+    changed: 0,
+    unassigned: 0,
+    failed: [],
+  };
   const [account] = await ctx.tx.select().from(notionAccount).limit(1);
   // Nothing to read until you've picked the board (and who you are on it) in Settings.
   if (!account?.sourceId || (account.columns?.assignee && !account.ownerUserId)) return result;
