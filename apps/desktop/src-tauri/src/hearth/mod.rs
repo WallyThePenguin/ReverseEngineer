@@ -5,9 +5,9 @@
 // - command mode sends what you said, with the text you selected, to Jarvis and pastes its answer;
 // - talk mode sends what you said to Jarvis and reads the answer aloud.
 //
-// It's also how Hearth lives on the PC (D53): Hearth's own window (window.rs), hearth:// links
-// (deeplink.rs), Windows notifications (notify.rs), and the tray's status line and service
-// controls (status.rs, services.rs).
+// It's also how Hearth lives on the PC (D53): Hearth's own window (window.rs, sight.rs),
+// hearth:// links (deeplink.rs), Windows notifications (notify.rs), and the tray's status line and
+// service controls (status.rs, services.rs).
 
 pub mod bakeoff;
 pub mod capture;
@@ -22,6 +22,7 @@ pub mod offline;
 pub mod relay;
 pub mod selection;
 pub mod services;
+pub mod sight;
 pub mod speak;
 pub mod sse;
 pub mod status;

@@ -59,6 +59,19 @@ export async function save(
 }
 
 /** Creates an event on your calendar. Used by the actions below and by time-blocking. */
+/**
+ * Only your own calendar takes an event nobody asked you about: a shared one (a team's, someone
+ * else's you can write to) would show it to other people.
+ */
+async function ownCalendar(ctx: ActionContext, calendarId: string): Promise<void> {
+  const cal = await writableCalendar(ctx, calendarId);
+  if (cal.writeDefault || (cal.isPrimary && cal.googleId === cal.account)) return;
+  throw new ActionError(
+    "forbidden",
+    "Without asking, only your own calendar takes new events. Leave calendarId out.",
+  );
+}
+
 export async function insertEvent(
   ctx: ActionContext,
   input: {
@@ -164,9 +177,14 @@ export const calendarWriteActions = [
     description:
       "Put an event on the owner's own calendar, with no guests (a reminder, a block of time, a personal appointment).",
     input: z.object({ ...fields, calendarId: z.string().optional() }),
-    risk: "self_external",
+    // With no guests nobody else sees it, so Jarvis adds one without asking, even from an email
+    // (the owner, 2026-10-05). Moving and removing events still ask.
+    risk: "internal",
     summarize: (i) => `Add ${describeTimes(i)} to your calendar`,
-    handler: (i, ctx) => insertEvent(ctx, i),
+    async handler(i, ctx) {
+      if (i.calendarId && ctx.caller.kind !== "owner") await ownCalendar(ctx, i.calendarId);
+      return insertEvent(ctx, i);
+    },
   }),
   defineAction({
     name: "calendar.update_event",
