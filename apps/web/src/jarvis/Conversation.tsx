@@ -245,8 +245,9 @@ export function Conversation(props: {
         </p>
       </Show>
       <div class={`border-t border-line p-3 ${member() ? "hidden" : ""}`}>
-        <Show when={looking()}>
-          <div class="mb-2 flex min-w-0">
+        {/* Drawn afresh for each record, so a switch while you talk catches the eye. */}
+        <Show when={looking()?.id} keyed>
+          <div class="mb-2 flex min-w-0 animate-enter">
             <LookingChip label={about.label()} onTakeOff={() => props.onScreen?.takeOff()} />
           </div>
         </Show>
