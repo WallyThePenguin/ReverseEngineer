@@ -88,6 +88,25 @@ async function hold(context: BrowserContext, action: string) {
 }
 
 /**
+ * Whether a save of `action` with all of `texts` in it reaches Hearth and is taken. Watched for
+ * from when it's called, so a save that lands soon isn't missed; up to a minute, however slow.
+ */
+function savedWith(page: Page, action: string, texts: string[]) {
+  return page
+    .waitForResponse(
+      async (r) =>
+        r.url().endsWith(`/api/actions/${action}`) &&
+        texts.every((t) => (r.request().postData() ?? "").includes(t)) &&
+        (await r.json().catch(() => null))?.status === "ok",
+      { timeout: 60_000 },
+    )
+    .then(
+      () => true,
+      () => false,
+    );
+}
+
+/**
  * Makes an edit in a tab whose saves hang, closes the tab mid-save, opens the record again in a
  * new tab, and waits until `saved` reads the edit back from Hearth.
  */
@@ -231,34 +250,24 @@ try {
     const p = await context.newPage();
     await p.goto(`${base}/canvas/${board.id}`);
     await p.locator("[data-toolbar]").waitFor({ timeout: 20_000 });
+    const [mine, jarvis, more] = [`Mine ${tag}`, `Jarvis ${tag}`, `More ${tag}`];
+    const settled = savedWith(p, "canvas.save", [mine, jarvis, more]);
     const release = await hold(context, "canvas.save");
     const area = (await p.locator("[data-toolbar]").locator("..").boundingBox())!;
     await p.mouse.dblclick(area.x + 300, area.y + 300);
-    await p.keyboard.type(`Mine ${tag}`);
+    await p.keyboard.type(mine);
     await p.keyboard.press("Escape");
     // Jarvis's card lands while this screen's save is held up.
-    await act(p, "canvas.add", {
-      id: board.id,
-      cards: [{ text: `Jarvis ${tag}` }],
-    });
+    await act(p, "canvas.add", { id: board.id, cards: [{ text: jarvis }] });
     await release();
-    // The held save is lost; the next one is refused as stale, merged, and saved again.
+    // The held save times out (10 s) and is lost; the next is refused as stale, merged, and sent
+    // again with all three.
     await p.mouse.dblclick(area.x + 300, area.y + 500);
-    await p.keyboard.type(`More ${tag}`);
+    await p.keyboard.type(more);
     await p.keyboard.press("Escape");
-    // Up to 10 s for the held save to time out, then the retry, the merge and the save.
-    for (let i = 0; i < 125; i++) {
-      const saved = JSON.stringify(
-        (await act<{ board: unknown }>(p, "canvas.get", { id: board.id })).board,
-      );
-      if ([`Mine ${tag}`, `Jarvis ${tag}`, `More ${tag}`].every((s) => saved.includes(s))) {
-        await p.getByText(`Jarvis ${tag}`).waitFor();
-        await p.close();
-        return;
-      }
-      await p.waitForTimeout(200);
-    }
-    throw new Error("a card was lost");
+    if (!(await settled)) throw new Error("a card was lost: no save Hearth took had all three");
+    await p.getByText(jarvis).waitFor();
+    await p.close();
   });
 
   await step("a note deleted while open goes read-only until it's restored", async () => {
