@@ -19,6 +19,7 @@ import {
   judgeHealth,
 } from "@hearth/modules";
 import { and, desc, gt, isNotNull, isNull, like, ne, or, sql } from "drizzle-orm";
+import type { ActionTiming } from "./action-timing.ts";
 import { buildId, type VersionStamp } from "./version.ts";
 
 export interface TurnStats {
@@ -66,6 +67,8 @@ export interface DeepHealth {
     /** Why Hearth last couldn't open Chrome, until it connects. */
     openError: string | null;
   } | null;
+  /** The slowest of the app's actions since the server started (action-timing.ts). */
+  actions: ActionTiming[] | null;
 }
 
 export interface DeepHealthInput {
@@ -74,6 +77,7 @@ export interface DeepHealthInput {
   version: VersionStamp | null;
   startedAt: Date | null;
   browser: BrowserStatus | null;
+  actions?: ActionTiming[];
 }
 
 const RANK: Record<HealthStatus, number> = { ok: 0, degraded: 1, failing: 2 };
@@ -146,6 +150,7 @@ export async function deepHealth(input: DeepHealthInput): Promise<DeepHealth> {
           openError: input.browser.openError ?? null,
         }
       : null,
+    actions: input.actions ?? null,
   };
   const started = performance.now();
   try {
