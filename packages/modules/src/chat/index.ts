@@ -15,6 +15,7 @@ import { z } from "zod";
 import { body, describeRow, id, liveEntity, preview } from "../shared.ts";
 import { appendLog, routeLane } from "./log.ts";
 import { answerMention } from "./mention.ts";
+import { type OnScreen, onScreen, onScreenLine } from "./screen.ts";
 
 const lane = z.enum(["fast", "deep"]);
 
@@ -171,10 +172,21 @@ export const chatModule = defineModule({
         /** Words the desktop app transcribed (D46): the device holding its token chose them, so
          * Jarvis's turn runs untrusted, like anything else that device starts. */
         heard: z.boolean().optional(),
+        /** What the owner has open as they ask: a record, or a screen. */
+        looking: z
+          .object({
+            id: id.optional(),
+            view: z
+              .string()
+              .regex(/^[a-z_]{1,30}$/)
+              .optional(),
+          })
+          .optional(),
       }),
       risk: "internal",
       callers: ["owner"],
       async handler(i, ctx) {
+        const looking = await onScreen(ctx.tx, i.looking);
         let conversationId = i.conversationId;
         if (conversationId) {
           await requireEntity(ctx.tx, conversationId, "conversation");
@@ -203,7 +215,12 @@ export const chatModule = defineModule({
           [
             {
               kind: "user_message",
-              payload: { text: i.text, by: ctx.caller.principal, ...(heard ? { heard } : {}) },
+              payload: {
+                text: i.text,
+                by: ctx.caller.principal,
+                ...(heard ? { heard } : {}),
+                ...(looking ? { looking } : {}),
+              },
             },
           ],
           ctx.now,
@@ -216,7 +233,14 @@ export const chatModule = defineModule({
         ctx.emit({
           kind: "chat.message_posted",
           entityId: conversationId,
-          payload: { conversationId, text: i.text, lane: chosen, idx, heard: i.heard === true },
+          payload: {
+            conversationId,
+            text: i.text,
+            lane: chosen,
+            idx,
+            heard: i.heard === true,
+            ...(looking ? { looking } : {}),
+          },
         });
         return { conversationId, idx };
       },
@@ -272,6 +296,7 @@ export const chatModule = defineModule({
           lane: "fast" | "deep";
           heard?: boolean;
           idx: number;
+          looking?: OnScreen;
         };
         // You pressed Stop before Jarvis saw this (it was down): let it go (D54).
         const [stopped] = await ctx.db
@@ -294,7 +319,11 @@ export const chatModule = defineModule({
             ...(p.heard ? { untrusted: true } : {}),
             lane: p.lane,
             conversationId: p.conversationId,
-            prompt: p.text,
+            prompt: p.looking
+              ? `${p.text}
+
+${onScreenLine(p.looking)}`
+              : p.text,
             dedupeKey: `chat:${event.id}`,
           },
         ];
