@@ -77,11 +77,28 @@ describe("readWhen", () => {
     expect(read("pack tonight")).toMatchObject({ dueAt: at(10, 6), dueIsDate: true });
   });
 
+  it("reads tonight's 12 as midnight, and its am times as after it", () => {
+    expect(read("submit essay tonight at 12")).toMatchObject({
+      title: "submit essay",
+      dueAt: at(10, 7),
+    });
+    expect(read("film tonight 12:30")).toMatchObject({ dueAt: at(10, 7, 0, 30) });
+    expect(read("pick up Sam tonight at 1am")).toMatchObject({ dueAt: at(10, 7, 1) });
+    expect(read("lunch tonight at noon")).toMatchObject({ dueAt: at(10, 6, 12) });
+  });
+
   it("reads Sat and Sun as days when a time follows or a word leads in", () => {
     expect(read("Brunch Sun 11am")).toMatchObject({ title: "Brunch", dueAt: at(10, 11, 11) });
     expect(read("lunch on sat")).toMatchObject({ title: "lunch", dueAt: at(10, 10) });
     expect(read("clean garage this sun")).toMatchObject({ dueAt: at(10, 11) });
     expect(read("buy sun cream 3pm")).toMatchObject({ title: "buy sun cream" });
+  });
+
+  it("reads Sat and Sun as days when a range follows", () => {
+    expect(read("Brunch Sun 11-1pm")).toMatchObject({ title: "Brunch", dueAt: at(10, 11, 11) });
+    expect(read("Call Sat 3 to 4pm")).toMatchObject({ title: "Call", dueAt: at(10, 10, 15) });
+    expect(read("Swim Sat 3-4:30")).toMatchObject({ title: "Swim", dueAt: at(10, 10, 15) });
+    expect(read("I sat 2-3 hours")).toBeNull();
   });
 
   it("puts a date said outright before a weekday, and keeps a weekday that doesn't match it", () => {
@@ -130,6 +147,17 @@ describe("readWhen", () => {
     // Just gone is overdue, not next year.
     expect(read("pay rent oct 1")).toMatchObject({ dueAt: at(10, 1), dueIsDate: true });
     expect(read("pay rent sep 1")?.dueAt).toBe(new Date(2027, 8, 1).toISOString());
+  });
+
+  it("reads a date just gone across New Year as overdue", () => {
+    const jan3 = new Date(2027, 0, 3, 10);
+    expect(read("file invoices dec 30", jan3)).toMatchObject({
+      dueAt: new Date(2026, 11, 30).toISOString(),
+      dueIsDate: true,
+    });
+    expect(read("taxes jan 15", jan3)?.dueAt).toBe(new Date(2027, 0, 15).toISOString());
+    // More than a month gone: next time round.
+    expect(read("renew dec 1", jan3)?.dueAt).toBe(new Date(2027, 11, 1).toISOString());
   });
 
   it("reads 'in' an amount of time from now", () => {
@@ -198,6 +226,39 @@ describe("readEvent", () => {
       end: at(10, 11, 1),
     });
     expect(readEvent("Walk tonight 7:30-8:30", NOW)?.end).toBe(at(10, 6, 20, 30));
+    expect(readEvent("Soccer Sat 9:30-11", NOW)).toMatchObject({
+      title: "Soccer",
+      start: at(10, 10, 9, 30),
+      end: at(10, 10, 11),
+    });
+  });
+
+  it("puts a range that ends in the am past midnight in the evening before", () => {
+    expect(readEvent("Party Sat 10-2am", NOW)).toMatchObject({
+      title: "Party",
+      start: at(10, 10, 22),
+      end: at(10, 11, 2),
+    });
+    expect(readEvent("Party tonight 11-1am", NOW)).toMatchObject({
+      start: at(10, 6, 23),
+      end: at(10, 7, 1),
+    });
+    expect(readEvent("Swim Sat 9-11am", NOW)).toMatchObject({
+      start: at(10, 10, 9),
+      end: at(10, 10, 11),
+    });
+  });
+
+  it("reads Sat or Sun before a range as the day", () => {
+    expect(readEvent("Soccer Sat 9-11am", NOW)).toMatchObject({
+      title: "Soccer",
+      start: at(10, 10, 9),
+      end: at(10, 10, 11),
+    });
+    expect(readEvent("Brunch Sun 11-1pm", NOW)).toMatchObject({
+      start: at(10, 11, 11),
+      end: at(10, 11, 13),
+    });
   });
 
   it("reads Sat or Sun before a length as the day", () => {

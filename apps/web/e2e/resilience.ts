@@ -91,6 +91,8 @@ try {
     if (await p.getByText("boom").count()) throw new Error("the server's error text was shown");
     await p.unroute("**/api/auth/me");
     await p.getByRole("button", { name: "Try again" }).click();
+    // Signed in here before, so Hearth is drawn under the notice: it's back once that's gone.
+    await p.getByRole("heading", { name: "Can't reach Hearth" }).waitFor({ state: "detached" });
     await home(p).waitFor({ timeout: 5_000 });
     await sameLoad(p);
   });
@@ -105,8 +107,13 @@ try {
     await boot(p);
     // Signed in here before, so Hearth is drawn at once while the server is still being asked.
     await home(p).waitFor({ timeout: 5_000 });
-    await p.getByRole("heading", { name: "Can't reach Hearth" }).waitFor({ timeout: 15_000 });
-    await home(p).waitFor({ timeout: 10_000 });
+    const drawn = await p.locator("main").elementHandle();
+    const notice = p.getByRole("heading", { name: "Can't reach Hearth" });
+    await notice.waitFor({ timeout: 15_000 });
+    await notice.waitFor({ state: "detached", timeout: 10_000 });
+    await home(p).waitFor();
+    // The notice was over what was drawn, not instead of it: anything typed there is still there.
+    if (!(await drawn?.evaluate((m) => m.isConnected))) throw new Error("Hearth was drawn again");
     await p.unroute("**/api/auth/me");
     await sameLoad(p);
   });
@@ -156,13 +163,14 @@ try {
     await p.keyboard.press("i");
     await p.getByRole("heading", { name: "Updates" }).waitFor();
     const title = `Renew the passport ${tag}`;
-    await runAction(p, "inbox.notify", { title });
+    const made = (await runAction(p, "inbox.notify", { title })) as { result: { id: string } };
+    const row = inboxRow(p, title);
+    const selected = p.locator('li[data-active="true"]', { hasText: title });
     // Arrives over the live feed.
-    await inboxRow(p, title).waitFor();
-    // The selection stays on the row it was on when another arrives, so move it up to this one:
-    // the newest, at the top (the inbox may hold earlier items).
-    const rows = await p.locator("main li").count();
-    for (let i = 0; i < rows; i++) await p.keyboard.press("k");
+    await row.waitFor();
+    // Focus in a row puts the keyboard on it, wherever it landed among earlier items.
+    await row.getByRole("button", { name: /^Actions for/ }).focus();
+    await selected.waitFor();
     let release: () => void = () => {};
     const held = new Promise<void>((r) => {
       release = r;
@@ -171,14 +179,22 @@ try {
       await held;
       await badGateway(r);
     });
+    // This row's done, not another's.
+    const sent = p.waitForRequest((r) => {
+      if (!r.url().endsWith("/api/actions/inbox.mark")) return false;
+      const body = r.postDataJSON() as { ids?: string[]; state?: string } | null;
+      return body?.state === "done" && body.ids?.includes(made.result.id) === true;
+    });
     await p.keyboard.press("e");
+    await sent;
     // Gone at once, before Hearth answers...
-    await inboxRow(p, title).waitFor({ state: "detached", timeout: 2_000 });
+    await row.waitFor({ state: "detached", timeout: 2_000 });
     release();
-    // ...and back when it says no.
+    // ...and back when it says no, saying so.
+    await row.waitFor();
     await p.getByText(UNREACHABLE).last().waitFor();
-    await inboxRow(p, title).waitFor();
     await p.unroute("**/api/actions/inbox.mark");
+    await selected.waitFor();
     await p.keyboard.press("e");
     await inboxRow(p, title).waitFor({ state: "detached" });
     await p.waitForTimeout(1_000);
