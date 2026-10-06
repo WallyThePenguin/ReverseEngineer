@@ -53,7 +53,10 @@ describe("the heads-up before a meeting", () => {
     await h.settle();
     const [ev] = await events();
     await ok("prep.publish", { eventId: ev!.id, markdown: "Ask Sam about the budget." });
-    expect((await events())[0]?.prepId).toBeTruthy();
+    const prepId = (await events())[0]?.prepId;
+    expect(prepId).toBeTruthy();
+    // The event's own page opens with the same packet.
+    expect((await ok<EventView>("calendar.get", { id: ev!.id })).prepId).toBe(prepId);
     await ok("jarvis.pause", {});
     h.clock.set("2026-10-01T14:49:00Z");
     await h.settle();

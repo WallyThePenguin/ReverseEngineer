@@ -292,6 +292,19 @@ export interface CalEvent {
   recurringEventId: string | null;
   attendees: { email: string; name?: string; response?: string; self?: boolean }[];
   taskId: string | null;
+  /** Its prep packet's record, once Jarvis has written one. */
+  prepId?: string;
+}
+
+/** One thing Jarvis made (jarvis.did): read from the record itself, never from what it said. */
+export interface Did {
+  at: string;
+  /** "Drafted a reply: Re: Lease", "Made a task: Call the plumber". */
+  text: string;
+  entityId: string;
+  entityType: string;
+  /** The turn that made it, when one did. */
+  turnId?: string;
 }
 
 export type * from "./integration-types.ts";

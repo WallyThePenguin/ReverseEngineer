@@ -10,8 +10,6 @@ import {
   meetingState,
   nextMeeting,
   owed,
-  readOutside,
-  replyLine,
   sinceYesterday,
   splitDue,
   summary,
@@ -189,25 +187,9 @@ describe("What Jarvis did", () => {
       turn(at(5, 9, 10), { outcome: "nothing", reply: "Nothing new in your inbox." }),
     ];
     expect(sinceYesterday(turns, NOW).map((t) => t.queuedAt)).toEqual([at(5, 9, 5), at(5, 9, 10)]);
-    expect(replyLine({ reply: null, status: "canceled" })).toBe("You stopped it.");
   });
 
-  it("marks a turn that read outside content, however it began", () => {
-    expect(readOutside(turn(at(5, 8), { origin: "untrusted" }))).toBe(true);
-    expect(readOutside(turn(at(5, 8), { origin: "owner", context: { readOutside: true } }))).toBe(
-      true,
-    );
-    expect(readOutside(turn(at(5, 8), { origin: "owner", context: {} }))).toBe(false);
-    expect(readOutside(turn(at(5, 8), { origin: "system" }))).toBe(false);
-  });
-
-  it("says each in a line, and what it used in plain words, each once", () => {
-    expect(replyLine({ reply: "\n## Drafted **two** replies\nMore below", status: "done" })).toBe(
-      "Drafted two replies",
-    );
-    expect(replyLine({ reply: "- Booked the room", status: "done" })).toBe("Booked the room");
-    expect(replyLine({ reply: null, status: "failed" })).toBe("It hit a problem and stopped.");
-    expect(replyLine({ reply: null, status: "running" })).toBe("Working on it…");
+  it("says what a turn used in plain words, each once", () => {
     expect(toolsSaid(["mail.draft", "mail.draft", "calendar.events"])).toEqual([
       "Drafted an email",
       "Checked your calendar",

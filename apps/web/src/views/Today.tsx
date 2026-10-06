@@ -11,7 +11,7 @@ import { SectionHeader } from "../components/kit/SectionHeader.tsx";
 import { SetupChecklist } from "../components/SetupChecklist.tsx";
 import { Button, Failed, PaneHeader } from "../components/ui.tsx";
 import { askedToSend } from "../lib/needsYou.ts";
-import { layout, type PaneRoute } from "../lib/panes.ts";
+import { layout, type PaneRoute, routeFor } from "../lib/panes.ts";
 import { usePush } from "../lib/push.ts";
 import { inboxInput, useAction, usePendingApprovals } from "../lib/query.ts";
 import {
@@ -21,9 +21,10 @@ import {
   owed,
   sinceYesterday,
   splitDue,
+  startOfYesterday,
   summary,
 } from "../lib/today.ts";
-import type { CalEvent, InboxRow, MailDraft, MailThread, Task, Turn } from "../lib/types.ts";
+import type { CalEvent, Did, InboxRow, MailDraft, MailThread, Task, Turn } from "../lib/types.ts";
 import { openToReply } from "./Mail.tsx";
 import { Brief } from "./today/Brief.tsx";
 import { Due } from "./today/Due.tsx";
@@ -70,6 +71,9 @@ export function Today(props: { pane: number }) {
     limit: 50,
   }));
   const counts = useAction<{ unread: number; toReply: number }>("mail.counts");
+  // What Jarvis made since yesterday, and its runs, for the ones that didn't finish.
+  const since = createMemo(() => startOfYesterday(new Date(dayStart())).toISOString());
+  const made = useAction<Did[]>("jarvis.did", () => ({ since: since(), limit: 50 }));
   const turns = useAction<Turn[]>("jarvis.activity", () => ({ limit: 100 }));
   const push = usePush();
   const approving = useApproveAll();
@@ -97,7 +101,14 @@ export function Today(props: { pane: number }) {
   const readyIds = createMemo(() => new Set(ready().map((d) => d.id)));
   const plan = createMemo(() => dayPlan(events.data, now()));
   const due = createMemo(() => splitDue(tasks.data, now()));
-  const did = createMemo(() => sinceYesterday(turns.data, now()));
+  const failed = createMemo(
+    () => sinceYesterday(turns.data, now()).filter((t) => t.status === "failed").length,
+  );
+  // A drafted reply opens in its conversation, where it's written; anything else as itself.
+  const routeOf = (d: Did): PaneRoute => {
+    const thread = drafts.data?.find((x) => x.id === d.entityId)?.threadId;
+    return thread ? { view: "thread", id: thread } : routeFor(d.entityType, d.entityId);
+  };
   const brief = () => inbox.data?.find((r) => r.notification.kind === "brief");
   // Conversations with a reply Jarvis drafted: it's on Today already, ready or asking.
   const owing = createMemo(() =>
@@ -233,7 +244,14 @@ export function Today(props: { pane: number }) {
                 all={() => openToReply(props.pane)}
                 toDrafts={() => jump(ready().length ? "today-drafts" : "today-needs")}
               />
-              <JarvisDid query={turns} turns={did()} now={now()} go={go} />
+              <JarvisDid
+                query={made}
+                items={made.data ?? []}
+                failed={failed()}
+                now={now()}
+                go={go}
+                routeOf={routeOf}
+              />
             </div>
           </div>
         </div>

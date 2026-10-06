@@ -79,7 +79,9 @@ function Meeting(props: {
   const start = () => new Date(e().startsAt);
   const guests = () => e().attendees.filter((a) => !a.self).length;
   const meta = () =>
-    [e().location, guests() ? plural(guests(), "guest") : null].filter(Boolean).join(" · ");
+    [e().location, guests() ? plural(guests(), "guest") : null, e().prepId ? "Prep ready" : null]
+      .filter(Boolean)
+      .join(" · ");
   return (
     <TodayRow
       quiet={props.state === "past"}

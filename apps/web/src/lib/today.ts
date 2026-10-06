@@ -184,31 +184,6 @@ export function sinceYesterday(turns: readonly Turn[] | undefined, now = new Dat
 const cameToNothing = (t: Turn) =>
   (t.outcome === "nothing" || t.status === "canceled") && t.writes === 0 && !t.reply?.trim();
 
-/**
- * A turn that read outside content (an email, a web page) or started from some: asked by it, or
- * marked so once it was over, however it began (packages/jarvis turn-end.ts).
- */
-export const readOutside = (t: Pick<Turn, "origin" | "context">) =>
-  t.origin === "untrusted" || t.context?.readOutside === true;
-
-/** A turn in a line: the first line of its reply, without markdown's marks. */
-export function replyLine(t: Pick<Turn, "reply" | "status">): string {
-  const line = (t.reply ?? "")
-    .split("\n")
-    .map((l) =>
-      l
-        .replace(/^\s*(?:#+|[-*>]|\d+\.)\s*/, "")
-        .replace(/[*_`]/g, "")
-        .trim(),
-    )
-    .find(Boolean);
-  if (line) return line;
-  if (t.status === "running") return "Working on it…";
-  if (t.status === "failed") return "It hit a problem and stopped.";
-  if (t.status === "canceled") return "You stopped it.";
-  return "Done, with nothing to say.";
-}
-
 /** What a turn used, in plain words, each once: ["Drafted an email", "Checked your calendar"]. */
 export const toolsSaid = (tools: readonly string[]): string[] => [
   ...new Set(tools.map((n) => toolSentence(n, "done"))),
