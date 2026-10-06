@@ -1,31 +1,40 @@
-// Today's "What Jarvis did": its turns since yesterday that came to something, each as the first
-// line of what it said and what it used, in plain words. A turn that read outside content on its
-// way, or started from some, is marked, since its words may carry someone else's (D58).
+// Today's "What Jarvis did": what it made since yesterday, one line each (a drafted reply, a task,
+// a meeting's prep, the brief), read from the records themselves (jarvis.did), so a line is never
+// Jarvis's own claim about what it did. Each opens what it made. Runs that stopped before they
+// finished are counted under them, so a failure never goes quiet.
 
 import { For, Show } from "solid-js";
-import { Pill } from "../../components/kit/Pill.tsx";
-import { OutsideMark } from "../../components/OutsideMark.tsx";
+import { Icon, type IconName } from "../../components/icons.tsx";
 import type { QueryRead } from "../../components/QueryView.tsx";
-import { day, time } from "../../lib/format.ts";
-import { routeFor } from "../../lib/panes.ts";
-import { readOutside, replyLine, toolsSaid } from "../../lib/today.ts";
-import type { Turn } from "../../lib/types.ts";
+import { day, plural, time } from "../../lib/format.ts";
+import type { PaneRoute } from "../../lib/panes.ts";
+import type { Did } from "../../lib/types.ts";
 import { CardEmpty, CardWaiting, type Go, TodayCard, TodayRow } from "./parts.tsx";
 
-/** How many turns the card shows; the rest are in Jarvis's activity. */
+/** How many the card shows; the rest are in Jarvis's activity. */
 const SHOWN = 6;
+
+/** Each kind of thing Jarvis makes, by the icon of where it lives. */
+const KIND: Record<string, IconName> = {
+  email_draft: "mail",
+  task: "tasks",
+  event: "calendar",
+  prep: "calendar",
+  brief: "today",
+  journal: "docs",
+  note: "docs",
+};
 
 export function JarvisDid(props: {
   query: QueryRead<unknown>;
-  turns: readonly Turn[];
+  items: readonly Did[];
+  /** Runs since yesterday that stopped before they finished. */
+  failed: number;
   now: Date;
   go: Go;
+  /** Where each opens: a drafted reply in its conversation, anything else as itself. */
+  routeOf: (d: Did) => PaneRoute;
 }) {
-  const open = (t: Turn, beside: boolean) => {
-    if (t.conversationId) props.go({ view: "chat", id: t.conversationId }, beside);
-    else if (t.subjectId) props.go(routeFor("record", t.subjectId), beside);
-    else props.go({ view: "activity" }, beside);
-  };
   const when = (iso: string) => {
     const d = new Date(iso);
     const on = day(d, props.now);
@@ -36,44 +45,38 @@ export function JarvisDid(props: {
       product="jarvis"
       icon="mark"
       title="What Jarvis did"
-      count={props.turns.length}
+      count={props.items.length}
       more={{ run: () => props.go({ view: "activity" }) }}
     >
       <Show
         when={props.query.data !== undefined}
-        fallback={<CardWaiting query={props.query} what="Jarvis's activity" />}
+        fallback={<CardWaiting query={props.query} what="what Jarvis did" />}
       >
         <Show
-          when={props.turns.length > 0}
-          fallback={<CardEmpty>Nothing since yesterday. What Jarvis does shows up here.</CardEmpty>}
+          when={props.items.length > 0 || props.failed > 0}
+          fallback={
+            <CardEmpty>Nothing since yesterday. What Jarvis makes for you shows up here.</CardEmpty>
+          }
         >
           <ul>
-            <For each={props.turns.slice(0, SHOWN)}>
-              {(t) => {
-                const tools = () => toolsSaid(t.toolsUsed).join(" · ");
-                const outside = () => readOutside(t);
-                return (
-                  <TodayRow
-                    title={<span class="line-clamp-2">{replyLine(t)}</span>}
-                    meta={tools() || undefined}
-                    end={<span class="text-meta text-muted tabular-nums">{when(t.queuedAt)}</span>}
-                    onOpen={(beside) => open(t, beside)}
-                    below={
-                      outside() || t.status === "failed" ? (
-                        <div class="flex flex-wrap gap-1.5">
-                          <Show when={outside()}>
-                            <OutsideMark>Read outside content</OutsideMark>
-                          </Show>
-                          <Show when={t.status === "failed"}>
-                            <Pill tone="bad">Didn't finish</Pill>
-                          </Show>
-                        </div>
-                      ) : undefined
-                    }
-                  />
-                );
-              }}
+            <For each={props.items.slice(0, SHOWN)}>
+              {(d) => (
+                <TodayRow
+                  lead={<Icon name={KIND[d.entityType] ?? "docs"} class="text-muted" />}
+                  title={<span class="line-clamp-2">{d.text}</span>}
+                  end={<span class="text-meta text-muted tabular-nums">{when(d.at)}</span>}
+                  onOpen={(beside) => props.go(props.routeOf(d), beside)}
+                />
+              )}
             </For>
+            <Show when={props.failed > 0}>
+              <TodayRow
+                lead={<Icon name="bad" class="text-bad" />}
+                title={`${plural(props.failed, "run")} didn't finish`}
+                meta="See what happened"
+                onOpen={(beside) => props.go({ view: "activity" }, beside)}
+              />
+            </Show>
           </ul>
         </Show>
       </Show>

@@ -231,7 +231,12 @@ export const calendarModule = defineModule({
       description: "One event in full.",
       input: z.object({ id }),
       risk: "read",
-      handler: (i, ctx) => loadEvent(ctx.tx, i.id),
+      async handler(i, ctx) {
+        const ev = await loadEvent(ctx.tx, i.id);
+        // Its prep packet, so the event's page can open with it.
+        const prep = ev && (await prepsFor(ctx.tx, [ev.id])).get(ev.id);
+        return ev && prep ? { ...ev, prepId: prep.id } : ev;
+      },
     }),
     defineAction({
       name: "calendar.free_time",

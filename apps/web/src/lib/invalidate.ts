@@ -33,8 +33,18 @@ const BY_MODULE: Record<string, Rule> = {
   clock: ["routine.list", "system.status"],
 };
 
-/** A record change can show anywhere it's linked or titled... */
-const ANY_RECORD: Rule = ["entity.", "inbox.list", "person.view", "company.view", "doc."];
+/**
+ * A record change can show anywhere it's linked or titled, and in what Jarvis did when Jarvis made
+ * it (a routine's prep, say, outside any turn)...
+ */
+const ANY_RECORD: Rule = [
+  "entity.",
+  "inbox.list",
+  "person.view",
+  "company.view",
+  "doc.",
+  "jarvis.did",
+];
 
 /** ...and in the lists of its own type. */
 const BY_TYPE: Record<string, Rule> = {
