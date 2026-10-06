@@ -1,7 +1,8 @@
 // What the owner has open when they ask Jarvis something, so "this" and "it" mean something
-// (plan step 10). Only the record's id and kind go into the prompt, and its title only when it's
-// Hearth's own text: an email's subject is outside content, and the chat would stay untrusted for
-// good (D58). Jarvis reads the record itself when it needs to, under the usual rules.
+// (plan step 10). Only the record's id and kind go into the prompt, and its title only for kinds
+// whose text is the owner's own (a task, a note), never outside content: an email's subject, a
+// reply draft's "Re: <their subject>" or a stranger's meeting title would ride in the owner's own
+// message, trusted (D58). Jarvis reads the record itself when it needs to, under the usual rules.
 import type { DbOrTx } from "@hearth/db";
 import { isOutside, liveEntity } from "../shared.ts";
 
@@ -12,6 +13,9 @@ export interface OnScreen {
   /** Only for a record whose text is the owner's or Hearth's own. */
   title?: string;
 }
+
+/** Kinds whose titles the owner writes. Anything else may quote someone else, so goes untitled. */
+const OWN_TYPES = new Set(["task", "note", "project", "canvas", "spreadsheet", "routine"]);
 
 /** Resolves what the app said is on screen; a record that's gone is left out. */
 export async function onScreen(
@@ -27,7 +31,9 @@ export async function onScreen(
       ? {
           id: row.id,
           type: row.type,
-          ...(isOutside(row) || !row.title ? {} : { title: row.title.slice(0, 200) }),
+          ...(OWN_TYPES.has(row.type) && !isOutside(row) && row.title
+            ? { title: row.title.slice(0, 200) }
+            : {}),
         }
       : {}),
   };

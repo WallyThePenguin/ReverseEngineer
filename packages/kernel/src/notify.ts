@@ -1,7 +1,7 @@
 // Writing to the inbox. Interrupts go through the interrupt budget; everything else just lands.
-import { decideInterrupt, type InterruptDecision, startOfLocalDay } from "@hearth/core";
+import { decideInterrupt, type InterruptDecision, PRINCIPAL, startOfLocalDay } from "@hearth/core";
 import { notification } from "@hearth/db";
-import { and, count, gte, isNotNull, sql } from "drizzle-orm";
+import { and, count, gte, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { newId } from "./ids.ts";
 import { getSetting } from "./settings.ts";
 import type { ActionContext, Caller, NewNotification } from "./types.ts";
@@ -23,10 +23,18 @@ export async function interruptDecision(
   const rules = await getSetting(ctx.tx, "owner.dayRules");
   const maxPerDay = await getSetting(ctx.tx, "owner.maxInterruptsPerDay");
   const since = startOfLocalDay(ctx.now, rules.timeZone);
+  // Hearth's own reminders for a set time (a meeting's heads-up) go out whatever the count, so
+  // they don't use it up either: a day of meetings mustn't hold back "backup failed".
   const [row] = await ctx.tx
     .select({ n: count() })
     .from(notification)
-    .where(and(isNotNull(notification.deliveredAt), gte(notification.deliveredAt, since)));
+    .where(
+      and(
+        isNotNull(notification.deliveredAt),
+        gte(notification.deliveredAt, since),
+        or(isNull(notification.deadline), ne(notification.createdBy, PRINCIPAL.system)),
+      ),
+    );
   return decideInterrupt(
     { now: ctx.now, deliveredToday: row?.n ?? 0, deadline },
     { maxPerDay, rules },

@@ -22,6 +22,7 @@ import { and, asc, desc, eq, gte, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { body, id } from "../shared.ts";
 import { cleanName, newMessageId } from "./mime.ts";
+import { checkRecipients } from "./recipients.ts";
 import { loadThread } from "./views.ts";
 
 const address = z.string().trim().max(320).describe('An email address, or "Name <address>".');
@@ -218,6 +219,8 @@ export const draftActions = [
     async handler(i, ctx) {
       if (i.threadId && ctx.caller.principal === PRINCIPAL.jarvis)
         await oneDraftEach(ctx, i.threadId);
+      const asked = { to: parseAll(i.to), cc: parseAll(i.cc), bcc: parseAll(i.bcc) };
+      await checkRecipients(ctx, i.threadId ?? null, asked);
       const reply = i.threadId ? await replyHeaders(ctx, i.threadId, i.replyAll) : null;
       const account = reply?.account ?? (await accountFor(ctx, i.account));
       const subject = i.subject ?? reply?.subject ?? "";
@@ -226,9 +229,9 @@ export const draftActions = [
         entityId: draft.id,
         accountId: account.id,
         threadId: i.threadId ?? null,
-        toAddresses: parseAll(i.to) ?? reply?.to ?? [],
-        ccAddresses: parseAll(i.cc) ?? reply?.cc ?? [],
-        bccAddresses: parseAll(i.bcc) ?? [],
+        toAddresses: asked.to ?? reply?.to ?? [],
+        ccAddresses: asked.cc ?? reply?.cc ?? [],
+        bccAddresses: asked.bcc ?? [],
         inReplyTo: reply?.inReplyTo ?? null,
         refs: reply?.refs ?? [],
         messageId: newMessageId(account.address),
@@ -257,12 +260,13 @@ export const draftActions = [
     }),
     risk: "internal",
     async handler(i, ctx) {
-      if (!(await loadDraft(ctx.tx, i.id)))
-        throw new ActionError("not_found", "No draft with that id.");
-      await updateEntity(ctx, i.id, { title: i.subject, body: i.text }, { type: "email_draft" });
+      const before = await loadDraft(ctx.tx, i.id);
+      if (!before) throw new ActionError("not_found", "No draft with that id.");
       const to = parseAll(i.to);
       const cc = parseAll(i.cc);
       const bcc = parseAll(i.bcc);
+      await checkRecipients(ctx, before.threadId ?? null, { to, cc, bcc });
+      await updateEntity(ctx, i.id, { title: i.subject, body: i.text }, { type: "email_draft" });
       // The Message-ID stays: a Send that went out from this account is still found in Sent.
       const from = i.account ? await accountFor(ctx, i.account) : null;
       if (to || cc || bcc || from)
