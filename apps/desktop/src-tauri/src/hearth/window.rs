@@ -6,11 +6,14 @@
 // They're web pages like any other: none of them gets this app's commands. Tauri only lets the
 // windows named in capabilities/*.json ("main" and "recording_overlay") call into the app, and
 // remote pages never without a "remote" entry there. Keep it that way.
+//
+// How the main window comes into sight and goes out of it is sight.rs.
 
 use super::links::{self, Nav};
 use super::offline::{self, is_waiting, stop_waiting};
-use super::{deeplink, tell, toast};
+use super::{deeplink, sight, tell, toast};
 use crate::settings::get_settings;
+use std::time::Instant;
 use tauri::webview::{DownloadEvent, NewWindowResponse};
 use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
@@ -38,6 +41,24 @@ impl Which {
 /// Opens (or brings up) Hearth's window at a page, like "/" or "/record/<id>".
 pub fn open(app: &AppHandle, path: &str) {
     spawn(app, Which::Main, path);
+}
+
+/// Loads Hearth into its window without showing it, for a start with Windows: the app waits in
+/// the tray, and Hearth is already there the first time you open it. Its page knows it's out of
+/// sight, so it rests until then.
+pub fn preload(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if home(&app).is_none() {
+            return;
+        }
+        if let Some((window, to)) = ready(&app, Which::Main, "/") {
+            sight::out_of_sight(&window);
+            if let Some(to) = to {
+                offline::load(&app, &window, to).await;
+            }
+        }
+    });
 }
 
 /// The quick capture box (Ctrl+Alt+N).
@@ -71,6 +92,7 @@ pub fn close_all(app: &AppHandle) {
             let _ = w.destroy();
         }
         stop_waiting(label);
+        sight::forget(label);
     }
 }
 
@@ -80,21 +102,53 @@ pub fn home(app: &AppHandle) -> Option<Url> {
 }
 
 fn spawn(app: &AppHandle, which: Which, path: &str) {
+    // The window comes up within a moment of this, however slow Hearth's server is (sight::show).
+    let asked = Instant::now();
     let app = app.clone();
     let path = path.to_string();
     // Off the main thread: making a WebView2 window from inside an event handler can deadlock.
-    tauri::async_runtime::spawn(async move { show(&app, which, &path).await });
+    tauri::async_runtime::spawn(async move {
+        let Some((window, to)) = ready(&app, which, &path) else {
+            return;
+        };
+        let Some(to) = to else {
+            return sight::show(window, asked).await;
+        };
+        if up_alongside(window.url().ok().as_ref()) {
+            // Loading alongside: offline::load waits a few seconds for the server first.
+            let up = sight::show(window.clone(), asked);
+            futures_util::future::join(offline::load(&app, &window, to), up).await;
+        } else {
+            // It has a Hearth page on it that the new one replaces (quick capture's last one, the
+            // page a link opens over): it comes up once the new one is on its way, so nothing
+            // you'd type into the old one in the meantime is lost when it goes.
+            offline::load(&app, &window, to).await;
+            sight::show(window, Instant::now()).await;
+        }
+    });
 }
 
-async fn show(app: &AppHandle, which: Which, path: &str) {
+/// Whether a window about to load a page comes up alongside, within a moment of your click, given
+/// the page it's on (if that can be told): yes when there's nothing on it to lose, being just made
+/// (about:blank) or saying Hearth isn't running (a data: page).
+fn up_alongside(current: Option<&Url>) -> bool {
+    current.is_some_and(|u| !matches!(u.scheme(), "http" | "https"))
+}
+
+/// Hearth's window for a page, made (out of sight) if need be, and the page it's to load: none
+/// when it keeps the one it has.
+fn ready(app: &AppHandle, which: Which, path: &str) -> Option<(WebviewWindow, Option<Url>)> {
     let Some(home) = home(app) else {
         tell(app, "Set Hearth's address in voice settings first.");
         crate::show_main_window(app);
-        return;
+        return None;
     };
-    let page = match links::page_url(&home, path) {
+    let to = match links::page_url(&home, path) {
         Ok(p) => p,
-        Err(e) => return log::warn!("{e}"),
+        Err(e) => {
+            log::warn!("{e}");
+            return None;
+        }
     };
     let label = which.label();
     let existing = app.get_webview_window(label);
@@ -117,19 +171,19 @@ async fn show(app: &AppHandle, which: Which, path: &str) {
             }
             Err(e) => {
                 log::error!("Couldn't open Hearth's window: {e}");
-                return tell(
+                tell(
                     app,
                     "Couldn't open Hearth's window. Try again from the tray.",
                 );
+                return None;
             }
         },
     };
-    if !keep {
-        offline::load(app, &window, page).await;
+    if keep {
+        return Some((window, None));
     }
-    let _ = window.unminimize();
-    let _ = window.show();
-    let _ = window.set_focus();
+    sight::loading(label);
+    Some((window, Some(to)))
 }
 
 fn build(app: &AppHandle, which: Which, home: &Url) -> tauri::Result<WebviewWindow> {
@@ -137,8 +191,12 @@ fn build(app: &AppHandle, which: Which, home: &Url) -> tauri::Result<WebviewWind
     let blank: Url = "about:blank".parse().expect("about:blank");
     let mut b = WebviewWindowBuilder::new(app, label, WebviewUrl::External(blank))
         .visible(false)
+        .background_color(sight::backdrop())
         // Files dragged onto Hearth reach the page (attachments, imports).
         .disable_drag_drop_handler();
+
+    // It comes up once its page is there, if you're waiting for it.
+    b = b.on_page_load(move |window, load| sight::page_load(label, window, load));
 
     let (nav_app, nav_home) = (app.clone(), home.clone());
     b = b.on_navigation(move |to| match links::navigation(to, &nav_home) {
@@ -237,6 +295,9 @@ fn build(app: &AppHandle, which: Which, home: &Url) -> tauri::Result<WebviewWind
 
     let window = b.build()?;
     mark_user_agent(&window, &app.package_info().version.to_string());
+    if which == Which::Main {
+        sight::made(&window);
+    }
     Ok(window)
 }
 
@@ -247,6 +308,9 @@ fn from_page(app: &AppHandle, label: &str, link: &str) {
         Ok(links::Link::Close) => {
             if let Some(w) = app.get_webview_window(label) {
                 let _ = w.hide();
+                if label == MAIN {
+                    sight::out_of_sight(&w);
+                }
             }
         }
         Ok(links::Link::Retry) => offline::retry(app),
@@ -294,4 +358,22 @@ fn mark_user_agent(window: &WebviewWindow, version: &str) {
     }
     #[cfg(not(windows))]
     let _ = (window, version);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn comes_up_alongside_only_with_nothing_on_it_to_lose() {
+        let on = |u: &str| up_alongside(Some(&u.parse::<Url>().unwrap()));
+        // Just made, or saying Hearth isn't running: up within a moment of your click.
+        assert!(on("about:blank"));
+        assert!(on("data:text/html,Hearth%20isn%27t%20running"));
+        // On a Hearth page you could be typing into: once the new one's on its way.
+        assert!(!on("http://localhost:4400/capture"));
+        assert!(!on("https://hearth.example.test/inbox"));
+        // Can't tell: as if it might.
+        assert!(!up_alongside(None));
+    }
 }
