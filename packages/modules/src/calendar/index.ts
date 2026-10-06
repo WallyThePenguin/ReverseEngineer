@@ -20,6 +20,7 @@ import { blockAction, blockReflex, blockRoutine } from "./blocks.ts";
 import { calendarSetupActions, inSelectedCalendar } from "./calendars.ts";
 import { freeSlots } from "./free.ts";
 import { newInvite } from "./invites.ts";
+import { meetingActions } from "./meetings.ts";
 import { prepPublish, prepRoutine, prepsFor } from "./prep.ts";
 import { respondAction } from "./respond.ts";
 import { meetingSoon } from "./soon.ts";
@@ -270,6 +271,7 @@ export const calendarModule = defineModule({
     }),
     disconnectAction,
     ...calendarWriteActions,
+    ...meetingActions,
     respondAction,
     blockAction,
     prepPublish,
