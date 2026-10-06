@@ -3,7 +3,7 @@
   "short_name": "Hearth",
   "description": "Your workspace, with Jarvis.",
   "id": "/",
-  "start_url": "/inbox",
+  "start_url": "/today",
   "scope": "/",
   "display": "standalone",
   "background_color": "#faf8f5",
@@ -19,7 +19,7 @@
     }
   ],
   "shortcuts": [
-    { "name": "Talk to Jarvis", "url": "/inbox?jarvis=1" },
+    { "name": "Talk to Jarvis", "url": "/today?jarvis=1" },
     { "name": "Tasks", "url": "/tasks" }
   ]
 }

@@ -1,10 +1,12 @@
 // The toasts at the bottom of the screen: what just happened ("Moved to the trash · Undo") or what
-// didn't. Each carries its tone's icon, so a failure never looks like news. z undoes the newest
-// one with an Undo while it shows (App.tsx).
+// didn't. Each carries its tone's icon (a tick for done, a cross for failed), so a failure never
+// looks like news. z undoes the newest one with an Undo while it shows (App.tsx).
 
 import { For, Show } from "solid-js";
-import { Icon } from "../components/icons.tsx";
-import { toast } from "../lib/live.ts";
+import { Icon, type IconName } from "../components/icons.tsx";
+import { type Toast, toast } from "../lib/live.ts";
+
+const ICON: Record<Toast["tone"], IconName> = { info: "info", ok: "ok", error: "bad" };
 
 export function Toasts() {
   return (
@@ -18,7 +20,7 @@ export function Toasts() {
           <div
             class={`flex animate-enter items-center gap-2.5 rounded-lg px-4 py-2 text-sm shadow-pop ${t.tone === "error" ? "bg-bad text-on-fill" : "bg-ink text-bg"}`}
           >
-            <Icon name={t.tone === "error" ? "bad" : "info"} size={16} class="-ml-1" />
+            <Icon name={ICON[t.tone]} size={16} class="-ml-1" />
             <span>{t.text}</span>
             <Show when={t.action}>
               {(a) => (

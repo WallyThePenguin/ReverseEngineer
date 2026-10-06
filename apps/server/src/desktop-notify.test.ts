@@ -68,7 +68,7 @@ describe("the desktop notification feed", () => {
     t.server.hub.publish(await latestSeq(t.kernel.db));
     const text = await feed.until("event: notify");
     await feed.stop();
-    expect(notes(text)).toMatchObject([{ title: "Your brief is ready", url: "/inbox" }]);
+    expect(notes(text)).toMatchObject([{ title: "Your brief is ready", url: "/today" }]);
     expect(text).not.toContain("Not worth a buzz");
   });
 

@@ -3,6 +3,7 @@
 /** Every list view. None is ever taken away: links already sent out name them (push, the
  * service worker, the desktop app, installed home-screen icons). */
 export const LIST_VIEWS = [
+  "today",
   "inbox",
   "mail",
   "tasks",
@@ -19,6 +20,9 @@ export const LIST_VIEWS = [
   "trash",
 ] as const;
 export type ListView = (typeof LIST_VIEWS)[number];
+
+/** Where Hearth opens, and where a lone pane goes once there's nothing left to show. */
+export const HOME: ListView = "today";
 
 /** The views that show one record: task/0190... */
 export const RECORD_VIEWS = [
@@ -57,7 +61,7 @@ export function decodePath(path: string): PaneRoute[] {
     .map((s) => decodeRoute(decodeURIComponent(s)))
     .filter((r): r is PaneRoute => r !== null)
     .slice(0, MAX_PANES);
-  return routes.length ? routes : [{ view: "inbox" }];
+  return routes.length ? routes : [{ view: HOME }];
 }
 
 export function encodePath(routes: PaneRoute[]): string {

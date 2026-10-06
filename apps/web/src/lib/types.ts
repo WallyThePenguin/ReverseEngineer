@@ -15,6 +15,8 @@ export interface Entity {
   updatedBy: string;
   deletedAt: string | null;
   revision: number;
+  /** Written after reading outside content (an email, a web page), so it may quote it (D58). */
+  outside?: boolean;
 }
 
 export interface Task {
@@ -129,8 +131,11 @@ export interface Turn {
   lane: string;
   origin: string;
   prompt: string;
-  /** What started it beyond its trigger: via "slack" for your DM with Jarvis there (D62). */
-  context?: Record<string, unknown> | null;
+  /**
+   * What it was asked with: via "slack" for your DM with Jarvis there (D62), and `readOutside`
+   * once it read outside content on the way.
+   */
+  context?: ({ readOutside?: boolean } & Record<string, unknown>) | null;
   conversationId: string | null;
   subjectId: string | null;
   status: string;
@@ -286,8 +291,27 @@ export interface CalEvent {
   meetUrl: string | null;
   htmlLink: string | null;
   selfResponse: string | null;
+  /** You made it, so there's nothing to answer. */
+  selfOrganizer: boolean;
+  /** One time of a repeating meeting: answering it asks whether for this time or every time. */
+  recurringEventId: string | null;
   attendees: { email: string; name?: string; response?: string; self?: boolean }[];
   taskId: string | null;
+  /** Its prep packet's record, once Jarvis has written one. */
+  prepId?: string;
+}
+
+/** One thing Jarvis made (jarvis.did): read from the record itself, never from what it said. */
+export interface Did {
+  at: string;
+  /** "Drafted a reply: Re: Lease", "Made a task: Call the plumber". */
+  text: string;
+  entityId: string;
+  entityType: string;
+  /** The turn that made it, when one did. */
+  turnId?: string;
+  /** Written after reading outside content (D58). */
+  outside?: boolean;
 }
 
 export type * from "./integration-types.ts";

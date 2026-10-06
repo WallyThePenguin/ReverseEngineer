@@ -1,8 +1,10 @@
-// The app: sign-in gate, then the shell (sidebar, split panes, Jarvis, Cmd+K).
+// The app: sign-in gate, then the shell (sidebar, split panes, Jarvis, Cmd+K). A device that was
+// signed in last time gets the shell at once, while the server confirms it (lib/signedIn.ts).
 
 import { QueryClientProvider } from "@tanstack/solid-query";
 import {
   createEffect,
+  createMemo,
   createResource,
   createSignal,
   ErrorBoundary,
@@ -24,25 +26,32 @@ import { useHotkeys } from "../lib/hotkeys.ts";
 import { live, queryClient, toast } from "../lib/live.ts";
 import { narrow } from "../lib/narrow.ts";
 import { type ListView, layout, type Pane, type PaneRoute } from "../lib/panes.ts";
+import { rememberSignedIn, showHearth } from "../lib/signedIn.ts";
 import { sendKeptOnRestore } from "../lib/trash.ts";
-import { Activity } from "../views/Activity.tsx";
-import { Browser } from "../views/Browser.tsx";
-import { Calendar } from "../views/Calendar.tsx";
-import { Canvases, CanvasView } from "../views/Canvas.tsx";
 import { Inbox } from "../views/Inbox.tsx";
 import { Mail } from "../views/Mail.tsx";
 import { MailThreadPane } from "../views/MailThread.tsx";
-import { Memory } from "../views/Memory.tsx";
-import { Notes, NoteView } from "../views/Notes.tsx";
-import { People } from "../views/People.tsx";
-import { RecordView } from "../views/Record.tsx";
-import { Settings } from "../views/Settings.tsx";
-import { Sheets, SheetView } from "../views/Sheets.tsx";
-import { Tasks } from "../views/Tasks.tsx";
-import { TaskView } from "../views/TaskView.tsx";
-import { Trash } from "../views/Trash.tsx";
-import { Voice } from "../views/Voice.tsx";
+import { Today } from "../views/Today.tsx";
 import { CommandPalette } from "./CommandPalette.tsx";
+import {
+  Activity,
+  Browser,
+  Calendar,
+  Canvases,
+  CanvasView,
+  Memory,
+  Notes,
+  NoteView,
+  People,
+  RecordView,
+  Settings,
+  Sheets,
+  SheetView,
+  Tasks,
+  TaskView,
+  Trash,
+  Voice,
+} from "./lazyViews.ts";
 import { MenuDrawer, Shortcuts } from "./Overlays.tsx";
 import { Sidebar, SidebarRail, sidebar, useWaiting } from "./Sidebar.tsx";
 import { Crashed, Notices, PaneCrashed, Unreachable, useAutoRetry } from "./Status.tsx";
@@ -53,6 +62,9 @@ function PaneView(props: { route: PaneRoute; index: number }) {
   const id = () => ("id" in props.route ? props.route.id : "");
   return (
     <Switch>
+      <Match when={props.route.view === "today"}>
+        <Today pane={props.index} />
+      </Match>
       <Match when={props.route.view === "inbox"}>
         <Inbox pane={props.index} />
       </Match>
@@ -191,6 +203,12 @@ function Shell(props: { onSignOut: () => void }) {
             get close() {
               return layout.panes().length > 1 ? () => layout.close(index()) : null;
             },
+            get view() {
+              return entry.route.view;
+            },
+            get index() {
+              return index();
+            },
           }}
         >
           {/* One broken view takes down its pane, not the app. */}
@@ -255,6 +273,7 @@ function Shell(props: { onSignOut: () => void }) {
 export function App() {
   const [me, { refetch }] = createResource(getMe);
   setSignedOutHandler(() => {
+    rememberSignedIn(false);
     live.stop();
     queryClient.clear();
     void refetch();
@@ -271,6 +290,12 @@ export function App() {
   );
   // Read only when there's an answer: an errored resource throws when read.
   const answer = () => (me.state === "ready" || me.state === "refreshing" ? me() : undefined);
+  createEffect(() => {
+    const a = answer();
+    if (a) rememberSignedIn(a.signedIn);
+  });
+  // One condition from the guess to the answer, so the shell isn't drawn twice when they agree.
+  const hearth = createMemo(() => showHearth(answer(), me.loading));
   return (
     <QueryClientProvider client={queryClient}>
       <ErrorBoundary fallback={(error, reset) => <Crashed error={error} reset={reset} />}>
@@ -278,22 +303,19 @@ export function App() {
           <Match when={unreachable()}>
             <Unreachable trying={me.loading} retry={retryNow} />
           </Match>
+          <Match when={hearth()}>
+            <Shell
+              onSignOut={() => {
+                rememberSignedIn(false);
+                live.stop();
+                queryClient.clear();
+                forgetAllDocs();
+                void refetch();
+              }}
+            />
+          </Match>
           <Match when={answer()}>
-            {(m) => (
-              <Show
-                when={m().signedIn}
-                fallback={<Login needsSetup={m().needsSetup} onSignedIn={() => void refetch()} />}
-              >
-                <Shell
-                  onSignOut={() => {
-                    live.stop();
-                    queryClient.clear();
-                    forgetAllDocs();
-                    void refetch();
-                  }}
-                />
-              </Show>
-            )}
+            {(m) => <Login needsSetup={m().needsSetup} onSignedIn={() => void refetch()} />}
           </Match>
         </Switch>
       </ErrorBoundary>

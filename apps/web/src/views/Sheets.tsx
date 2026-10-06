@@ -46,7 +46,7 @@ export function Sheets(props: { pane: number }) {
 
   return (
     <div class="flex h-full flex-col">
-      <PaneHeader title="Spreadsheets">
+      <PaneHeader title="Sheets">
         <Button kind="primary" small onClick={() => void newSheet(props.pane)}>
           New spreadsheet
         </Button>

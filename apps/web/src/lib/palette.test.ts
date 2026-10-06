@@ -32,6 +32,21 @@ describe("Cmd+K", () => {
     ]);
   });
 
+  it("with nothing typed, shows what you do most, then recent records, then the commands", () => {
+    const top = [item("go:today", "Go to Today"), item("new:task", "New task")];
+    const records = { query: "", list: [item("r1", "Recent")] };
+    expect(ids(arrange({ query: "", top, commands: COMMANDS, records, extra: ASK }))).toEqual([
+      "go:today",
+      "new:task",
+      "r1",
+      ...ids(COMMANDS),
+    ]);
+    // Typed, they're commands like the rest.
+    expect(ids(arrange({ query: "new t", top, commands: COMMANDS, records, extra: [] }))).toEqual([
+      "new:task",
+    ]);
+  });
+
   it("with nothing typed, shows recent records and the commands", () => {
     const records = { query: "", list: [item("r1", "Recent")] };
     expect(ids(arrange({ query: "", commands: COMMANDS, records, extra: ASK }))).toEqual([

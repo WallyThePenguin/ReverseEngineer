@@ -85,7 +85,7 @@ export function Browser() {
   return (
     <div class="flex h-full flex-col">
       <PaneHeader
-        title="Browser"
+        title="Chrome"
         sub={
           !b.online()
             ? "Reconnecting to Hearth…"

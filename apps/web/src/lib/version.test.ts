@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  afterLoadFailed,
   CHECK_EVERY_MS,
   freeze,
   noticeFor,
@@ -254,5 +255,27 @@ describe("whether reloading would lose something", () => {
     expect(wouldLoseWork(win, page())).toBe(true);
     unsaved = false;
     expect(wouldLoseWork(win, page())).toBe(false);
+  });
+});
+
+describe("a screen whose code didn't load", () => {
+  const fits = { ok: true };
+  const newer = { build: "def", migrations: fits };
+  const loses = (lost: boolean) => () => lost;
+
+  it("reloads into the build that's running, when that loses nothing", () => {
+    expect(afterLoadFailed("abc", newer, null, loses(false))).toEqual({ reload: "def" });
+  });
+
+  it("says Hearth was updated, rather than lose what's on the page or reload twice", () => {
+    expect(afterLoadFailed("abc", newer, null, loses(true))).toEqual({ why: "updated" });
+    expect(afterLoadFailed("abc", newer, "def", loses(false))).toEqual({ why: "updated" });
+  });
+
+  it("says it couldn't load when the PC didn't answer or runs this same build", () => {
+    expect(afterLoadFailed("abc", null, null, loses(false))).toEqual({ why: "offline" });
+    expect(afterLoadFailed("abc", { build: "abc", migrations: fits }, null, loses(false))).toEqual({
+      why: "offline",
+    });
   });
 });

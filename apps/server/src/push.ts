@@ -81,8 +81,14 @@ const HEADINGS: Record<string, string> = {
   brief: "Your brief is ready",
 };
 
-/** Where tapping it opens; anything else opens the inbox. */
+/**
+ * Where tapping it opens; anything else opens the inbox. An approval opens on Today's Needs you,
+ * which says when a send reaches someone who isn't in its conversation; the brief and the evening
+ * card open there too, each in full with the rest of your day.
+ */
 const OPENS: Record<string, string> = {
+  approval: "/today",
+  brief: "/today",
   wrap: "/today",
 };
 
