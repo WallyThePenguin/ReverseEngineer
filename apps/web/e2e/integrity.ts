@@ -15,6 +15,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { join } from "node:path";
 import { type BrowserContext, chromium, type Page } from "playwright";
+import { home as opened } from "./home.ts";
 
 const port = Number(process.env.HEARTH_E2E_PORT ?? 4690);
 const base = `http://localhost:${port}`;
@@ -136,7 +137,7 @@ context.on("weberror", (e) => problems.push(`page error: ${e.error().message}`))
 try {
   const home = await context.newPage();
   await home.goto(base);
-  await home.getByRole("heading", { name: "Inbox" }).waitFor({ timeout: 20_000 });
+  await opened(home).waitFor({ timeout: 20_000 });
 
   await step("a note keeps a keystroke typed as its tab closed", async () => {
     const note = await act<{ id: string }>(home, "note.create", { title: `Plan ${tag}`, body: "" });

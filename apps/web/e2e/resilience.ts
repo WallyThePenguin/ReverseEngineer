@@ -9,6 +9,7 @@
 // HEARTH_E2E_CHROME points at a Chromium to use instead of Playwright's own download.
 
 import { chromium, type Locator, type Page, type Route } from "playwright";
+import { home } from "./home.ts";
 
 const base = process.env.HEARTH_E2E_URL ?? "http://localhost:4400";
 const tag = Date.now().toString(36).slice(-4);
@@ -77,7 +78,7 @@ try {
     await p.getByRole("heading", { name: "Can't reach Hearth" }).waitFor();
     await p.unroute("**/api/auth/me");
     // Tries again by itself, after about a second.
-    await p.getByRole("heading", { name: "Inbox" }).waitFor({ timeout: 10_000 });
+    await home(p).waitFor({ timeout: 10_000 });
     await sameLoad(p);
   });
 
@@ -90,7 +91,7 @@ try {
     if (await p.getByText("boom").count()) throw new Error("the server's error text was shown");
     await p.unroute("**/api/auth/me");
     await p.getByRole("button", { name: "Try again" }).click();
-    await p.getByRole("heading", { name: "Inbox" }).waitFor({ timeout: 5_000 });
+    await home(p).waitFor({ timeout: 5_000 });
     await sameLoad(p);
   });
 
@@ -103,9 +104,9 @@ try {
     });
     await boot(p);
     // Signed in here before, so Hearth is drawn at once while the server is still being asked.
-    await p.getByRole("heading", { name: "Inbox" }).waitFor({ timeout: 5_000 });
+    await home(p).waitFor({ timeout: 5_000 });
     await p.getByRole("heading", { name: "Can't reach Hearth" }).waitFor({ timeout: 15_000 });
-    await p.getByRole("heading", { name: "Inbox" }).waitFor({ timeout: 10_000 });
+    await home(p).waitFor({ timeout: 10_000 });
     await p.unroute("**/api/auth/me");
     await sameLoad(p);
   });
@@ -153,7 +154,7 @@ try {
     await noToasts(p);
     await p.keyboard.press("g");
     await p.keyboard.press("i");
-    await p.getByRole("heading", { name: "Inbox" }).waitFor();
+    await p.getByRole("heading", { name: "Updates" }).waitFor();
     const title = `Renew the passport ${tag}`;
     await runAction(p, "inbox.notify", { title });
     // Arrives over the live feed.
@@ -188,13 +189,18 @@ try {
   await step("live feed: refused at start, banner, then back with live updates", async (p) => {
     await p.route("**/api/events**", badGateway);
     await boot(p);
-    await p.getByRole("heading", { name: "Inbox" }).waitFor();
+    await home(p).waitFor();
     await p.getByRole("status").filter({ hasText: "Reconnecting…" }).waitFor({ timeout: 10_000 });
     await p.unroute("**/api/events**");
     await p
       .getByRole("status")
       .filter({ hasText: "Reconnecting…" })
       .waitFor({ state: "detached", timeout: 40_000 });
+    // Hearth opens on Today; a notice shows under Updates. Opened first, so the row can only
+    // arrive over the feed that just came back.
+    await p.keyboard.press("g");
+    await p.keyboard.press("i");
+    await p.getByRole("heading", { name: "Updates" }).waitFor();
     const title = `Call the bank ${tag}`;
     await runAction(p, "inbox.notify", { title });
     await inboxRow(p, title).waitFor({ timeout: 5_000 });

@@ -1,7 +1,7 @@
 // Step 7 end to end: a heads-up ten minutes before a real meeting with its prep and join link
 // (even while paused, and following a moved meeting), the evening's Your day card, calendar
 // rows that say their prep is ready, and what Jarvis did, read from what it made.
-import { notification, schedule, setting } from "@hearth/db";
+import { entity, notification, schedule, setting } from "@hearth/db";
 import {
   type Caller,
   integrationCaller,
@@ -59,7 +59,10 @@ describe("the heads-up before a meeting", () => {
     await h.settle();
     const [ev] = await events();
     await ok("prep.publish", { eventId: ev!.id, markdown: "Ask Sam about the budget." });
-    expect((await events())[0]?.prepId).toBeTruthy();
+    const prepId = (await events())[0]?.prepId;
+    expect(prepId).toBeTruthy();
+    // The event's own page opens with the same packet.
+    expect((await ok<EventView>("calendar.get", { id: ev!.id })).prepId).toBe(prepId);
     await ok("jarvis.pause", {});
     h.clock.set("2026-10-01T14:49:00Z");
     await h.settle();
@@ -185,11 +188,14 @@ describe("the evening and what Jarvis did", () => {
     await ok("chat.send", { text: "remind me to book the venue" });
     await h.settle();
     await ok("task.create", { title: "Mine, not Jarvis's" });
-    const did = await ok<{ text: string; turnId?: string }[]>("jarvis.did", {
-      since: "2026-10-01T00:00:00Z",
-    });
-    expect(did).toMatchObject([
-      { text: "Made a task: Book the venue", turnId: expect.any(String) },
+    type Did = { text: string; entityId: string; turnId?: string; outside: boolean };
+    const did = () => ok<Did[]>("jarvis.did", { since: "2026-10-01T00:00:00Z" });
+    const made = await did();
+    expect(made).toMatchObject([
+      { text: "Made a task: Book the venue", turnId: expect.any(String), outside: false },
     ]);
+    // One written after reading outside content says so, as the record does (D58).
+    await h.tdb.db.update(entity).set({ outside: true }).where(eq(entity.id, made[0]!.entityId));
+    expect(await did()).toMatchObject([{ outside: true }]);
   });
 });

@@ -12,6 +12,7 @@ import {
   decodePath,
   encodePath,
   encodeRoute,
+  HOME,
   type ListView,
   MAX_PANES,
   type PaneRoute,
@@ -121,7 +122,7 @@ export function createPanes() {
       const closing = entries()[i];
       if (!closing) return;
       const list = entries().filter((p) => p !== closing);
-      if (!list.length) return commit([fresh({ view: "inbox" })], 0);
+      if (!list.length) return commit([fresh({ view: HOME })], 0);
       // Focus stays where it was, unless it was on the pane that closed.
       const stay = list.findIndex((p) => p.key === focusedKey());
       commit(list, stay >= 0 ? stay : Math.min(i, list.length - 1));

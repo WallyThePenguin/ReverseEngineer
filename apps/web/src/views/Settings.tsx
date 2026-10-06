@@ -8,6 +8,7 @@ import { authPost } from "../lib/api.ts";
 import { ago } from "../lib/format.ts";
 import { jarvisLiveness } from "../lib/jarvis-health.ts";
 import { toast } from "../lib/live.ts";
+import { setPaused } from "../lib/pause.ts";
 import { act, useAction } from "../lib/query.ts";
 import type { StandingRule, SystemStatus } from "../lib/types.ts";
 import { ChromeSettings } from "./ChromeSettings.tsx";
@@ -20,16 +21,6 @@ import { RoutineSettings } from "./RoutineSettings.tsx";
 import { Anchor, SettingsNav } from "./SettingsNav.tsx";
 import { SignInSettings } from "./SignInSettings.tsx";
 import { SlackSettings } from "./SlackSettings.tsx";
-
-export async function setPaused(paused: boolean) {
-  if (await act(paused ? "jarvis.pause" : "jarvis.resume")) {
-    toast.show(
-      paused
-        ? "Jarvis is paused. It still answers you, and alerts still come through."
-        : "Jarvis is back on.",
-    );
-  }
-}
 
 const TONE = { ok: "ok", degraded: "warn", failing: "bad" } as const;
 /** Health components by a name you'd use; any other goes by its own. */

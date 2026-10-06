@@ -5,7 +5,7 @@
 // within a minute. Older conversations load as you scroll down to them. One with a reply drafted
 // says so, and whether Jarvis wrote it.
 
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from "solid-js";
 import { Icon } from "../components/icons.tsx";
 import { IconButton } from "../components/kit/IconButton.tsx";
 import { Pill } from "../components/kit/Pill.tsx";
@@ -28,9 +28,29 @@ type View = "inbox" | "starred" | "sent" | "all" | "trash";
 
 export const named = (a: MailAddress | undefined) => a?.name || a?.address || "someone";
 
+type Lane = "signal" | "noise" | "reply" | "waiting";
+/** A lane Mail was asked to open on from elsewhere, and in which pane, until that pane does. */
+const [asked, setAsked] = createSignal<{ lane: Lane; pane: number } | null>(null);
+
+/**
+ * Opens Mail beside pane `from` on the conversations that need your reply (Today's "All" under
+ * Replies you owe). Only that Mail pane turns to them; any other Mail pane stays as it is.
+ */
+export function openToReply(from: number) {
+  layout.show({ view: "mail" }, from);
+  // Where show put it: the pane to the right, or the last one when there's no room for another.
+  setAsked({ lane: "reply", pane: Math.min(from + 1, layout.panes().length - 1) });
+}
+
 export function Mail(props: { pane: number }) {
   const [view, setView] = createSignal<View>("inbox");
-  const [lane, setLane] = createSignal<"signal" | "noise" | "reply" | "waiting">("signal");
+  // Asked before this pane was drawn: it opens on that lane.
+  const mine = untrack(() => {
+    const a = asked();
+    return a?.pane === props.pane ? a : null;
+  });
+  if (mine) setAsked(null);
+  const [lane, setLane] = createSignal<Lane>(mine?.lane ?? "signal");
   const [query, setQuery] = createSignal("");
   const accounts = useAction<MailAccount[]>("mail.accounts");
   // What's searched for: what's typed, once typing pauses.
@@ -73,6 +93,16 @@ export function Mail(props: { pane: number }) {
   // Moving down with j: the next page comes before you reach the end.
   createEffect(() => {
     if (paging() && sel.index() >= list().length - 5) listed.more();
+  });
+  // Asked while it's open, as this pane: it turns to that lane.
+  createEffect(() => {
+    const to = asked();
+    if (!to || to.pane !== props.pane) return;
+    setAsked(null);
+    setView("inbox");
+    setQuery("");
+    setLane(to.lane);
+    sel.reset();
   });
   const focused = () => layout.focused() === props.pane;
 

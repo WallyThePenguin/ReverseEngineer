@@ -64,7 +64,7 @@ export async function titleSteps({ step, keys, tag }: Smoke) {
   });
 
   await step("a note's title you're typing stays while the note changes elsewhere", async (p) => {
-    await p.locator("nav").click({ position: { x: 100, y: 600 } });
+    await p.getByRole("navigation", { name: "Places" }).click({ position: { x: 100, y: 600 } });
     await keys("g", "n");
     await p.getByRole("button", { name: "New note" }).click();
     await p.waitForURL(/\/note\//);

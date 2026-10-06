@@ -219,6 +219,7 @@ export class TurnRunner {
     };
     // A conversation that read outside content before starts this turn untrusted (D58).
     const conv = await restoreTaint(this.kernel, cid, state);
+    end.readOutside = () => state.origin === "untrusted";
     // Log writes are serialized so the log keeps the order things happened in.
     let chain: Promise<void> = Promise.resolve();
     const log = (entries: LogEntry[]) => {

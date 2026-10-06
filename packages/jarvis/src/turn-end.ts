@@ -59,6 +59,9 @@ export interface Ending {
   answered: boolean;
   durationMs: number;
   firstTokenMs: number | null;
+  /** Whether the attempt has read outside content (an email, a web page) so far, or started
+   * from some: its row says so once it ends, for what Today shows of it (D58). */
+  readOutside: () => boolean;
 }
 
 /** An attempt at a turn, before anything has happened in it. */
@@ -70,6 +73,7 @@ export const newEnding = (turn: TurnRow): Ending => ({
   answered: false,
   durationMs: 0,
   firstTokenMs: null,
+  readOutside: () => false,
 });
 
 /** Whether the owner pressed Stop on a turn, as its row says (the signal can be missed). */
@@ -92,9 +96,16 @@ export async function recordEnd(
   const { kernel } = env;
   const { turn, conversationId } = e;
   const now = kernel.clock.now();
+  // Its row keeps the origin it was asked with; that it read outside content on the way goes in
+  // its context, once it's over (a retry reads afresh).
+  const outside = patch.status !== "queued" && turn.origin !== "untrusted" && e.readOutside();
   await kernel.db
     .update(jarvisTurn)
-    .set({ ...patch, finishedAt: now })
+    .set({
+      ...patch,
+      finishedAt: now,
+      ...(outside ? { context: sql`${jarvisTurn.context} || '{"readOutside":true}'::jsonb` } : {}),
+    })
     .where(eq(jarvisTurn.id, turn.id));
   const scheduleId = turn.context.scheduleId;
   if (typeof scheduleId === "string")

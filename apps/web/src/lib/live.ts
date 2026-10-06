@@ -267,7 +267,8 @@ export const live = createRoot(createLive);
 export interface Toast {
   id: number;
   text: string;
-  tone: "info" | "error";
+  /** "ok" for something done as you asked ("Sent to Dana Ruiz"), with a tick. */
+  tone: "info" | "ok" | "error";
   /** A button on the toast, like Undo. */
   action?: { label: string; run: () => void };
 }

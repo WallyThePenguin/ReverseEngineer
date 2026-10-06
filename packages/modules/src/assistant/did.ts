@@ -25,6 +25,8 @@ export interface Did {
   entityType: string;
   /** The turn that did it; none when a routine's plain version or a reflex did. */
   turnId?: string;
+  /** Written after reading outside content (D58), so its words may be other people's. */
+  outside: boolean;
 }
 
 export const didAction = defineAction({
@@ -36,7 +38,13 @@ export const didAction = defineAction({
   async handler(i, ctx): Promise<Did[]> {
     const since = new Date(i.since);
     const rows = await ctx.tx
-      .select({ id: entity.id, type: entity.type, title: entity.title, at: entity.createdAt })
+      .select({
+        id: entity.id,
+        type: entity.type,
+        title: entity.title,
+        at: entity.createdAt,
+        outside: entity.outside,
+      })
       .from(entity)
       .where(
         and(
@@ -72,6 +80,7 @@ export const didAction = defineAction({
         text: SAID[r.type]!(r.title),
         entityId: r.id,
         entityType: r.type,
+        outside: r.outside,
         ...(turnId ? { turnId } : {}),
       };
     });
