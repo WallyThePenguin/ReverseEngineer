@@ -12,7 +12,7 @@ import { connectActions } from "./connect.ts";
 import { syncSlack } from "./sync.ts";
 
 export { httpSlack, SLACK_SERVICE, type SlackApi } from "./api.ts";
-export { SLACK_ASKS, SLACK_FOR_YOU, taskAbout } from "./asks.ts";
+export { SLACK_ASKS, SLACK_FOR_YOU, slackContext, slackCovered, taskAbout } from "./asks.ts";
 export { SLACK_SCOPES } from "./connect.ts";
 export { FakeSlack } from "./fake.ts";
 

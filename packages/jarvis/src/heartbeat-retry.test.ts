@@ -118,6 +118,29 @@ describe("a heartbeat turn that doesn't finish", () => {
   });
 });
 
+describe("a heartbeat turn that added an event, then failed", () => {
+  it("puts nothing back, so the event isn't made twice", async () => {
+    await ok("calendar.sync", {}, integrationCaller("google"));
+    const id = await twoEmails();
+    const event = {
+      title: "Dentist",
+      start: "2026-10-05T10:00:00-04:00",
+      end: "2026-10-05T11:00:00-04:00",
+    };
+    h.brain.next([
+      { call: "calendar_create_event", input: event },
+      { call: "no_such_tool", input: {} },
+    ]);
+    h.clock.set("2026-10-01T14:25:30Z");
+    await h.settle();
+    expect(id.Delivery).toBeTruthy();
+    expect((await items()).every((i) => i.takenAt)).toBe(true);
+    h.clock.set("2026-10-01T14:50:30Z");
+    await h.settle();
+    expect(beats()).toHaveLength(1);
+  });
+});
+
 describe("drafting on its own", () => {
   it("leaves a conversation the owner started a reply to mid-turn", async () => {
     const id = await twoEmails();

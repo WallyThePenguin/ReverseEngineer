@@ -2,7 +2,7 @@
 // asks you for something, linked to the message; one that already has a task is left alone, and a
 // busy day stops at the cap. Hearth never posts.
 import { randomBytes } from "node:crypto";
-import { approval, heartbeatItem, jarvisTurn, link } from "@hearth/db";
+import { approval, heartbeatItem, jarvisTurn, link, notification } from "@hearth/db";
 import { type Caller, integrationCaller, ownerCaller } from "@hearth/kernel";
 import {
   FakeSlack,
@@ -109,10 +109,50 @@ describe("Slack messages for you", () => {
     expect(heartbeats()).toEqual([]);
   });
 
-  it(`sets aside at most ${SLACK_ASKS} a day`, async () => {
-    for (let n = 0; n <= SLACK_ASKS; n++) s.post("D1", "UEVE", `Question ${n}?`);
+  it("sets aside one item per conversation, and shows the heartbeat how it went", async () => {
+    for (const text of ["hey", "got a sec?", "can you review the Q3 deck?"])
+      s.post("D1", "UEVE", text);
+    s.post("D1", "UME", "sure, after lunch");
+    s.post("D1", "UEVE", "thanks!");
+    await sync();
+    await h.settle();
+    expect(await items()).toHaveLength(1);
+    h.clock.set("2026-10-01T14:25:30Z");
+    await h.settle();
+    const [beat] = heartbeats();
+    expect(beat?.prompt).toContain(
+      'Eve: "can you review the Q3 deck?"; the owner: "sure, after lunch"',
+    );
+  });
+
+  it("looks again when someone pings after the task, saying a task exists", async () => {
+    s.post("D1", "UEVE", "can you review the budget?");
+    await sync();
+    await h.settle();
+    const [item] = await items();
+    await ok("task.create", { title: "Review the budget", body: ref(item!.aboutId!) });
+    h.clock.set("2026-10-01T14:10:00Z");
+    s.post("D1", "UEVE", "any update?");
+    await sync();
+    await h.settle();
+    h.clock.set("2026-10-01T14:25:30Z");
+    await h.settle();
+    const [beat] = heartbeats();
+    expect(beat?.prompt).toContain('Eve: "any update?"');
+    expect(beat?.prompt).toContain(
+      'A task was made from this conversation before: "Review the budget"',
+    );
+  });
+
+  it(`sets aside at most ${SLACK_ASKS} conversations a day, and says so once`, async () => {
+    for (let n = 0; n <= SLACK_ASKS + 1; n++) s.post("C1", "UEVE", `<@UME> question ${n}?`);
     await sync();
     await h.settle();
     expect(await items()).toHaveLength(SLACK_ASKS);
+    const busy = await h.tdb.db
+      .select()
+      .from(notification)
+      .where(eq(notification.kind, "slack.busy"));
+    expect(busy).toHaveLength(1);
   });
 });

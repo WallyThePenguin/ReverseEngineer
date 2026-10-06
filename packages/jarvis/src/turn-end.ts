@@ -3,14 +3,7 @@
 // words, a routine publishes its plain version, set-aside heartbeat items go back on the pile,
 // and an alert goes out when Jarvis looks broken rather than unlucky.
 import { weakerOrigin } from "@hearth/core";
-import {
-  conversationLog,
-  event,
-  heartbeatItem,
-  jarvisTurn,
-  schedule,
-  type TurnOutcome,
-} from "@hearth/db";
+import { conversationLog, event, jarvisTurn, schedule, type TurnOutcome } from "@hearth/db";
 import {
   appendEvents,
   getSetting,
@@ -21,9 +14,9 @@ import {
   toHearthEvent,
 } from "@hearth/kernel";
 import type { LogEntry } from "@hearth/modules";
-import { and, count, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
+import { and, count, eq, isNotNull, lt, sql } from "drizzle-orm";
 import { BACKOFF_MINUTES, type Failure, failure, friendlyError, PASSING } from "./failures.ts";
-import { checkedAgain } from "./heartbeat.ts";
+import { releaseHeartbeat } from "./heartbeat.ts";
 import { applyOutcomes } from "./outcomes.ts";
 import { writeLog } from "./threads.ts";
 import type { ToolCallRecord } from "./tools.ts";
@@ -217,7 +210,7 @@ export async function failTurn(
   await recordEnd(env, e, { ...common, status });
   if (status === "canceled") return status;
   const fellBack = await applyFallback(env, e.turn);
-  await releaseHeartbeat(env, e.turn, wroteAnything(e));
+  await releaseHeartbeat(env.kernel.db, e.turn, wroteAnything(e));
   await alertFailure(env, e.turn, f, said.text, fellBack).catch((err) =>
     env.log(`couldn't raise an alert for turn ${e.turn.id}`, err),
   );
@@ -277,31 +270,6 @@ function revive(outcomes: ReflexOutcome[]): ReflexOutcome[] {
 /** Whether the attempt changed anything, or started a tool that may have and never said. */
 const wroteAnything = (e: Ending): boolean =>
   e.calls.some((c) => c.risk !== "read") || e.started > e.calls.length;
-
-/**
- * Items a failed heartbeat turn took go back, for the next heartbeat to pick up. After a turn that
- * changed something, only those the next heartbeat checks again first (an email still without a
- * draft or a task): the rest may be done already, and putting them back would do them twice.
- */
-async function releaseHeartbeat(env: EndEnv, turn: TurnRow, wrote: boolean): Promise<void> {
-  const taken = turn.context.itemIds;
-  if (!Array.isArray(taken) || taken.length === 0) return;
-  let ids = taken.map(String);
-  if (wrote)
-    ids = (
-      await env.kernel.db
-        .select({ id: heartbeatItem.id, text: heartbeatItem.text })
-        .from(heartbeatItem)
-        .where(inArray(heartbeatItem.id, ids))
-    )
-      .filter((i) => checkedAgain(i.text))
-      .map((i) => i.id);
-  if (ids.length === 0) return;
-  await env.kernel.db
-    .update(heartbeatItem)
-    .set({ takenAt: null })
-    .where(inArray(heartbeatItem.id, ids));
-}
 
 /**
  * Queued turns past their time-to-live are dropped rather than answered late: a chat after an
