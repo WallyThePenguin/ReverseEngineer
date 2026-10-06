@@ -18,7 +18,7 @@ import {
   type ReadContext,
   updateEntity,
 } from "@hearth/kernel";
-import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { body, id } from "../shared.ts";
 import { cleanName, newMessageId } from "./mime.ts";
@@ -172,6 +172,33 @@ async function replyHeaders(ctx: ActionContext, threadId: string, all: boolean) 
   };
 }
 
+/**
+ * Jarvis writes one reply to each message: two runs that both saw the same email (the morning's
+ * and the day's, or a heartbeat that went round twice) leave one draft, not two. One you threw
+ * away doesn't count, so asking again writes a fresh one.
+ */
+async function oneDraftEach(ctx: ActionContext, threadId: string): Promise<void> {
+  const [mine] = await ctx.tx
+    .select({ id: mailDraft.entityId })
+    .from(mailDraft)
+    .innerJoin(entity, eq(entity.id, mailDraft.entityId))
+    .innerJoin(mailThread, eq(mailThread.entityId, mailDraft.threadId))
+    .where(
+      and(
+        eq(mailDraft.threadId, threadId),
+        eq(entity.createdBy, PRINCIPAL.jarvis),
+        isNull(entity.deletedAt),
+        gte(entity.createdAt, mailThread.waitingSince),
+      ),
+    )
+    .limit(1);
+  if (mine)
+    throw new ActionError(
+      "conflict",
+      `There's already a draft of yours for this conversation since its last message (draft ${mine.id}). Leave it: the owner will see it in Mail.`,
+    );
+}
+
 export const draftActions = [
   defineAction({
     name: "mail.draft",
@@ -189,6 +216,8 @@ export const draftActions = [
     }),
     risk: "internal",
     async handler(i, ctx) {
+      if (i.threadId && ctx.caller.principal === PRINCIPAL.jarvis)
+        await oneDraftEach(ctx, i.threadId);
       const reply = i.threadId ? await replyHeaders(ctx, i.threadId, i.replyAll) : null;
       const account = reply?.account ?? (await accountFor(ctx, i.account));
       const subject = i.subject ?? reply?.subject ?? "";

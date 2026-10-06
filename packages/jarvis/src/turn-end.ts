@@ -225,7 +225,9 @@ export async function failTurn(
   await recordEnd(env, e, { ...common, status });
   if (status === "canceled") return status;
   const fellBack = await applyFallback(env, e.turn);
-  await releaseHeartbeat(env, e.turn);
+  // A turn that changed something may have done these already: putting them back would do them
+  // twice. One that only read gives them to the next heartbeat.
+  if (!wroteAnything(e)) await releaseHeartbeat(env, e.turn);
   await alertFailure(env, e.turn, f, said.text, fellBack).catch((err) =>
     env.log(`couldn't raise an alert for turn ${e.turn.id}`, err),
   );
@@ -281,6 +283,10 @@ function revive(outcomes: ReflexOutcome[]): ReflexOutcome[] {
     return o;
   });
 }
+
+/** Whether the attempt changed anything, or started a tool that may have and never said. */
+const wroteAnything = (e: Ending): boolean =>
+  e.calls.some((c) => c.risk !== "read") || e.started > e.calls.length;
 
 /** Items a failed heartbeat turn took go back, for the next heartbeat to pick up. */
 async function releaseHeartbeat(env: EndEnv, turn: TurnRow): Promise<void> {

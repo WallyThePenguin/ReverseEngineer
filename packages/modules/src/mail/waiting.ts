@@ -75,14 +75,16 @@ const sinceTheirs = gte(entity.createdAt, mailThread.waitingSince);
 /**
  * Mail in the inbox that's waited on your reply for under REPLY_DAYS, newest first, that nobody
  * has started a reply to since its last message. A draft in the trash counts, and so does one of
- * Jarvis's you threw away, so Jarvis doesn't write again what you threw out.
+ * Jarvis's you threw away, so Jarvis doesn't write again what you threw out. With `only`, just
+ * that conversation, if it qualifies.
  */
-async function threadsToDraft(ctx: ReadContext) {
+export async function threadsToDraft(ctx: ReadContext, only?: string) {
   return ctx.db
     .select({ id: mailThread.entityId })
     .from(mailThread)
     .where(
       and(
+        only ? eq(mailThread.entityId, only) : undefined,
         eq(mailThread.waiting, "you"),
         eq(mailThread.inInbox, true),
         eq(mailThread.trashed, false),

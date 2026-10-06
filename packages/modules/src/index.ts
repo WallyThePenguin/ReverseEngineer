@@ -87,12 +87,15 @@ export {
   BLOB_SERVICE,
   BlobStore,
   blobsFromEnv,
+  DAYTIME_DRAFTS,
   type DraftView,
   type MessageView,
   messageAttachment,
   messageHtml,
+  NEEDS_REPLY,
   type ThreadSummary,
   type ThreadView,
+  threadsToDraft,
 } from "./mail/index.ts";
 export { recallMemory, renderMemory } from "./memory/index.ts";
 export { parseChecklist } from "./notes/checklist.ts";

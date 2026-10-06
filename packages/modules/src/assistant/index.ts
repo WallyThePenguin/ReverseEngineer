@@ -1,6 +1,13 @@
 // Jarvis's own records and tools: observations, watches, the brief, the journal, and its
 // activity feed.
-import { asUntrusted, filterSchema, formatDateTime, matches } from "@hearth/core";
+import {
+  addLocalDays,
+  asUntrusted,
+  filterSchema,
+  formatDateTime,
+  localDate,
+  matches,
+} from "@hearth/core";
 import { conversation, entity, jarvisTurn, observation, watch } from "@hearth/db";
 import {
   ActionError,
@@ -9,14 +16,17 @@ import {
   type DigestItem,
   defineAction,
   defineModule,
+  getSetting,
   newId,
   updateEntity,
 } from "@hearth/kernel";
 import { and, desc, eq, gt, gte, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 import { describeRow, id, liveEntity, writtenOutside } from "../shared.ts";
+import { didAction } from "./did.ts";
 import { briefRoutine, journalRoutine } from "./routines.ts";
 import { turnActions } from "./turns.ts";
+import { tomorrowAtAGlance } from "./wrap.ts";
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
@@ -55,6 +65,7 @@ export const assistantModule = defineModule({
   routines: [briefRoutine, journalRoutine],
   actions: [
     ...turnActions,
+    didAction,
     defineAction({
       name: "jarvis.observe",
       description:
@@ -230,6 +241,17 @@ export const assistantModule = defineModule({
         const row = existing
           ? await updateEntity(ctx, existing.id, { body: i.markdown })
           : await createEntity(ctx, { type: "journal", title, body: i.markdown });
+        // The evening's "Your day" card, once a day: not for an old entry written again.
+        const { timeZone } = await getSetting(ctx.tx, "owner.dayRules");
+        if (i.date >= addLocalDays(localDate(ctx.now, timeZone), -1))
+          await createNotification(ctx, {
+            kind: "wrap",
+            title: "Your day",
+            body: await tomorrowAtAGlance(ctx.tx, i.date, timeZone),
+            entityId: row.id,
+            urgency: "normal",
+            dedupeKey: `wrap:${i.date}`,
+          });
         return { id: row.id };
       },
     }),
