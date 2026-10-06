@@ -37,6 +37,23 @@ export interface Settings {
   "push.vapid": { publicKey: string; privateKey: string } | null;
   /** When the Jarvis process last said it's alive (every 30 s), and since when it's been up. */
   "jarvis.alive": { at: string; since: string; pid: number } | null;
+  /**
+   * Whether people in your Slack workspace can talk to Jarvis's bot at all (D62). Everything a
+   * member can do waits behind it, and it starts off.
+   */
+  "slack.bot.membersOn": boolean;
+  /**
+   * How many turns Slack members get (D62): each of them, so many in ten minutes and a day; all
+   * of them together, so many a day, apart from the proactive budget. Past that a message is
+   * passed to you, and they're told so once a day.
+   */
+  "slack.bot.memberTurns": { perTenMinutes: number; perDay: number; allPerDay: number };
+  /**
+   * What your own DM to Jarvis's bot gets back in Slack (D62). "fixed": only "Got it, it's in
+   * Hearth", then "Done" or "Needs your yes in Hearth", as the desktop app gets (D42). "full":
+   * the answer itself, which Slack keeps and exports, so it's yours to turn on.
+   */
+  "slack.bot.ownerDmAnswers": "fixed" | "full";
 }
 
 export const SETTING_DEFAULTS: Settings = {
@@ -57,6 +74,9 @@ export const SETTING_DEFAULTS: Settings = {
   ],
   "push.vapid": null,
   "jarvis.alive": null,
+  "slack.bot.membersOn": false,
+  "slack.bot.memberTurns": { perTenMinutes: 4, perDay: 20, allPerDay: 60 },
+  "slack.bot.ownerDmAnswers": "fixed",
 };
 
 export async function getSetting<K extends keyof Settings>(

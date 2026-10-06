@@ -149,16 +149,18 @@ export async function restoreEntity(ctx: ActionContext, id: string): Promise<Ent
 }
 
 /**
- * Re-derives this record's mention links from its body and emits what changed. Only text you or
- * an agent wrote calls an agent: a mention of Jarvis in an email or an outside agent's note does
- * nothing (D58). Its links to records stay (a Notion import's links between its pages), as links
- * from outside content: a record's id can't be guessed, and reading them lowers a turn's trust.
- * When you or Jarvis edit a record whose text is outside content, an @Jarvis that now links
- * (maybe the email's own, kept by the edit) is marked outside, so its turn starts untrusted.
+ * Re-derives this record's mention links from its body and emits what changed. Only text you,
+ * Jarvis or Hearth itself wrote calls an agent: a mention of Jarvis in an email, an outside
+ * agent's note or a Slack member's message does nothing (D58, D62). Its links to records stay (a
+ * Notion import's links between its pages), as links from outside content: a record's id can't
+ * be guessed, and reading them lowers a turn's trust. When you or Jarvis edit a record whose
+ * text is outside content, an @Jarvis that now links (maybe the email's own, kept by the edit) is
+ * marked outside, so its turn starts untrusted.
  */
 export async function syncMentions(ctx: ActionContext, source: EntityRow): Promise<void> {
   const body = source.body ?? "";
-  const outsider = ctx.caller.kind === "integration" || ctx.caller.kind === "mcp_client";
+  // It names who may call Jarvis, so a new kind of caller can't until it's added here (D62).
+  const outsider = !["owner", "agent", "system"].includes(ctx.caller.kind);
   const outsideText = source.outside === true || fromOutsideTool(source.createdBy);
   const mentions = parseMentions(body).filter((m) => m.id !== source.id);
   const targetIds = [...new Set(mentions.map((m) => m.id))];

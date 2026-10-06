@@ -1,7 +1,8 @@
 // Deep health (D57): what an update gate, `hearth doctor` or the web app needs to call Hearth
 // healthy, in one report. The database, whether its migrations fit this code, which build is
 // running, every component's last report (a stale one fails), when the Jarvis process last checked
-// in, Jarvis's turns, and the Chrome link.
+// in, Jarvis's turns, and the Chrome link. A component that reports on someone else's service
+// (EXTERNAL_COMPONENTS) is told but never makes the whole report fail.
 import {
   type Db,
   jarvisTurn,
@@ -233,7 +234,10 @@ export async function deepHealth(input: DeepHealthInput): Promise<DeepHealth> {
     const name = r.key.slice("health.".length);
     const judged = judgeHealth(name, r.value as HealthRecord, now);
     components[name] = judged;
-    if (judged.status !== "ok") add(judged.status, `${name}: ${judged.detail}`);
+    // Someone else's service failing (Slack and Jarvis's socket) is worth a look, never Hearth
+    // failing: an update can't fix it, so it mustn't fail the update's gate (D62).
+    const status = judged.external && judged.status === "failing" ? "degraded" : judged.status;
+    if (status !== "ok") add(status, `${name}: ${judged.detail}`);
   }
 
   const turns = await turnStats(db, now);

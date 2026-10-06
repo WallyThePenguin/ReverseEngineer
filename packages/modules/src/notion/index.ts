@@ -1,22 +1,67 @@
-// Notion import (M7): a Notion export ("Markdown & CSV" zip) becomes notes, subpages under their
+// Notion. Import (M7): a Notion export ("Markdown & CSV" zip) becomes notes, subpages under their
 // pages, databases as tables with their rows under them, and links between pages as @mentions.
-// The import is written by `integration:notion`, so Jarvis reads it as outside content: a team's
-// pages are other people's words.
-import { entity } from "@hearth/db";
+// Tasks (D68): the tickets assigned to you on one task board are read every few minutes, and what
+// changes is an event Jarvis makes your tasks from (connect.ts, sync.ts). Both are written by
+// `integration:notion`, so Jarvis reads them as outside content: a team's pages are other
+// people's words.
+import { entity, notionAccount, notionTask } from "@hearth/db";
 import {
   ActionError,
   createEntity,
+  type DigestItem,
   defineAction,
   defineModule,
+  type ReadContext,
   syncMentions,
   trashEntity,
 } from "@hearth/kernel";
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
+import { syncFailedReflex } from "../connector-health.ts";
+import { describeRow, liveEntity } from "../shared.ts";
+import { connectActions } from "./connect.ts";
 import { type ImportFile, MAX_PAGES, planImport } from "./parse.ts";
 
+export { httpNotion, NOTION_SERVICE, type NotionApi } from "./api.ts";
+export { FakeNotion } from "./fake.ts";
 export type { ImportFile } from "./parse.ts";
 export { ExportError, readExport } from "./zip.ts";
+
+const syncFailed = syncFailedReflex("notion", "Notion", async (ctx) => {
+  const [a] = await ctx.db.select({ since: notionAccount.failingSince }).from(notionAccount);
+  return a?.since;
+});
+
+/** Tickets that became yours since the last brief, still open. */
+async function digest(ctx: ReadContext & { since: Date }): Promise<DigestItem[]> {
+  const rows = await ctx.db
+    .select({ id: notionTask.entityId, title: entity.title })
+    .from(notionTask)
+    .innerJoin(entity, eq(entity.id, notionTask.entityId))
+    .where(
+      and(
+        gte(entity.createdAt, ctx.since),
+        eq(notionTask.assigned, true),
+        eq(notionTask.done, false),
+        // The first read brought these in quietly (D68): not news.
+        eq(notionTask.backfill, false),
+      ),
+    )
+    .orderBy(desc(entity.createdAt))
+    .limit(6);
+  const items: DigestItem[] = rows.slice(0, 5).map((r) => ({
+    bucket: "today",
+    text: `New on your Notion board: ${r.title}`,
+    entityId: r.id,
+    outside: true,
+  }));
+  if (rows.length > 5)
+    items.push({ bucket: "today", text: "More Notion tickets are yours.", outside: true });
+  return items;
+}
+
+const TASK_PAYLOAD =
+  'Payload: title, status, dueAt ("2026-10-10" for a day, or an ISO time), dueIsDate, url, database, backfill (the first read of the board)';
 
 /** Uploads waiting for notion.import, by id (the server's import route puts them here). */
 export const UPLOADS_SERVICE = "uploads";
@@ -24,12 +69,54 @@ export type Uploads = Map<string, ImportFile[]>;
 
 export const notionModule = defineModule({
   name: "notion",
-  description: "Notion import: a Notion export becomes notes.",
-  entityTypes: [],
-  events: [],
-  kernelEvents: ["entity.created"],
-  knowledge: {},
+  description:
+    "Notion: an export becomes notes, and the tickets assigned to you on your task board come in for Jarvis to make tasks from.",
+  entityTypes: ["notion_task"],
+  outsideTypes: ["notion_task"],
+  events: [
+    {
+      kind: "notion.task_assigned",
+      description: `A ticket on your Notion board became yours and is open: new, assigned to you, or reopened. ${TASK_PAYLOAD}.`,
+    },
+    {
+      kind: "notion.task_done",
+      description: `A ticket of yours on your Notion board is done (its status is in the Complete group). ${TASK_PAYLOAD}.`,
+    },
+    {
+      kind: "notion.task_changed",
+      description: `An open ticket of yours on your Notion board has a new title or due date. ${TASK_PAYLOAD}, changed ("title" | "due")[].`,
+    },
+    {
+      kind: "notion.task_unassigned",
+      description: `An open ticket of yours on your Notion board isn't yours any more: handed to someone else, or deleted. ${TASK_PAYLOAD}.`,
+    },
+    {
+      kind: "notion.sync_failed",
+      description:
+        "Notion stopped syncing: its secret stopped working (reconnect), the board can't be read, or it kept failing. Sent once when it starts. Payload: errors, since, reconnect.",
+    },
+  ],
+  kernelEvents: ["entity.created", "entity.updated", "notification.updated"],
+  knowledge: {
+    async notion_task(entityId, ctx) {
+      const row = await liveEntity(ctx.db, entityId, "notion_task");
+      if (!row) return null;
+      const [t] = await ctx.db.select().from(notionTask).where(eq(notionTask.entityId, entityId));
+      const [a] = await ctx.db.select({ board: notionAccount.sourceTitle }).from(notionAccount);
+      const extra = t
+        ? [
+            `Notion ticket${a?.board ? ` on ${a.board}` : ""}`,
+            t.status ?? "no status",
+            ...(t.dueAt ? [`due ${t.dueAt}`] : []),
+            ...(t.assigned ? [] : ["no longer assigned to you"]),
+            t.url,
+          ]
+        : [];
+      return describeRow(row, extra);
+    },
+  },
   actions: [
+    ...connectActions,
     defineAction({
       name: "notion.import",
       description: "Import an uploaded Notion export as notes.",
@@ -149,6 +236,6 @@ export const notionModule = defineModule({
       },
     }),
   ],
-  reflexes: [],
-  noReflexesBecause: "An import happens once, when you upload; nothing in it should wake Jarvis.",
+  reflexes: [syncFailed],
+  digest,
 });
