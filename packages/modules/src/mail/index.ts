@@ -29,6 +29,7 @@ export { BLOB_SERVICE, BlobStore, blobsFromEnv } from "./blobs.ts";
 export type { DraftView } from "./drafts.ts";
 export type { MessageView, ThreadSummary, ThreadView } from "./views.ts";
 export { messageAttachment, messageHtml } from "./views.ts";
+export { threadsToDraft } from "./waiting.ts";
 
 const ids = z.array(id).min(1).max(500).describe("Conversation ids.");
 const lane = z.enum(["signal", "noise"]);

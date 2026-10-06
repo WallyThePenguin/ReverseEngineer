@@ -93,6 +93,7 @@ export {
   NEEDS_REPLY,
   type ThreadSummary,
   type ThreadView,
+  threadsToDraft,
 } from "./mail/index.ts";
 export { recallMemory, renderMemory } from "./memory/index.ts";
 export { parseChecklist } from "./notes/checklist.ts";

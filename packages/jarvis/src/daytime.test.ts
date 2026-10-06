@@ -5,7 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { approval, heartbeatItem, jarvisTurn } from "@hearth/db";
-import { type Caller, integrationCaller, newId, ownerCaller } from "@hearth/kernel";
+import { type Caller, integrationCaller, jarvisCaller, newId, ownerCaller } from "@hearth/kernel";
 import {
   BLOB_SERVICE,
   BlobStore,
@@ -118,6 +118,27 @@ describe("new mail during the day", () => {
     expect(await items()).toHaveLength(1);
   });
 
+  it("drafts nothing once you've started a reply, and never two drafts of its own", async () => {
+    g.gmail.deliver({ from: ANA, subject: "Invoice", text: "Total?" }, PERSONAL);
+    await syncMail();
+    await h.settle();
+    expect(await items()).toHaveLength(1);
+    const [invoice] = await ok<ThreadSummary[]>("mail.threads", { waiting: "you" });
+    // You opened it and pressed Reply: the reply box is a draft.
+    await ok("mail.draft", { threadId: invoice!.id, text: "" });
+    h.clock.set("2026-10-01T14:25:30Z");
+    await h.settle();
+    expect(h.brain.requests).toHaveLength(0);
+
+    const asJarvis = jarvisCaller("untrusted");
+    const draft = { threadId: invoice!.id, text: "Confirmed." };
+    expect((await h.kernel.execute("mail.draft", draft, asJarvis)).status).toBe("ok");
+    expect(await h.kernel.execute("mail.draft", draft, asJarvis)).toMatchObject({
+      status: "error",
+      code: "conflict",
+    });
+  });
+
   it("leaves overnight mail to the morning's reply drafts", async () => {
     h.clock.set("2026-10-02T01:00:00Z"); // 9 p.m.
     g.gmail.deliver({ from: ANA, subject: "Late one", text: "Free tomorrow?" }, PERSONAL);
@@ -157,6 +178,13 @@ describe("new invitations", () => {
     start: { dateTime: `${day}T18:00:00Z` },
     end: { dateTime: `${day}T19:00:00Z` },
   });
+  const FROM = `From ${BOSS}.`;
+
+  beforeEach(async () => {
+    // Someone you know: you've written to them or met them.
+    const boss = await ok<{ id: string }>("person.create", { name: "The Boss" });
+    await ok("person.add_email", { id: boss.id, email: BOSS });
+  });
 
   it("becomes one card saying you're free, without a model turn or an answer", async () => {
     g.put(ME, invite("design", "Design review", BOSS));
@@ -166,7 +194,7 @@ describe("new invitations", () => {
       {
         action: "calendar.respond",
         status: "pending",
-        reason: "You're free then.",
+        reason: `${FROM} You're free then.`,
         summary: expect.stringContaining('"Design review"'),
       },
     ]);
@@ -184,7 +212,50 @@ describe("new invitations", () => {
     g.put(ME, invite("design", "Design review", BOSS));
     await syncCalendar();
     await h.settle();
-    expect(await cards()).toMatchObject([{ reason: 'It overlaps "Lunch with Ana".' }]);
+    expect(await cards()).toMatchObject([{ reason: `${FROM} It overlaps "Lunch with Ana".` }]);
+  });
+
+  it("checks a whole day for an all-day invitation, and not the meeting's own copies", async () => {
+    g.addCalendar({ id: "family@group.example", summary: "Family", accessRole: "owner" });
+    g.put(ME, {
+      id: "lunch",
+      summary: "Lunch with Ana",
+      start: { dateTime: "2026-10-02T16:30:00Z" },
+      end: { dateTime: "2026-10-02T17:30:00Z" },
+    });
+    g.put(ME, {
+      ...invite("offsite", "Offsite", BOSS),
+      start: { date: "2026-10-02" },
+      end: { date: "2026-10-03" },
+    });
+    g.put(ME, { ...invite("design", "Design review", BOSS, "2026-10-05"), iCalUID: "dr@x" });
+    g.put("family@group.example", {
+      ...invite("design-copy", "Design review", BOSS, "2026-10-05"),
+      iCalUID: "dr@x",
+    });
+    await syncCalendar();
+    await h.settle();
+    const reasons = (await cards()).map((c) => c.reason).sort();
+    expect(reasons).toEqual([`${FROM} It overlaps "Lunch with Ana".`, `${FROM} You're free then.`]);
+  });
+
+  it("makes no card for an invitation on a calendar shared with you", async () => {
+    // Shared with you with full rights: Google's "you" on it is its owner.
+    g.addCalendar({ id: "partner@example.com", summary: "Partner", accessRole: "owner" });
+    g.put("partner@example.com", {
+      id: "theirs",
+      summary: "Their dentist",
+      organizer: { email: BOSS },
+      attendees: [
+        { email: BOSS, organizer: true, responseStatus: "accepted" as const },
+        { email: "partner@example.com", self: true, responseStatus: "needsAction" as const },
+      ],
+      start: { dateTime: "2026-10-02T18:00:00Z" },
+      end: { dateTime: "2026-10-02T19:00:00Z" },
+    });
+    await syncCalendar();
+    await h.settle();
+    expect(await cards()).toEqual([]);
   });
 
   it("makes no card for a stranger's invitation", async () => {
@@ -201,7 +272,10 @@ describe("new invitations", () => {
     await h.settle();
     const all = await cards();
     expect(all).toHaveLength(1);
-    expect(all[0]?.input).toMatchObject({ response: "accepted", scope: "all" });
+    expect(all[0]).toMatchObject({
+      input: { response: "accepted", scope: "all" },
+      reason: `${FROM} It repeats; you're free the next 2 times.`,
+    });
   });
 
   it("makes no card while Jarvis is paused", async () => {
