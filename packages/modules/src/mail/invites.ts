@@ -2,8 +2,16 @@
 // matched to the live event on your calendar, so you can answer from the conversation. What the
 // conversation shows and answers is the calendar's event, never the email's description of it.
 import { atLocal } from "@hearth/core";
-import { calendar, calendarEvent, type DbOrTx, entity, type MailInvite } from "@hearth/db";
+import {
+  calendar,
+  calendarEvent,
+  type DbOrTx,
+  entity,
+  googleAccount,
+  type MailInvite,
+} from "@hearth/db";
 import { and, eq, inArray, isNull, or } from "drizzle-orm";
+import { ownAccount } from "../calendar/calendars.ts";
 
 /** Lines with their continuations joined (RFC 5545 folding). */
 const unfold = (ics: string) => ics.replace(/\r?\n[ \t]/g, "").split(/\r?\n/);
@@ -77,9 +85,11 @@ export const isCalendar = (a: { mimeType: string; filename: string }) =>
 /**
  * The event on your calendar an invitation is about: the same UID (or, for Google's own
  * invitations, the same event id), from the same organizer. For a repeating meeting, the
- * occurrence nearest the invitation's start, else the series. An invitation to two of your
- * accounts is on each one's calendar: the copy on the calendar of `account` (the address it came
- * to) is the one, so it's answered as that address (D61); else one on a calendar you sync.
+ * occurrence nearest the invitation's start, else the series. Only a copy on a calendar of your
+ * own: on one someone shared with you, "you" is its owner, and answering would answer as them. An
+ * invitation to two of your accounts is on each one's calendar: the copy on the calendar of
+ * `account` (the address it came to) is the one, so it's answered as that address (D61); else one
+ * on a calendar you sync.
  */
 export async function matchInvite(
   db: DbOrTx,
@@ -93,12 +103,13 @@ export async function matchInvite(
       startsAt: calendarEvent.startsAt,
       organizer: calendarEvent.organizer,
       series: calendarEvent.recurringEventId,
-      account: calendar.account,
+      calendar: calendar.googleId,
       selected: calendar.selected,
     })
     .from(calendarEvent)
     .innerJoin(entity, eq(entity.id, calendarEvent.entityId))
     .innerJoin(calendar, eq(calendar.id, calendarEvent.calendarId))
+    .innerJoin(googleAccount, ownAccount)
     .where(
       and(
         isNull(entity.deletedAt),
@@ -112,7 +123,7 @@ export async function matchInvite(
     .limit(200);
   // Anyone can send an invitation naming any UID; only the meeting's organizer counts.
   const organized = rows.filter((r) => invite.organizer && r.organizer === invite.organizer);
-  const mine = organized.filter((r) => account && r.account === account.toLowerCase());
+  const mine = organized.filter((r) => account && r.calendar === account.toLowerCase());
   const synced = organized.filter((r) => r.selected);
   const same = mine.length ? mine : synced.length ? synced : organized;
   if (same.length === 0) return null;

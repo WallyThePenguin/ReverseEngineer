@@ -2,7 +2,7 @@
 // so a calendar two accounts share (a holiday calendar, a colleague's) is in both, and it's synced
 // through one of them at a time. You choose which calendars Hearth syncs, and which one it puts
 // new events on (D61).
-import { calendar, calendarEvent, entity, googleAccount } from "@hearth/db";
+import { calendar, calendarEvent, type DbOrTx, entity, googleAccount } from "@hearth/db";
 import { type ActionContext, ActionError, defineAction, newId, savepoint } from "@hearth/kernel";
 import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
@@ -17,6 +17,24 @@ export const inSelectedCalendar = and(
   eq(calendar.id, calendarEvent.calendarId),
   eq(calendar.selected, true),
 );
+
+/**
+ * Joins a calendar to the account it's the primary calendar of: any account of yours, even when
+ * another of yours syncs it. On a calendar someone else shared with you, Google's "you" is its
+ * owner, so an invitation there is theirs to answer, not yours.
+ */
+export const ownAccount = eq(googleAccount.email, calendar.googleId);
+
+/** Whether a calendar is your own: an invitation on it is yours to answer. */
+export async function isOwnCalendar(db: DbOrTx, calendarId: string): Promise<boolean> {
+  const [own] = await db
+    .select({ id: calendar.id })
+    .from(calendar)
+    .innerJoin(googleAccount, ownAccount)
+    .where(eq(calendar.id, calendarId))
+    .limit(1);
+  return Boolean(own);
+}
 
 /** Deletes calendars and their events (the records too, not just the rows). */
 export async function dropCalendars(ctx: ActionContext, ids: string[]) {
