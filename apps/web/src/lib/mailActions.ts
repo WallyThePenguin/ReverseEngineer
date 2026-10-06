@@ -1,6 +1,6 @@
 // One click in Mail: archive, make a task, and reply with the cursor ready, from a conversation's
-// row or from the conversation itself. Archiving an open conversation moves on to the next one in
-// the list it was opened from, as Gmail does; the list says which list that is when it opens one.
+// row or from the conversation itself. Archiving a conversation opened from the list moves on to
+// the next one in it, as Gmail does; one opened from anywhere else (a task's link, Ctrl+K) closes.
 
 import { renderMention } from "@hearth/core";
 import { createSignal } from "solid-js";
@@ -19,32 +19,45 @@ export function nextAfter(rows: readonly Row[], id: string): Row | undefined {
 }
 
 let order: (() => readonly Row[]) | null = null;
+/** The conversation the list last opened: only that one moves on through it. */
+let fromList: string | null = null;
 
-/** The list a conversation was just opened from: archiving it moves on through this list. */
-export function openedFrom(list: () => readonly Row[]) {
+/** The list just opened conversation `id`: archiving it moves on through this list. */
+export function openedFrom(list: () => readonly Row[], id: string) {
   order = list;
+  fromList = id;
 }
 
 /** That list closed: archiving a conversation from it closes the conversation instead. */
 export function listClosed(list: () => readonly Row[]) {
-  if (order === list) order = null;
+  if (order !== list) return;
+  order = null;
+  fromList = null;
 }
 
-/** The conversation after `id` in the list it was opened from, if it came from one. */
-export const nextInList = (id: string) => (order ? nextAfter(order(), id) : undefined);
+/** The conversation after `id` in the list it was opened from, if it was opened from one. */
+export const nextInList = (id: string) =>
+  order && fromList === id ? nextAfter(order(), id) : undefined;
 
 /** Shows a conversation in pane `pane`, read, as opening it from the list does. */
 export function showThread(t: Row, pane: number) {
   if (t.unread) void act("mail.mark_read", { ids: [t.id] });
+  // Moving on through the list: the next one came from it too.
+  if (order) fromList = t.id;
   layout.open({ view: "thread", id: t.id }, { pane });
 }
 
-/** Archives a conversation, with Undo on the toast: one click on a row is easy to make by mistake. */
+/**
+ * Archives a conversation, with Undo on the toast: one click on a row is easy to make by mistake.
+ * Undo puts back in the inbox exactly the messages archiving took out, and nothing else (not a
+ * reply you sent, not one deleted in Gmail since).
+ */
 export async function archive(id: string) {
-  if (!(await act("mail.archive", { ids: [id] }))) return false;
+  const done = await act<{ changed: number; inbox: string[] }>("mail.archive", { ids: [id] });
+  if (!done) return false;
   toast.show("Archived.", "info", {
     label: "Undo",
-    run: () => void act("mail.unarchive", { ids: [id] }),
+    run: () => void act("mail.unarchive", { ids: [id], messages: done.inbox }),
   });
   return true;
 }
@@ -63,10 +76,16 @@ export function taskFrom(t: { id: string; subject: string; from?: MailAddress })
   };
 }
 
-/** Makes a task from a conversation; the toast opens it beside. */
+/**
+ * Makes a task from a conversation; the toast opens it beside. Its title is the sender's words, so
+ * the task is outside content: Jarvis reading it later never takes them as yours (D58).
+ */
 export async function makeTask(t: Pick<MailThread, "id" | "subject" | "account" | "participants">) {
   const from = t.participants.find((p) => p.address !== t.account);
-  const made = await act<Task>("task.create", taskFrom({ id: t.id, subject: t.subject, from }));
+  const made = await act<Task>("task.create", {
+    ...taskFrom({ id: t.id, subject: t.subject, from }),
+    outside: true,
+  });
   if (!made) return;
   toast.show(`Task made: ${made.title}`, "info", {
     label: "Open",

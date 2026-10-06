@@ -110,7 +110,7 @@ export function Mail(props: { pane: number }) {
     if (!t) return;
     if (t.unread) void act("mail.mark_read", { ids: [t.id] });
     // Archiving it there moves on to the next one in this list.
-    openedFrom(list);
+    openedFrom(list, t.id);
     const route = { view: "thread" as const, id: t.id };
     if (beside) layout.open(route, { beside: true });
     else layout.show(route, props.pane);

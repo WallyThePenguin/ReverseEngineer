@@ -3,7 +3,7 @@
 // Jarvis drafts the replies you owe, and on weekdays follow-ups for questions that got no answer;
 // it never sends either.
 import { localDate, PRINCIPAL } from "@hearth/core";
-import { entity, mailDraft, mailThread } from "@hearth/db";
+import { type DbOrTx, entity, mailDraft, mailThread } from "@hearth/db";
 import {
   type DigestItem,
   defineAction,
@@ -78,7 +78,7 @@ const sinceTheirs = gte(entity.createdAt, mailThread.waitingSince);
  * Jarvis's you threw away, so Jarvis doesn't write again what you threw out. With `only`, just
  * that conversation, if it qualifies.
  */
-export async function threadsToDraft(ctx: ReadContext, only?: string) {
+export async function threadsToDraft(ctx: { db: DbOrTx; now: Date }, only?: string) {
   return ctx.db
     .select({ id: mailThread.entityId })
     .from(mailThread)
