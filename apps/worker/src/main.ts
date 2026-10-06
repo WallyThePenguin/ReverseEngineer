@@ -11,8 +11,10 @@ import {
   GOOGLE_SERVICE,
   googleFromEnv,
   httpGithub,
+  httpNotion,
   httpSlack,
   internalBrowserClient,
+  NOTION_SERVICE,
   SLACK_SERVICE,
   VAULT_SERVICE,
   vaultFromEnv,
@@ -31,6 +33,7 @@ export async function runWorker(): Promise<() => Promise<void>> {
       [VAULT_SERVICE]: vaultFromEnv(),
       [SLACK_SERVICE]: httpSlack(),
       [GITHUB_SERVICE]: httpGithub(),
+      [NOTION_SERVICE]: httpNotion(),
       [BLOB_SERVICE]: blobsFromEnv(),
     },
   });

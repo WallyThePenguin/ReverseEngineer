@@ -11,6 +11,7 @@ import {
   githubAccount,
   googleAccount,
   mailAccount,
+  notionAccount,
   setting,
   slackWorkspace,
 } from "@hearth/db";
@@ -155,7 +156,25 @@ async function github(kernel: Kernel): Promise<SyncSource[]> {
   }));
 }
 
-const SOURCES = { "sync.google": google, "sync.slack": slack, "sync.github": github } as const;
+/** Notion once you've picked the task board it reads (D68). */
+async function notion(kernel: Kernel): Promise<SyncSource[]> {
+  const rows = await kernel.db.select().from(notionAccount);
+  return rows
+    .filter((a) => a.sourceId)
+    .map((a) => ({
+      name: a.sourceTitle ?? a.workspace ?? "Notion",
+      error: a.lastError,
+      failing: a.syncState !== "ok",
+      lastGood: a.syncedAt,
+    }));
+}
+
+const SOURCES = {
+  "sync.google": google,
+  "sync.slack": slack,
+  "sync.github": github,
+  "sync.notion": notion,
+} as const;
 
 /**
  * The syncs' reports. One that isn't connected is left out, unless it reported before (it was

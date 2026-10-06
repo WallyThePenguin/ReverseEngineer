@@ -9,6 +9,7 @@ export * from "./inbox.ts";
 export * from "./jarvis.ts";
 export * from "./mail.ts";
 export * from "./memory.ts";
+export * from "./notion.ts";
 export * from "./people.ts";
 export * from "./push.ts";
 export * from "./sheets.ts";

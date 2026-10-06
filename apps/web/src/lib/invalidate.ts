@@ -27,6 +27,7 @@ const BY_MODULE: Record<string, Rule> = {
   vault: ["vault.", "browser.sites"],
   slack: ["slack."],
   github: ["github."],
+  notion: ["notion."],
   voice: ["dictation.", "dictionary.", "voice.", "snippet."],
   meeting: ["meeting."],
   // A schedule firing moves a routine's "last ran".
@@ -62,6 +63,7 @@ const BY_TYPE: Record<string, Rule> = {
   snippet: ["snippet.list"],
   slack_message: ["slack."],
   github_pr: ["github."],
+  notion_task: ["notion."],
 };
 
 /** Reads a change made through an action can affect, beyond its own module's. */

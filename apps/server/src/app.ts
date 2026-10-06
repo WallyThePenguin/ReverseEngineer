@@ -19,7 +19,9 @@ import {
   GOOGLE_SERVICE,
   googleFromEnv,
   httpGithub,
+  httpNotion,
   httpSlack,
+  NOTION_SERVICE,
   POLISH_SERVICE,
   polisherFromEnv,
   SLACK_SERVICE,
@@ -100,6 +102,7 @@ export function createApp(opts: AppOptions) {
   opts.kernel.services[VAULT_SERVICE] ??= vaultFromEnv();
   opts.kernel.services[SLACK_SERVICE] ??= httpSlack();
   opts.kernel.services[GITHUB_SERVICE] ??= httpGithub();
+  opts.kernel.services[NOTION_SERVICE] ??= httpNotion();
   opts.kernel.services[BLOB_SERVICE] ??= blobsFromEnv();
   opts.kernel.services[POLISH_SERVICE] ??= polisherFromEnv();
   const live = new LiveView(bridge);

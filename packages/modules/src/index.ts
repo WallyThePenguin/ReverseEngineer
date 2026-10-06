@@ -96,6 +96,10 @@ export { recallMemory, renderMemory } from "./memory/index.ts";
 export { parseChecklist } from "./notes/checklist.ts";
 export {
   ExportError,
+  FakeNotion,
+  httpNotion,
+  NOTION_SERVICE,
+  type NotionApi,
   readExport,
   UPLOADS_SERVICE,
   type Uploads,

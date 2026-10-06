@@ -827,6 +827,8 @@ imported pages as your own writing (a team page could then steer Jarvis).
 
 **Why:** An export needs no credentials and moves everything at once, which is what an import is.
 
+*Later:* your Notion tasks come in through the API after all: D68.
+
 ## D51. Spreadsheets are cells as typed, worked out by IronCalc on both sides (2026-10-03)
 
 **Decision:** A spreadsheet stores only what you typed in each cell (values and =formulas), per
@@ -1678,3 +1680,27 @@ guard stops a job before it can reach anything of the live Hearth's. See docs/ci
 or your spending limit needs to be increased"), but still dispatched to a self-hosted runner
 (probe run 37350213541). The PC is the only machine, and the live Hearth is on it, so CI there is
 worth having only if a slip in a workflow or a default can't touch the real thing.
+
+## D68. Your Notion tickets come in through Notion's API, read-only, for Jarvis to make tasks from (2026-10-06)
+
+*This narrows D50's "not as a live link": imports stay exports; tasks are read live.*
+
+**Decision:** You paste an internal integration's secret (`ntn_…`) in Settings → Notion, add the
+integration to one task board in Notion, and pick that board and who you are on it. The owner
+picked Otopair's board, and only tickets assigned to them. Every 5 minutes the worker reads every
+ticket assigned to you on that board (its columns, then its pages a hundred at a time, about
+three requests a second at most) into `notion_task` records written by `integration:notion`
+(outside content, D25). It compares each reading with the last and emits `notion.task_assigned`
+(new to you, handed back, or reopened), `notion.task_done` (its status in the Complete group) and
+`notion.task_changed` (title or due date). The Jarvis lane's reflex makes and closes your Hearth
+tasks from them, unasked (the owner's decision of 2026-10-05). The first read brings in your open
+tickets quietly (`backfill: true`), at the owner's choice. Which columns mean who, done and due is
+picked from their names and kinds (Otopair: Assignee, Status, End date). Hearth never writes to
+Notion. The secret is sealed like GitHub's, and failures follow D61.
+
+**Alternatives:** Hearth's own tasks written back to Notion (a team board would get your private
+edits). Every board in the workspace (Dexa's board would fill your Tasks). Only tickets assigned
+after connecting (your open work wouldn't be there on day one).
+
+**Why:** The owner wants Jarvis to pick up their work without being told, and their tickets live
+on Otopair's Notion board.

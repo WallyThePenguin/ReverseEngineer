@@ -15,6 +15,7 @@ export const REPORT_EVERY_MS: Readonly<Record<string, number>> = {
   "sync.google": 60_000,
   "sync.slack": 60_000,
   "sync.github": 60_000,
+  "sync.notion": 60_000,
   backup: 24 * 3_600_000,
 };
 
