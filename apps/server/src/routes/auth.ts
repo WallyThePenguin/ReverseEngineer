@@ -107,7 +107,7 @@ export function authRoutes(handoffs: Handoffs = sharedHandoffs) {
     return c.json({ token, code: handoffs.codes.issue(principal) });
   });
 
-  // The app's window trades the code for an ordinary session, then opens the inbox. It has one
+  // The app's window trades the code for an ordinary session, then opens Today. It has one
   // such session: connecting again signs the last one out, and so does disconnecting the app.
   app.get("/desktop/window", async (c) => {
     const principal = handoffs.codes.take(c.req.query("code"));
@@ -115,7 +115,7 @@ export function authRoutes(handoffs: Handoffs = sharedHandoffs) {
     if (!principal) return c.html(RUN_OUT_PAGE, 410);
     await revokeDesktopWindow(c.get("deps").kernel.db);
     await signIn(c, principal, DESKTOP_WINDOW);
-    return c.redirect("/inbox", 302);
+    return c.redirect("/today", 302);
   });
 
   app.get("/me", async (c) => {

@@ -9,6 +9,7 @@
 // HEARTH_E2E_CHROME points at a Chromium to use instead of Playwright's own download.
 
 import { chromium, type Page } from "playwright";
+import { home } from "./home.ts";
 
 const base = process.env.HEARTH_E2E_URL ?? "http://localhost:4400";
 const tag = Date.now().toString(36).slice(-4);
@@ -54,7 +55,7 @@ async function step(name: string, fn: (p: Page) => Promise<void>) {
 
 try {
   await page.goto(base);
-  await page.getByRole("heading", { name: "Inbox" }).waitFor();
+  await home(page).waitFor();
   const titles = ["one", "two", "three"].map((n) => `Daily ${n} ${tag}`);
   for (const title of titles) await run(page, "task.create", { title });
 
@@ -62,8 +63,8 @@ try {
     await p.goto(`${base}/inbox+tasks`);
     const tasks = pane(p, "Tasks");
     await tasks.getByText(titles[2]!).waitFor();
-    await pane(p, "Inbox").getByTitle("Close pane (Alt+W)").click();
-    await p.getByRole("heading", { name: "Inbox" }).waitFor({ state: "detached" });
+    await pane(p, "Updates").getByTitle("Close pane (Alt+W)").click();
+    await p.getByRole("heading", { name: "Updates" }).waitFor({ state: "detached" });
     const rows = tasks.locator("li");
     const active = tasks.locator('li[data-active="true"]');
     // A task row reads "T-12", then its title.
@@ -166,8 +167,8 @@ try {
     await p.getByRole("button", { name: "More actions" }).click();
     await p.getByRole("menuitem", { name: "Move to trash" }).click();
     await p.getByText(`Moved "Kitchen plan ${tag}" to the trash.`).waitFor();
-    // A lone pane goes back to the inbox.
-    await p.getByRole("heading", { name: "Inbox" }).waitFor();
+    // A lone pane goes back to Today.
+    await home(p).waitFor();
     // Jarvis's pane lets go of it too.
     await side.getByRole("button", { name: "New conversation", exact: true }).waitFor();
     if ((await run<unknown[]>(p, "conversation.list", { query: `plan ${tag}` })).length)

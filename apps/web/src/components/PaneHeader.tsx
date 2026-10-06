@@ -5,6 +5,7 @@ import type { JSX } from "solid-js";
 import { createContext, Show, useContext } from "solid-js";
 import { listFor } from "../lib/apps.ts";
 import { layout } from "../lib/panes.ts";
+import { HOME } from "../lib/routes.ts";
 import { moveToTrash, restore, TRASHABLE } from "../lib/trash.ts";
 import { Button } from "./kit/Button.tsx";
 import { IconButton } from "./kit/IconButton.tsx";
@@ -69,9 +70,9 @@ export function PaneHeader(props: {
         danger: true,
         run: async () => {
           if (!(await moveToTrash(r.id))) return;
-          // A lone pane can't close: it goes to the list the record was in, or the inbox.
+          // A lone pane can't close: it goes to the list the record was in, or to Today.
           if (pane.close) pane.close();
-          else layout.open({ view: listFor(r.type) ?? "inbox" });
+          else layout.open({ view: listFor(r.type) ?? HOME });
         },
       },
     ];

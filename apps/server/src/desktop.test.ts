@@ -77,12 +77,12 @@ describe("connecting the desktop app", () => {
       (await t.api("/api/actions/task.list", token, { method: "POST", json: {} })).status,
     ).toBe(403);
 
-    // The window trades the code for an ordinary session and lands in the inbox.
+    // The window trades the code for an ordinary session and lands on Today.
     const res = await fromApp(`/api/auth/desktop/window?code=${code}`, {
       headers: { host: "localhost:4400", "user-agent": "Mozilla/5.0 HearthDesktop/1.0.7" },
     });
     expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe("/inbox");
+    expect(res.headers.get("location")).toBe("/today");
     const cookie = sessionCookie(res)!;
     expect(cookie).toMatch(/HttpOnly/i);
     expect(cookie).toMatch(/SameSite=Strict/i);

@@ -101,9 +101,10 @@ describe("places", () => {
   });
 
   it("keep the names the sidebar, the shortcuts sheet and Cmd+K have always used", () => {
+    // Except the inbox, now Updates: Today is where you start, and the inbox was Jarvis's news.
     expect(PLACES.map((p) => p.label)).toEqual([
       "Today",
-      "Inbox",
+      "Updates",
       "Mail",
       "Tasks",
       "Notes",
@@ -120,7 +121,7 @@ describe("places", () => {
     ]);
     expect(PLACES.map(goLabel)).toEqual([
       "Go to Today",
-      "Go to Inbox",
+      "Go to Updates",
       "Go to Mail",
       "Go to Tasks",
       "Go to Notes",
@@ -137,7 +138,7 @@ describe("places", () => {
     ]);
     expect(PLACES.map(paletteLabel)).toEqual([
       "Go to Today (your morning on one screen)",
-      "Go to Inbox",
+      "Go to Updates (everything Jarvis told you)",
       "Go to Mail",
       "Go to Tasks",
       "Go to Notes",
@@ -160,8 +161,10 @@ describe("places", () => {
     for (const view of RECORD_VIEWS) expect(decodeRoute(`${view}/${ID}`)).toEqual({ view, id: ID });
     expect(decodePath(`/inbox+task/${ID}`)).toEqual([{ view: "inbox" }, { view: "task", id: ID }]);
     expect(decodePath("/today")).toEqual([{ view: "today" }]);
-    // Hearth still opens on the inbox; Today is a place you go to, for now.
-    expect(decodePath("/")).toEqual([{ view: "inbox" }]);
+    // Hearth opens on Today; /inbox still opens Updates.
+    expect(decodePath("/")).toEqual([{ view: "today" }]);
+    expect(decodePath("/nonsense")).toEqual([{ view: "today" }]);
+    expect(decodePath("/inbox")).toEqual([{ view: "inbox" }]);
   });
 
   it("send a lone pane to the list its trashed record was in", () => {
@@ -176,13 +179,13 @@ describe("places", () => {
 });
 
 describe("the phone's tab bar", () => {
-  it("shows Inbox, Tasks and Calendar, each in its sub-product", () => {
-    expect(phoneTabs().map((p) => p.label)).toEqual(["Inbox", "Tasks", "Calendar"]);
-    for (const tab of phoneTabs()) {
-      const app = appOf(tab.view);
-      expect(app.views).toContain(tab.view);
-      expect(app.phoneView ?? app.views[0]).toBe(tab.view);
-    }
+  it("shows Today, Mail, Jarvis in the middle and Tasks, each a sub-product's home", () => {
+    const names = phoneTabs().map((t) => (t === "jarvis" ? "Jarvis" : t.label));
+    expect(names).toEqual(["Today", "Mail", "Jarvis", "Tasks"]);
+    for (const tab of phoneTabs())
+      if (tab !== "jarvis") expect(appOf(tab.view).views[0]).toBe(tab.view);
+    // Calendar is behind More.
+    expect(APPS.find((a) => a.id === "calendar")?.phoneTab).toBeUndefined();
     const slots = APPS.flatMap((a) => (a.phoneTab === undefined ? [] : [a.phoneTab]));
     expect(new Set(slots).size).toBe(slots.length);
   });

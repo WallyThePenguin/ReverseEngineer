@@ -8,6 +8,7 @@
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Card } from "../components/kit/Card.tsx";
 import { SectionHeader } from "../components/kit/SectionHeader.tsx";
+import { SetupChecklist } from "../components/SetupChecklist.tsx";
 import { Button, Failed, PaneHeader } from "../components/ui.tsx";
 import { askedToSend } from "../lib/needsYou.ts";
 import { layout, type PaneRoute } from "../lib/panes.ts";
@@ -165,6 +166,8 @@ export function Today(props: { pane: number }) {
               </Button>
             </Show>
           </header>
+          {/* Hearth opens here, so what's still to connect shows here first. */}
+          <SetupChecklist pane={props.pane} class="mt-6" />
           <UpNext today={plan().today} now={now()} go={go} class="mt-4 @4xl:hidden" />
           <div class="mt-6 grid gap-x-6 gap-y-8 @4xl:grid-cols-[minmax(0,1fr)_minmax(19rem,22rem)] @4xl:items-start">
             <div class="min-w-0 space-y-8">

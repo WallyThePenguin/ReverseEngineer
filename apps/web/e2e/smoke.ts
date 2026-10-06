@@ -11,6 +11,7 @@
 
 import { chromium, type Page } from "playwright";
 import { boardSteps } from "./boards.ts";
+import { home } from "./home.ts";
 import { titleSteps } from "./titles.ts";
 import { storedZip } from "./zip.ts";
 
@@ -72,7 +73,7 @@ try {
     await p.goto(base);
     await p.locator("input[autocomplete=one-time-code]").fill(code);
     await p.getByRole("button", { name: "Create passkey" }).click();
-    await p.getByRole("heading", { name: "Inbox" }).waitFor();
+    await home(p).waitFor();
   });
 
   await step("tasks, one of them for Jarvis", async (p) => {
@@ -275,7 +276,7 @@ try {
       const pc = await browser.newContext();
       const win = await pc.newPage();
       await win.goto(`${base}/api/auth/desktop/window?code=${once}`);
-      await win.getByRole("heading", { name: "Inbox" }).waitFor();
+      await home(win).waitFor();
       await p.reload();
       await p.getByText("Connected", { exact: true }).waitFor();
       await p.getByRole("button", { name: "Disconnect" }).click();
@@ -350,13 +351,17 @@ try {
       // The task fills the screen; closing it goes back to the list.
       await p.getByTitle("Close pane (Alt+W)").click();
       await p.getByRole("heading", { name: "Tasks" }).waitFor();
-      await tabs.getByRole("button", { name: "Jarvis", exact: true }).click();
+      const jarvisTab = tabs.getByRole("button", { name: "Jarvis", exact: true });
+      await jarvisTab.click();
       await p.locator("aside").getByText("Jarvis", { exact: true }).waitFor();
-      // Talk from the tab bar: Jarvis opens listening; the second tap sends what the PC heard.
+      // Talk from the tab bar: holding Jarvis's tab listens; a tap sends what the PC heard.
       await p.route("**/api/voice/transcribe", (r) =>
         r.fulfill({ json: { text: `What is on today ${tag}` } }),
       );
-      await tabs.getByRole("button", { name: "Talk to Jarvis" }).click();
+      await jarvisTab.hover();
+      await p.mouse.down();
+      await p.waitForTimeout(700);
+      await p.mouse.up();
       await p.waitForTimeout(1500);
       await tabs.getByRole("button", { name: "Stop and send" }).click();
       await p.locator("aside").getByText(`What is on today ${tag}`).first().waitFor();

@@ -32,10 +32,11 @@ export interface App {
   records: readonly RecordView[];
   /** Settings: a utility, not a sub-product. */
   utility?: true;
-  /** Its slot on the phone's tab bar, counting from the left. Without one, it's behind More. */
+  /**
+   * Its slot on the phone's tab bar, counting from the left. Without one, it's behind More.
+   * Jarvis's tab opens its pane, whatever list is showing; the others open their home.
+   */
   phoneTab?: number;
-  /** The view its phone tab opens, when that isn't its home. */
-  phoneView?: ListView;
 }
 
 export const APPS: readonly App[] = [
@@ -47,8 +48,6 @@ export const APPS: readonly App[] = [
     views: ["today", "inbox"],
     records: [],
     phoneTab: 1,
-    // The phone's first tab stays the inbox until Today is the screen Hearth opens on.
-    phoneView: "inbox",
   },
   {
     id: "mail",
@@ -57,6 +56,7 @@ export const APPS: readonly App[] = [
     hue: "--color-mail",
     views: ["mail"],
     records: ["thread"],
+    phoneTab: 2,
   },
   {
     id: "calendar",
@@ -65,7 +65,6 @@ export const APPS: readonly App[] = [
     hue: "--color-calendar",
     views: ["calendar"],
     records: [],
-    phoneTab: 3,
   },
   {
     id: "tasks",
@@ -74,7 +73,7 @@ export const APPS: readonly App[] = [
     hue: "--color-tasks",
     views: ["tasks"],
     records: ["task"],
-    phoneTab: 2,
+    phoneTab: 4,
   },
   {
     id: "docs",
@@ -101,6 +100,7 @@ export const APPS: readonly App[] = [
     hue: "--color-jarvis",
     views: ["memory", "activity", "browser"],
     records: ["chat"],
+    phoneTab: 3,
   },
   {
     id: "settings",
@@ -138,7 +138,13 @@ export const PLACES: readonly Place[] = [
     keys: "g h",
     about: "your morning on one screen",
   },
-  { view: "inbox", label: "Inbox", icon: "inbox", keys: "g i" },
+  {
+    view: "inbox",
+    label: "Updates",
+    icon: "inbox",
+    keys: "g i",
+    about: "everything Jarvis told you",
+  },
   { view: "mail", label: "Mail", icon: "mail", keys: "g e" },
   { view: "tasks", label: "Tasks", icon: "tasks", keys: "g t", lists: ["task"] },
   { view: "notes", label: "Notes", icon: "docs", keys: "g n", lists: ["note"] },
@@ -233,8 +239,11 @@ export function placeOf(view: ListView): Place {
 export const listFor = (type: string): ListView | undefined =>
   PLACES.find((p) => p.lists?.includes(type))?.view;
 
-/** The phone's tabs, left to right: each one's sub-product home, or the view it names instead. */
-export const phoneTabs = (): Place[] =>
+/** A tab on the phone's bar: a sub-product's home, or Jarvis, whose tab opens its pane. */
+export type PhoneTab = Place | "jarvis";
+
+/** The phone's tabs, left to right. More, for everything else, follows them. */
+export const phoneTabs = (): PhoneTab[] =>
   APPS.filter((a) => a.phoneTab !== undefined)
     .sort((a, b) => a.phoneTab! - b.phoneTab!)
-    .map((a) => placeOf(a.phoneView ?? a.views[0]!));
+    .map((a) => (a.id === "jarvis" ? "jarvis" : placeOf(a.views[0]!)));

@@ -86,7 +86,7 @@ export function Sidebar(props: {
   const current = () => layout.panes()[layout.focused()]?.view;
 
   const count = (view: ListView) => {
-    if (view === "inbox") return waiting() || null;
+    if (view === "today") return waiting() || null;
     if (view === "mail") return mail.data?.unread || null;
     return null;
   };
