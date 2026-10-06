@@ -1,5 +1,6 @@
 // Runs the Hearth server: `hearth serve`, or `node apps/server/src/main.ts`.
 
+import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { connect, databaseUrl } from "@hearth/db";
 import { guardProcess, Kernel, Registry } from "@hearth/kernel";
@@ -16,8 +17,18 @@ export async function runServer(): Promise<() => Promise<void>> {
   const database = connect(databaseUrl());
   const kernel = new Kernel({ db: database.db, registry: new Registry(ALL_MODULES) });
   const server = createApp({ kernel, pool: database.pool, config });
+  // The addresses first: a server that can't have them must stop, with nothing of its own left
+  // running (the event feed's database client, its timers), so the service manager starts it
+  // again. Started first, those would keep a process up that answers nothing.
+  let http: Server[];
+  try {
+    http = await listen(server.app.fetch, config.host, config.port);
+  } catch (err) {
+    await server.stop();
+    await database.close();
+    throw err;
+  }
   server.start();
-  const http = await listen(server.app.fetch, config.host, config.port);
   server.attach(...http);
   const at = http.map((s) => {
     const { address } = s.address() as AddressInfo;

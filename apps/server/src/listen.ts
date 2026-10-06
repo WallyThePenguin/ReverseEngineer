@@ -16,10 +16,15 @@ export function listenAddresses(host: string): string[] {
   return host === "::1" ? ["::1", "127.0.0.1"] : ["127.0.0.1", "::1"];
 }
 
+/** The other loopback can't exist here (a machine or container without IPv6). */
+const NO_SUCH_ADDRESS = new Set(["EADDRNOTAVAIL", "EAFNOSUPPORT"]);
+
 /**
- * Listens on `host`, and on the other loopback with it. The first address failing fails the start,
- * as it always has. The second one is skipped with a warning if it can't be had (no IPv6 on this
- * machine, or taken): Hearth still works, only slower to open by "localhost".
+ * Listens on `host`, and on the other loopback with it; any address it can't have fails the start,
+ * so the service manager tries again. The one exception is a machine without IPv6, where [::1]
+ * can't exist: Hearth works the same, only slower to open by "localhost". [::1] taken by another
+ * program is a failure, not a skip: "localhost" would open that program instead of Hearth, while
+ * everything that checks 127.0.0.1 saw Hearth healthy.
  */
 export async function listen(fetch: Fetch, host: string, port: number): Promise<Server[]> {
   const [first = host, ...rest] = listenAddresses(host);
@@ -31,8 +36,20 @@ export async function listen(fetch: Fetch, host: string, port: number): Promise<
     try {
       servers.push(await start(fetch, hostname, chosen));
     } catch (e) {
-      const why = (e as NodeJS.ErrnoException).code ?? String(e);
-      console.warn(`Hearth isn't listening on ${hostname} too (${why}); "localhost" is slower.`);
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code && NO_SUCH_ADDRESS.has(code)) {
+        console.warn(`No ${hostname} on this machine (${code}); "localhost" is slower to open.`);
+        continue;
+      }
+      await closeAll(servers);
+      const at = hostname.includes(":") ? `[${hostname}]` : hostname;
+      throw Object.assign(
+        new Error(
+          `Something else has ${at}:${chosen} (${code ?? String(e)}), so "localhost" would open it instead of Hearth. Stop it, or give Hearth another port (HEARTH_PORT).`,
+          { cause: e },
+        ),
+        { code },
+      );
     }
   }
   return servers;
