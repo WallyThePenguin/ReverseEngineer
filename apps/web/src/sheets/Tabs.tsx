@@ -1,8 +1,10 @@
-// A spreadsheet's sheet tabs: pick one, double-click to rename, + to add, × to remove. None of
-// that until the spreadsheet has first been read: until then its one tab is a blank workbook's.
+// A spreadsheet's sheet tabs: pick one, double-click to rename, add one, or remove the one you're
+// on. None of that until the spreadsheet has first been read: until then its one tab is a blank
+// workbook's.
 
 import { WorksheetSchema } from "@hearth/core";
 import { For, Show } from "solid-js";
+import { Icon } from "../components/icons.tsx";
 import type { Sheet } from "./state.ts";
 
 export function Tabs(props: { sheet: Sheet; tab: number; onTab: (i: number) => void }) {
@@ -66,11 +68,12 @@ export function Tabs(props: { sheet: Sheet; tab: number; onTab: (i: number) => v
             <Show when={props.sheet.book.sheets.length > 1 && i() === props.tab}>
               <button
                 type="button"
-                class="pr-1.5 text-faint hover:text-ink"
+                class="flex items-center self-stretch pr-1.5 text-faint hover:text-ink"
                 title={`Delete ${s.name}`}
+                aria-label={`Delete ${s.name}`}
                 onClick={() => remove(i())}
               >
-                ×
+                <Icon name="x" size={14} />
               </button>
             </Show>
           </span>
@@ -79,11 +82,12 @@ export function Tabs(props: { sheet: Sheet; tab: number; onTab: (i: number) => v
       <Show when={props.sheet.loaded() && props.sheet.book.sheets.length < 20}>
         <button
           type="button"
-          class="px-2 text-muted hover:text-ink"
+          class="flex items-center self-stretch rounded px-1.5 text-muted hover:bg-panel hover:text-ink"
           title="Add a sheet"
+          aria-label="Add a sheet"
           onClick={add}
         >
-          +
+          <Icon name="plus" size={16} />
         </button>
       </Show>
     </div>

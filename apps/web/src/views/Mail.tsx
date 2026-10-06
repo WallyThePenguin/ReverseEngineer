@@ -1,9 +1,13 @@
 // Mail: every account's conversations in one list, split into Signal and Noise, plus what needs
 // your reply and what you're waiting on. j/k to move, Enter to open, e archive, s star, u read or
 // unread, n send the sender to the other lane, d no reply needed, # trash. Changes show at once
-// and reach Gmail within a minute. Older conversations load as you scroll down to them.
+// and reach Gmail within a minute. Older conversations load as you scroll down to them. One with a
+// reply drafted says so, and whether Jarvis wrote it.
 
-import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
+import { Icon } from "../components/icons.tsx";
+import { Pill } from "../components/kit/Pill.tsx";
+import { Skeleton } from "../components/kit/Skeleton.tsx";
 import { Badge, Button, Empty, PaneHeader } from "../components/ui.tsx";
 import { debounced } from "../lib/debounce.ts";
 import { ago } from "../lib/format.ts";
@@ -52,6 +56,13 @@ export function Mail(props: { pane: number }) {
   const drafts = useAction<MailDraft[]>("mail.drafts");
   // New messages (not replies) are written here, above the list.
   const fresh = () => (drafts.data ?? []).filter((d) => !d.threadId).map((d) => d.id);
+  // Conversations with a reply waiting to go, and who wrote the newest one.
+  const drafted = createMemo(() => {
+    const by = new Map<string, MailDraft["by"]>();
+    for (const d of drafts.data ?? [])
+      if (d.threadId && !by.has(d.threadId)) by.set(d.threadId, d.by);
+    return by;
+  });
   const compose = () => void act("mail.draft", { text: "" });
   // Kept by id: new mail arriving above doesn't move e or # onto a different conversation.
   const sel = createSelection(list, (t) => t.id);
@@ -209,7 +220,7 @@ export function Mail(props: { pane: number }) {
           when={(accounts.data ?? []).length > 0 || accounts.isLoading}
           fallback={<Empty>No mail account yet. Connect Gmail in Settings.</Empty>}
         >
-          <Show when={!threads.isLoading} fallback={<Empty>Loading…</Empty>}>
+          <Show when={!threads.isLoading} fallback={<Skeleton />}>
             <Show
               when={list().length > 0}
               fallback={
@@ -253,12 +264,23 @@ export function Mail(props: { pane: number }) {
                           <span class="text-muted"> · {t.snippet}</span>
                         </span>
                         <Show when={t.starred}>
-                          <span class="text-warn" title="Starred">
-                            ★
+                          <span class="self-center text-warn" title="Starred">
+                            <Icon name="star" size={14} filled label="Starred" />
                           </span>
                         </Show>
                         <Show when={view() !== "inbox" && t.inInbox}>
                           <Badge tone="muted">inbox</Badge>
+                        </Show>
+                        <Show when={drafted().get(t.id)}>
+                          {(by) => (
+                            <Pill
+                              tone={by() === "jarvis" ? "jarvis" : "neutral"}
+                              icon="reply"
+                              class="self-center"
+                            >
+                              {by() === "jarvis" ? "Jarvis drafted" : "Draft"}
+                            </Pill>
+                          )}
                         </Show>
                         <Show when={t.waiting === "you" && lane() !== "reply"}>
                           <Badge tone="jarvis">reply</Badge>

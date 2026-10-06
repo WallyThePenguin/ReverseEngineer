@@ -1,7 +1,9 @@
-// One read's states, the same on every screen: loading, failed with Try again, empty, or the data.
-// Data already shown stays while a refresh fails; the live banner says when Hearth is out of reach.
+// One read's states, the same on every screen: loading (a skeleton the shape of what's coming),
+// failed with Try again, empty, or the data. Data already shown stays while a refresh fails; the
+// live banner says when Hearth is out of reach.
 
 import { type Accessor, type JSX, Show, untrack } from "solid-js";
+import { Skeleton } from "./kit/Skeleton.tsx";
 import { Empty, Failed, type Read } from "./ui.tsx";
 
 export interface QueryRead<T> extends Read {
@@ -15,7 +17,7 @@ export interface QueryRead<T> extends Read {
 export function NoRows(props: { query: QueryRead<unknown>; what: string; children: JSX.Element }) {
   return (
     <Show when={props.query.data === undefined} fallback={<Empty>{props.children}</Empty>}>
-      <Show when={props.query.isError} fallback={<Empty>Loading…</Empty>}>
+      <Show when={props.query.isError} fallback={<Skeleton />}>
         <Failed error={props.query.error} retry={props.query.refetch} what={props.what} />
       </Show>
     </Show>
@@ -30,7 +32,7 @@ export function QueryView<T>(props: {
   isEmpty?: (data: T) => boolean;
   /** Shown when there's nothing; without it the children draw the empty case themselves. */
   empty?: JSX.Element;
-  /** Shown while loading; "Loading…" by default. */
+  /** Shown while loading; rows of a skeleton by default ("Loading…" to a screen reader). */
   loading?: JSX.Element;
   /** Drawn once; `data` follows later refreshes, so what's on screen keeps its state. */
   children: (data: Accessor<T>) => JSX.Element;
@@ -45,7 +47,7 @@ export function QueryView<T>(props: {
     <Show
       when={props.query.data !== undefined}
       fallback={
-        <Show when={props.query.isError} fallback={props.loading ?? <Empty>Loading…</Empty>}>
+        <Show when={props.query.isError} fallback={props.loading ?? <Skeleton count={4} />}>
           <Failed error={props.query.error} retry={props.query.refetch} what={props.what} />
         </Show>
       }

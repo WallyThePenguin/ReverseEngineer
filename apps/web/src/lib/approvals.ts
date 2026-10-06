@@ -1,22 +1,68 @@
 // Deciding an approval, from the inbox or a conversation. One decision at a time per approval:
 // its buttons are off while it's on its way, and once it's decided they stay gone, even before
-// the lists catch up. Hearth itself runs an approval at most once whatever arrives (D58).
+// the lists catch up, with what became of it. Hearth itself runs an approval at most once
+// whatever arrives (D58).
 import { createSignal } from "solid-js";
 import { decideApproval } from "./api.ts";
 import { affectedByChange } from "./invalidate.ts";
 import { live, toast } from "./live.ts";
 
+/**
+ * An approval's state as Hearth names it, or "gone" where all that's known is that it no longer
+ * waits for you.
+ */
+export type ApprovalState =
+  | "pending"
+  | "executing"
+  | "executed"
+  | "denied"
+  | "failed"
+  | "expired"
+  | "gone";
+
 const [inFlight, setInFlight] = createSignal<ReadonlySet<string>>(new Set());
-const [decided, setDecided] = createSignal<ReadonlySet<string>>(new Set());
+const [decided, setDecided] = createSignal<ReadonlyMap<string, ApprovalState>>(new Map());
 
 const add = (set: ReadonlySet<string>, id: string) => new Set([...set, id]);
 const drop = (set: ReadonlySet<string>, id: string) => new Set([...set].filter((x) => x !== id));
+const settle = (id: string, state: ApprovalState) =>
+  setDecided((m) => new Map([...m, [id, state]]));
 
 /** A decision on this approval is on its way. */
 export const deciding = (approvalId: string) => inFlight().has(approvalId);
 
 /** This approval was decided here (or turned out to be decided already). */
 export const isDecided = (approvalId: string) => decided().has(approvalId);
+
+/** What became of an approval decided here, or null if it wasn't. */
+export const decidedAs = (approvalId: string): ApprovalState | null =>
+  decided().get(approvalId) ?? null;
+
+/** Still waiting for your yes or no: pending, and not decided here a moment ago. */
+export const isWaiting = (approvalId: string, status: string | null | undefined) =>
+  status === "pending" && !isDecided(approvalId);
+
+/**
+ * What Hearth's answer to a decision it couldn't take says became of the approval, in the
+ * kernel's own words (approvals.ts). Anything else after a yes means it was approved but nothing
+ * came of it; after a no, only that it's gone.
+ */
+const TAKEN: [string, ApprovalState][] = [
+  ["This was already approved and done", "executed"],
+  ["This was already denied", "denied"],
+  ["This was already approved, and it failed", "failed"],
+  ["This is already being done", "executing"],
+  ["This approval ran out", "expired"],
+];
+export function settledAs(
+  decision: "approve" | "deny",
+  r: { code: string; message: string },
+): ApprovalState {
+  if (r.code === "not_found") return "gone";
+  const known = TAKEN.find(([said]) => r.message.startsWith(said));
+  if (known) return known[1];
+  return decision === "approve" ? "failed" : "gone";
+}
 
 export async function decide(approvalId: string, decision: "approve" | "deny") {
   if (deciding(approvalId) || isDecided(approvalId)) return;
@@ -29,12 +75,12 @@ export async function decide(approvalId: string, decision: "approve" | "deny") {
       return;
     }
     if (r.status === "ok") {
-      setDecided((s) => add(s, approvalId));
+      settle(approvalId, decision === "approve" ? "executed" : "denied");
       toast.show(decision === "approve" ? "Approved and done." : "Denied.");
     } else if (r.status === "error") {
       // Decided elsewhere, ran out, or approved and then failed: it's no longer waiting either
       // way. Only Hearth being out of reach leaves it to decide again.
-      if (r.code !== "unavailable") setDecided((s) => add(s, approvalId));
+      if (r.code !== "unavailable") settle(approvalId, settledAs(decision, r));
       toast.show(r.message, r.message.startsWith("This was already") ? "info" : "error");
     } else if (r.status === "denied") toast.show(r.reason, "error");
   } finally {
@@ -53,6 +99,7 @@ export function approvalStateText(status: string): string {
       denied: "Denied",
       failed: "Approved, but it failed",
       expired: "Ran out before you decided",
+      gone: "No longer waiting",
     }[status] ?? `Approval ${status}`
   );
 }

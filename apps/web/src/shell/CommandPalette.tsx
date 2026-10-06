@@ -5,12 +5,13 @@ import { createEffect, createSignal, For, on, onCleanup } from "solid-js";
 import { Kbd } from "../components/ui.tsx";
 import { jarvis } from "../jarvis/JarvisPane.tsx";
 import { action } from "../lib/api.ts";
+import { PLACES, type Place, paletteLabel } from "../lib/apps.ts";
 import { TYPING_PAUSE_MS } from "../lib/debounce.ts";
 import { useDialogFocus } from "../lib/focus.ts";
 import { TYPE_LABEL } from "../lib/format.ts";
 import { MOD } from "../lib/hotkeys.ts";
 import { arrange, type PaletteItem } from "../lib/palette.ts";
-import { type ListView, layout, routeFor } from "../lib/panes.ts";
+import { layout, routeFor } from "../lib/panes.ts";
 import { act } from "../lib/query.ts";
 import type { SearchHit } from "../lib/types.ts";
 import { newCanvas } from "../views/Canvas.tsx";
@@ -22,27 +23,14 @@ import { sidebar } from "./Sidebar.tsx";
 type Item = PaletteItem;
 
 function commands(): Item[] {
-  const go = (view: ListView, label: string): Item => ({
-    id: `go:${view}`,
-    label: `Go to ${label}`,
+  const go = (p: Place): Item => ({
+    id: `go:${p.view}`,
+    label: paletteLabel(p),
     hint: "Go",
-    run: (beside) => layout.open({ view }, { beside }),
+    run: (beside) => layout.open({ view: p.view }, { beside }),
   });
   return [
-    go("inbox", "Inbox"),
-    go("mail", "Mail"),
-    go("tasks", "Tasks"),
-    go("notes", "Notes"),
-    go("calendar", "Calendar"),
-    go("canvases", "Canvas (boards)"),
-    go("sheets", "Spreadsheets"),
-    go("people", "People"),
-    go("memory", "Memory (what Jarvis remembers)"),
-    go("voice", "Voice (dictation history, dictionary, snippets)"),
-    go("browser", "the browser (your Chrome, live)"),
-    go("activity", "Jarvis's activity"),
-    go("settings", "Settings"),
-    go("trash", "the trash (restore what you deleted)"),
+    ...PLACES.map(go),
     { id: "new:note", label: "New note", hint: "Create", run: () => newNote(layout.focused()) },
     {
       id: "new:canvas",

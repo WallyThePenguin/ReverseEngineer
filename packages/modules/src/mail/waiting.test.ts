@@ -2,7 +2,14 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mailThread } from "@hearth/db";
-import { type Caller, type HearthEvent, integrationCaller, ownerCaller } from "@hearth/kernel";
+import {
+  type Caller,
+  type HearthEvent,
+  integrationCaller,
+  jarvisCaller,
+  ownerCaller,
+  setSetting,
+} from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -11,7 +18,7 @@ import { FakeGoogle } from "../google/fake.ts";
 import { ALL_MODULES } from "../index.ts";
 import { BLOB_SERVICE, BlobStore } from "./blobs.ts";
 import type { ThreadSummary } from "./views.ts";
-import { followUpRoutine, waitingDigest } from "./waiting.ts";
+import { followUpRoutine, REPLY_DRAFTS, replyDraftRoutine, waitingDigest } from "./waiting.ts";
 
 const ME = "owner@example.com";
 const ANA = { address: "ana@friends.example", name: "Ana Silva" };
@@ -169,19 +176,20 @@ describe("what mail can't do to the rules", () => {
   });
 });
 
-describe("follow-ups", () => {
-  const firing = () => ({
-    scheduledFor: t.clock.now(),
-    event: {} as HearthEvent,
-    digest: async () => [],
-  });
+const DAY_MS = 24 * 3600_000;
+const firing = () => ({
+  scheduledFor: t.clock.now(),
+  event: {} as HearthEvent,
+  digest: async () => [],
+});
+const ctx = () => ({ db: t.tdb.db, now: t.clock.now() });
 
+describe("follow-ups", () => {
   it("drafts follow-ups for unanswered questions after three quiet days, once", async () => {
     seed();
     await sync();
-    const ctx = () => ({ db: t.tdb.db, now: t.clock.now() });
     expect(await followUpRoutine.run(firing(), ctx())).toEqual([]);
-    t.clock.advance(4 * 24 * 3600_000);
+    t.clock.advance(4 * DAY_MS);
     const out = await followUpRoutine.run(firing(), ctx());
     expect(out).toMatchObject([{ kind: "turn", untrusted: true }]);
     const digest = await waitingDigest(ctx());
@@ -195,5 +203,168 @@ describe("follow-ups", () => {
     expect(await followUpRoutine.run(firing(), ctx())).toEqual([]);
     // The brief still lists it.
     expect(await waitingDigest(ctx())).toHaveLength(2);
+  });
+});
+
+describe("reply drafts", () => {
+  /** The subjects of the conversations a turn's prompt lists, in its order. */
+  async function listed(prompt: string) {
+    const all = await ok<ThreadSummary[]>("mail.threads", { view: "all", limit: 100 });
+    const subjects = new Map(all.map((x) => [x.id, x.subject]));
+    return prompt
+      .split("\n")
+      .filter((l) => l.startsWith("- "))
+      .map((l) => subjects.get(l.slice(2)));
+  }
+
+  it("drafts the newest replies you owe from the last week, in one untrusted quick turn", async () => {
+    // Waiting on you for ten days: dealt with some other way, most likely.
+    g.gmail.deliver(
+      { from: ANA, subject: "Old", text: "?", date: new Date("2026-09-21T12:00:00Z") },
+      IMPORTANT,
+    );
+    for (let n = 1; n <= 10; n++)
+      g.gmail.deliver({ from: ANA, subject: `Q${n}`, text: "?" }, IMPORTANT);
+    // Newer, but not waiting on you: a stranger Gmail doesn't flag, and mail you're waiting on.
+    g.gmail.deliver({ from: { address: "cy@else.example" }, subject: "Stranger", text: "?" });
+    g.gmail.deliver(
+      { from: { address: ME }, to: [ANA], subject: "Contract", text: "Did you sign it?" },
+      ["SENT"],
+    );
+    await sync();
+    const q10 = (await ok<ThreadSummary[]>("mail.threads", { waiting: "you" })).find(
+      (x) => x.subject === "Q10",
+    );
+    await ok("mail.draft", { threadId: q10!.id, text: "Already on it" });
+
+    const out = await replyDraftRoutine.run(firing(), ctx());
+    expect(out).toMatchObject([
+      {
+        kind: "turn",
+        trigger: "routine",
+        lane: "fast",
+        untrusted: true,
+        dedupeKey: "reply_drafts:2026-10-01",
+        context: { routine: "reply_drafts", threads: REPLY_DRAFTS },
+      },
+    ]);
+    const prompt = (out[0] as { prompt: string }).prompt;
+    expect(await listed(prompt)).toEqual(["Q9", "Q8", "Q7", "Q6", "Q5", "Q4", "Q3", "Q2"]);
+    expect(prompt).toContain(
+      "Use only mail_thread and mail_draft, and only for the conversations listed below.",
+    );
+    expect(prompt).toContain("never set to, cc or bcc");
+    expect(prompt).toContain("never call mail_send or mail_no_reply");
+    expect(prompt).toContain("Don't archive, mark, move, change or discard anything");
+  });
+
+  it("drafts a reply where the only draft is a follow-up from before they answered", async () => {
+    g.gmail.deliver(
+      {
+        from: { address: ME },
+        to: [ANA],
+        subject: "Contract",
+        text: "Did you sign it?",
+        messageId: "c1@f",
+      },
+      ["SENT"],
+    );
+    await sync();
+    const [contract] = await ok<ThreadSummary[]>("mail.threads", { view: "all", waiting: "them" });
+    // Jarvis's nudge, which you didn't send; then Ana answers the next day.
+    await ok(
+      "mail.draft",
+      { threadId: contract!.id, text: "Just checking in, did you sign it?" },
+      jarvisCaller("untrusted"),
+    );
+    g.gmail.deliver(
+      {
+        from: ANA,
+        subject: "Re: Contract",
+        text: "Signed. Can you send the invoice?",
+        messageId: "c2@f",
+        inReplyTo: "c1@f",
+        references: ["c1@f"],
+        date: new Date("2026-10-02T12:00:00Z"),
+      },
+      IMPORTANT,
+    );
+    await sync();
+    t.clock.set("2026-10-03T11:45:00Z");
+    const out = await replyDraftRoutine.run(firing(), ctx());
+    expect(await listed((out[0] as { prompt: string }).prompt)).toEqual(["Contract"]);
+    // The old nudge isn't a reply to what Ana said.
+    expect(await waitingDigest(ctx())).toEqual([
+      { bucket: "today", text: "1 email needs your reply." },
+    ]);
+  });
+
+  it("doesn't write again a reply you threw away, until they write again", async () => {
+    g.gmail.deliver(
+      { from: ANA, subject: "Dinner?", text: "Are you free Friday?", messageId: "d1@f" },
+      IMPORTANT,
+    );
+    await sync();
+    const [dinner] = await ok<ThreadSummary[]>("mail.threads", { waiting: "you" });
+    const draft = await ok<{ id: string }>(
+      "mail.draft",
+      { threadId: dinner!.id, text: "Friday works." },
+      jarvisCaller("untrusted"),
+    );
+    await ok("mail.discard", { id: draft.id });
+    t.clock.advance(DAY_MS);
+    expect(await replyDraftRoutine.run(firing(), ctx())).toEqual([]);
+
+    g.gmail.deliver(
+      {
+        from: ANA,
+        subject: "Re: Dinner?",
+        text: "Or Saturday?",
+        messageId: "d2@f",
+        inReplyTo: "d1@f",
+        references: ["d1@f"],
+        date: t.clock.now(),
+      },
+      IMPORTANT,
+    );
+    await sync();
+    t.clock.advance(DAY_MS);
+    const out = await replyDraftRoutine.run(firing(), ctx());
+    expect(await listed((out[0] as { prompt: string }).prompt)).toEqual(["Dinner?"]);
+  });
+
+  it("does nothing while Jarvis is paused, and leaves follow-ups to draft once it's back", async () => {
+    seed();
+    await sync();
+    t.clock.advance(4 * DAY_MS);
+    await setSetting(t.tdb.db, "jarvis.paused", true);
+    expect(await replyDraftRoutine.run(firing(), ctx())).toEqual([]);
+    expect(await followUpRoutine.run(firing(), ctx())).toEqual([]);
+    const nudged = await t.tdb.db.select({ at: mailThread.nudgedAt }).from(mailThread);
+    expect(nudged.map((r) => r.at)).toEqual(nudged.map(() => null));
+
+    await setSetting(t.tdb.db, "jarvis.paused", false);
+    expect(await replyDraftRoutine.run(firing(), ctx())).toHaveLength(1);
+    expect(await followUpRoutine.run(firing(), ctx())).toHaveLength(1);
+  });
+
+  it("tells the brief how many replies Jarvis drafted, until you send them", async () => {
+    seed();
+    await sync();
+    const [dinner] = await ok<ThreadSummary[]>("mail.threads", { waiting: "you" });
+    const draft = await ok<{ id: string }>(
+      "mail.draft",
+      { threadId: dinner!.id, text: "Friday works." },
+      jarvisCaller("untrusted"),
+    );
+    // Your own drafts aren't Jarvis's to count.
+    const [contract] = await ok<ThreadSummary[]>("mail.threads", { view: "all", waiting: "them" });
+    await ok("mail.draft", { threadId: contract!.id, text: "Any news?" });
+    expect(await waitingDigest(ctx())).toEqual([
+      { bucket: "today", text: "1 email needs your reply." },
+      { bucket: "prepared", text: "1 reply drafted, waiting in Mail for you to send." },
+    ]);
+    await ok("mail.send", { id: draft.id });
+    expect(await waitingDigest(ctx())).toEqual([]);
   });
 });

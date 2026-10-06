@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pairDevice } from "./auth/devices.ts";
 import { SpeechRelay } from "./speech.ts";
 import { createTestServer, type TestServer } from "./testing/server.ts";
@@ -34,8 +34,9 @@ describe("speech through the desktop app", () => {
       });
       expect(done.status).toBe(200);
     })();
-    // Let the desktop app's request arrive first.
-    await new Promise((r) => setTimeout(r, 50));
+    // The desktop app is waiting for work before the recording comes in. Its request is checked
+    // against the database first, which on a busy machine can outlast a set wait.
+    await vi.waitFor(() => expect(t.server.speech.available()).toBe(true), { timeout: 10_000 });
     const res = await t.browser("/api/voice/transcribe", { method: "POST", body: wav() });
     expect(await res.json()).toEqual({ text: "Remind me to call Sam." });
     await desktop;

@@ -186,6 +186,8 @@ describe("phone notifications", () => {
     const message = { title: "Hi", body: "", url: "/inbox", tag: "x" };
     const started = Date.now();
     expect(await pushToAll(t.kernel, message, hanging, 50)).toBe(1);
+    // Well past the 50 ms each device gets here, well short of the 10 s default it would wait
+    // otherwise. A bound between two timers isn't scaled for a slow machine.
     expect(Date.now() - started).toBeLessThan(2_000);
     expect(sent.map((s) => s.endpoint)).toEqual([PHONE]);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("Old tablet: no answer"));

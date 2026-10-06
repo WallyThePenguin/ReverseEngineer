@@ -40,6 +40,7 @@ import {
   usedTools,
 } from "./turn-end.ts";
 import type { TurnLog } from "./turn-log.ts";
+import { TurnStops } from "./turn-stops.ts";
 
 export type { TurnRow } from "./claim.ts";
 
@@ -76,7 +77,8 @@ export class TurnRunner {
   private readonly limits: typeof TURN_LIMIT_MS;
   private readonly turnLog: TurnLog | undefined;
   private readonly stopCheckMs: number;
-  private readonly aborts = new Map<string, AbortController>();
+  /** Running turns' Stops, and their tools: Jarvis's own stop ends them too (service.ts). */
+  readonly stops = new TurnStops();
   /** Tools Claude rejected since this process started: left out of every turn until a restart. */
   readonly leftOut = new Set<string>();
   private readonly startedAt = new Date();
@@ -120,9 +122,7 @@ export class TurnRunner {
 
   /** Stops a running turn (the owner pressed Stop). False when it isn't running here. */
   cancel(turnId: string): boolean {
-    const a = this.aborts.get(turnId);
-    a?.abort();
-    return Boolean(a);
+    return this.stops.cancel(turnId);
   }
 
   /** Records Jarvis's health from how its turns are going. */
@@ -138,10 +138,11 @@ export class TurnRunner {
 
   async run(turn: TurnRow): Promise<void> {
     const started = performance.now();
-    const stop = new AbortController();
-    this.aborts.set(turn.id, stop);
+    const stop = this.stops.start(turn.id);
     const deadline = new Deadline(this.limitFor(turn), this.limits.browser, stop.signal);
-    const watching = this.watchForStop(turn.id, stop);
+    // The owner's press is also on the turn row, in case its signal is missed.
+    const asked = () => stopRequested(this.kernel, turn.id);
+    const watching = this.stops.watch(stop, asked, this.stopCheckMs);
     const end = newEnding(turn);
     try {
       await this.attempt(end, deadline, started);
@@ -149,7 +150,13 @@ export class TurnRunner {
       // A turn that used the browser may have had longer than its lane gives.
       const limit = deadline.limitMs;
       // Stop may be on the row before its signal arrives: a turn you stopped isn't queued again.
-      const canceled = stop.signal.aborted || (await stopRequested(this.kernel, turn.id));
+      const canceled = (stop.signal.aborted && !TurnStops.byJarvis(stop)) || (await asked());
+      if (!canceled && TurnStops.byJarvis(stop)) {
+        // Cut short by Jarvis's own stop, which isn't a failure: the next start runs it again
+        // if it hadn't used a tool, and otherwise says Jarvis restarted (recoverInterrupted).
+        this.log(`turn ${turn.id} was cut short: Jarvis is stopping`);
+        return;
+      }
       const f: Failure = canceled
         ? failure("canceled", "Stopped by the owner")
         : deadline.signal.aborted
@@ -163,20 +170,9 @@ export class TurnRunner {
     } finally {
       deadline.clear();
       clearInterval(watching);
-      this.aborts.delete(turn.id);
+      this.stops.end(turn.id);
       await this.reportHealth().catch((err) => this.log("reporting health failed", err));
     }
-  }
-
-  /** Backs up the Stop signal: the owner's press is also on the turn row. */
-  private watchForStop(turnId: string, stop: AbortController): NodeJS.Timeout {
-    const timer = setInterval(() => {
-      void stopRequested(this.kernel, turnId).then((yes) => {
-        if (yes) stop.abort();
-      });
-    }, this.stopCheckMs);
-    timer.unref();
-    return timer;
   }
 
   private async attempt(end: Ending, deadline: Deadline, started: number): Promise<void> {
@@ -261,7 +257,7 @@ export class TurnRunner {
           return log([{ kind, payload, turnId: turn.id }]);
         });
     // Stopped or out of time: nothing more runs. A browser tool gives the turn more time (B1).
-    const tools = bounded(built, deadline, ENDED);
+    const tools = this.stops.track(bounded(built, deadline, ENDED));
     const stream = streamer(this.pool, cid, turn.id);
     const events: BrainEvents = {
       onText: (d) => stream.push(d),

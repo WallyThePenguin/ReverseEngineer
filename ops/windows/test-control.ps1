@@ -1,11 +1,15 @@
 <#
   Tests for the update gate's logic in control.ps1, and that every script in ops\windows parses.
-  Touches nothing: no services, no tasks, no network. CI runs it on Windows:
+  Touches nothing: no services, no tasks, no network. CI runs it on Windows, on the PC that is also
+  the live Hearth's (D66), so test-fence.ps1 checks the fakes before anything is stopped:
     powershell -NoProfile -ExecutionPolicy Bypass -File ops\windows\test-control.ps1
 #>
 $ErrorActionPreference = "Stop"
 $Root = "C:\nowhere"
 . "$PSScriptRoot\control.ps1"
+. "$PSScriptRoot\test-fence.ps1"
+# Hearth's services folder, where a stop request ends the live Jarvis, is found through this.
+$env:ProgramData = Join-Path ([IO.Path]::GetTempPath()) "hearth-test-control\ProgramData"
 $failures = 0
 
 function Assert-Equal($Actual, $Expected, [string]$What) {
@@ -24,9 +28,10 @@ foreach ($file in Get-ChildItem "$PSScriptRoot\*.ps1") {
   Assert-Equal $errors.Count 0 "$($file.Name) parses $($errors | ForEach-Object { $_.Message })"
 }
 
-# The desktop app's Update and `hearth restart` run these with -File, and Windows PowerShell leaves
-# $PSScriptRoot empty in a parameter's default then: Hearth's folder would be C:\.
-foreach ($name in "update.ps1", "restart.ps1") {
+# The desktop app's Update and `hearth restart` run these with -File (CI runs install.ps1 so), and
+# Windows PowerShell leaves $PSScriptRoot empty in a parameter's default then: Hearth's folder
+# would be C:\.
+foreach ($name in "update.ps1", "restart.ps1", "install.ps1") {
   $ast = [System.Management.Automation.Language.Parser]::ParseFile("$PSScriptRoot\$name", [ref]$null, [ref]$null)
   $reads = @($ast.ParamBlock.Parameters | Where-Object { "$($_.DefaultValue)" -match "PSScriptRoot" })
   Assert-Equal $reads.Count 0 "$name doesn't read `$PSScriptRoot in a parameter's default"
@@ -95,9 +100,14 @@ $surrogate.jarvisAlive.since = "2026-10-04T09:00:00.000Z"
 Assert-Equal (Get-DeepProblem $surrogate $since $sha $all @("jarvis")) "Jarvis hasn't checked in since it started" "the worker's word that Jarvis is down isn't Jarvis checking in"
 Assert-Equal (Get-DeepProblem $surrogate $since $sha @("jarvis") @("jarvis")) "Jarvis hasn't checked in since it started" "the same for hearth restart jarvis"
 # A Jarvis the stop missed keeps checking in, on the old code: it started before the restart.
+# Checking in since, it's still running, and the gate says which pid to end (2026-10-05).
 $survivor = New-Deep
 $survivor.jarvisAlive.since = "2026-10-04T09:00:00.000Z"
-Assert-Equal (Get-DeepProblem $survivor $since $sha $all) "Jarvis hasn't checked in since it started" "an old Jarvis still checking in isn't the new one"
+Assert-Equal (Get-DeepProblem $survivor $since $sha $all) `
+  "An older Jarvis (pid 4242) is still running and Hearth can't stop it from your account: run taskkill /F /PID 4242 as administrator, then try again right away" `
+  "an old Jarvis still checking in isn't the new one, and is named"
+$survivor.jarvisAlive.at = "2026-10-04T11:59:30.000Z"
+Assert-Equal (Get-DeepProblem $survivor $since $sha $all) "Jarvis hasn't checked in since it started" "one not heard from since the restart may be gone: not named"
 $surrogate.jarvisAlive = $null
 Assert-Equal (Get-DeepProblem $surrogate $since $sha $all @("jarvis")) "Jarvis hasn't checked in since it started" "a Jarvis that never checked in"
 $older = New-Deep
@@ -213,7 +223,10 @@ function Get-ScheduledTask {
   if (-not $next) { return $null }
   return [pscustomobject]@{ TaskName = $TaskName; State = $next }
 }
-function Start-Sleep { param([int]$Milliseconds, [int]$Seconds) }
+# Time faked from here: a wait moves this clock instead of waiting, and Get-Date reads it.
+$script:clock = [datetime]::new(2026, 10, 4, 12, 0, 0)
+function Get-Date { $script:clock }
+function Start-Sleep { param([int]$Milliseconds, [int]$Seconds) $script:clock = $script:clock.AddMilliseconds($Milliseconds + 1000 * $Seconds) }
 $script:states = @("Running", "Running", "Ready")
 Assert-Equal (Wait-TaskStopped "Hearth Jarvis" 5) $true "waits for the task to stop"
 Assert-Equal $script:states.Count 1 "asked until it stopped"
@@ -222,49 +235,10 @@ Assert-Equal (Wait-TaskStopped "Hearth Jarvis" 5) $true "no task: nothing to wai
 $script:states = @("Running")
 Assert-Equal (Wait-TaskStopped "Hearth Jarvis" 0) $false "gives up when it won't stop"
 
-# Stop-Jarvis trusts its pid file only for the process that wrote it: the file outlives a Jarvis
-# that was killed or crashed, and Windows hands its pid to later processes.
-$written = [datetime]::new(2026, 10, 4, 12, 0, 0)
-$node = { param($started) [pscustomobject]@{ ProcessName = "node"; Id = 999999; StartTime = $started } }
-Assert-Equal (Test-JarvisPid (& $node $written.AddSeconds(-20)) $written) $true "the Jarvis that wrote the pid file"
-Assert-Equal (Test-JarvisPid (& $node $written.AddHours(2)) $written) $false "a later node.exe that got the same pid"
-Assert-Equal (Test-JarvisPid (& $node $null) $written) $false "a node.exe whose start time can't be read"
-$denied = [pscustomobject]@{ ProcessName = "node"; Id = 999999 }
-$denied | Add-Member -MemberType ScriptProperty -Name StartTime -Value { throw "Access is denied" }
-Assert-Equal (Test-JarvisPid $denied $written) $false "a node.exe that won't say when it started"
-Assert-Equal (Test-JarvisPid ([pscustomobject]@{ ProcessName = "chrome"; StartTime = $written.AddSeconds(-20) }) $written) $false "not node"
-Assert-Equal (Test-JarvisPid $null $written) $false "no process with that pid"
-
-# Stop-Jarvis itself, with the pid file, the processes and the task faked. 999999 can't be a real
-# pid (Windows' are multiples of 4), and Stop-Process is faked anyway.
-$script:found = $null
-$script:killed = @()
-function Test-Path { param($Path) $true }
-function Get-Content { param($Path, [switch]$Raw) "999999`r`n" }
-function Get-Item { param($Path) [pscustomobject]@{ LastWriteTime = $written } }
-function Get-Process { param($Id) $script:found }
-function Stop-Process { param($Id, [switch]$Force) $script:killed += $Id }
-function Stop-ScheduledTask {}
-function New-Object {
-  $task = [pscustomobject]@{}
-  $task | Add-Member -MemberType ScriptMethod -Name GetInstances -Value { @() }
-  $folder = [pscustomobject]@{ Task = $task }
-  $folder | Add-Member -MemberType ScriptMethod -Name GetTask -Value { $this.Task }
-  $scheduler = [pscustomobject]@{ Folder = $folder }
-  $scheduler | Add-Member -MemberType ScriptMethod -Name Connect -Value {}
-  $scheduler | Add-Member -MemberType ScriptMethod -Name GetFolder -Value { $this.Folder }
-  return $scheduler
-}
-$script:states = @("")
-$script:found = & $node $written.AddHours(2)
-Stop-Jarvis
-Assert-Equal "$script:killed" "" "Stop-Jarvis leaves a later node.exe with Jarvis's old pid alone"
-$script:found = & $node $written.AddSeconds(-20)
-Stop-Jarvis
-Assert-Equal "$script:killed" "999999" "Stop-Jarvis stops the Jarvis that wrote the pid file"
-foreach ($f in "Test-Path", "Get-Content", "Get-Item", "Get-Process", "Stop-Process", "Stop-ScheduledTask", "New-Object") {
-  Remove-Item "function:$f"
-}
+# Finding, stopping and waiting for Jarvis (control-jarvis.ps1), with Windows faked.
+. "$PSScriptRoot\test-control-jarvis.ps1"
+# update.ps1 itself rolling back, run with everything it would touch faked.
+. "$PSScriptRoot\test-control-update.ps1"
 
 if ($failures) { Write-Host "$failures failed"; exit 1 }
 Write-Host "All passed."

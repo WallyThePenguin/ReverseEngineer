@@ -21,6 +21,7 @@ import {
   VAULT_SERVICE,
   vaultFromEnv,
 } from "@hearth/modules";
+import { watchForStopRequest } from "./stop-request.ts";
 
 /** A log line with the time, so hearth-jarvis.log says when things happened. */
 function log(msg: string, err?: unknown): void {
@@ -45,6 +46,10 @@ export async function runJarvis(opts: RunJarvisOptions = {}): Promise<() => Prom
   if (ownProcess) watchForCrashes();
   const database = connect(databaseUrl(), { max: 6 });
   const dataDir = process.env.HEARTH_DATA_DIR ?? process.cwd();
+  // Watched for before anything is set up: on a busy PC Jarvis has taken two minutes to start,
+  // longer than an update waits for it to stop (D63). Until it runs, stopping it is exiting.
+  let stopRunning: (() => Promise<void>) | null = null;
+  const unwatch = watchAsTask((why) => exitAsTask(why, () => stopRunning?.() ?? Promise.resolve()));
   let service: Awaited<ReturnType<typeof startJarvis>>;
   try {
     const kernel = new Kernel({
@@ -79,6 +84,7 @@ export async function runJarvis(opts: RunJarvisOptions = {}): Promise<() => Prom
     });
     service = await startJarvis({ kernel, pool: database.pool, brain, log, runner: { turnLog } });
   } catch (err) {
+    unwatch();
     log("Jarvis couldn't start", err);
     await database.close().catch(() => {});
     if (ownProcess) {
@@ -90,11 +96,62 @@ export async function runJarvis(opts: RunJarvisOptions = {}): Promise<() => Prom
   }
   log("Jarvis is running: reacting to you and watching for things to handle.");
   const pidFile = writePidFile();
-  return async () => {
-    await service.stop();
-    await database.close();
-    if (pidFile) rmSync(pidFile, { force: true });
-  };
+  // Once, whoever asks first: SIGTERM, a stop request, or both.
+  let stopping: Promise<void> | null = null;
+  const stop = () =>
+    (stopping ??= (async () => {
+      unwatch();
+      await service.stop();
+      await database.close();
+      if (pidFile) rmSync(pidFile, { force: true });
+    })());
+  stopRunning = stop;
+  return stop;
+}
+
+/**
+ * How long Jarvis gives itself to stop once asked. With up to a second to notice and 20 to learn
+ * who asked (stop-request.ts), under the 40 seconds an update waits before it tries ending Jarvis
+ * itself (Stop-Jarvis, ops/windows/control-jarvis.ps1, whose test checks the two agree).
+ */
+const STOP_LIMIT_MS = 12_000;
+
+/**
+ * Stops as SIGTERM would, then exits 0 however the stop went: the task starts Jarvis again a
+ * minute after a failed exit, and one an update stopped must stay stopped while the code changes.
+ */
+function exitAsTask(why: string, stop: () => Promise<void>): void {
+  log(`${why}, so Jarvis is stopping.`);
+  const late = setTimeout(() => {
+    log(`Still stopping after ${STOP_LIMIT_MS / 1000} s. Exiting anyway.`);
+    process.exit(0);
+  }, STOP_LIMIT_MS);
+  late.unref();
+  void stop()
+    .catch((err) => log("stopping failed", err))
+    .finally(() => {
+      clearTimeout(late);
+      process.exit(0);
+    });
+}
+
+/** Hearth's services folder, where the task's Jarvis keeps its pid file; null when not the task. */
+function servicesDir(): string | null {
+  const dir = process.env.ProgramData;
+  if (process.env.HEARTH_AS_SERVICE !== "1" || !dir) return null;
+  return join(dir, "Hearth", "services");
+}
+
+/**
+ * As the "Hearth Jarvis" task, stops when asked through hearth-jarvis.stop, or when the task run
+ * that started it ends (stop-request.ts, D63). A request from before this process started was
+ * for an earlier Jarvis.
+ */
+function watchAsTask(stop: (why: string) => void): () => void {
+  const dir = servicesDir();
+  if (!dir) return () => {};
+  const file = join(dir, "hearth-jarvis.stop");
+  return watchForStopRequest({ file, startedAt: performance.timeOrigin, stop, log });
 }
 
 let watching = false;
@@ -111,13 +168,14 @@ function watchForCrashes(): void {
 }
 
 /**
- * As the "Hearth Jarvis" task, says which process is Jarvis, so ops/windows/update.ps1 can stop
- * it: an unelevated account can't read the command lines of the task's processes.
+ * As the "Hearth Jarvis" task, says which process is Jarvis, so ops/windows/control-jarvis.ps1
+ * knows which one to wait for (and, elevated, to end): an unelevated account can't read the
+ * command lines of the task's processes.
  */
 function writePidFile(): string | null {
-  const dir = process.env.ProgramData;
-  if (process.env.HEARTH_AS_SERVICE !== "1" || !dir) return null;
-  const file = join(dir, "Hearth", "services", "hearth-jarvis.pid");
+  const dir = servicesDir();
+  if (!dir) return null;
+  const file = join(dir, "hearth-jarvis.pid");
   try {
     writeFileSync(file, String(process.pid));
     return file;

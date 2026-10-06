@@ -4,6 +4,7 @@ import pg from "pg";
 import { connect, type Database } from "../client.ts";
 import { adminUrl, TEMPLATE_DB, withDatabase } from "./urls.ts";
 
+export { budget, fastest } from "./timing.ts";
 export { adminUrl, TEMPLATE_DB, withDatabase } from "./urls.ts";
 
 export interface TestDatabase extends Database {

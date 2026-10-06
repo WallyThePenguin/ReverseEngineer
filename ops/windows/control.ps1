@@ -1,8 +1,9 @@
 <#
   Stopping, starting and checking Hearth, shared by update.ps1 and restart.ps1, which dot-source
-  this file; it only defines functions. They run unelevated once install.ps1 has given your
-  account the rights to Hearth's two services and the "Hearth Jarvis" task. They read $Root, the
-  Hearth folder, from the script that dot-sources them.
+  this file; it only defines functions (Jarvis's are in control-jarvis.ps1, which it dot-sources).
+  They run unelevated once install.ps1 has given your account the rights to Hearth's two services
+  and the "Hearth Jarvis" task. They read $Root, the Hearth folder, from the script that
+  dot-sources them.
 #>
 
 function Get-EnvValue([string]$Name) {
@@ -24,39 +25,8 @@ function Resolve-HearthParts([string]$Which) {
   return @($Which)
 }
 
-# Whether $Proc is the Jarvis that wrote its pid file at $Written. The file outlives a Jarvis that
-# was killed or crashed, and Windows reuses pids; a process that got the pid later started after
-# the file was written, so it isn't Jarvis. One whose start time can't be read isn't trusted.
-function Test-JarvisPid($Proc, [datetime]$Written) {
-  if (-not $Proc -or $Proc.ProcessName -ne "node") { return $false }
-  try { $started = $Proc.StartTime } catch { return $false }
-  return $null -ne $started -and $started -le $Written.AddSeconds(5)
-}
-
-function Stop-Jarvis {
-  # Jarvis runs under cmd in the task; stopping the task ends cmd but not always the node under
-  # it, and an unelevated account can't read session-0 command lines. So: the pid Jarvis wrote at
-  # startup, plus every child of the task's running process.
-  $pids = @()
-  $pidFile = "$env:ProgramData\Hearth\services\hearth-jarvis.pid"
-  if (Test-Path $pidFile) {
-    $proc = Get-Process -Id ([int](Get-Content $pidFile -Raw).Trim()) -ErrorAction SilentlyContinue
-    if (Test-JarvisPid $proc (Get-Item $pidFile).LastWriteTime) { $pids += $proc.Id }
-  }
-  $scheduler = New-Object -ComObject Schedule.Service
-  $scheduler.Connect()
-  $task = $scheduler.GetFolder("\").GetTask("Hearth Jarvis")
-  foreach ($run in @($task.GetInstances(0))) {
-    $pids += @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $($run.EnginePID)" |
-      Where-Object { $_.Name -eq "node.exe" } | ForEach-Object { $_.ProcessId })
-  }
-  Stop-ScheduledTask -TaskName "Hearth Jarvis" -ErrorAction SilentlyContinue
-  foreach ($p in ($pids | Select-Object -Unique)) {
-    $proc = Get-Process -Id $p -ErrorAction SilentlyContinue
-    if ($proc -and $proc.ProcessName -eq "node") { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue }
-  }
-  $null = Wait-TaskStopped "Hearth Jarvis"
-}
+# Finding, stopping and waiting for Jarvis (D63).
+. "$PSScriptRoot\control-jarvis.ps1"
 
 # Until Windows no longer counts a task as running, up to $TimeoutSec. The task ignores a start
 # while a run is still counted (IgnoreNew), so `hearth restart jarvis`, which starts it again
@@ -71,15 +41,34 @@ function Wait-TaskStopped([string]$Name, [int]$TimeoutSec = 15) {
   return $false
 }
 
-function Stop-Hearth([string[]]$Parts = @("server", "worker", "jarvis")) {
+# Jarvis first: one that won't stop throws, leaving the rest as it was, unless -Anyway (a rollback
+# has to stop the rest whatever Jarvis does, even when stopping Jarvis fails outright: the code on
+# disk changes next).
+function Stop-Hearth([string[]]$Parts = @("server", "worker", "jarvis"), [switch]$Anyway) {
   Write-Host "== Stopping Hearth ($($Parts -join ', '))"
-  if ($Parts -contains "jarvis") { Stop-Jarvis }
+  $stuck = $null
+  if ($Parts -contains "jarvis") {
+    try { $stuck = Stop-Jarvis } catch {
+      if (-not $Anyway) { throw }
+      $stuck = "Stopping Jarvis failed: $($_.Exception.Message)"
+    }
+  }
+  if ($stuck -and -not $Anyway) { throw "$stuck." }
+  if ($stuck) { Write-Host "$($stuck.TrimEnd('.'))." }
   $services = @($Parts | Where-Object { $_ -ne "jarvis" } | ForEach-Object { "hearth-$_" })
   if ($services.Count) { Stop-Service $services }
 }
 
+# Refuses before it starts anything when a Jarvis is left over: the task couldn't start another
+# while that one holds the log, and an update rolling back would then find the services already
+# running the new code.
 function Start-Hearth([string[]]$Parts = @("server", "worker", "jarvis")) {
   Write-Host "== Starting Hearth ($($Parts -join ', '))"
+  if ($Parts -contains "jarvis") {
+    $stuck = Get-StuckJarvis
+    if ($stuck) { throw "$stuck." }
+    Clear-JarvisStopRequest (Get-ServiceDir)
+  }
   $services = @($Parts | Where-Object { $_ -ne "jarvis" } | ForEach-Object { "hearth-$_" })
   if ($services.Count) { Start-Service $services }
   if ($Parts -contains "jarvis") { Start-ScheduledTask -TaskName "Hearth Jarvis" }
@@ -146,10 +135,15 @@ function Get-DeepProblem($Deep, [datetime]$Since, [string]$Sha, [string[]]$Parts
     if (-not $c -or (ConvertTo-UtcTime $c.at) -lt $Since) { return "the $part hasn't reported in since it started" }
     # The jarvis component can be the worker saying Jarvis hasn't checked in; only a running
     # Jarvis writes jarvisAlive, and its since says when that Jarvis started, so one the stop
-    # missed (still on the old code) doesn't count either. (A server from before jarvisAlive,
-    # gone back to, doesn't say.)
+    # missed (still on the old code) doesn't count either. One that has checked in since the
+    # restart is that one, still running, and the new one can't start while it holds the log:
+    # named, so you know what to end (2026-10-05). (A server from before jarvisAlive, gone back
+    # to, doesn't say.)
     if ($part -eq "jarvis" -and $Deep.PSObject.Properties["jarvisAlive"] -and
       (ConvertTo-UtcTime $Deep.jarvisAlive.since) -lt $Since) {
+      if ($Deep.jarvisAlive.pid -and (ConvertTo-UtcTime $Deep.jarvisAlive.at) -ge $Since) {
+        return Format-StuckJarvis @([int]$Deep.jarvisAlive.pid)
+      }
       return "Jarvis hasn't checked in since it started"
     }
     if ($c.status -eq "failing" -and $Failed -notcontains $part) { return "the $part says: $($c.detail)" }

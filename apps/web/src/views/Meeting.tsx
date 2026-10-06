@@ -3,6 +3,7 @@
 
 import { createSignal, For, Show } from "solid-js";
 import { Body } from "../components/Body.tsx";
+import { Icon } from "../components/icons.tsx";
 import { Button } from "../components/ui.tsx";
 import { day } from "../lib/format.ts";
 import { layout, routeFor } from "../lib/panes.ts";
@@ -149,10 +150,12 @@ export function MeetingPanel(props: { id: string }) {
             <div>
               <button
                 type="button"
-                class="text-xs font-medium uppercase tracking-wide text-faint"
+                class="flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-faint"
+                aria-expanded={showTranscript()}
                 onClick={() => setShowTranscript(!showTranscript())}
               >
-                Transcript ({v().segments.length}) {showTranscript() ? "▾" : "▸"}
+                Transcript ({v().segments.length})
+                <Icon name={showTranscript() ? "chevron-down" : "chevron-right"} size={14} />
               </button>
               <Show when={showTranscript()}>
                 <ul class="mt-1 space-y-1 text-sm">
