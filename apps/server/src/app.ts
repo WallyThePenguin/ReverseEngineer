@@ -218,6 +218,7 @@ export function createApp(opts: AppOptions) {
       });
     },
     async stop() {
+      timings.report();
       detachSockets?.();
       bridge.close();
       push?.stop();
