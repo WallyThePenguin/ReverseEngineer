@@ -99,10 +99,16 @@ try {
 
   await step("start-up: a request that never answers gives up, then recovers", async (p) => {
     let first = true;
+    let answer: () => void = () => {};
+    const answering = new Promise<void>((r) => {
+      answer = r;
+    });
     await p.route("**/api/auth/me", async (r) => {
-      if (!first) return r.continue();
-      first = false;
       // Left hanging: the app stops waiting after 10 s.
+      if (first) return void (first = false);
+      // Its retries wait for the keys below, so the notice is still up when they're pressed.
+      await answering;
+      await r.continue();
     });
     await boot(p);
     // Signed in here before, so Hearth is drawn at once while the server is still being asked.
@@ -113,6 +119,7 @@ try {
     // Keys don't reach what's covered: this would go to Tasks.
     await p.keyboard.press("g");
     await p.keyboard.press("t");
+    answer();
     await notice.waitFor({ state: "detached", timeout: 10_000 });
     await home(p).waitFor();
     if (await p.getByRole("heading", { name: "Tasks", exact: true }).count())
