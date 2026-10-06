@@ -2,15 +2,17 @@ import {
   calendar,
   githubAccount,
   googleAccount,
-  googleQuota,
   mailAccount,
   notification,
+  slackBot,
   slackWorkspace,
 } from "@hearth/db";
+import { setSetting } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
-import { ALL_MODULES } from "@hearth/modules";
+import { ALL_MODULES, botTrouble, INSTALL_SERVICE, saveBotHealth } from "@hearth/modules";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { HealthReport } from "./health.ts";
 import { reportHealth } from "./health.ts";
 import { checkSyncs, ErrorClock, judgeSync } from "./sync-health.ts";
 
@@ -210,107 +212,133 @@ describe("checkSyncs", () => {
       { title: "GitHub sync is failing", urgency: "interrupt" },
     ]);
   });
+});
 
-  it("leaves mail's verdict to mail itself: a pause is calm, an error fails only once mail says so (D55)", async () => {
-    const clock = new ErrorClock();
-    const now = t.kernel.clock.now();
-    await t.tdb.db.insert(mailAccount).values({
-      id: "gmail:me@example.com",
-      provider: "gmail",
-      address: "me@example.com",
-      syncedAt: new Date(now.getTime() - 20 * 60_000),
-      // A network error 15 minutes ago, then Google asked Hearth to slow down: the error stays on
-      // the row while the account waits out the pause.
-      lastError: "socket hang up",
-      failures: 1,
-      failingSince: new Date(now.getTime() - 15 * 60_000),
-      syncState: "paused",
-      pausedUntil: new Date(now.getTime() + 2 * 60_000),
-    });
-    let [google] = await checkSyncs(t.kernel, clock);
-    expect(google).toMatchObject({ component: "sync.google", status: "ok" });
-    expect(google?.detail).toMatch(/slow down/);
-
-    // The pause is over and it failed again, but mail hasn't called it failing yet (D55 waits for
-    // three in a row): worth a look, not an alert.
-    await t.tdb.db
-      .update(mailAccount)
-      .set({ syncState: "catching_up", pausedUntil: null, failures: 2 });
-    [google] = await checkSyncs(t.kernel, clock);
-    expect(google).toMatchObject({ status: "degraded" });
-
-    await t.tdb.db.update(mailAccount).set({ syncState: "failing", failures: 3 });
-    [google] = await checkSyncs(t.kernel, clock);
-    expect(google).toMatchObject({ status: "failing" });
+describe("Jarvis's Slack socket (D62)", () => {
+  let t: TestKernel;
+  /** When the socket last said it was connected. */
+  let lastUp: Date;
+  beforeEach(async () => {
+    t = await createTestKernel(ALL_MODULES);
+    lastUp = t.kernel.clock.now();
   });
+  afterEach(() => t.destroy());
 
-  it("calls a pause Google won't let up on worth a look, then failing after two hours, saying why", async () => {
-    const soon = () => new Date(t.kernel.clock.now().getTime() + 60_000);
-    const start = t.kernel.clock.now();
-    const reason = "Quota exceeded for quota metric 'Queries' (quota limit: 250)";
-    await t.tdb.db.insert(googleAccount).values({ email: "me@example.com", refreshToken: "x" });
-    await t.tdb.db.insert(mailAccount).values({
-      id: "gmail:me@example.com",
-      provider: "gmail",
-      address: "me@example.com",
-      syncedAt: start,
-      syncState: "paused",
-      pausedUntil: soon(),
+  const at = () => t.kernel.clock.now();
+  async function connectBot() {
+    await t.tdb.db.insert(slackWorkspace).values({ ...ACME, syncedAt: at() });
+    await t.tdb.db.insert(slackBot).values({
+      teamId: "T1",
+      appId: "A0C0RPY4WKV",
+      botUserId: "UJARVIS",
+      botId: "BJARVIS",
+      ownerIm: "DUME",
+      installId: "install-live",
+      botToken: "sealed-bot",
+      appToken: "sealed-app",
+      connectedAt: at(),
     });
-    await t.tdb.db
-      .insert(googleQuota)
-      .values({ account: "me@example.com", service: "gmail", pausedUntil: soon(), reason });
-    const check = async () => (await checkSyncs(t.kernel, new ErrorClock()))[0]!;
-    expect(await check()).toMatchObject({ status: "ok" });
-    expect((await check()).detail).toContain(reason);
+    // The socket is held only once members are on, on the install that connected it.
+    await setSetting(t.tdb.db, "slack.bot.membersOn", true);
+    t.kernel.services[INSTALL_SERVICE] = { id: () => "install-live" };
+  }
+  /**
+   * The socket's word on itself, as it would give it, `minutes` from now. Down, it's been down
+   * since `went`, when the worker saw it go: by default right after it was last connected.
+   */
+  async function socket(minutes: number, code: string | null, went = lastUp) {
+    t.clock.advance(minutes * 60_000);
+    if (!code) lastUp = at();
+    const down = code ? { trouble: botTrouble(code), since: went } : null;
+    return saveBotHealth(t.kernel.db, "T1", at(), down);
+  }
+  const bot = (reports: HealthReport[]) => reports.find((r) => r.component === "sync.slack_bot");
+  const check = () => checkSyncs(t.kernel, new ErrorClock());
 
-    // Each pause runs out and Google asks again: nothing new for 40 minutes.
-    t.clock.advance(40 * 60_000);
-    await t.tdb.db.update(mailAccount).set({ pausedUntil: soon() });
-    expect(await check()).toMatchObject({
+  it("fails only after half an hour without a connection, longer than an update's restart, and tells you once a day", async () => {
+    await connectBot();
+    await socket(0, null);
+    expect(bot(await check())).toEqual({
+      component: "sync.slack_bot",
+      status: "ok",
+      detail: "Syncing (Jarvis in Acme)",
+    });
+    // Down for a restart: tries keep failing for a few minutes. Worth a look, not an alert.
+    for (const m of [1, 1, 3, 4]) await socket(m, "socket_unreachable");
+    let reports = await check();
+    expect(bot(reports)).toMatchObject({
       status: "degraded",
-      detail: `me@example.com mail: nothing synced for 40 min, as Google keeps asking Hearth to slow down (${reason}); trying again at 10:41 a.m.`,
+      detail:
+        "Jarvis in Acme: the last sync failed: Jarvis's Slack socket is down: socket_unreachable.",
     });
+    await reportHealth(t.kernel, reports);
+    expect(await alerts(t)).toEqual([]);
 
-    t.clock.advance(90 * 60_000);
-    await t.tdb.db.update(mailAccount).set({ pausedUntil: soon() });
-    const failing = await check();
-    expect(failing).toMatchObject({ status: "failing" });
-    await reportHealth(t.kernel, [failing]);
-    expect(await alerts(t)).toMatchObject([{ title: "Google sync is failing" }]);
-  });
-
-  it("takes calendars' verdict from their own sync, one line per account (D61)", async () => {
-    await t.tdb.db.insert(googleAccount).values({
-      email: "me@example.com",
-      refreshToken: "x",
-      calendarState: "failing",
-      calendarError: "Work: Not Found",
-      calendarSyncedAt: t.kernel.clock.now(),
-    });
-    await t.tdb.db.insert(calendar).values({
-      id: "work",
-      account: "me@example.com",
-      googleId: "work@group.calendar.google.com",
-      title: "Work",
-      lastError: "Not Found",
-    });
-    expect(await checkSyncs(t.kernel, new ErrorClock())).toEqual([
-      {
-        component: "sync.google",
-        status: "failing",
-        detail: "me@example.com calendar: Work: Not Found",
-      },
+    // Still down 30 minutes after it was last connected.
+    await socket(21, "socket_unreachable");
+    reports = await check();
+    expect(bot(reports)).toMatchObject({ status: "failing" });
+    await reportHealth(t.kernel, reports);
+    expect(await alerts(t)).toMatchObject([
+      { title: "Jarvis's Slack bot is failing", urgency: "interrupt" },
     ]);
 
-    // One blip, then Google asks Hearth to wait: the pause shows, not the blip from before it.
-    const until = new Date(t.kernel.clock.now().getTime() + 60_000);
-    await t.tdb.db.update(googleAccount).set({ calendarState: "ok", calendarFailures: 1 });
-    await t.tdb.db
-      .insert(googleQuota)
-      .values({ account: "me@example.com", service: "calendar", pausedUntil: until });
-    const [paused] = await checkSyncs(t.kernel, new ErrorClock());
-    expect(paused).toMatchObject({ status: "ok" });
-    expect(paused?.detail).toMatch(/me@example.com calendar: Google asked Hearth to slow down/);
+    // Back, then down for another half hour the same day: no second alert.
+    await socket(1, null);
+    await reportHealth(t.kernel, await check());
+    for (const m of [1, 1, 1, 30]) await socket(m, "socket_unreachable");
+    reports = await check();
+    expect(bot(reports)).toMatchObject({ status: "failing" });
+    await reportHealth(t.kernel, reports);
+    expect(await alerts(t)).toHaveLength(1);
+  });
+
+  it("counts the time down from when the worker saw the socket go, so a PC waking from sleep isn't failing", async () => {
+    await connectBot();
+    await socket(0, null);
+    // The PC sleeps for an hour. Waking, the worker finds the socket gone, and the Wi-Fi isn't
+    // back for three tries a few seconds apart: the last hello is an hour old, but it isn't failing.
+    t.clock.advance(60 * 60_000);
+    const went = at();
+    for (let i = 0; i < 3; i++) await socket(0.05, "socket_unreachable", went);
+    let reports = await check();
+    expect(bot(reports)).toMatchObject({ status: "degraded" });
+    await reportHealth(t.kernel, reports);
+    expect(await alerts(t)).toEqual([]);
+
+    // Still down half an hour after the worker saw it go: failing.
+    await socket(29, "socket_unreachable", went);
+    expect(bot(await check())).toMatchObject({ status: "degraded" });
+    await socket(1, "socket_unreachable", went);
+    reports = await check();
+    expect(bot(reports)).toMatchObject({ status: "failing" });
+    await reportHealth(t.kernel, reports);
+    expect(await alerts(t)).toHaveLength(1);
+  });
+
+  it("calls a revoked bot failing at once, and leaves it revoked until it has new tokens", async () => {
+    await connectBot();
+    await socket(0, null);
+    await socket(1, "link_disabled");
+    const reports = await check();
+    expect(bot(reports)).toMatchObject({ status: "failing" });
+    expect(bot(reports)?.detail).toMatch(/Slack turned off Socket Mode for Jarvis's app/);
+    await reportHealth(t.kernel, reports);
+    expect(await alerts(t)).toHaveLength(1);
+    // Nothing the socket says changes that; slack.bot_replace_tokens does.
+    expect(await socket(1, null)).toBeNull();
+    expect((await t.tdb.db.select().from(slackBot))[0]?.syncState).toBe("revoked");
+  });
+
+  it("isn't judged where nothing listens: members off, or another install's bot", async () => {
+    await connectBot();
+    await socket(0, null);
+    await socket(45, "socket_unreachable");
+    expect(bot(await check())).toMatchObject({ status: "degraded" });
+    t.kernel.services[INSTALL_SERVICE] = { id: () => "a-dev-copy" };
+    expect(bot(await check())).toBeUndefined();
+    t.kernel.services[INSTALL_SERVICE] = { id: () => "install-live" };
+    await setSetting(t.tdb.db, "slack.bot.membersOn", false);
+    expect(bot(await check())).toBeUndefined();
   });
 });

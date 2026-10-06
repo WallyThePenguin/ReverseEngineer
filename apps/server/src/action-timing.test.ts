@@ -37,6 +37,26 @@ describe("ActionTimings", () => {
   });
 });
 
+describe("in the server's log", () => {
+  it("has each run over a second as it happens, and the whole table as the server stops", () => {
+    const lines: string[] = [];
+    const timings = new ActionTimings((line) => lines.push(line));
+    timings.record("task.list", 40);
+    timings.record("mail.sync", 1_234.4);
+    expect(lines).toEqual(["Slow action: mail.sync took 1234 ms"]);
+    timings.report();
+    expect(lines[1]).toBe(
+      "Action times since the server started (ms): mail.sync ×1 p50 1234 p95 1234 max 1234; task.list ×1 p50 40 p95 40 max 40",
+    );
+  });
+
+  it("has nothing at a stop when nothing ran", () => {
+    const lines: string[] = [];
+    new ActionTimings((line) => lines.push(line)).report();
+    expect(lines).toEqual([]);
+  });
+});
+
 describe("in deep health", () => {
   it("lists the actions run since the server started, by name only", async () => {
     t = await createTestServer({ devAuth: true });

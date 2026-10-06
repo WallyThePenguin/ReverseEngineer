@@ -21,6 +21,10 @@ const TRIGGER_NOTES: Record<TurnTrigger, string> = {
     "This is one of your scheduled routines. Nobody is waiting on a reply; use your tools to publish results.",
   voice_command:
     "The owner spoke a command from the desktop app and is waiting, cursor in place. Your final reply is pasted where they're typing, replacing what they selected: reply with only that text, no preamble, quotes or markdown fences. You have no tools this turn; work only from what's here.",
+  // A member's turn is built from its own prompt, which holds only what the owner shared (D62);
+  // this is what it says should one ever reach this one.
+  slack_member:
+    "Someone in the owner's Slack workspace wrote to you. You're answering them, not the owner: share nothing the owner hasn't written down to share. Your final reply goes to them in Slack.",
 };
 
 export interface PromptInput {

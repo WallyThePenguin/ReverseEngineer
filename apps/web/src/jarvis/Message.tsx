@@ -30,6 +30,10 @@ export function LogItem(props: { item: ConversationItem }) {
         {(m) => (
           <Show when={m().role === "you"} fallback={<JarvisSays text={m().text} />}>
             <div class="ml-8 rounded-lg bg-sunk px-3 py-2">
+              {/* Someone in Slack wrote it, or you did, in your DM with Jarvis (D62). */}
+              <Show when={m().author ?? (m().via === "slack" ? "You, in Slack" : null)}>
+                {(who) => <p class="mb-0.5 text-xs font-medium text-muted">{who()}</p>}
+              </Show>
               <Body text={m().text} />
             </div>
           </Show>

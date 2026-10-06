@@ -41,10 +41,14 @@ export async function interruptDecision(
   );
 }
 
-/** A deadline a model made up after reading outside content (or an outside agent's) is shown,
- * but doesn't get to wake you or break through the day's budget (D54). */
-const vouchesForDeadline = (c: Caller) =>
-  !(c.kind === "agent" && c.origin === "untrusted") && c.kind !== "mcp_client";
+/**
+ * Whether a deadline can wake you or break through the day's budget (D54): only yours, Hearth's
+ * own, or Jarvis's before it read outside content. One an outside agent, an integration or a
+ * Slack member gave is shown, but waits like anything else (D62). It names who may, so a new
+ * kind of caller may not until it's added here.
+ */
+export const vouchesForDeadline = (c: Pick<Caller, "kind" | "origin">) =>
+  c.kind === "owner" || c.kind === "system" || (c.kind === "agent" && c.origin !== "untrusted");
 
 /**
  * Creates an inbox item. With a dedupe key, a second call for the same thing is a no-op and

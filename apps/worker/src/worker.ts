@@ -1,12 +1,17 @@
 // The worker: fires schedules (routines, reminders, checks), checks watched pages, syncs
-// Google Calendar, mail, Slack and GitHub, and keeps an eye on Hearth's health.
+// Google Calendar, mail, Slack, GitHub and Notion, holds Jarvis's Slack socket and posts what
+// Jarvis says there, and keeps an eye on Hearth's health.
 
-import { githubAccount, googleAccount, slackWorkspace } from "@hearth/db";
+import { githubAccount, googleAccount, notionAccount, slackWorkspace } from "@hearth/db";
 import { integrationCaller, type Kernel, pruneAudit, startScheduler } from "@hearth/kernel";
+import { clearOldInbound, type InboundStore } from "@hearth/modules";
 import { checkHealth, type HealthOptions, reportHealth } from "./health.ts";
 import { jarvisWatchdog } from "./jarvis-watchdog.ts";
 import { type MailRoundOptions, mailRound } from "./mail-loop.ts";
 import { scheduleWatch } from "./schedule-health.ts";
+import { type SlackBot, startSlackBot } from "./slack-bot.ts";
+import { type SlackOutbox, type SlackOutboxOptions, startSlackOutbox } from "./slack-outbox.ts";
+import { type SlackTake, startSlackTake } from "./slack-take.ts";
 import { checkSyncs, ErrorClock } from "./sync-health.ts";
 import { checkDueWatches } from "./watches.ts";
 
@@ -20,6 +25,14 @@ export interface WorkerOptions extends HealthOptions {
   mailRound?: Omit<MailRoundOptions, "log">;
   slackIntervalMs?: number;
   githubIntervalMs?: number;
+  notionIntervalMs?: number;
+  /**
+   * Where Jarvis's Slack socket stores what it hears, on a connection of its own (D62). Without
+   * it the worker doesn't hold the socket.
+   */
+  slackInbound?: InboundStore;
+  /** Where the Slack outbox hears a new post (LISTEN), so it goes at once rather than within 5 s. */
+  listenPool?: SlackOutboxOptions["pool"];
   log?: (msg: string, err?: unknown) => void;
 }
 
@@ -159,13 +172,51 @@ export function startWorker(opts: WorkerOptions) {
   const githubTimer = setInterval(github, opts.githubIntervalMs ?? 2 * 60_000);
   void github();
 
-  // Routine audit rows (reads, check-ins, syncs) are let go after a while (AUDIT_KEEP).
+  // Your Notion task board, every five minutes once you've picked it in Settings (D68).
+  let reading = false;
+  const notion = async () => {
+    if (reading) return;
+    reading = true;
+    try {
+      const [any] = await kernel.db
+        .select({ board: notionAccount.sourceId })
+        .from(notionAccount)
+        .limit(1);
+      if (!any?.board) return;
+      const res = await kernel.execute("notion.sync", {}, integrationCaller("notion"));
+      if (res.status !== "ok") log(`notion sync: ${JSON.stringify(res)}`);
+    } catch (err) {
+      log("notion sync failed", err);
+    } finally {
+      reading = false;
+    }
+  };
+  const notionTimer = setInterval(notion, opts.notionIntervalMs ?? 5 * 60_000);
+  void notion();
+
+  // Jarvis's Slack socket: it listens once members are on, on the install that connected it.
+  const slackBot: SlackBot | null = opts.slackInbound
+    ? startSlackBot({ kernel, inbound: opts.slackInbound, log: (m, e) => log(m, e) })
+    : null;
+  // And the one sender of what Jarvis posts there, on the same install (D62).
+  const slackOutbox: SlackOutbox | null = opts.slackInbound
+    ? startSlackOutbox({ kernel, pool: opts.listenPool, log: (m, e) => log(m, e) })
+    : null;
+  // And the take loop: who wrote, their conversation, and a turn or a relay to you (D62).
+  const slackTake: SlackTake | null = opts.slackInbound
+    ? startSlackTake({ kernel, log: (m, e) => log(m, e) })
+    : null;
+
+  // Routine audit rows (reads, check-ins, syncs) are let go after a while (AUDIT_KEEP), and what
+  // Slack members wrote to Jarvis after 30 days (D62).
   const prune = async () => {
     try {
       const n = await pruneAudit(kernel.db, kernel.clock.now());
       if (n) log(`let go of ${n} old routine audit rows`);
+      const cleared = await clearOldInbound(kernel.db, kernel.clock.now());
+      if (cleared) log(`cleared the text of ${cleared} Slack messages to Jarvis over 30 days old`);
     } catch (err) {
-      log("pruning the audit log failed", err);
+      log("pruning old rows failed", err);
     }
   };
   const pruneTimer = setInterval(prune, 6 * 3_600_000);
@@ -176,17 +227,25 @@ export function startWorker(opts: WorkerOptions) {
     prune,
     slack,
     github,
+    notion,
     watches,
     calendars,
     mail,
+    slackBot,
+    slackOutbox,
+    slackTake,
     tick: scheduler.tick,
     stop() {
+      slackBot?.stop();
+      void slackOutbox?.stop();
+      void slackTake?.stop();
       clearInterval(timer);
       clearInterval(watchTimer);
       clearInterval(calendarTimer);
       clearInterval(mailTimer);
       clearInterval(slackTimer);
       clearInterval(githubTimer);
+      clearInterval(notionTimer);
       clearInterval(pruneTimer);
       scheduler.stop();
     },

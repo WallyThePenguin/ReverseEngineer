@@ -66,7 +66,7 @@ describe("the Jarvis contract", () => {
         missing.push(`${m.name}: nothing reacts to ${kind}`);
       if (!m.digest) missing.push(`${m.name}: nothing for the brief`);
     }
-    expect(checked.sort()).toEqual(["calendar", "github", "mail", "slack"]);
+    expect(checked.sort()).toEqual(["calendar", "github", "mail", "notion", "slack"]);
     expect(missing).toEqual([]);
   });
 

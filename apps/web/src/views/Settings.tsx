@@ -16,6 +16,7 @@ import { DesktopSettings } from "./DesktopSettings.tsx";
 import { GithubSettings } from "./GithubSettings.tsx";
 import { GoogleSettings } from "./GoogleSettings.tsx";
 import { ImportSettings } from "./ImportSettings.tsx";
+import { NotionSettings } from "./NotionSettings.tsx";
 import { PhoneSettings } from "./PhoneSettings.tsx";
 import { RoutineSettings } from "./RoutineSettings.tsx";
 import { Anchor, SettingsNav } from "./SettingsNav.tsx";
@@ -28,6 +29,8 @@ const PART: Record<string, string> = {
   "sync.google": "Google",
   "sync.slack": "Slack",
   "sync.github": "GitHub",
+  "sync.notion": "Notion",
+  "sync.slack_bot": "Slack bot",
   browser: "Chrome",
 };
 
@@ -146,6 +149,9 @@ export function Settings() {
         </Anchor>
         <Anchor id="github">
           <GithubSettings />
+        </Anchor>
+        <Anchor id="notion">
+          <NotionSettings />
         </Anchor>
         <Anchor id="import">
           <ImportSettings />

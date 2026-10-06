@@ -206,6 +206,7 @@ export const TYPE_LABEL: Record<string, string> = {
   email_draft: "Draft",
   slack_message: "Slack",
   github_pr: "Pull request",
+  notion_task: "Notion ticket",
 };
 
 export function who(principal: string): string {

@@ -3,6 +3,7 @@
 import { credential, type Database, type MigrationState, migrationState } from "@hearth/db";
 import { type DeepHealth, deepHealth, type TurnStats, whyFailed } from "@hearth/server";
 import type { Check, Mark } from "./doctor.ts";
+import { checkSlackBot } from "./doctor-slack.ts";
 
 /** More than this share of the last day's turns failing is a fail; any failure is a warning. */
 export const TURN_FAILURE_LIMIT = 0.1;
@@ -30,13 +31,18 @@ export function checkTurns(turns: TurnStats): Check {
   if (!turns.total) return { name, mark: "ok", detail: "None in the last 24 hours" };
   const last = turns.last?.error ? ` Last error: ${turns.last.error}` : "";
   const share = turns.failed / turns.total;
-  const detail = `${turns.failed} of ${turns.total} failed in the last 24 hours.${last}`;
+  // Older reports (a Hearth not yet updated) don't have the breakdown.
+  const kinds = (turns.failures48h ?? [])
+    .map((f) => `${f.routine ?? f.trigger}/${f.errorKind ?? "unknown"} x${f.n}`)
+    .join(", ");
+  const by = kinds ? ` Failures in 48 hours: ${kinds}.` : "";
+  const detail = `${turns.failed} of ${turns.total} failed in the last 24 hours.${last}${by}`;
   if (share > TURN_FAILURE_LIMIT) return { name, mark: "fail", detail };
   if (turns.failed) return { name, mark: "warn", detail };
   return { name, mark: "ok", detail: `${turns.total} in the last 24 hours, none failed` };
 }
 
-/** One check per health component, stale ones failing (D57). */
+/** One check per health component, stale ones failing (D57), someone else's service warning. */
 export function checkComponents(report: DeepHealth): Check[] {
   const checks: Check[] = [];
   if (!report.components.backup)
@@ -46,7 +52,9 @@ export function checkComponents(report: DeepHealth): Check[] {
       detail: "No backup has run yet. See docs/setup-windows.md.",
     });
   for (const [name, h] of Object.entries(report.components)) {
-    const mark: Mark = MARK[h.status];
+    // Slack dropping Jarvis's socket is a warning, not a fail: an update can't fix it, so the
+    // update's before-and-after doctor mustn't roll one back over it (D62).
+    const mark: Mark = h.external && h.status === "failing" ? "warn" : MARK[h.status];
     checks.push({ name, mark, detail: h.detail || h.status });
   }
   return checks;
@@ -82,5 +90,7 @@ export async function checkDatabase(database: Database, now = new Date()): Promi
   });
   checks.push(...checkComponents(report));
   if (report.jarvisTurns24h) checks.push(checkTurns(report.jarvisTurns24h));
+  const bot = await checkSlackBot(database.db, now);
+  if (bot) checks.push(bot);
   return checks;
 }

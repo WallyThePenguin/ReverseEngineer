@@ -12,6 +12,7 @@ export const SETTINGS_SECTIONS = [
   { id: "google", label: "Google" },
   { id: "slack", label: "Slack" },
   { id: "github", label: "GitHub" },
+  { id: "notion", label: "Notion" },
   { id: "import", label: "Import" },
   { id: "signins", label: "Sign-ins" },
   { id: "routines", label: "Routines" },

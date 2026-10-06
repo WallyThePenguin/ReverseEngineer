@@ -81,6 +81,7 @@ const LABELS: [RegExp, string][] = [
   [/mail|gmail/i, "an email"],
   [/slack/i, "a Slack message"],
   [/github/i, "something on GitHub"],
+  [/notion/i, "a Notion page"],
   [/calendar|meeting|event/i, "a calendar invitation"],
   [/voice|heard|device/i, "words the desktop app heard"],
   [/mcp/i, "an outside app"],

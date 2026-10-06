@@ -1,14 +1,21 @@
 // What counts as outside content (D25, D58): records an outside tool wrote, records written by a
 // turn that had read some (entity.outside), rows kept as untrusted, and types whose records quote
 // the outside world (an email, a watched page). Reading any of it lowers a turn's trust.
+import { PRINCIPAL } from "@hearth/core";
 import { type DbOrTx, entity } from "@hearth/db";
 import { inArray } from "drizzle-orm";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Written by an outside tool or integration, so its text is outside content (D25). */
-export const fromOutsideTool = (by: string) =>
-  by.startsWith("integration:") || by.startsWith("mcp:");
+/** The authors whose words aren't outside content: you, Jarvis and Hearth itself. */
+const INSIDERS = new Set<string>([PRINCIPAL.owner, PRINCIPAL.jarvis, PRINCIPAL.system]);
+
+/**
+ * Written by someone else (an outside agent, an integration, a Slack member: `mcp:`,
+ * `integration:`, `member:`), so its text is outside content (D25, D62). It names who's inside
+ * rather than who's outside, so a new kind of author is outside until it's added here.
+ */
+export const fromOutsideTool = (by: string) => !INSIDERS.has(by);
 
 /** A record whose text is outside content. */
 export function isOutsideRecord(

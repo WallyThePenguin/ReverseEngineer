@@ -19,7 +19,10 @@ export const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });
 
 export const principal = pgTable("principal", {
   id: text("id").primaryKey(),
-  kind: text("kind").$type<"owner" | "agent" | "mcp_client" | "integration" | "system">().notNull(),
+  /** "member": someone in your Slack workspace writing to Jarvis's bot (D62). */
+  kind: text("kind")
+    .$type<"owner" | "agent" | "mcp_client" | "integration" | "system" | "member">()
+    .notNull(),
   displayName: text("display_name").notNull(),
   entityId: uuid("entity_id"),
   createdAt: ts("created_at").notNull().defaultNow(),
