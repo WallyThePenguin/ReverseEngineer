@@ -15,6 +15,7 @@ vi.mock("./query.ts", () => ({
     calls.push({ name, input });
     if (name === "mail.draft") return { id: "new-draft", threadId: input.threadId };
     if (name === "task.create") return { id: "task-1", title: input.title };
+    if (name === "mail.archive") return { changed: 1, inbox: ["m1", "m3"] };
     return {};
   },
 }));
@@ -34,10 +35,12 @@ const {
   cursorFor,
   cursorPlaced,
   listClosed,
+  makeTask,
   nextAfter,
   nextInList,
   openedFrom,
   reply,
+  showThread,
   taskFrom,
 } = await import("./mailActions.ts");
 
@@ -63,7 +66,7 @@ describe("archiving moves on", () => {
 
   it("through the list it was opened from, until that list closes", () => {
     const list = () => rows("a", "b");
-    openedFrom(list);
+    openedFrom(list, "a");
     expect(nextInList("a")?.id).toBe("b");
     // Another list closing leaves this one in place.
     listClosed(() => rows("x"));
@@ -72,12 +75,31 @@ describe("archiving moves on", () => {
     expect(nextInList("a")).toBeUndefined();
   });
 
-  it("with Undo on the toast, which puts it back in the inbox", async () => {
+  it("and on again, from each conversation it moved on to", () => {
+    const list = () => rows("a", "b", "c");
+    openedFrom(list, "a");
+    showThread(rows("b")[0]!, 0);
+    expect(nextInList("b")?.id).toBe("c");
+    listClosed(list);
+  });
+
+  it("not from a conversation opened somewhere else while the list stays open", () => {
+    const list = () => rows("a", "b", "c");
+    openedFrom(list, "a");
+    // "b" opened from a task's link or Ctrl+K: archiving it closes it instead.
+    expect(nextInList("b")).toBeUndefined();
+    listClosed(list);
+  });
+
+  it("with Undo on the toast, which puts back just the messages it took out", async () => {
     expect(await archive("a")).toBe(true);
     expect(calls).toEqual([{ name: "mail.archive", input: { ids: ["a"] } }]);
     expect(toasts[0]?.action?.label).toBe("Undo");
     toasts[0]?.action?.run();
-    expect(calls.at(-1)).toEqual({ name: "mail.unarchive", input: { ids: ["a"] } });
+    expect(calls.at(-1)).toEqual({
+      name: "mail.unarchive",
+      input: { ids: ["a"], messages: ["m1", "m3"] },
+    });
   });
 });
 
@@ -94,6 +116,11 @@ describe("a task from an email", () => {
     const from = { name: "Sam Lee", address: "sam@example.com" };
     expect(taskFrom({ id: THREAD, subject: "", from }).title).toBe("Email from Sam Lee");
     expect(taskFrom({ id: THREAD, subject: " " }).title).toBe("An email");
+  });
+
+  it("is marked as outside text, since the sender wrote its title", async () => {
+    await makeTask({ id: THREAD, subject: "Pay now", account: "me@x.example", participants: [] });
+    expect(calls[0]).toMatchObject({ name: "task.create", input: { outside: true } });
   });
 
   it("keeps a subject with markup in it as text", () => {

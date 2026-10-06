@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { date, dateTime, hours, humanTimes, plural, span } from "./format.ts";
+import { date, dateTime, due, dueInFull, hours, humanTimes, plural, span } from "./format.ts";
 
 const NOW = new Date(2026, 9, 5, 9, 0);
 
@@ -38,6 +38,38 @@ describe("dates and times as you'd say them", () => {
     expect(plural(1, "guest")).toBe("1 guest");
     expect(plural(3, "guest")).toBe("3 guests");
     expect(plural(0, "person", "people")).toBe("0 people");
+  });
+});
+
+describe("due dates", () => {
+  const today = new Date(2026, 9, 5).toISOString();
+  const yesterday = new Date(2026, 9, 4).toISOString();
+
+  it("has a whole day due all that day, and overdue only from the next", () => {
+    expect(due(today, true, NOW)).toEqual({ text: "today", overdue: false, soon: true });
+    expect(due(yesterday, true, NOW)).toMatchObject({ overdue: true, soon: false });
+    expect(due(new Date(2026, 9, 6).toISOString(), true, NOW)).toMatchObject({
+      overdue: false,
+      soon: false,
+    });
+  });
+
+  it("has a time overdue once it's gone", () => {
+    expect(due(new Date(2026, 9, 5, 8).toISOString(), false, NOW)?.overdue).toBe(true);
+    expect(due(new Date(2026, 9, 5, 15).toISOString(), false, NOW)).toEqual({
+      text: "today 3 p.m.",
+      overdue: false,
+      soon: true,
+    });
+  });
+
+  it("says one read from what you typed in full, past tomorrow", () => {
+    expect(dueInFull(today, true, NOW)).toBe("today");
+    expect(dueInFull(new Date(2026, 9, 6, 15).toISOString(), false, NOW)).toBe("tomorrow 3 p.m.");
+    expect(dueInFull(new Date(2026, 9, 16, 15).toISOString(), false, NOW)).toBe(
+      "Fri, Oct 16, 3 p.m.",
+    );
+    expect(dueInFull(new Date(2027, 0, 14).toISOString(), true, NOW)).toBe("Thu, Jan 14, 2027");
   });
 });
 
