@@ -114,6 +114,33 @@ describe("Google Calendar", () => {
     expect(direct).toMatchObject({ status: "error", code: "forbidden" });
   });
 
+  it("adds a guest-free event without asking, even from an email, only to your own calendar", async () => {
+    g.addCalendar({ id: "team@group.example", summary: "Team", accessRole: "writer" });
+    await sync();
+    const fromMail = jarvisCaller("untrusted");
+    const times = { start: "2026-10-02T15:00:00-04:00", end: "2026-10-02T16:00:00-04:00" };
+    const dentist = await h.kernel.execute<EventView>(
+      "calendar.create_event",
+      { title: "Dentist", ...times, attendees: ["someone@elsewhere.example"] },
+      fromMail,
+    );
+    expect(dentist.status).toBe("ok");
+    // Nobody is invited, whatever the call carried.
+    const posted = g.calls.filter((c) => c.method === "POST").at(-1);
+    expect(JSON.stringify(posted?.body)).not.toContain("elsewhere");
+    // Moving or removing it still asks.
+    const id = dentist.status === "ok" ? dentist.result.id : "";
+    const gone = await h.kernel.execute("calendar.delete_event", { id }, fromMail);
+    expect(gone.status).toBe("pending_approval");
+    // A shared calendar would show it to other people.
+    const team = await h.kernel.execute(
+      "calendar.create_event",
+      { title: "Dentist", ...times, calendarId: "team@group.example" },
+      fromMail,
+    );
+    expect(team).toMatchObject({ status: "error", code: "forbidden" });
+  });
+
   it("finds free time in working hours only, around meetings", async () => {
     g.put(CAL, {
       summary: "Busy",

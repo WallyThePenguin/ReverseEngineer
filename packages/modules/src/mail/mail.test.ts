@@ -165,6 +165,40 @@ describe("triage", () => {
     expect(starred).toMatchObject({ unread: false, inInbox: false });
   });
 
+  it("puts back just what archiving took out: not a reply you sent, nor mail trashed since", async () => {
+    const a = g.gmail.deliver({ from: ANA, subject: "Plans", text: "?", messageId: "p1@x" });
+    const mine = g.gmail.deliver(
+      { from: { address: ME }, to: [ANA], subject: "Re: Plans", text: "Sat?", inReplyTo: "p1@x" },
+      ["SENT"],
+    );
+    const later = g.gmail.deliver({
+      from: ANA,
+      subject: "Re: Plans",
+      text: "Sure",
+      messageId: "p2@x",
+      inReplyTo: "p1@x",
+    });
+    await sync();
+    const [x] = await inbox();
+    const done = await ok<{ inbox: string[] }>("mail.archive", { ids: [x!.id] });
+    expect(done.inbox).toHaveLength(2);
+    await sync();
+    g.gmail.label(later, ["TRASH"], []);
+    await sync();
+    await ok("mail.unarchive", { ids: [x!.id], messages: done.inbox });
+    await sync();
+    const labels = (gmailId: string) => g.gmail.messages.get(gmailId)?.labelIds ?? [];
+    expect(labels(a)).toContain("INBOX");
+    expect(labels(mine)).not.toContain("INBOX");
+    expect(labels(later)).not.toContain("INBOX");
+  });
+
+  it("keeps a task made from an email marked as outside text", async () => {
+    const task = await ok<{ id: string }>("task.create", { title: "Reply to Ana", outside: true });
+    const [row] = await t.tdb.db.select().from(entity).where(eq(entity.id, task.id));
+    expect(row?.outside).toBe(true);
+  });
+
   it("puts a change back when Gmail refuses it", async () => {
     g.gmail.deliver({ from: ANA, subject: "Plans", text: "?" });
     await sync();

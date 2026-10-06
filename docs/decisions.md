@@ -1405,7 +1405,11 @@ without happening twice.
   won't pass by itself, after three failures and half an hour for the network); the first good
   round or a disconnect closes it. A token that stops working stops the polling: no calls until
   `replace_token` takes a new one for the same workspace or login, keeping everything read in.
-  GitHub's token expiry is warned of a week ahead, once.
+  GitHub's token expiry is warned of a week ahead, once. *Later (2026-10-06):* each Google
+  account's calendars are judged the same way (migration 0046), not with a notice a day for any
+  failed round that never closed; Google signing Hearth out is told at once, with how to
+  connect again. A pause Google asked for that keeps a sync quiet is worth a look after
+  half an hour and failing after two, with what Google said in Settings and `hearth doctor`.
 - **Read everything in, a budget at a time.** Slack channels and threads and GitHub's pull
   requests are read a page at a time, newest first; what a round can't read waits for the next,
   and a channel's or repo's mark only moves past what's been read. Each channel, thread and repo
@@ -1678,3 +1682,18 @@ guard stops a job before it can reach anything of the live Hearth's. See docs/ci
 or your spending limit needs to be increased"), but still dispatched to a self-hosted runner
 (probe run 37350213541). The PC is the only machine, and the live Hearth is on it, so CI there is
 worth having only if a slip in a workflow or a default can't touch the real thing.
+
+## D67. Jarvis adds guest-free events to your own calendar without asking (2026-10-05)
+
+**Decision:** `calendar.create_event` is internal: Jarvis may put an event with no guests on your
+own calendar (primary, or the one new events go to) without a yes, even in a turn that read an
+email. It has no guests field, so it can't invite anyone. A shared calendar is refused, since
+other people would see the event there. Moving and removing events still ask (`self_external`),
+and anything with guests still needs your yes. This loosens D25 for this one action.
+
+**Alternatives:** Keep the card for every new event (what the owner called "very manual"). Make
+update and delete internal too (an injected email could then move or remove real events).
+
+**Why:** The owner chose it on 2026-10-05: "Jarvis can't do things". The worst an injected email
+can do is add an event only you see, perhaps with a link in its notes, which you can see and
+delete.

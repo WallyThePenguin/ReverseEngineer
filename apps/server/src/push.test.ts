@@ -92,6 +92,31 @@ describe("phone notifications", () => {
     expect(((await (await t.browser("/api/push")).json()) as { devices: [] }).devices).toEqual([]);
   });
 
+  it("sends the evening's Your day card, opening Today", async () => {
+    t.server.start();
+    await settle();
+    await subscribe(PHONE);
+    t.clock.set("2026-10-01T23:30:00Z"); // 7:30 p.m.
+    await t.kernel.execute(
+      "journal.write",
+      { markdown: "Shipped the report.", date: "2026-10-01" },
+      jarvisCaller("system"),
+    );
+    await settle();
+    expect(sent.map((s) => s.message)).toMatchObject([
+      { title: "Your day", body: "Nothing on your calendar tomorrow.", url: "/today" },
+    ]);
+    // A late run's card waits in the inbox at night instead of buzzing.
+    t.clock.set("2026-10-03T03:30:00Z"); // 11:30 p.m. the next day
+    await t.kernel.execute(
+      "journal.write",
+      { markdown: "Late.", date: "2026-10-02" },
+      jarvisCaller("system"),
+    );
+    await settle();
+    expect(sent).toHaveLength(1);
+  });
+
   it("buzzes for an interrupt held overnight when it goes out in the morning", async () => {
     t.server.start();
     await settle();

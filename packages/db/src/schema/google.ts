@@ -1,5 +1,6 @@
 // Google accounts and Calendar. Mirrors migrations/0004_google_calendar.up.sql, the pacing
-// tables of 0022_google_pacing.up.sql and the calendar keys of 0032_integrations.up.sql.
+// tables of 0022_google_pacing.up.sql, the calendar keys of 0032_integrations.up.sql and the
+// calendar health of 0046_google_health.up.sql.
 import { sql } from "drizzle-orm";
 import {
   boolean,
@@ -14,6 +15,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import type { ConnectorSyncState } from "./slack.ts";
 
 const ts = (name: string) => timestamp(name, { withTimezone: true, mode: "date" });
 
@@ -26,6 +28,12 @@ export const googleAccount = pgTable("google_account", {
   connectedAt: ts("connected_at").notNull().defaultNow(),
   status: text("status").$type<"ok" | "failing" | "revoked">().notNull().default("ok"),
   lastError: text("last_error"),
+  /** How this account's calendars are syncing (D61, as Slack and GitHub judge theirs). */
+  calendarState: text("calendar_state").$type<ConnectorSyncState>().notNull().default("ok"),
+  calendarFailures: integer("calendar_failures").notNull().default(0),
+  calendarFailingSince: ts("calendar_failing_since"),
+  calendarSyncedAt: ts("calendar_synced_at"),
+  calendarError: text("calendar_error"),
 });
 
 /** Per account and service ("gmail", "calendar"): a pause Google asked for, shared by every process. */
@@ -35,6 +43,8 @@ export const googleQuota = pgTable(
     account: text("account").notNull(),
     service: text("service").notNull(),
     pausedUntil: ts("paused_until"),
+    /** What Google said when it asked for the pause, and the limit it hit. */
+    reason: text("reason"),
   },
   (t) => [primaryKey({ columns: [t.account, t.service] })],
 );

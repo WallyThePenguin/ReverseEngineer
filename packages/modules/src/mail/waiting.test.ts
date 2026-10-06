@@ -277,6 +277,7 @@ describe("reply drafts", () => {
       { threadId: contract!.id, text: "Just checking in, did you sign it?" },
       jarvisCaller("untrusted"),
     );
+    t.clock.set("2026-10-02T12:00:00Z");
     g.gmail.deliver(
       {
         from: ANA,

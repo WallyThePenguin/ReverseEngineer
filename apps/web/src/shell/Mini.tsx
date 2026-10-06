@@ -14,6 +14,7 @@ import {
   Switch,
 } from "solid-js";
 import { Button } from "../components/ui.tsx";
+import { useWhen, WhenChip } from "../components/WhenChip.tsx";
 import { Conversation } from "../jarvis/Conversation.tsx";
 import { getMe, setSignedOutHandler } from "../lib/api.ts";
 import {
@@ -58,12 +59,14 @@ function Capture() {
   const [text, setText] = createSignal("");
   const [saving, setSaving] = createSignal(false);
   let box!: HTMLTextAreaElement;
+  // The first line's date, "call the bank friday", is the task's due date.
+  const when = useWhen(() => captureToTask(text())?.title ?? "");
 
   const save = async () => {
     const task = captureToTask(text());
     if (!task || saving()) return;
     setSaving(true);
-    const made = await act("task.create", task);
+    const made = await act("task.create", { ...task, ...when.fields()(task.title) });
     setSaving(false);
     if (!made) return;
     setText("");
@@ -88,6 +91,7 @@ function Capture() {
         }}
       />
       <div class="flex items-center gap-2 text-xs text-muted">
+        <WhenChip box={when} />
         <span class="flex-1">
           Enter adds it to your tasks · Shift+Enter for a new line · Esc closes
         </span>

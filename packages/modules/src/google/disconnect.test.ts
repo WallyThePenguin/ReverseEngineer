@@ -157,12 +157,8 @@ describe("disconnecting a Google account", () => {
     const [myFile] = await files(ME);
     const work = await alert(`mail.sync_failed:gmail:${WORK}:2026-10-01T14:00:00.000Z`);
     const mine = await alert(`mail.sync_failed:gmail:${ME}:2026-10-01T14:00:00.000Z`);
-    const cal = await alert("calendar.sync_failed:2026-10-01");
     // Calendar's notice is for the account that's going; mine still syncs fine.
-    await t.tdb.db
-      .update(calendar)
-      .set({ lastError: "Forbidden" })
-      .where(eq(calendar.account, WORK));
+    const cal = await alert(`calendar.sync_failed:${WORK}:2026-10-01T14:00:00.000Z`);
 
     expect(await ok("google.disconnect", { email: WORK })).toEqual({ removed: 1, keptDrafts: 0 });
     expect(await drafts()).toEqual([]);
@@ -173,9 +169,8 @@ describe("disconnecting a Google account", () => {
     expect(await blobs.has(myFile!)).toBe(true);
   });
 
-  it("leaves Calendar's notice open while another calendar still fails", async () => {
-    const cal = await alert("calendar.sync_failed:2026-10-01");
-    await t.tdb.db.update(calendar).set({ lastError: "Forbidden" }).where(eq(calendar.account, ME));
+  it("leaves another account's calendar notice open", async () => {
+    const cal = await alert(`calendar.sync_failed:${ME}:2026-10-01T14:00:00.000Z`);
     await ok("google.disconnect", { email: WORK });
     expect(await cal()).toBe("unseen");
   });

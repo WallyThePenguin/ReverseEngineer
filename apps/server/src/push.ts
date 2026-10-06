@@ -1,6 +1,7 @@
 // Phone notifications (M6): approvals, the morning brief and interruptions Jarvis is allowed to
 // make are pushed to every device that turned notifications on. Messages are end-to-end
 // encrypted to the device (Web Push), so the push service only carries them.
+import { isQuietHours } from "@hearth/core";
 import { consumerCursor, event, notification, pushSubscription, setting } from "@hearth/db";
 import { getSetting, type Kernel, latestSeq, setCursor } from "@hearth/kernel";
 import { and, eq, gt, inArray, lte } from "drizzle-orm";
@@ -69,7 +70,7 @@ export const PUSH_KINDS = ["notification.created", "notification.delivered"];
 
 /** Which inbox items are worth buzzing your phone for. */
 export function worthPushing(p: Record<string, unknown>): boolean {
-  if (p.kind === "approval" || p.kind === "brief") return true;
+  if (p.kind === "approval" || p.kind === "brief" || p.kind === "wrap") return true;
   return p.urgency === "interrupt" && p.delivered === true;
 }
 
@@ -80,12 +81,17 @@ const HEADINGS: Record<string, string> = {
   brief: "Your brief is ready",
 };
 
+/** Where tapping it opens; anything else opens the inbox. */
+const OPENS: Record<string, string> = {
+  wrap: "/today",
+};
+
 export function messageFor(row: { id: string; kind: string; title: string; body: string | null }) {
   const heading = HEADINGS[row.kind];
   return {
     title: heading ?? clip(row.title, 120),
     body: clip(heading ? row.title : (row.body ?? ""), 240),
-    url: "/inbox",
+    url: OPENS[row.kind] ?? "/inbox",
     tag: row.id,
   } satisfies PushMessage;
 }
@@ -177,9 +183,12 @@ export function startPush(
     if (!ids.length) return;
     const oldest = new Date(kernel.clock.now().getTime() - TTL_S * 1000);
     const rows = await kernel.db.select().from(notification).where(inArray(notification.id, ids));
+    const rules = await getSetting(kernel.db, "owner.dayRules");
     for (const row of rows) {
       // Answered on another screen, or too old to be news.
       if (row.state === "done" || (row.deliveredAt ?? row.createdAt) < oldest) continue;
+      // "Your day" from a late run waits in the inbox rather than buzzing you at night.
+      if (row.kind === "wrap" && isQuietHours(kernel.clock.now(), rules)) continue;
       await pushToAll(kernel, messageFor(row), send, opts.timeoutMs);
     }
   };

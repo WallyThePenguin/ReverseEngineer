@@ -76,6 +76,7 @@ export {
   TEST_PAGE_PATH,
 } from "./browser/self-test.ts";
 export { VAULT_SERVICE, Vault, vaultFromEnv } from "./browser/vault.ts";
+export { gist } from "./calendar/soon.ts";
 export type { EventView } from "./calendar/store.ts";
 export { appendLog, type LogEntry, type LogKind, routeLane } from "./chat/index.ts";
 export { MENTION_SETTLE_MS } from "./chat/mention.ts";
@@ -85,12 +86,15 @@ export {
   BLOB_SERVICE,
   BlobStore,
   blobsFromEnv,
+  DAYTIME_DRAFTS,
   type DraftView,
   type MessageView,
   messageAttachment,
   messageHtml,
+  NEEDS_REPLY,
   type ThreadSummary,
   type ThreadView,
+  threadsToDraft,
 } from "./mail/index.ts";
 export { recallMemory, renderMemory } from "./memory/index.ts";
 export { parseChecklist } from "./notes/checklist.ts";
@@ -110,9 +114,14 @@ export {
 export {
   FakeSlack,
   httpSlack,
+  SLACK_ASKS,
+  SLACK_FOR_YOU,
   SLACK_SCOPES,
   SLACK_SERVICE,
   type SlackApi,
+  slackContext,
+  slackCovered,
+  taskAbout,
 } from "./slack/index.ts";
 export {
   type HealthRecord,

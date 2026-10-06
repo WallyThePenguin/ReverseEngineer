@@ -4,6 +4,7 @@ import { PRINCIPAL } from "@hearth/core";
 import {
   type DbOrTx,
   entity,
+  jarvisTurn,
   type MailAddress,
   mailAccount,
   mailDraft,
@@ -18,11 +19,13 @@ import {
   type ReadContext,
   updateEntity,
 } from "@hearth/kernel";
-import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { body, id } from "../shared.ts";
 import { cleanName, newMessageId } from "./mime.ts";
+import { checkRecipients } from "./recipients.ts";
 import { loadThread } from "./views.ts";
+import { threadsToDraft } from "./waiting.ts";
 
 const address = z.string().trim().max(320).describe('An email address, or "Name <address>".');
 const addresses = z.array(address).max(50);
@@ -172,6 +175,54 @@ async function replyHeaders(ctx: ActionContext, threadId: string, all: boolean) 
   };
 }
 
+/**
+ * Jarvis writes one reply to each message: two runs that both saw the same email (the morning's
+ * and the day's, or a heartbeat that went round twice) leave one draft, not two. One you threw
+ * away doesn't count, so asking again writes a fresh one.
+ */
+async function oneDraftEach(ctx: ActionContext, threadId: string): Promise<void> {
+  const [mine] = await ctx.tx
+    .select({ id: mailDraft.entityId })
+    .from(mailDraft)
+    .innerJoin(entity, eq(entity.id, mailDraft.entityId))
+    .innerJoin(mailThread, eq(mailThread.entityId, mailDraft.threadId))
+    .where(
+      and(
+        eq(mailDraft.threadId, threadId),
+        eq(entity.createdBy, PRINCIPAL.jarvis),
+        isNull(entity.deletedAt),
+        gte(entity.createdAt, mailThread.waitingSince),
+      ),
+    )
+    .limit(1);
+  if (mine)
+    throw new ActionError(
+      "conflict",
+      `There's already a draft of yours for this conversation since its last message (draft ${mine.id}). Leave it: the owner will see it in Mail.`,
+    );
+}
+
+/** Jarvis's own rounds of reply drafts, as opposed to a draft you asked for. */
+const ON_ITS_OWN = new Set(["heartbeat", "reply_drafts"]);
+
+/**
+ * In a round Jarvis does on its own, the conversation must still need a draft when it writes:
+ * you may have replied, archived it or pressed Reply since the round began.
+ */
+async function stillNeedsDraft(ctx: ActionContext, threadId: string): Promise<void> {
+  if (!ctx.caller.turnId) return;
+  const [turn] = await ctx.tx
+    .select({ context: jarvisTurn.context })
+    .from(jarvisTurn)
+    .where(eq(jarvisTurn.id, ctx.caller.turnId));
+  if (!ON_ITS_OWN.has(String(turn?.context.routine))) return;
+  if ((await threadsToDraft({ db: ctx.tx, now: ctx.now }, threadId)).length > 0) return;
+  throw new ActionError(
+    "conflict",
+    "The owner has this conversation in hand now (they replied, archived it or started a reply), or it needs no reply. Leave it.",
+  );
+}
+
 export const draftActions = [
   defineAction({
     name: "mail.draft",
@@ -189,6 +240,12 @@ export const draftActions = [
     }),
     risk: "internal",
     async handler(i, ctx) {
+      if (i.threadId && ctx.caller.principal === PRINCIPAL.jarvis) {
+        await oneDraftEach(ctx, i.threadId);
+        await stillNeedsDraft(ctx, i.threadId);
+      }
+      const asked = { to: parseAll(i.to), cc: parseAll(i.cc), bcc: parseAll(i.bcc) };
+      await checkRecipients(ctx, i.threadId ?? null, asked);
       const reply = i.threadId ? await replyHeaders(ctx, i.threadId, i.replyAll) : null;
       const account = reply?.account ?? (await accountFor(ctx, i.account));
       const subject = i.subject ?? reply?.subject ?? "";
@@ -197,9 +254,9 @@ export const draftActions = [
         entityId: draft.id,
         accountId: account.id,
         threadId: i.threadId ?? null,
-        toAddresses: parseAll(i.to) ?? reply?.to ?? [],
-        ccAddresses: parseAll(i.cc) ?? reply?.cc ?? [],
-        bccAddresses: parseAll(i.bcc) ?? [],
+        toAddresses: asked.to ?? reply?.to ?? [],
+        ccAddresses: asked.cc ?? reply?.cc ?? [],
+        bccAddresses: asked.bcc ?? [],
         inReplyTo: reply?.inReplyTo ?? null,
         refs: reply?.refs ?? [],
         messageId: newMessageId(account.address),
@@ -228,12 +285,13 @@ export const draftActions = [
     }),
     risk: "internal",
     async handler(i, ctx) {
-      if (!(await loadDraft(ctx.tx, i.id)))
-        throw new ActionError("not_found", "No draft with that id.");
-      await updateEntity(ctx, i.id, { title: i.subject, body: i.text }, { type: "email_draft" });
+      const before = await loadDraft(ctx.tx, i.id);
+      if (!before) throw new ActionError("not_found", "No draft with that id.");
       const to = parseAll(i.to);
       const cc = parseAll(i.cc);
       const bcc = parseAll(i.bcc);
+      await checkRecipients(ctx, before.threadId ?? null, { to, cc, bcc });
+      await updateEntity(ctx, i.id, { title: i.subject, body: i.text }, { type: "email_draft" });
       // The Message-ID stays: a Send that went out from this account is still found in Sent.
       const from = i.account ? await accountFor(ctx, i.account) : null;
       if (to || cc || bcc || from)

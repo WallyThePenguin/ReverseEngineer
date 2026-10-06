@@ -169,8 +169,14 @@ export async function applyOutcomes(
         break;
       }
       case "act": {
-        const res = await kernel.execute(o.action, o.input, callerFor(src));
-        if (res.status !== "ok") log(`${src.name}: ${o.action} -> ${JSON.stringify(res)}`);
+        const caller = callerFor(src);
+        const res = await kernel.execute(
+          o.action,
+          o.input,
+          o.ask ? { ...caller, askFirst: o.ask } : caller,
+        );
+        if (res.status !== "ok" && !(o.ask && res.status === "pending_approval"))
+          log(`${src.name}: ${o.action} -> ${JSON.stringify(res)}`);
         break;
       }
       case "batch":
