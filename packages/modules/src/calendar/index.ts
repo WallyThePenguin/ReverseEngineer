@@ -18,6 +18,7 @@ import { calendarWriteActions } from "./actions.ts";
 import { blockAction, blockReflex, blockRoutine } from "./blocks.ts";
 import { calendarSetupActions, inSelectedCalendar } from "./calendars.ts";
 import { freeSlots } from "./free.ts";
+import { newInvite } from "./invites.ts";
 import { prepPublish, prepRoutine, prepsFor } from "./prep.ts";
 import { respondAction } from "./respond.ts";
 import { meetingSoon } from "./soon.ts";
@@ -270,7 +271,7 @@ export const calendarModule = defineModule({
     blockAction,
     prepPublish,
   ],
-  reflexes: [conflicts, syncFailed, noRoom, blockReflex, meetingSoon],
+  reflexes: [conflicts, syncFailed, noRoom, blockReflex, newInvite, meetingSoon],
   async digest(ctx): Promise<DigestItem[]> {
     const rules = await getSetting(ctx.db, "owner.dayRules");
     const today = localDate(ctx.now, rules.timeZone);

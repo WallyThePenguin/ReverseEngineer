@@ -13,6 +13,7 @@ import {
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { id, isoDateTime } from "../shared.ts";
+import { newMailNeedsReply } from "./arrivals.ts";
 import { describeDraft, draftActions } from "./drafts.ts";
 import { changeFlags, pendingChanges, recomputeThread } from "./flags.ts";
 import { normalizePattern, senderPatterns } from "./people.ts";
@@ -23,10 +24,12 @@ import { alertKey } from "./sync-state.ts";
 import { listThreads, loadThread, searchThreads, threadText, who } from "./views.ts";
 import { followUpRoutine, replyDraftRoutine, waitingActions, waitingDigest } from "./waiting.ts";
 
+export { DAYTIME_DRAFTS, NEEDS_REPLY } from "./arrivals.ts";
 export { BLOB_SERVICE, BlobStore, blobsFromEnv } from "./blobs.ts";
 export type { DraftView } from "./drafts.ts";
 export type { MessageView, ThreadSummary, ThreadView } from "./views.ts";
 export { messageAttachment, messageHtml } from "./views.ts";
+export { threadsToDraft } from "./waiting.ts";
 
 const ids = z.array(id).min(1).max(500).describe("Conversation ids.");
 const lane = z.enum(["signal", "noise"]);
@@ -358,7 +361,7 @@ export const mailModule = defineModule({
     ...waitingActions,
   ],
   routines: [replyDraftRoutine, followUpRoutine],
-  reflexes: [syncFailed, changeFailed],
+  reflexes: [syncFailed, changeFailed, newMailNeedsReply],
   async digest(ctx): Promise<DigestItem[]> {
     const rows = await listThreads(ctx.db, {
       view: "inbox",
