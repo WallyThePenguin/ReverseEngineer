@@ -97,6 +97,16 @@ export function GoogleSettings() {
 
 type Cal = CalendarSetup["calendars"][number];
 
+/** Syncs now, and says how it went: synced, held back by Google, or what didn't sync. */
+async function syncNow() {
+  const r = await act<{ failed: string[]; paused: string[] }>("calendar.sync");
+  if (!r) return;
+  if (r.failed.length) toast.show(`Didn't sync: ${r.failed.join(" · ")}`, "error");
+  else if (r.paused.length)
+    toast.show("Google asked Hearth to slow down. Your calendars sync again in a minute or so.");
+  else toast.show("Synced.");
+}
+
 /** Each account's calendars, which ones sync, and the one new events go to. */
 function Calendars(props: { setup: CalendarSetup }) {
   const byAccount = () =>
@@ -169,10 +179,7 @@ function Calendars(props: { setup: CalendarSetup }) {
             </select>
           </label>
         </Show>
-        <Button
-          small
-          onClick={() => void act("calendar.sync").then((r) => r && toast.show("Synced."))}
-        >
+        <Button small onClick={() => void syncNow()}>
           Sync now
         </Button>
       </div>

@@ -10,49 +10,15 @@ import {
   mailDraft,
   mailMessage,
   mailThread,
-  notification,
 } from "@hearth/db";
 import { type ActionContext, defineAction } from "@hearth/kernel";
-import { and, eq, inArray, isNotNull, ne, or, sql } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { dropCalendars, handOver } from "../calendar/calendars.ts";
+import { closeCalendarAlerts } from "../calendar/health.ts";
 import { BLOB_SERVICE, type BlobStore } from "../mail/blobs.ts";
 import { closeMailAlerts } from "../mail/sync-state.ts";
 import { GOOGLE_SERVICE, type GoogleClient } from "./client.ts";
-
-/**
- * Calendar's notices aren't kept per account. They close once nothing left is failing: no
- * calendar still synced, and no account, says it has a problem.
- */
-async function closeCalendarAlerts(ctx: ActionContext) {
-  const [failing] = await ctx.tx
-    .select({ id: calendar.id })
-    .from(calendar)
-    .where(and(eq(calendar.selected, true), isNotNull(calendar.lastError)))
-    .limit(1);
-  const [troubled] = await ctx.tx
-    .select({ email: googleAccount.email })
-    .from(googleAccount)
-    .where(or(ne(googleAccount.status, "ok"), isNotNull(googleAccount.lastError)))
-    .limit(1);
-  if (failing || troubled) return;
-  const rows = await ctx.tx
-    .update(notification)
-    .set({ state: "done", updatedAt: ctx.now })
-    .where(
-      and(
-        ne(notification.state, "done"),
-        sql`starts_with(${notification.dedupeKey}, 'calendar.sync_failed:')`,
-      ),
-    )
-    .returning({ id: notification.id, entityId: notification.entityId });
-  for (const r of rows)
-    ctx.emit({
-      kind: "notification.updated",
-      entityId: r.entityId,
-      payload: { notificationId: r.id, state: "done" },
-    });
-}
 
 /** Deletes a record kind's rows for the account, with their entities. */
 async function dropMail(

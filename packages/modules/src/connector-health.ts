@@ -116,13 +116,16 @@ export async function closeAlerts(ctx: ActionContext, module: string) {
 
 /**
  * The reflex that tells you a connector stopped syncing. `failingSince` reads when the current
- * run of failures started, so an alert Jarvis gets to late, after the sync that closed it, stays
- * unsaid.
+ * run of failures started (for the account the event names, when there are several), so an alert
+ * Jarvis gets to late, after the sync that closed it, stays unsaid.
  */
 export function syncFailedReflex(
   module: string,
   label: string,
-  failingSince: (ctx: ReadContext) => Promise<Date | null | undefined>,
+  failingSince: (
+    ctx: ReadContext,
+    payload: Record<string, unknown>,
+  ) => Promise<Date | null | undefined>,
 ): ReflexDef {
   return {
     name: `${module}.sync_failed`,
@@ -133,7 +136,7 @@ export function syncFailedReflex(
       const p = event.payload;
       const errors = (p.errors as string[] | undefined) ?? (p.error ? [String(p.error)] : []);
       const since = typeof p.since === "string" ? p.since : null;
-      if (since && (await failingSince(ctx))?.toISOString() !== since) return [];
+      if (since && (await failingSince(ctx, p))?.toISOString() !== since) return [];
       const what = p.reconnect
         ? `${label} stopped accepting Hearth's token. Paste a new one in Settings; reading waits until then.`
         : `Hearth hasn't been able to read ${label} for a while. It keeps trying every few minutes.`;

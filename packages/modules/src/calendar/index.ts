@@ -2,7 +2,7 @@
 // calendar directly and asking before anything guests would see, prep packets each morning,
 // conflict warnings, and time blocks for big tasks (PLAN.md sections 6.1, 6.2 and 8.2).
 import { formatTime, localDate } from "@hearth/core";
-import { calendar, calendarEvent, entity } from "@hearth/db";
+import { calendar, calendarEvent, entity, googleAccount } from "@hearth/db";
 import {
   type DigestItem,
   defineAction,
@@ -12,6 +12,7 @@ import {
 } from "@hearth/kernel";
 import { and, asc, eq, gt, gte, isNull, lt, ne } from "drizzle-orm";
 import { z } from "zod";
+import { syncFailedReflex } from "../connector-health.ts";
 import { disconnectAction } from "../google/disconnect.ts";
 import { describeRow, id, isOutside, isoDateTime, liveEntity } from "../shared.ts";
 import { calendarWriteActions } from "./actions.ts";
@@ -89,28 +90,15 @@ const conflicts: ReflexDef = {
   },
 };
 
-const syncFailed: ReflexDef = {
-  name: "calendar.sync_failed",
-  description: "When Google Calendar stops syncing, you get one notice a day about it.",
-  mode: "always",
-  on: ["calendar.sync_failed"],
-  async run(event, ctx) {
-    const rules = await getSetting(ctx.db, "owner.dayRules");
-    const errors = (event.payload.errors as string[] | undefined) ?? [];
-    return [
-      {
-        kind: "tell",
-        notification: {
-          kind: "system.alert",
-          title: "Google Calendar isn't syncing",
-          body: errors.join("\n").slice(0, 1000),
-          urgency: "normal",
-          dedupeKey: `calendar.sync_failed:${localDate(event.at, rules.timeZone)}`,
-        },
-      },
-    ];
-  },
-};
+// One notice per run of failures, closed by the first good round (calendar/health.ts, D61).
+const syncFailed = syncFailedReflex("calendar", "Google Calendar", async (ctx, p) => {
+  if (typeof p.account !== "string") return null;
+  const [a] = await ctx.db
+    .select({ since: googleAccount.calendarFailingSince })
+    .from(googleAccount)
+    .where(eq(googleAccount.email, p.account));
+  return a?.since;
+});
 
 const noRoom: ReflexDef = {
   name: "calendar.no_room",
@@ -147,7 +135,8 @@ export const calendarModule = defineModule({
     },
     {
       kind: "calendar.sync_failed",
-      description: "Syncing with Google failed for some calendars. Payload: errors.",
+      description:
+        "An account's calendars stopped syncing: something that won't pass by itself, or failing for half an hour. Payload: account, errors, since, reconnect.",
     },
     {
       kind: "calendar.no_room",

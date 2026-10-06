@@ -2,14 +2,16 @@
 // minute with the rest (sync.google, sync.slack, sync.github). Read from what each sync already
 // records, its last error and when it last worked, so Settings and `hearth doctor` show a sync
 // that's failing or has quietly stopped, and system.report tells you when one starts failing,
-// whether or not Jarvis is running. Mail, Slack and GitHub save their own verdict (D55, D61),
-// which is taken as it is; Google access and calendars keep only their last error, which counts
-// as failing once it has lasted half an hour. A slowdown Google asked for isn't a failure (D55).
+// whether or not Jarvis is running. Mail, calendars, Slack and GitHub save their own verdict (D55,
+// D61), which is taken as it is; Google access keeps only its last error, which counts as failing
+// once it has lasted half an hour. A slowdown Google asked for isn't a failure (D55), unless it
+// goes on: nothing synced for half an hour of them is worth a look, and for two hours, failing.
 import { formatTime } from "@hearth/core";
 import {
   calendar,
   githubAccount,
   googleAccount,
+  googleQuota,
   mailAccount,
   setting,
   slackWorkspace,
@@ -21,6 +23,8 @@ import type { HealthReport } from "./health.ts";
 
 /** An error that has lasted this long, or a sync this quiet, is failing, not a blip. */
 export const SYNC_FAILING_AFTER_MS = 30 * 60_000;
+/** Google holding Hearth back this long with nothing synced is failing: it isn't letting up. */
+export const PAUSED_FAILING_AFTER_MS = 2 * 3600_000;
 
 export interface SyncSource {
   /** What it is: an address, a calendar, a workspace, a GitHub login. */
@@ -35,6 +39,8 @@ export interface SyncSource {
   lastGood?: Date | null;
   /** Google asked Hearth to slow down until then. */
   pausedUntil?: Date | null;
+  /** What Google said when it asked (its message and the limit hit). */
+  pauseReason?: string | null;
 }
 
 type Status = HealthReport["status"];
@@ -61,12 +67,21 @@ export function judgeSync(
       });
     else if (error)
       notes.push({ status: "degraded", text: `${s.name}: the last sync failed: ${error}` });
-    else if (s.pausedUntil && s.pausedUntil > now)
-      notes.push({
-        status: "ok",
-        text: `${s.name}: Google asked Hearth to slow down; resuming at ${formatTime(s.pausedUntil, timeZone)}`,
-      });
-    else if (s.lastGood && now.getTime() - s.lastGood.getTime() >= SYNC_FAILING_AFTER_MS)
+    else if (s.pausedUntil && s.pausedUntil > now) {
+      const quiet = s.lastGood ? now.getTime() - s.lastGood.getTime() : 0;
+      const why = s.pauseReason ? ` (${clip(s.pauseReason.replace(/\s+/g, " ").trim())})` : "";
+      const resuming = formatTime(s.pausedUntil, timeZone);
+      if (quiet >= SYNC_FAILING_AFTER_MS)
+        notes.push({
+          status: quiet >= PAUSED_FAILING_AFTER_MS ? "failing" : "degraded",
+          text: `${s.name}: nothing synced for ${roughly(quiet)}, as Google keeps asking Hearth to slow down${why}; trying again at ${resuming}`,
+        });
+      else
+        notes.push({
+          status: "ok",
+          text: `${s.name}: Google asked Hearth to slow down${why}; resuming at ${resuming}`,
+        });
+    } else if (s.lastGood && now.getTime() - s.lastGood.getTime() >= SYNC_FAILING_AFTER_MS)
       notes.push({
         status: "degraded",
         text: `${s.name}: last synced ${roughly(now.getTime() - s.lastGood.getTime())} ago`,
@@ -79,8 +94,8 @@ export function judgeSync(
 }
 
 /**
- * When each error run began, for syncs that only keep their latest error (Google access and
- * calendars). Kept in memory: after a restart a lasting error counts from then, so failing comes
+ * When each error run began, for syncs that only keep their latest error (Google access). Kept
+ * in memory: after a restart a lasting error counts from then, so failing comes
  * half an hour later, never sooner.
  */
 export class ErrorClock {
@@ -98,7 +113,11 @@ export class ErrorClock {
 
 async function google(kernel: Kernel, clock: ErrorClock, now: Date): Promise<SyncSource[]> {
   const out: SyncSource[] = [];
-  for (const a of await kernel.db.select().from(googleAccount)) {
+  const accounts = await kernel.db.select().from(googleAccount);
+  const pauses = new Map(
+    (await kernel.db.select().from(googleQuota)).map((q) => [`${q.account} ${q.service}`, q]),
+  );
+  for (const a of accounts) {
     // Mail and calendar say how they're doing below; this is the access they share.
     if (a.status === "ok") continue;
     out.push({
@@ -117,16 +136,31 @@ async function google(kernel: Kernel, clock: ErrorClock, now: Date): Promise<Syn
       name: `${m.address} mail`,
       error: paused ? null : m.lastError,
       failing: m.syncState === "failing",
-      lastGood: m.syncState === "paused" ? null : m.syncedAt,
+      lastGood: m.syncedAt,
       pausedUntil: m.pausedUntil,
+      pauseReason: pauses.get(`${m.address} gmail`)?.reason,
     });
   }
-  for (const c of await kernel.db.select().from(calendar).where(eq(calendar.selected, true))) {
+  // Calendars judge themselves per account too (calendar/health.ts): its calendars' errors, and
+  // a pause Google asked for, held in the shared pacing row.
+  const syncing = new Set(
+    (
+      await kernel.db
+        .select({ account: calendar.account })
+        .from(calendar)
+        .where(eq(calendar.selected, true))
+    ).map((c) => c.account),
+  );
+  for (const a of accounts) {
+    if (!syncing.has(a.email) || a.status === "revoked") continue;
+    const pause = pauses.get(`${a.email} calendar`);
     out.push({
-      name: `${c.title} calendar`,
-      error: c.lastError,
-      since: clock.since(`calendar:${c.id}`, c.lastError, now),
-      lastGood: c.lastSyncedAt,
+      name: `${a.email} calendar`,
+      error: a.calendarError,
+      failing: a.calendarState !== "ok",
+      lastGood: a.calendarSyncedAt,
+      pausedUntil: pause?.pausedUntil,
+      pauseReason: pause?.reason,
     });
   }
   return out;
