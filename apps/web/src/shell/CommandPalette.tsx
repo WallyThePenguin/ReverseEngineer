@@ -12,11 +12,11 @@ import { TYPE_LABEL } from "../lib/format.ts";
 import { MOD } from "../lib/hotkeys.ts";
 import { arrange, type PaletteItem } from "../lib/palette.ts";
 import { layout, routeFor } from "../lib/panes.ts";
+import { setPaused } from "../lib/pause.ts";
 import { act } from "../lib/query.ts";
 import type { SearchHit } from "../lib/types.ts";
 import { newCanvas } from "../views/Canvas.tsx";
 import { newNote } from "../views/Notes.tsx";
-import { setPaused } from "../views/Settings.tsx";
 import { newSheet } from "../views/Sheets.tsx";
 import { sidebar } from "./Sidebar.tsx";
 
