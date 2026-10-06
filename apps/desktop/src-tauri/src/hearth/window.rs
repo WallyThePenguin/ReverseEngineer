@@ -111,15 +111,28 @@ fn spawn(app: &AppHandle, which: Which, path: &str) {
         let Some((window, to)) = ready(&app, which, &path) else {
             return;
         };
-        let up = sight::show(window.clone(), asked);
-        match to {
+        let Some(to) = to else {
+            return sight::show(window, asked).await;
+        };
+        if up_alongside(window.url().ok().as_ref()) {
             // Loading alongside: offline::load waits a few seconds for the server first.
-            Some(to) => {
-                futures_util::future::join(offline::load(&app, &window, to), up).await;
-            }
-            None => up.await,
+            let up = sight::show(window.clone(), asked);
+            futures_util::future::join(offline::load(&app, &window, to), up).await;
+        } else {
+            // It has a Hearth page on it that the new one replaces (quick capture's last one, the
+            // page a link opens over): it comes up once the new one is on its way, so nothing
+            // you'd type into the old one in the meantime is lost when it goes.
+            offline::load(&app, &window, to).await;
+            sight::show(window, Instant::now()).await;
         }
     });
+}
+
+/// Whether a window about to load a page comes up alongside, within a moment of your click, given
+/// the page it's on (if that can be told): yes when there's nothing on it to lose, being just made
+/// (about:blank) or saying Hearth isn't running (a data: page).
+fn up_alongside(current: Option<&Url>) -> bool {
+    current.is_some_and(|u| !matches!(u.scheme(), "http" | "https"))
 }
 
 /// Hearth's window for a page, made (out of sight) if need be, and the page it's to load: none
@@ -345,4 +358,22 @@ fn mark_user_agent(window: &WebviewWindow, version: &str) {
     }
     #[cfg(not(windows))]
     let _ = (window, version);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn comes_up_alongside_only_with_nothing_on_it_to_lose() {
+        let on = |u: &str| up_alongside(Some(&u.parse::<Url>().unwrap()));
+        // Just made, or saying Hearth isn't running: up within a moment of your click.
+        assert!(on("about:blank"));
+        assert!(on("data:text/html,Hearth%20isn%27t%20running"));
+        // On a Hearth page you could be typing into: once the new one's on its way.
+        assert!(!on("http://localhost:4400/capture"));
+        assert!(!on("https://hearth.example.test/inbox"));
+        // Can't tell: as if it might.
+        assert!(!up_alongside(None));
+    }
 }

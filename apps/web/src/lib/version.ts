@@ -26,30 +26,45 @@ export function noticeFor(mine: string | null, server: ServerBuild | null): Noti
 /** How often an open page asks which build is running. */
 export const CHECK_EVERY_MS = 5 * 60_000;
 
+/** What counts as you doing something on the page: a key, a tap or click, a paste, a drop. */
+const TOUCHES = ["keydown", "pointerdown", "input", "paste", "drop"] as const;
+
 /**
  * Runs `check` now, then every few minutes while the page is in view, when it comes back into
  * view, and when the network is back while it's in view. A hidden page doesn't ask (not even when
  * a laptop wakes and its network comes back): it asks as soon as it's back, and an open tab alone
- * shouldn't keep your sign-in alive (D56). `check` is told when it's for the page coming back.
- * Returns the cleanup.
+ * shouldn't keep your sign-in alive (D56). When it's for the page coming back, `check` is given
+ * `idle`, which says, when asked, whether you've done nothing on the page since it came back: a
+ * tap on Done or a paste then mustn't be lost to a reload. Returns the cleanup.
  */
 export function watchBuild(
-  check: (back: boolean) => void,
+  check: (idle?: () => boolean) => void,
   win: EventTarget = window,
   doc: EventTarget & { visibilityState: DocumentVisibilityState } = document,
 ): () => void {
-  const ifVisible = (back: boolean) => () => {
-    if (doc.visibilityState === "visible") check(back);
+  let touches = 0;
+  const touch = () => {
+    touches += 1;
   };
-  const [again, back] = [ifVisible(false), ifVisible(true)];
-  check(false);
+  const again = () => {
+    if (doc.visibilityState === "visible") check();
+  };
+  const back = () => {
+    if (doc.visibilityState !== "visible") return;
+    const at = touches;
+    check(() => touches === at);
+  };
+  check();
   const timer = setInterval(again, CHECK_EVERY_MS);
   doc.addEventListener("visibilitychange", back);
   win.addEventListener("online", again);
+  // Seen first, before anything on the page can stop it going further.
+  for (const kind of TOUCHES) win.addEventListener(kind, touch, { capture: true });
   return () => {
     clearInterval(timer);
     doc.removeEventListener("visibilitychange", back);
     win.removeEventListener("online", again);
+    for (const kind of TOUCHES) win.removeEventListener(kind, touch, { capture: true });
   };
 }
 
@@ -114,11 +129,17 @@ export function reloadedFor(store?: Pick<Storage, "getItem">): string | null {
   }
 }
 
-/** Reloads the page into `build`, noting it first. */
+/**
+ * Reloads the page into `build`, noting it first. The page takes nothing more meanwhile: what
+ * you'd type or click in it until the new one is there would go with it.
+ */
 export function reloadInto(
   build: string,
   store?: Pick<Storage, "setItem">,
-  reload: () => void = () => location.reload(),
+  reload: () => void = () => {
+    freeze();
+    location.reload();
+  },
 ): void {
   try {
     (store ?? sessionStorage).setItem(RELOADED_FOR, build);
@@ -126,4 +147,12 @@ export function reloadInto(
     // Storage blocked: it reloads all the same.
   }
   reload();
+}
+
+/** Leaves the page as it is but takes no more input into it: nothing has focus, nothing's live. */
+export function freeze(
+  doc: { activeElement: Element | null; body: { inert: boolean } | null } = document,
+): void {
+  (doc.activeElement as HTMLElement | null)?.blur?.();
+  if (doc.body) doc.body.inert = true;
 }

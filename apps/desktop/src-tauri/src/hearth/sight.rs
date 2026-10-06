@@ -1,11 +1,13 @@
 // Hearth's main window coming into sight and going out of it. It comes up once its page is there,
 // never as an empty white frame: it's Hearth's own background until then, and it's never more
-// than a moment after you asked, however slow Hearth's server is. When the app starts with
-// Windows it loads out of sight, so the first open is warm.
+// than a moment after you asked, however slow Hearth's server is (unless a link opens a page over
+// one it already has: window.rs). When the app starts with Windows it loads out of sight, so the
+// first open is warm.
 //
-// Out of sight, its page knows it is, as a page in a background tab does: it rests (the checks
-// Hearth's pages skip while hidden, timers slowed down), and it looks again when you're back.
-// Hiding the window alone doesn't tell it: WebView2 keeps the page "visible" until it's told.
+// Out of sight (in the tray or minimized), its page knows it is, as a page in a background tab
+// does: it rests (the checks Hearth's pages skip while hidden, timers slowed down), and it looks
+// again when you're back. Hiding the window alone doesn't tell it: WebView2 keeps the page
+// "visible" until it's told.
 
 use super::window::MAIN;
 use std::collections::BTreeMap;
@@ -171,6 +173,17 @@ pub fn hidden(window: &tauri::Window) {
         if let Some(w) = window.app_handle().get_webview_window(MAIN) {
             out_of_sight(&w);
         }
+    }
+}
+
+/// A window was resized, minimized or put back (lib.rs). Hearth's main window's page rests while
+/// it's minimized too, and looks again when it's back. One out of sight is left as it is.
+pub fn resized(window: &tauri::Window) {
+    if window.label() != MAIN || !window.is_visible().unwrap_or(false) {
+        return;
+    }
+    if let Some(w) = window.app_handle().get_webview_window(MAIN) {
+        on_screen(&w, !window.is_minimized().unwrap_or(false));
     }
 }
 

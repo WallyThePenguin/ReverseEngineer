@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CHECK_EVERY_MS,
+  freeze,
   noticeFor,
   pageBuild,
   reloadedFor,
@@ -53,7 +54,7 @@ describe("asking which build is running", () => {
     });
     // Each ask, and whether it was for the page coming back into view.
     const asked: boolean[] = [];
-    const stop = watchBuild((back) => asked.push(back), win, doc);
+    const stop = watchBuild((idle) => asked.push(idle !== undefined), win, doc);
     expect(asked).toEqual([false]);
     vi.advanceTimersByTime(CHECK_EVERY_MS);
     expect(asked).toEqual([false, false]);
@@ -75,6 +76,53 @@ describe("asking which build is running", () => {
     win.dispatchEvent(new Event("online"));
     doc.dispatchEvent(new Event("visibilitychange"));
     expect(asked).toHaveLength(4);
+  });
+});
+
+describe("whether you've done anything since the page came back", () => {
+  it("knows of a key, a tap, a paste or a drop after it came back, for that return", () => {
+    const win = new EventTarget();
+    const doc = Object.assign(new EventTarget(), {
+      visibilityState: "visible" as DocumentVisibilityState,
+    });
+    const returns: (() => boolean)[] = [];
+    const stop = watchBuild(
+      (idle) => {
+        if (idle) returns.push(idle);
+      },
+      win,
+      doc,
+    );
+    const away = () => {
+      doc.visibilityState = "hidden";
+      doc.dispatchEvent(new Event("visibilitychange"));
+    };
+    const back = () => {
+      doc.visibilityState = "visible";
+      doc.dispatchEvent(new Event("visibilitychange"));
+      return returns.at(-1)!;
+    };
+    for (const kind of ["keydown", "pointerdown", "input", "paste", "drop"]) {
+      away();
+      const idle = back();
+      expect(idle()).toBe(true);
+      // Asked again later (the server took a while to answer): it's what's happened since.
+      win.dispatchEvent(new Event(kind));
+      expect(idle()).toBe(false);
+    }
+    // Each return starts afresh; what you did after an earlier one still counts for that one.
+    const first = returns.at(-1)!;
+    away();
+    const second = back();
+    expect(second()).toBe(true);
+    expect(first()).toBe(false);
+    // Moving the mouse over it or scrolling isn't doing something.
+    win.dispatchEvent(new Event("pointermove"));
+    win.dispatchEvent(new Event("wheel"));
+    expect(second()).toBe(true);
+    stop();
+    win.dispatchEvent(new Event("keydown"));
+    expect(second()).toBe(true);
   });
 });
 
@@ -141,6 +189,20 @@ describe("coming back to a page from before an update", () => {
     });
     expect(reloaded).toBe(2);
     expect(reloadedFor(blocked)).toBeNull();
+  });
+
+  it("takes nothing more into the page it's leaving", () => {
+    let blurred = 0;
+    const blur = () => {
+      blurred += 1;
+    };
+    const field = { blur } as unknown as Element;
+    const page = { activeElement: field, body: { inert: false } };
+    freeze(page);
+    expect(blurred).toBe(1);
+    expect(page.body.inert).toBe(true);
+    // Nothing focused, or no body yet: nothing to do there.
+    freeze({ activeElement: null, body: null });
   });
 });
 

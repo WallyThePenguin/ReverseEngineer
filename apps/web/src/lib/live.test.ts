@@ -42,6 +42,7 @@ beforeEach(() => {
   wakeHandlers.length = 0;
   const target = {
     addEventListener: (_kind: string, fn: () => void) => wakeHandlers.push(fn),
+    removeEventListener: () => {},
     setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
     clearTimeout: (t: number) => clearTimeout(t),
   };
@@ -131,6 +132,45 @@ describe("the live feed", () => {
     await settle();
     expect(signedOut).toHaveBeenCalledOnce();
     expect(open()).toHaveLength(0);
+  });
+
+  it("only marks reads out of date while the page is out of sight, and reads them on return", async () => {
+    const { live, queryClient } = await load();
+    const { QueryObserver, focusManager } = await import("@tanstack/solid-query");
+    queryClient.mount();
+    let reads = 0;
+    const tasks = new QueryObserver(queryClient, {
+      queryKey: ["task.list", {}],
+      queryFn: async () => ++reads,
+    });
+    const stopReading = tasks.subscribe(() => {});
+    await settle();
+    expect(reads).toBe(1);
+    live.start();
+    const feed = FakeSource.all[0]!;
+    feed.emit("ready", { after: 0 });
+    const changed = (seq: number) =>
+      feed.emit("event", { seq, kind: "task.created", entityId: "t", actor: "you", payload: {} });
+    // In view, a change is read at once.
+    changed(1);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(reads).toBe(2);
+    // Out of sight, however many changes: none read, all marked.
+    Object.assign(document, { visibilityState: "hidden" });
+    changed(2);
+    await vi.advanceTimersByTimeAsync(200);
+    changed(3);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(reads).toBe(2);
+    expect(queryClient.getQueryState(["task.list", {}])?.isInvalidated).toBe(true);
+    // Back in view (TanStack's own visibilitychange listener): read again, once.
+    Object.assign(document, { visibilityState: "visible" });
+    focusManager.onFocus();
+    await settle();
+    expect(reads).toBe(3);
+    stopReading();
+    queryClient.unmount();
+    live.stop();
   });
 
   it("gives up on a feed that's gone silent and opens a new one", async () => {

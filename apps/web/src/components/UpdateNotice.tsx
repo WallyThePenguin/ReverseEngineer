@@ -1,7 +1,8 @@
 // A notice when Hearth changed under the open page: it was updated (reload to get the new
 // version), or an update on the PC didn't finish, so its database doesn't fit its code. Checks
 // every few minutes while the page is in view, and when you come back to it. Coming back to a page
-// from before an update, you get the new version at once, unless that would lose something.
+// from before an update, you get the new version at once, unless that would lose something or
+// you've already started doing something on it.
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import {
   type Notice as BuildNotice,
@@ -20,14 +21,16 @@ import { Button } from "./ui.tsx";
 export function UpdateNotice() {
   const [notice, setNotice] = createSignal<BuildNotice>(null);
   const [checking, setChecking] = createSignal(false);
-  const check = async (back = false) => {
+  // `idle` when the page has just come back into view (watchBuild).
+  const check = async (idle?: () => boolean) => {
     setChecking(true);
     try {
       const res = await fetch("/api/health/deep", { cache: "no-store" });
       if (!res.ok) return;
       const server = (await res.json()) as ServerBuild;
       const now = noticeFor(pageBuild(), server);
-      const into = back ? reloadOnReturn(now, server, reloadedFor(), () => wouldLoseWork()) : null;
+      const lose = () => !idle?.() || wouldLoseWork();
+      const into = idle ? reloadOnReturn(now, server, reloadedFor(), lose) : null;
       if (into) return reloadInto(into);
       setNotice(now);
     } catch {
@@ -38,7 +41,7 @@ export function UpdateNotice() {
   };
   onMount(() => {
     // The development server rebuilds as you go; there's nothing to reload into.
-    if (!import.meta.env.DEV) onCleanup(watchBuild((back) => void check(back)));
+    if (!import.meta.env.DEV) onCleanup(watchBuild((idle) => void check(idle)));
   });
 
   return (

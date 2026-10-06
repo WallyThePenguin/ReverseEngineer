@@ -1161,6 +1161,8 @@ pub fn run(cli_args: CliArgs) {
             }
             // Hearth's small windows (quick capture, ask Jarvis) tuck away on clicking elsewhere.
             tauri::WindowEvent::Focused(false) => hearth::window::blurred(window),
+            // Minimized, Hearth's page rests as it does in the tray.
+            tauri::WindowEvent::Resized(_) => hearth::sight::resized(window),
             tauri::WindowEvent::ThemeChanged(theme) => {
                 log::info!("Theme changed to: {:?}", theme);
                 // Re-apply the current tray state with the new theme's icon set
