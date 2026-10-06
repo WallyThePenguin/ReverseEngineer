@@ -127,6 +127,10 @@ export function plural(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`;
 }
 
+/**
+ * A due date: "today", "Fri 3 p.m.". A time is overdue once it's gone and soon within a day; a
+ * whole day is overdue from the next one and soon on the day itself.
+ */
 export function due(
   iso: string | null,
   isDate: boolean,
@@ -135,8 +139,23 @@ export function due(
   if (!iso) return null;
   const d = new Date(iso);
   const text = isDate ? day(d, now) : `${day(d, now)} ${time(d)}`;
+  if (isDate) {
+    const days = Math.round((startOfDay(d) - startOfDay(now)) / DAY);
+    return { text, overdue: days < 0, soon: days === 0 };
+  }
   const ms = d.getTime() - now.getTime();
   return { text, overdue: ms < 0, soon: ms >= 0 && ms < DAY };
+}
+
+/**
+ * A due date in full, for checking one read from what you typed: "today 3 p.m.", "tomorrow",
+ * "Fri, Oct 16, 3 p.m.", "Thu, Jan 14, 2027". Only today and tomorrow are said as words.
+ */
+export function dueInFull(iso: string, isDate: boolean, now = new Date()): string {
+  const d = new Date(iso);
+  const days = Math.round((startOfDay(d) - startOfDay(now)) / DAY);
+  if (days === 0 || days === 1) return isDate ? day(d, now) : `${day(d, now)} ${time(d)}`;
+  return isDate ? date(d, now) : dateTime(d, now);
 }
 
 /** "just now", "5 min ago", "3 h ago", then a date. */

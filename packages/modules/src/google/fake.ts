@@ -91,7 +91,7 @@ export class FakeGoogle {
   }
 
   /** The next `n` Calendar calls fail with `status`, as Google sends it. */
-  failCalendar(n: number, status: 403 | 429 | 500 | 503) {
+  failCalendar(n: number, status: 403 | 404 | 429 | 500 | 503) {
     for (let i = 0; i < n; i++) this.calendarFailures.push(status);
   }
 

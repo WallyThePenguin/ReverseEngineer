@@ -3,14 +3,7 @@
 // words, a routine publishes its plain version, set-aside heartbeat items go back on the pile,
 // and an alert goes out when Jarvis looks broken rather than unlucky.
 import { weakerOrigin } from "@hearth/core";
-import {
-  conversationLog,
-  event,
-  heartbeatItem,
-  jarvisTurn,
-  schedule,
-  type TurnOutcome,
-} from "@hearth/db";
+import { conversationLog, event, jarvisTurn, schedule, type TurnOutcome } from "@hearth/db";
 import {
   appendEvents,
   getSetting,
@@ -21,8 +14,9 @@ import {
   toHearthEvent,
 } from "@hearth/kernel";
 import type { LogEntry } from "@hearth/modules";
-import { and, count, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
+import { and, count, eq, isNotNull, lt, sql } from "drizzle-orm";
 import { BACKOFF_MINUTES, type Failure, failure, friendlyError, PASSING } from "./failures.ts";
+import { releaseHeartbeat } from "./heartbeat.ts";
 import { applyOutcomes } from "./outcomes.ts";
 import { tellSlack } from "./slack-owner.ts";
 import { writeLog } from "./threads.ts";
@@ -225,9 +219,7 @@ export async function failTurn(
   await recordEnd(env, e, { ...common, status });
   if (status === "canceled") return status;
   const fellBack = await applyFallback(env, e.turn);
-  // A turn that changed something may have done these already: putting them back would do them
-  // twice. One that only read gives them to the next heartbeat.
-  if (!wroteAnything(e)) await releaseHeartbeat(env, e.turn);
+  await releaseHeartbeat(env.kernel.db, e.turn, wroteAnything(e));
   await alertFailure(env, e.turn, f, said.text, fellBack).catch((err) =>
     env.log(`couldn't raise an alert for turn ${e.turn.id}`, err),
   );
@@ -288,16 +280,6 @@ function revive(outcomes: ReflexOutcome[]): ReflexOutcome[] {
 const wroteAnything = (e: Ending): boolean =>
   e.calls.some((c) => c.risk !== "read") || e.started > e.calls.length;
 
-/** Items a failed heartbeat turn took go back, for the next heartbeat to pick up. */
-async function releaseHeartbeat(env: EndEnv, turn: TurnRow): Promise<void> {
-  const ids = turn.context.itemIds;
-  if (!Array.isArray(ids) || ids.length === 0) return;
-  await env.kernel.db
-    .update(heartbeatItem)
-    .set({ takenAt: null })
-    .where(inArray(heartbeatItem.id, ids.map(String)));
-}
-
 /**
  * Queued turns past their time-to-live are dropped rather than answered late: a chat after an
  * hour, a voice command after two minutes. The conversation says so, with a Retry.
@@ -339,15 +321,16 @@ export async function recoverInterrupted(env: EndEnv): Promise<number> {
   const { kernel } = env;
   const rows = await kernel.db.select().from(jarvisTurn).where(eq(jarvisTurn.status, "running"));
   for (const turn of rows) {
-    const end = newEnding(turn);
-    if (turn.cancelRequestedAt) {
-      await failTurn(env, end, failure("canceled", "Stopped by the owner"), 0);
-      continue;
-    }
     const [used] = await kernel.db
       .select({ n: count() })
       .from(conversationLog)
       .where(and(eq(conversationLog.turnId, turn.id), eq(conversationLog.kind, "tool_call")));
+    // What it started is all that's known of it now: any of them may have changed something.
+    const end = { ...newEnding(turn), started: used?.n ?? 0 };
+    if (turn.cancelRequestedAt) {
+      await failTurn(env, end, failure("canceled", "Stopped by the owner"), 0);
+      continue;
+    }
     if ((used?.n ?? 0) === 0 && turn.attempts <= BACKOFF_MINUTES.length) {
       await kernel.db
         .update(jarvisTurn)

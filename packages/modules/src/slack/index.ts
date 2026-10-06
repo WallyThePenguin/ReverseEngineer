@@ -8,6 +8,7 @@ import { and, desc, eq, gte, ilike } from "drizzle-orm";
 import { z } from "zod";
 import { syncFailedReflex } from "../connector-health.ts";
 import { describeRow, liveEntity, preview } from "../shared.ts";
+import { slackForYou } from "./asks.ts";
 import { botActions } from "./bot/connect.ts";
 import { ownerReplyAction, takeOwnerAction } from "./bot/owner-dm.ts";
 import { sendActions } from "./bot/send.ts";
@@ -28,6 +29,7 @@ export {
   type SlackUser,
   USER_TOKEN_METHODS,
 } from "./api.ts";
+export { SLACK_ASKS, SLACK_FOR_YOU, slackContext, slackCovered, taskAbout } from "./asks.ts";
 export { httpSlackBot, SLACK_BOT_SERVICE, type SlackBotApi } from "./bot/api.ts";
 export { CATCH_UP_EVERY_MS, type CatchUp, catchUp } from "./bot/catchup.ts";
 export { POST_FLAGS, POST_MAX, slackText } from "./bot/filter.ts";
@@ -293,6 +295,6 @@ export const slackModule = defineModule({
       handler: (_i, ctx) => syncSlack(ctx),
     }),
   ],
-  reflexes: [syncFailed],
+  reflexes: [syncFailed, slackForYou],
   digest,
 });
