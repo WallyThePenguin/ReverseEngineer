@@ -1,7 +1,7 @@
 // Quick adds understand dates: the date comes out of the title and becomes the due date, a time
 // that's gone means the next one, and text that names no time is left alone.
 import { describe, expect, it } from "vitest";
-import { readWhen } from "./when.ts";
+import { readEvent, readWhen } from "./when.ts";
 
 // Tuesday 6 October 2026, 10:00 on this computer's clock.
 const NOW = new Date(2026, 9, 6, 10, 0);
@@ -92,5 +92,47 @@ describe("readWhen", () => {
     expect(read("may want to rethink this")).toBeNull();
     expect(read("move 3 amazing chairs")).toBeNull();
     expect(read("feb 30 party")).toBeNull();
+  });
+});
+
+describe("readEvent", () => {
+  it("makes an hour-long event unless it says how long", () => {
+    expect(readEvent("Dentist Fri 3pm", NOW)).toEqual({
+      title: "Dentist",
+      start: at(10, 9, 15),
+      end: at(10, 9, 16),
+      allDay: false,
+    });
+    expect(readEvent("Dentist Fri 3pm 1h", NOW)?.end).toBe(at(10, 9, 16));
+    expect(readEvent("Focus tomorrow 9am for 2 hours", NOW)).toMatchObject({
+      title: "Focus",
+      end: at(10, 7, 11),
+    });
+    expect(readEvent("call with Ana 4:30pm 45 min", NOW)).toMatchObject({
+      title: "call with Ana",
+      start: at(10, 6, 16, 30),
+      end: at(10, 6, 17, 15),
+    });
+  });
+
+  it("makes an all-day event of a day with no time", () => {
+    expect(readEvent("Mom's birthday oct 20", NOW)).toEqual({
+      title: "Mom's birthday",
+      start: "2026-10-20",
+      end: "2026-10-21",
+      allDay: true,
+    });
+  });
+
+  it("starts 'in 2 hours' from now rather than lasting two hours", () => {
+    expect(readEvent("Stretch in 2 hours", NOW)).toMatchObject({
+      start: new Date(NOW.getTime() + 2 * 3_600_000).toISOString(),
+      end: new Date(NOW.getTime() + 3 * 3_600_000).toISOString(),
+    });
+  });
+
+  it("needs a when", () => {
+    expect(readEvent("Dentist 1h", NOW)).toBeNull();
+    expect(readEvent("Dentist", NOW)).toBeNull();
   });
 });

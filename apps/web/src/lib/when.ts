@@ -188,6 +188,44 @@ export function readWhen(text: string, now = new Date()): When | null {
   return { title, dueAt: at.toISOString(), dueIsDate: false };
 }
 
+// How long an event lasts: "1h", "90 min", "for 2 hours". Not "in 2 hours", which says when.
+const LASTS = /(?<!\bin\s)\b(?:for\s+)?(\d{1,2}(?:\.\d+)?)\s*(h|hrs?|hours?|m|mins?|minutes?)\b/i;
+
+export interface EventDraft {
+  title: string;
+  /** ISO date-time, or YYYY-MM-DD for an all-day event. */
+  start: string;
+  /** ISO date-time, or the day after an all-day event's day. */
+  end: string;
+  allDay: boolean;
+}
+
+/**
+ * An event from a line like "Dentist Fri 3pm 1h": an hour unless it says how long, all day when
+ * it names a day but no time. Null when it doesn't say when.
+ */
+export function readEvent(text: string, now = new Date()): EventDraft | null {
+  let rest = text;
+  let minutes = 60;
+  const long = LASTS.exec(text);
+  if (long) {
+    const n = Number(long[1]);
+    minutes = Math.round(/^h/i.test(long[2]!) ? n * 60 : n);
+    rest = `${text.slice(0, long.index)} ${text.slice(long.index + long[0].length)}`;
+  }
+  const w = readWhen(rest, now);
+  if (!w || minutes <= 0) return null;
+  const start = new Date(w.dueAt);
+  if (w.dueIsDate)
+    return { title: w.title, start: day(start), end: day(addDays(start, 1)), allDay: true };
+  const end = new Date(start.getTime() + minutes * 60_000).toISOString();
+  return { title: w.title, start: w.dueAt, end, allDay: false };
+}
+
+/** "2026-10-09": the day on this computer's calendar. */
+const day = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
 /** Local midnight `n` days after `d`'s day, at `minutes` past it. */
 function addDays(d: Date, n: number, minutes = 0): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n, 0, minutes);
