@@ -85,10 +85,12 @@ export {
   BLOB_SERVICE,
   BlobStore,
   blobsFromEnv,
+  DAYTIME_DRAFTS,
   type DraftView,
   type MessageView,
   messageAttachment,
   messageHtml,
+  NEEDS_REPLY,
   type ThreadSummary,
   type ThreadView,
 } from "./mail/index.ts";
