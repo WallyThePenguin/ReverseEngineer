@@ -128,6 +128,7 @@ const due: ReflexDef = {
           r.instructions,
           "",
           "Do it now. Anything that sends something still needs their yes, as usual. When you're done, say briefly what you did and what you found, as a comment on the routine (comment_create on its id).",
+          `Then put it on the owner's Today with inbox_notify: kind "routine", entityId ${routineId}, a one-line title saying what you found, and the details in body.`,
         ].join("\n"),
       },
     ];
