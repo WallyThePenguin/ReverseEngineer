@@ -44,7 +44,7 @@ describe("deciding an approval", () => {
     expect(deciding("a1")).toBe(false);
     expect(isDecided("a1")).toBe(true);
     expect(decidedAs("a1")).toBe("executed");
-    expect(shown).toEqual([{ text: "Approved and done.", tone: "info" }]);
+    expect(shown).toEqual([{ text: "Approved and done.", tone: "ok" }]);
     await decide("a1", "approve");
     expect(calls).toBe(1);
   });

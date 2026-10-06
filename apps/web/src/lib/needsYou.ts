@@ -1,6 +1,7 @@
 // Today's "Needs you", apart from how it looks: which approvals "Approve all" may cover together,
-// who a send would reach that isn't in its conversation (such a send is approved on its own), and
-// what "Approve all" says it did, item by item when something didn't go through.
+// who a send would reach that isn't in its conversation (such a send is approved on its own), what
+// each says as a row, and what "Approve all" says it did, item by item when something didn't go
+// through.
 
 import type { Decided } from "./approvals.ts";
 import { who } from "./format.ts";
@@ -54,7 +55,7 @@ export function approvalCard(
 
 interface SendInput {
   id?: unknown;
-  snapshot?: { to?: unknown; cc?: unknown; bcc?: unknown; subject?: unknown };
+  snapshot?: { from?: unknown; to?: unknown; cc?: unknown; bcc?: unknown; subject?: unknown };
 }
 const sendInput = (a: Approval): SendInput | null =>
   a.action === "mail.send" && a.input && typeof a.input === "object"
@@ -87,6 +88,12 @@ export function sendRecipients(
   const s = sendInput(a)?.snapshot;
   if (!s) return null;
   return { to: listOf(s.to), cc: listOf(s.cc), bcc: listOf(s.bcc) };
+}
+
+/** Which of your accounts a send goes from, as asked. */
+export function sendFrom(a: Approval): string | null {
+  const from = sendInput(a)?.snapshot?.from;
+  return typeof from === "string" ? from : null;
 }
 
 const key = (a: MailAddress) => a.address.trim().toLowerCase();
@@ -132,6 +139,53 @@ export function sendReach(
 
 /** A send "Approve all" may cover: a reply that reaches only people already in it. */
 export const coverable = (r: Reach) => r.kind === "reply" && r.strangers.size === 0;
+
+// --- Rows ---
+
+/** Hearth's usual reason for a yes on a send: Today says it once, over the list, not on each row. */
+export const SHARED_WHY = "Other people would see this, so it needs your yes.";
+
+/** A reason worth saying on its own row: any but the one Today says over the whole list. */
+export const ownWhy = (why: string | null | undefined) => (why && why !== SHARED_WHY ? why : null);
+
+/** People as a row names them: "Dana Ruiz", "Leo Okafor and Priya Nair", "Leo and 2 others". */
+export function namesOf(list: readonly MailAddress[]): string {
+  const names = list.map((a) => a.name?.trim() || a.address);
+  if (names.length > 2) return `${names[0]} and ${names.length - 1} others`;
+  return names.join(" and ") || "nobody yet";
+}
+
+/** A send or a draft in a few words: a reply to its people, a new email to them, or not known yet. */
+export const mailTitle = (to: readonly MailAddress[], reply: boolean | null) =>
+  `${reply === null ? "Send to" : reply ? "Reply to" : "Email"} ${namesOf(to)}`;
+
+/**
+ * An approval as one row on Today. A send says who it goes to by name and its subject; anything
+ * else says what it would do, without "Jarvis asks:". `whole` when the row's line is all there is
+ * to it (no text, and no addresses behind names), so its yes can sit on the row itself; any other
+ * opens first, so a yes never covers words you haven't seen (D33, D58).
+ */
+export function askRow(
+  a: Approval,
+  parts: { what: string; text: string | null },
+  reply: boolean | null,
+): { title: string; sub: string | null; whole: boolean } {
+  const to = sendRecipients(a);
+  if (to) {
+    const subject = sendInput(a)?.snapshot?.subject;
+    return {
+      title: mailTitle(to.to, reply),
+      sub: typeof subject === "string" ? subject || "(no subject)" : null,
+      whole: false,
+    };
+  }
+  const asks = `${who(a.requestedBy)} asks: `;
+  const title =
+    a.requestedBy === "jarvis" && parts.what.startsWith(asks)
+      ? parts.what.slice(asks.length)
+      : parts.what;
+  return { title, sub: null, whole: parts.text === null };
+}
 
 // --- Approve all ---
 

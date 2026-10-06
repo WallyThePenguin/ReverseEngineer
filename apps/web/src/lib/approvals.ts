@@ -5,7 +5,7 @@
 import { createSignal } from "solid-js";
 import { decideApproval } from "./api.ts";
 import { affectedByChange } from "./invalidate.ts";
-import { live, toast } from "./live.ts";
+import { live, type Toast, toast } from "./live.ts";
 
 /**
  * An approval's state as Hearth names it, or "gone" where all that's known is that it no longer
@@ -81,13 +81,25 @@ export interface Decision {
   message: string | null;
 }
 
+/** What a yes says once it's done, in the approval's own words: "Sent to Dana Ruiz · View". */
+export interface Said {
+  text: string;
+  action?: Toast["action"];
+}
+
 /** Sends your yes or no, and says how it went in a toast. */
-export async function decide(approvalId: string, decision: "approve" | "deny"): Promise<Decided> {
+export async function decide(
+  approvalId: string,
+  decision: "approve" | "deny",
+  said?: Said,
+): Promise<Decided> {
   // A second press while the first is on its way (or just after) does nothing, quietly.
   if (deciding(approvalId) || isDecided(approvalId)) return "changed";
   const d = await decideQuietly(approvalId, decision);
-  if (d.outcome === "done") toast.show(decision === "approve" ? "Approved and done." : "Denied.");
-  else if (d.message)
+  if (d.outcome === "done") {
+    if (decision === "deny") toast.show("Denied.");
+    else toast.show(said?.text ?? "Approved and done.", "ok", said?.action);
+  } else if (d.message)
     toast.show(d.message, d.message.startsWith("This was already") ? "info" : "error");
   return d.outcome;
 }

@@ -1,23 +1,25 @@
-// Today's "Ready to send": the replies Jarvis drafted, each whole (who it goes to, the subject and
-// every word), with Send, Edit and Discard. Send sends exactly what's shown: Hearth refuses a draft
-// that changed since (mail/send.ts), and one that changes while it's shown here says so and keeps
-// Send off a moment, so what goes is what you read. Anyone it would reach who isn't in the
-// conversation yet is marked in red (on a new email, everyone), and Send waits until the draft and
-// its conversation have just been read.
+// Today's "Ready to send": the replies Jarvis drafted, one line each (who it goes to and the
+// subject), opening in place to the whole draft (who it goes to, every word) with Send, Edit and
+// Discard. Send is only there once it's open, and sends exactly what's shown: Hearth refuses a
+// draft that changed since (mail/send.ts), and one that changes while it's shown here says so and
+// keeps Send off a moment, so what goes is what you read. Anyone it would reach who isn't in the
+// conversation yet is marked in red (on a new email, everyone), on its line as well, and Send waits
+// until the draft and its conversation have just been read.
 
-import { createMemo, createSignal, createUniqueId, For, Show } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import { Icon } from "../../components/icons.tsx";
+import { Avatar } from "../../components/kit/Avatar.tsx";
 import { Card } from "../../components/kit/Card.tsx";
 import { SectionHeader } from "../../components/kit/SectionHeader.tsx";
-import { JarvisMark } from "../../components/Mark.tsx";
 import { Button } from "../../components/ui.tsx";
 import { ago } from "../../lib/format.ts";
 import { toast } from "../../lib/live.ts";
-import { participantsOf, strangers } from "../../lib/needsYou.ts";
+import { mailTitle, namesOf, participantsOf, strangers } from "../../lib/needsYou.ts";
 import { act, useAction } from "../../lib/query.ts";
 import { createSettled } from "../../lib/settled.ts";
 import { draftSnapshot } from "../../lib/today.ts";
 import type { MailAddress, MailDraft, MailThreadView } from "../../lib/types.ts";
+import { FoldRow, KindMark } from "./FoldRow.tsx";
 import type { Go } from "./parts.tsx";
 import { type Mark, RecipientList } from "./Recipients.tsx";
 
@@ -31,29 +33,33 @@ export function ReadyToSend(props: {
     equals: (a, b) => a.length === b.length && a.every((id, i) => id === b[i]),
   });
   return (
-    <section aria-labelledby="today-drafts" data-jump="today-drafts" class="scroll-mt-4 space-y-3">
+    <section aria-labelledby="today-drafts" data-jump="today-drafts" class="scroll-mt-4 space-y-2">
       <SectionHeader
         id="today-drafts"
         title="Ready to send"
         count={props.drafts.length}
         more={{ label: "Mail", run: () => props.go({ view: "mail" }) }}
       />
-      {/* By id: a draft read again with changes is the same card, which notices the change. */}
-      <For each={ids()}>
-        {(id) => (
-          <Show when={props.drafts.find((d) => d.id === id)}>
-            {(d) => <DraftCard draft={d()} fresh={props.fresh} go={props.go} />}
-          </Show>
-        )}
-      </For>
+      <Card flush>
+        <ul>
+          {/* By id: a draft read again with changes is the same row, which notices the change. */}
+          <For each={ids()}>
+            {(id) => (
+              <Show when={props.drafts.find((d) => d.id === id)}>
+                {(d) => <DraftRow draft={d()} fresh={props.fresh} go={props.go} />}
+              </Show>
+            )}
+          </For>
+        </ul>
+      </Card>
     </section>
   );
 }
 
-function DraftCard(props: { draft: MailDraft; fresh: boolean; go: Go }) {
-  const id = createUniqueId();
+function DraftRow(props: { draft: MailDraft; fresh: boolean; go: Go }) {
   const d = () => props.draft;
   const [busy, setBusy] = createSignal(false);
+  const [open, setOpen] = createSignal(false);
   const thread = useAction<MailThreadView>(
     "mail.thread",
     () => ({ id: d().threadId }),
@@ -91,10 +97,15 @@ function DraftCard(props: { draft: MailDraft; fresh: boolean; go: Go }) {
         id: d().id,
         snapshot: JSON.parse(shown.armed()),
       });
-      if (sent)
+      if (sent?.alreadySent) toast.show("It had already gone out, so it wasn't sent again.");
+      else if (sent) {
+        const t = d().threadId;
         toast.show(
-          sent.alreadySent ? "It had already gone out, so it wasn't sent again." : "Sent.",
+          `Sent to ${namesOf(d().to)}`,
+          "ok",
+          t ? { label: "View", run: () => props.go({ view: "thread", id: t }) } : undefined,
         );
+      }
     } finally {
       setBusy(false);
     }
@@ -113,20 +124,31 @@ function DraftCard(props: { draft: MailDraft; fresh: boolean; go: Go }) {
     props.go(thread ? { view: "thread", id: thread } : { view: "mail" });
   };
 
+  // Who it reaches that's new, said on its line too, so a row you haven't opened still warns you.
+  const reachesNew = () =>
+    !d().threadId ? "New email" : outsiders().size ? "Adds someone new" : null;
+  const first = () => d().to[0];
+
   return (
-    <Card labelledby={id}>
-      <div class="flex items-start gap-2.5">
-        <JarvisMark size={18} class="mt-0.5" />
-        <div class="min-w-0 flex-1">
-          <h3 id={id} class="text-heading break-words">
-            {d().subject || "(no subject)"}
-          </h3>
-          <p class="text-meta text-muted">
-            {d().threadId ? "A reply" : "A new email"} Jarvis drafted {ago(d().updatedAt)}
-          </p>
-        </div>
-      </div>
-      <RecipientList class="mt-3" to={d().to} cc={d().cc} bcc={d().bcc} mark={mark} />
+    <FoldRow
+      lead={
+        <Show when={first()} fallback={<KindMark icon="mail" />}>
+          {(a) => <Avatar size={32} name={a().name} email={a().address} />}
+        </Show>
+      }
+      title={mailTitle(d().to, d().threadId !== null)}
+      sub={
+        <>
+          <Show when={reachesNew()}>
+            {(say) => <span class="font-medium text-bad">{`${say()} · `}</span>}
+          </Show>
+          {`${d().subject || "(no subject)"} · drafted ${ago(d().updatedAt)}`}
+        </>
+      }
+      open={open()}
+      onToggle={() => setOpen(!open())}
+    >
+      <RecipientList to={d().to} cc={d().cc} bcc={d().bcc} mark={mark} />
       <Show when={shown.changed()}>
         <p role="status" class="mt-3 flex items-start gap-1.5 text-meta text-warn">
           <Icon name="warn" size={14} class="mt-px shrink-0" />
@@ -158,6 +180,6 @@ function DraftCard(props: { draft: MailDraft; fresh: boolean; go: Go }) {
           Send
         </Button>
       </div>
-    </Card>
+    </FoldRow>
   );
 }

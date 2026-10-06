@@ -1,12 +1,16 @@
-// Today's "Needs you": every approval waiting for your yes or no, in full, on the inbox's own card.
-// Several asking for the same kind of thing share an "Approve all" over every card it covers, each
-// shown in full; it covers only cards that have been on screen a moment, so one that arrives just
-// before a tap waits for you to look again. A send that would reach someone who isn't in its
-// conversation (or a new email) says so in red and is approved on its own. "Approve all" sends
-// each yes in turn and says how they went in one place, which stays after the cards have gone.
+// Today's "Needs you": every approval waiting for your yes or no, one line each, so the morning fits
+// on one screen. A send says who it goes to by name and its subject, and opens in place to exactly
+// what a yes would send (the addresses in full, anyone new in red, every word) with Deny and
+// Approve under it: a yes never covers words you haven't seen (D33, D58). One whose line is all
+// there is to it (an invitation, say) has its yes on the line. Hearth's usual reason is said once
+// over the list; any other stays on its row. Several asking for the same kind of thing share an
+// "Approve all", which first opens them ("Read all 3") and covers only rows that have been open and
+// on screen a moment, so one that arrives or opens just before a tap waits for you to look. A send
+// that would reach someone who isn't in its conversation (or a new email) is approved on its own.
+// "Approve all" sends each yes in turn and says how they went in one place, which stays after the
+// rows have gone.
 
 import { createMemo, createSignal, For, type JSX, Show, untrack } from "solid-js";
-import { ApprovalCard } from "../../components/ApprovalCard.tsx";
 import { Icon } from "../../components/icons.tsx";
 import { Card } from "../../components/kit/Card.tsx";
 import { EmptyState } from "../../components/kit/EmptyState.tsx";
@@ -16,32 +20,24 @@ import { Skeleton } from "../../components/kit/Skeleton.tsx";
 import type { QueryRead } from "../../components/QueryView.tsx";
 import { Button, Failed } from "../../components/ui.tsx";
 import { decideQuietly, deciding, isWaiting } from "../../lib/approvals.ts";
-import { ago } from "../../lib/format.ts";
 import {
   type ApproveAllResult,
   type ApprovedItem,
-  approvalCard,
   approveAllResult,
   coverable,
   groupApprovals,
   type Reach,
   sendDraftId,
   sendReach,
-  sendRecipients,
 } from "../../lib/needsYou.ts";
 import { useActions } from "../../lib/query.ts";
 import { createSettled, noneNew, sameIds } from "../../lib/settled.ts";
 import { toolDoing } from "../../lib/toolNames.ts";
-import type {
-  Approval,
-  InboxRow,
-  MailAddress,
-  MailDraft,
-  MailThreadView,
-} from "../../lib/types.ts";
-import { type Mark, RecipientList } from "./Recipients.tsx";
+import type { Approval, InboxRow, MailDraft, MailThreadView } from "../../lib/types.ts";
+import { AskRow } from "./AskRow.tsx";
+import type { Go } from "./parts.tsx";
 
-/** "Approve all", kept by Today so what it says outlives the cards it covered. */
+/** "Approve all", kept by Today so what it says outlives the rows it covered. */
 export interface ApproveAll {
   /** The group being approved, if one is. */
   running: () => string | null;
@@ -82,6 +78,7 @@ export function NeedsYou(props: {
    * all waits a moment before covering them.
    */
   opening: () => boolean;
+  go: Go;
 }) {
   // The approvals on screen a moment, wherever they are in the list: what Approve all may cover.
   // One that just came (below the fold, say) waits for a look; one that only moved into a group,
@@ -91,8 +88,14 @@ export function NeedsYou(props: {
     safe: noneNew,
     ...(untrack(props.opening) ? {} : { initial: [] as string[] }),
   });
+  // The rows you've opened, by approval: kept here, so a row that moves into a group stays open.
+  const [open, setOpen] = createSignal<ReadonlySet<string>>(new Set());
+  const toggle = (id: string) =>
+    setOpen((s) => (s.has(id) ? new Set([...s].filter((x) => x !== id)) : new Set([...s, id])));
+  const openAll = (ids: readonly string[]) => setOpen((s) => new Set([...s, ...ids]));
+
   const draftOf = (a: Approval) => props.drafts?.find((d) => d.id === sendDraftId(a));
-  // The conversations the sends answer, read as a draft's card reads them (the same cache).
+  // The conversations the sends answer, read as a draft's row reads them (the same cache).
   const threadIds = createMemo(
     () => [
       ...new Set(
@@ -121,46 +124,43 @@ export function NeedsYou(props: {
   const keys = () => groups().map((g) => g.key);
   const itemsOf = (key: string) => groups().find((g) => g.key === key)?.items ?? [];
 
-  const card = (a: Approval, open: boolean) => {
-    const parts = () =>
-      approvalCard(
-        a,
-        props.inbox?.find((r) => r.notification.approvalId === a.id),
-      );
-    return (
-      <ApprovalCard
-        approvalId={a.id}
-        what={parts().what}
-        why={parts().why}
-        text={parts().text}
-        status={a.status}
-        byJarvis={a.requestedBy === "jarvis"}
-        meta={`Asked ${ago(a.createdAt)}`}
-        level={3}
-        open={open}
-      >
-        <Show when={reach(a)}>
-          {(r) => <SendsTo approval={a} reach={r()} checking={!!draftOf(a) || !props.drafts} />}
-        </Show>
-      </ApprovalCard>
-    );
-  };
+  const row = (a: Approval) => (
+    <AskRow
+      approval={a}
+      inbox={props.inbox?.find((r) => r.notification.approvalId === a.id)}
+      draft={draftOf(a)}
+      reach={reach(a)}
+      checking={!!draftOf(a) || !props.drafts}
+      open={open().has(a.id)}
+      onToggle={() => toggle(a.id)}
+      go={props.go}
+    />
+  );
 
   return (
-    <section aria-labelledby="today-needs" data-jump="today-needs" class="scroll-mt-4 space-y-3">
-      <SectionHeader id="today-needs" title="Needs you" count={props.approvals.length} />
-      <For each={keys()}>
-        {(key) => (
-          <Group
-            group={key}
-            action={itemsOf(key)[0]?.action ?? key}
-            items={itemsOf(key)}
-            card={card}
-            approving={props.approving}
-            seen={onScreen.armed()}
-          />
-        )}
-      </For>
+    <section aria-labelledby="today-needs" data-jump="today-needs" class="scroll-mt-4 space-y-2">
+      <div>
+        <SectionHeader id="today-needs" title="Needs you" count={props.approvals.length} />
+        <p class="text-meta text-muted">Nothing happens until you say yes.</p>
+      </div>
+      <Card flush>
+        <For each={keys()}>
+          {(key) => (
+            <div class="border-b border-line last:border-b-0">
+              <Group
+                group={key}
+                action={itemsOf(key)[0]?.action ?? key}
+                items={itemsOf(key)}
+                row={row}
+                approving={props.approving}
+                seen={onScreen.armed()}
+                open={open()}
+                openAll={openAll}
+              />
+            </div>
+          )}
+        </For>
+      </Card>
     </section>
   );
 }
@@ -170,100 +170,90 @@ function Group(props: {
   group: string;
   action: string;
   items: readonly Approval[];
-  card: (a: Approval, open: boolean) => JSX.Element;
+  row: (a: Approval) => JSX.Element;
   approving: ApproveAll;
   /** The approvals on screen a moment. */
   seen: readonly string[];
+  /** The rows you've opened. */
+  open: ReadonlySet<string>;
+  openAll: (ids: readonly string[]) => void;
 }) {
   const live = () =>
     props.items.filter((a) => isWaiting(a.id, a.status) && !deciding(a.id)).map((a) => a.id);
-  // What a tap covers: the cards on screen a moment. One that just arrived waits for a look.
+  // The rows open a moment: opening them all is a change Approve all waits out, like an arrival.
+  const shown = createSettled(() => live().filter((id) => props.open.has(id)), {
+    same: sameIds,
+    safe: noneNew,
+    initial: [],
+  });
+  const closed = () => live().filter((id) => !props.open.has(id));
+  // One that just arrived waits for a look, open or not.
   const arrived = () => live().filter((id) => !props.seen.includes(id)).length;
+  // What a tap covers: rows open and on screen a moment.
+  const covered = () =>
+    live().filter((id) => props.seen.includes(id) && shown.armed().includes(id));
   const running = () => props.approving.running() === props.group;
   const approveAll = () => {
-    if (arrived() > 0) return;
-    const covered = live().filter((id) => props.seen.includes(id));
+    if (arrived() > 0 || covered().length < live().length) return;
+    const c = covered();
     void props.approving.run(
       props.group,
-      props.items.filter((a) => covered.includes(a.id)),
+      props.items.filter((a) => c.includes(a.id)),
     );
   };
+  const rows = () => (
+    <ul>
+      <For each={props.items}>{(a) => props.row(a)}</For>
+    </ul>
+  );
   return (
-    <Show
-      when={props.items.length > 1}
-      fallback={<For each={props.items}>{(a) => props.card(a, false)}</For>}
-    >
-      <div class="space-y-2 rounded-xl bg-sunk p-2 ring-1 ring-line ring-inset">
-        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 pr-1 pl-2">
-          {/* Never squeezed: narrow, the button goes under it, and the note under both. */}
-          <p class="min-w-40 flex-1 text-sm">
-            <span class="font-medium">{toolDoing(props.action)}</span>
-            <span class="text-muted"> · {props.items.length} waiting</span>
+    <Show when={props.items.length > 1} fallback={rows()}>
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line bg-sunk/50 py-1.5 pr-2 pl-3">
+        {/* Never squeezed: narrow, the button goes under it, and the note under both. */}
+        <p class="min-w-40 flex-1 text-meta">
+          <span class="font-medium">{toolDoing(props.action)}</span>
+          <span class="text-muted"> · {props.items.length} waiting</span>
+        </p>
+        <Show when={arrived() > 0}>
+          <p
+            role="status"
+            class="order-last flex basis-full items-center gap-1 pb-1 text-meta font-medium text-warn"
+          >
+            <Icon name="warn" size={14} />
+            {`${arrived()} new — look again`}
           </p>
-          <Show when={arrived() > 0}>
-            <p
-              role="status"
-              class="order-last flex basis-full items-center gap-1 pb-1 text-meta font-medium text-warn"
-            >
-              <Icon name="warn" size={14} />
-              {`${arrived()} new — look again`}
-            </p>
-          </Show>
-          <Show when={live().length > 1 || running()}>
+        </Show>
+        <Show when={live().length > 1 || running()}>
+          <Show
+            when={closed().length === 0 || running()}
+            fallback={
+              <Button small icon="chevron-down" onClick={() => props.openAll(closed())}>
+                {`Read all ${live().length}`}
+              </Button>
+            }
+          >
             <Button
               kind="primary"
               small
               icon="check"
-              disabled={props.approving.running() !== null || arrived() > 0}
+              disabled={
+                props.approving.running() !== null ||
+                arrived() > 0 ||
+                covered().length < live().length
+              }
               onClick={approveAll}
             >
               {running() ? "Approving…" : `Approve all ${live().length}`}
             </Button>
           </Show>
-        </div>
-        <For each={props.items}>{(a) => props.card(a, true)}</For>
-      </div>
-    </Show>
-  );
-}
-
-/** Who a send reaches, when someone on it is new: in red, as Ready to send marks it. */
-function SendsTo(props: { approval: Approval; reach: Reach; checking: boolean }) {
-  const list = () => sendRecipients(props.approval);
-  const outside = () => {
-    const r = props.reach;
-    return r.kind === "new" || (r.kind === "reply" && r.strangers.size > 0);
-  };
-  const mark = (a: MailAddress): Mark => {
-    const r = props.reach;
-    if (r.kind === "new") return "new";
-    return r.kind === "reply" && r.strangers.has(a.address.trim().toLowerCase())
-      ? "stranger"
-      : null;
-  };
-  return (
-    <Show
-      when={outside() && list()}
-      fallback={
-        <Show when={props.reach.kind === "unknown" && props.checking}>
-          <p class="mt-2 text-meta text-muted">Checking who it goes to…</p>
         </Show>
-      }
-    >
-      {(l) => (
-        <RecipientList
-          class="mt-3 rounded-md border border-line p-3"
-          to={l().to}
-          cc={l().cc}
-          bcc={l().bcc}
-          mark={mark}
-        />
-      )}
+      </div>
+      {rows()}
     </Show>
   );
 }
 
-/** What "Approve all" did, over Needs you: kept until you close it, even once the cards are gone. */
+/** What "Approve all" did, over Needs you: kept until you close it, even once the rows are gone. */
 export function ApproveAllSaid(props: { approving: ApproveAll; ready: ReadonlySet<string> }) {
   return (
     <Show when={props.approving.result()}>
@@ -300,9 +290,9 @@ export function ApproveAllSaid(props: { approving: ApproveAll; ready: ReadonlySe
 export function Clear() {
   return (
     <Card>
-      <EmptyState icon="ok" title="You're clear" class="py-8">
-        Nothing needs your yes right now. When Jarvis needs one, it'll be here, with what it would
-        do in full.
+      <EmptyState icon="ok" title="You're all caught up" class="py-8">
+        Nothing needs your yes right now. When Jarvis needs one, it'll be here, with exactly what it
+        would do.
       </EmptyState>
     </Card>
   );

@@ -197,6 +197,7 @@ export function Today(props: { pane: number }) {
                         drafts={drafts.data}
                         approving={approving}
                         opening={opening}
+                        go={go}
                       />
                     </Show>
                   </Show>

@@ -6,9 +6,14 @@ import {
   approvalCard,
   approveAllResult,
   askedToSend,
+  askRow,
   coverable,
   groupApprovals,
+  mailTitle,
+  namesOf,
+  ownWhy,
   participantsOf,
+  SHARED_WHY,
   sendReach,
   sendRecipients,
   strangers,
@@ -195,5 +200,56 @@ describe("what Approve all says", () => {
       text: "1 didn't go through:",
       missed: [{ why: "It changed before your yes reached it." }],
     });
+  });
+});
+
+describe("each as a row", () => {
+  it("names people as a row says them, with the rest counted", () => {
+    expect(namesOf([{ address: "dana@x.example", name: "Dana Ruiz" }])).toBe("Dana Ruiz");
+    expect(
+      namesOf([{ address: "leo@x.example" }, { address: "pri@x.example", name: " Priya " }]),
+    ).toBe("leo@x.example and Priya");
+    expect(namesOf([{ address: "a@x" }, { address: "b@x" }, { address: "c@x" }])).toBe(
+      "a@x and 2 others",
+    );
+    expect(mailTitle([], null)).toBe("Send to nobody yet");
+  });
+
+  it("says a send as a reply or a new email to its people, by name, with its subject", () => {
+    const a = send("lease", "d1", ["dana@x.example (Dana Ruiz)"]);
+    const parts = {
+      what: "Jarvis asks: Send email from sam@x.example to dana@x.example",
+      text: "Hi",
+    };
+    expect(askRow(a, parts, true)).toEqual({
+      title: "Reply to Dana Ruiz",
+      sub: "Re: lease",
+      whole: false,
+    });
+    expect(askRow(a, parts, false).title).toBe("Email Dana Ruiz");
+    expect(askRow(a, parts, null).title).toBe("Send to Dana Ruiz");
+  });
+
+  it("puts a yes on the row only when the row shows all of it", () => {
+    const invite = approval("i", "calendar.schedule_meeting");
+    expect(
+      askRow(invite, { what: 'Jarvis asks: Invite pri@x.example to "Prep"', text: null }, null),
+    ).toEqual({ title: 'Invite pri@x.example to "Prep"', sub: null, whole: true });
+    expect(askRow(invite, { what: "Jarvis asks: Post it", text: "The post" }, null).whole).toBe(
+      false,
+    );
+    // Someone other than Jarvis asking keeps their name on it.
+    const outside = approval("o", "task.create", { requestedBy: "mcp:notes-app" });
+    expect(askRow(outside, { what: "notes-app asks: Add a task", text: null }, null).title).toBe(
+      "notes-app asks: Add a task",
+    );
+  });
+
+  it("says the usual reason once over the list, and any other on its row", () => {
+    expect(ownWhy(SHARED_WHY)).toBeNull();
+    expect(ownWhy(null)).toBeNull();
+    expect(ownWhy("This is hard to undo, so it needs your yes.")).toBe(
+      "This is hard to undo, so it needs your yes.",
+    );
   });
 });
