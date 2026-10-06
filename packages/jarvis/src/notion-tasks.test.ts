@@ -1,6 +1,7 @@
 // Notion tickets as Hearth tasks, end to end and without a model turn: your open tickets come in
 // as tasks when you connect, a new one becomes a task, a done one closes it, a reopened one opens
-// it again, and a new title or due date carries over. Nothing while Jarvis is paused.
+// it again, a new title or due date carries over, and one handed to someone else (or deleted)
+// cancels it. Nothing while Jarvis is paused.
 import { randomBytes } from "node:crypto";
 import { entity, link } from "@hearth/db";
 import { type Caller, integrationCaller, ownerCaller } from "@hearth/kernel";
@@ -82,6 +83,35 @@ describe("Notion tickets as tasks", () => {
     expect((await tasks())[1]).toEqual(["Ship the invoice page v2", "not_started", null, false]);
     expect(await tasks()).toHaveLength(2);
     expect(h.brain.requests).toEqual([]);
+  });
+
+  it("cancels the task of a ticket handed to someone else or deleted", async () => {
+    ticket("a", { title: "Fix the login bug" });
+    ticket("b", { title: "Write the release notes" });
+    await sync();
+    expect(await tasks()).toHaveLength(2);
+    h.clock.advance(1000);
+    n.put(BOARD, {
+      id: "a",
+      title: "Fix the login bug",
+      assignees: ["user-sam"],
+      status: "Not started",
+      due: null,
+      editedAt: h.clock.now(),
+    });
+    n.remove(BOARD, "b");
+    await sync();
+    expect(await tasks()).toEqual([]);
+    const gone = await ok<TaskView[]>("task.list", { status: ["canceled"] });
+    expect(gone.map((t) => t.title).sort()).toEqual([
+      "Fix the login bug",
+      "Write the release notes",
+    ]);
+    // Yours again: the same task opens, not a second one.
+    ticket("a", { title: "Fix the login bug" });
+    await sync();
+    expect(await tasks()).toEqual([["Fix the login bug", "not_started", null, false]]);
+    expect(await ok<TaskView[]>("task.list", { status: ["canceled"] })).toHaveLength(1);
   });
 
   it("makes nothing while Jarvis is paused, and catches up on the next change", async () => {
