@@ -5,7 +5,7 @@
 
     powershell -File ops\ci-runner\windows-runner.ps1 -Install   start it at every sign-in
     powershell -File ops\ci-runner\windows-runner.ps1 -Uninstall stop starting it at sign-in
-    powershell -File ops\ci-runner\windows-runner.ps1 -Start     start it now, hidden
+    powershell -File ops\ci-runner\windows-runner.ps1 -Start     start it now, hidden, and the test cluster on 5499
     powershell -File ops\ci-runner\windows-runner.ps1 -Stop      stop it (and the job it's running)
     powershell -File ops\ci-runner\windows-runner.ps1 -Status    is it running, and how
 
@@ -31,6 +31,21 @@ $Shortcut = Join-Path ([Environment]::GetFolderPath("Startup")) "Hearth CI runne
 function Get-RunnerProcess {
   Get-CimInstance Win32_Process -Filter "Name = 'Runner.Listener.exe' OR Name = 'Runner.Worker.exe'" |
     Where-Object { $_.ExecutablePath -like "$Runner\*" }
+}
+
+# The Postgres test cluster on 5499 that CI's jobs (and local tests) use. Nothing else starts it
+# after Windows restarts, and every job fails at its first step without it.
+$PgBin = "C:\Program Files\PostgreSQL\17\bin"
+$TestDb = Join-Path $env:LOCALAPPDATA "HearthTestDb"
+function Test-TestDb {
+  & "$PgBin\pg_isready.exe" -q -h 127.0.0.1 -p 5499
+  $LASTEXITCODE -eq 0
+}
+function Start-TestDb {
+  if (Test-TestDb) { Write-Host "The test cluster on 5499 is up."; return }
+  if (-not (Test-Path (Join-Path $TestDb "PG_VERSION"))) { Write-Host "No test cluster in $TestDb (docs\ci.md)."; return }
+  & "$PgBin\pg_ctl.exe" start -D $TestDb -l (Join-Path $TestDb "server.log") -w -t 60 | Out-Null
+  if (Test-TestDb) { Write-Host "Started the test cluster on 5499." } else { Write-Host "The test cluster didn't start; see $TestDb\server.log." }
 }
 
 # Everything run from D:\hearth-ci: the runner, and a job's Node, pnpm and Chromium. Never the live
@@ -83,6 +98,7 @@ if ($Stop) {
 }
 
 if ($Start) {
+  Start-TestDb
   if (Get-RunnerProcess) {
     Write-Host "The runner is already running."
   } else {
@@ -108,5 +124,6 @@ if ($Status) {
     $busy = $runner | Where-Object { $_.Name -eq "Runner.Worker.exe" }
     if ($busy) { Write-Host "Running a job now." } else { Write-Host "Waiting for a job." }
   }
+  if (Test-TestDb) { Write-Host "The test cluster on 5499 is up." } else { Write-Host "The test cluster on 5499 isn't answering; -Start starts it." }
   if (Test-Path -LiteralPath $Shortcut) { Write-Host "Starts at sign-in ($Shortcut)." } else { Write-Host "Doesn't start at sign-in (-Install)." }
 }

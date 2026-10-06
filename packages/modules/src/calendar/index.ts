@@ -18,8 +18,10 @@ import { calendarWriteActions } from "./actions.ts";
 import { blockAction, blockReflex, blockRoutine } from "./blocks.ts";
 import { calendarSetupActions, inSelectedCalendar } from "./calendars.ts";
 import { freeSlots } from "./free.ts";
-import { prepPublish, prepRoutine } from "./prep.ts";
+import { newInvite } from "./invites.ts";
+import { prepPublish, prepRoutine, prepsFor } from "./prep.ts";
 import { respondAction } from "./respond.ts";
+import { meetingSoon } from "./soon.ts";
 import { guests, loadEvent, toEventView, whenText } from "./store.ts";
 import { syncCalendars } from "./sync.ts";
 
@@ -213,7 +215,15 @@ export const calendarModule = defineModule({
           )
           .orderBy(asc(calendarEvent.startsAt))
           .limit(500);
-        return rows.map((x) => toEventView(x.e, x.r));
+        // So a row can say "Prep ready" without another read per event.
+        const preps = await prepsFor(
+          ctx.tx,
+          rows.map((x) => x.e.id),
+        );
+        return rows.map((x) => {
+          const prep = preps.get(x.e.id);
+          return { ...toEventView(x.e, x.r), ...(prep ? { prepId: prep.id } : {}) };
+        });
       },
     }),
     defineAction({
@@ -261,7 +271,7 @@ export const calendarModule = defineModule({
     blockAction,
     prepPublish,
   ],
-  reflexes: [conflicts, syncFailed, noRoom, blockReflex],
+  reflexes: [conflicts, syncFailed, noRoom, blockReflex, newInvite, meetingSoon],
   async digest(ctx): Promise<DigestItem[]> {
     const rules = await getSetting(ctx.db, "owner.dayRules");
     const today = localDate(ctx.now, rules.timeZone);

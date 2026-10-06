@@ -46,6 +46,16 @@ export function backoff(attempt: number, random = Math.random): number {
   return Math.round(ceiling / 2 + (random() * ceiling) / 2);
 }
 
+/**
+ * Which reads a change reads again now. Out of sight (a background tab, Hearth's window in the
+ * tray, the phone app put away) none: they're only marked out of date, and read again as the page
+ * comes back into view (refetchOnWindowFocus), not on every event while nobody's looking, which
+ * would also keep your sign-in alive (D56).
+ */
+function readNow(): "active" | "none" {
+  return globalThis.document?.visibilityState === "hidden" ? "none" : "active";
+}
+
 function createLive() {
   const [connected, setConnected] = createSignal(false);
   const [reconnecting, setReconnecting] = createSignal(false);
@@ -81,12 +91,15 @@ function createLive() {
       if (q.state.fetchStatus !== "fetching") continue;
       const again = () =>
         void queryClient.invalidateQueries(
-          { queryKey: q.queryKey, exact: true },
+          { queryKey: q.queryKey, exact: true, refetchType: readNow() },
           { cancelRefetch: false },
         );
       q.promise?.then(again, again);
     }
-    void queryClient.invalidateQueries({ predicate }, { cancelRefetch: false });
+    void queryClient.invalidateQueries(
+      { predicate, refetchType: readNow() },
+      { cancelRefetch: false },
+    );
   };
 
   const refresh = (rule: Rule | null) => {

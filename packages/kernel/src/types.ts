@@ -182,7 +182,13 @@ export type ReflexOutcome =
     }
   | { kind: "tell"; notification: NewNotification }
   | { kind: "note"; observation: NewObservation }
-  | { kind: "act"; action: string; input: unknown }
+  | {
+      kind: "act";
+      action: string;
+      input: unknown;
+      /** Ask you first whatever the risk, with this as the card's reason. */
+      ask?: string;
+    }
   | { kind: "batch"; text: string; aboutId?: string | null }
   /**
    * Look again later. Calling this again with the same key moves the check, which debounces:

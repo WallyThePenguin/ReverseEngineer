@@ -1,11 +1,13 @@
 // Mail: every account's conversations in one list, split into Signal and Noise, plus what needs
-// your reply and what you're waiting on. j/k to move, Enter to open, e archive, s star, u read or
-// unread, n send the sender to the other lane, d no reply needed, # trash. Changes show at once
-// and reach Gmail within a minute. Older conversations load as you scroll down to them. One with a
-// reply drafted says so, and whether Jarvis wrote it.
+// your reply and what you're waiting on. j/k to move, Enter to open, e archive, r reply, t make a
+// task, s star, u read or unread, n send the sender to the other lane, d no reply needed, # trash.
+// Pointing at a row shows Archive, Make task and Reply. Changes show at once and reach Gmail
+// within a minute. Older conversations load as you scroll down to them. One with a reply drafted
+// says so, and whether Jarvis wrote it.
 
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from "solid-js";
 import { Icon } from "../components/icons.tsx";
+import { IconButton } from "../components/kit/IconButton.tsx";
 import { Pill } from "../components/kit/Pill.tsx";
 import { Skeleton } from "../components/kit/Skeleton.tsx";
 import { Badge, Button, Empty, PaneHeader } from "../components/ui.tsx";
@@ -13,6 +15,7 @@ import { debounced } from "../lib/debounce.ts";
 import { ago } from "../lib/format.ts";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
 import { toast } from "../lib/live.ts";
+import { archive, listClosed, makeTask, openedFrom, reply } from "../lib/mailActions.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
 import { createSelection } from "../lib/selection.ts";
@@ -106,9 +109,23 @@ export function Mail(props: { pane: number }) {
   const open = (t: MailThread | undefined, beside = false) => {
     if (!t) return;
     if (t.unread) void act("mail.mark_read", { ids: [t.id] });
+    // Archiving it there moves on to the next one in this list.
+    openedFrom(list);
     const route = { view: "thread" as const, id: t.id };
     if (beside) layout.open(route, { beside: true });
     else layout.show(route, props.pane);
+  };
+  onCleanup(() => listClosed(list));
+  // Reply from the list: the conversation opens with the cursor in the reply.
+  const replyFrom = (t: MailThread | undefined) => {
+    if (!t) return;
+    open(t);
+    void reply(t.id, drafts.data ?? []);
+  };
+  const archiveRow = (t: MailThread | undefined) => {
+    if (!t) return;
+    if (t.inInbox) void archive(t.id);
+    else void run("mail.unarchive", { ids: [t.id] }, "Back in the inbox.");
   };
   const run = async (name: string, input: Record<string, unknown>, done?: string) => {
     if ((await act(name, input)) && done) toast.show(done);
@@ -133,14 +150,13 @@ export function Mail(props: { pane: number }) {
     }),
     { keys: "enter", run: () => open(current()), when: focused, label: "Open" },
     { keys: "o", run: () => open(current()), when: focused },
+    { keys: "e", run: () => archiveRow(current()), when: focused, label: "Archive" },
+    { keys: "r", run: () => replyFrom(current()), when: focused, label: "Reply" },
     {
-      keys: "e",
-      run: () => {
-        const t = current();
-        if (t) void run(t.inInbox ? "mail.archive" : "mail.unarchive", { ids: [t.id] });
-      },
+      keys: "t",
+      run: () => current() && void makeTask(current()!),
       when: focused,
-      label: "Archive",
+      label: "Make task",
     },
     {
       keys: "s",
@@ -267,7 +283,7 @@ export function Mail(props: { pane: number }) {
                 <For each={list()}>
                   {(t, i) => (
                     <li
-                      class="cursor-pointer border-b border-line px-4 py-2.5"
+                      class="group cursor-pointer border-b border-line px-4 py-2.5"
                       data-active={focused() && i() === sel.index()}
                       onClick={(e) => {
                         sel.select(i());
@@ -318,7 +334,39 @@ export function Mail(props: { pane: number }) {
                         <Show when={t.waiting === "them" && lane() === "waiting"}>
                           <Badge tone="muted">no answer yet</Badge>
                         </Show>
-                        <span class="shrink-0 text-xs text-faint">{ago(t.lastMessageAt)}</span>
+                        <span class="shrink-0 text-xs text-faint md:group-hover:hidden">
+                          {ago(t.lastMessageAt)}
+                        </span>
+                        {/* Pointing at a row on a computer; a phone has the open email's bar. */}
+                        <span
+                          class="-my-1.5 hidden shrink-0 self-center md:group-hover:flex"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <IconButton
+                            icon="archive"
+                            label={t.inInbox ? "Archive" : "Move to inbox"}
+                            title={t.inInbox ? "Archive (e)" : "Move to inbox (e)"}
+                            size={16}
+                            onClick={() => archiveRow(t)}
+                          />
+                          <IconButton
+                            icon="tasks"
+                            label="Make task"
+                            title="Make task (t)"
+                            size={16}
+                            onClick={() => void makeTask(t)}
+                          />
+                          <IconButton
+                            icon="reply"
+                            label="Reply"
+                            title="Reply (r)"
+                            size={16}
+                            onClick={() => {
+                              sel.select(i());
+                              replyFrom(t);
+                            }}
+                          />
+                        </span>
                       </div>
                     </li>
                   )}
