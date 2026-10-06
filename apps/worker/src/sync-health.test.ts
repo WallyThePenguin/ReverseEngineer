@@ -302,5 +302,15 @@ describe("checkSyncs", () => {
         detail: "me@example.com calendar: Work: Not Found",
       },
     ]);
+
+    // One blip, then Google asks Hearth to wait: the pause shows, not the blip from before it.
+    const until = new Date(t.kernel.clock.now().getTime() + 60_000);
+    await t.tdb.db.update(googleAccount).set({ calendarState: "ok", calendarFailures: 1 });
+    await t.tdb.db
+      .insert(googleQuota)
+      .values({ account: "me@example.com", service: "calendar", pausedUntil: until });
+    const [paused] = await checkSyncs(t.kernel, new ErrorClock());
+    expect(paused).toMatchObject({ status: "ok" });
+    expect(paused?.detail).toMatch(/me@example.com calendar: Google asked Hearth to slow down/);
   });
 });

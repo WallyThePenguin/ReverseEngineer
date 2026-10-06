@@ -10,6 +10,14 @@ ALTER TABLE google_account
   ADD COLUMN calendar_synced_at timestamptz,
   ADD COLUMN calendar_error text;
 
+-- Counted from when each account's calendars last synced, so an outage just after the upgrade
+-- waits its half hour like any other.
+UPDATE google_account g SET calendar_synced_at = c.at
+FROM (
+  SELECT account, max(last_synced_at) AS at FROM calendar WHERE selected GROUP BY account
+) c
+WHERE c.account = g.email;
+
 -- What Google said when it last asked Hearth to slow down (its message, and the limit it hit),
 -- so Settings and `hearth doctor` can say why mail or calendar is waiting.
 ALTER TABLE google_quota ADD COLUMN reason text;

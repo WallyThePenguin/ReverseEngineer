@@ -102,8 +102,7 @@ async function syncNow() {
   const r = await act<{ failed: string[]; paused: string[] }>("calendar.sync");
   if (!r) return;
   if (r.failed.length) toast.show(`Didn't sync: ${r.failed.join(" · ")}`, "error");
-  else if (r.paused.length)
-    toast.show("Google asked Hearth to slow down. Your calendars sync again in a minute or so.");
+  else if (r.paused.length) toast.show("Calendar is waiting a few minutes before trying again.");
   else toast.show("Synced.");
 }
 

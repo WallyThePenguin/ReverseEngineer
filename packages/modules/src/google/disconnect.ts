@@ -72,7 +72,7 @@ export const disconnectAction = defineAction({
       .delete(googleAccount)
       .where(eq(googleAccount.email, email))
       .returning({ email: googleAccount.email, token: googleAccount.refreshToken });
-    await closeCalendarAlerts(ctx);
+    await closeCalendarAlerts(ctx, email);
     let google: GoogleClient | null = null;
     try {
       google = ctx.service<GoogleClient>(GOOGLE_SERVICE);

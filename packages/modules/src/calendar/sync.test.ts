@@ -145,6 +145,11 @@ describe("calendar sync", () => {
     expect((await sync()).failed).toHaveLength(1);
     expect(await t.events("calendar.sync_failed")).toHaveLength(1);
     expect(await health()).toMatchObject({ calendarState: "failing", calendarFailures: 1 });
+    // Each account's notice is its own, so two failing together are both told.
+    const [failed] = await t.events("calendar.sync_failed");
+    expect(await notice(failed!)).toBe(
+      `calendar.sync_failed:${ME}:${(failed!.payload as { since: string }).since}`,
+    );
     // An alert Jarvis gets to after it synced again stays unsaid.
     const [late] = await t.events("calendar.sync_failed");
     await sync();

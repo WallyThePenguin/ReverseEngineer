@@ -90,19 +90,28 @@ export function nextHealth(
   };
 }
 
-/** The notice for one run of failures; a token that stops working mid-run gets its own. */
-export const alertKey = (module: string, since: Date | string, reconnect: boolean) =>
-  `${module}.sync_failed:${new Date(since).toISOString()}${reconnect ? ":reconnect" : ""}`;
+/**
+ * The notice for one run of failures; a token that stops working mid-run gets its own. A module
+ * with several accounts (calendar) keys each account's apart, so two failing in the same round
+ * are each told, and each closes on its own.
+ */
+export const alertKey = (
+  module: string,
+  since: Date | string,
+  reconnect: boolean,
+  account?: string,
+) =>
+  `${module}.sync_failed:${account ? `${account}:` : ""}${new Date(since).toISOString()}${reconnect ? ":reconnect" : ""}`;
 
-/** Marks the connector's open "isn't syncing" notices done: it syncs again, or it's gone. */
-export async function closeAlerts(ctx: ActionContext, module: string) {
+/** Marks the connector's (or one account's) open "isn't syncing" notices done: it syncs again, or it's gone. */
+export async function closeAlerts(ctx: ActionContext, module: string, account?: string) {
   const rows = await ctx.tx
     .update(notification)
     .set({ state: "done", updatedAt: ctx.now })
     .where(
       and(
         ne(notification.state, "done"),
-        sql`starts_with(${notification.dedupeKey}, ${`${module}.sync_failed:`})`,
+        sql`starts_with(${notification.dedupeKey}, ${`${module}.sync_failed:${account ? `${account}:` : ""}`})`,
       ),
     )
     .returning({ id: notification.id, entityId: notification.entityId });
@@ -126,9 +135,16 @@ export function syncFailedReflex(
     ctx: ReadContext,
     payload: Record<string, unknown>,
   ) => Promise<Date | null | undefined>,
-  /** What to do when access stopped working; by default, paste a new token in Settings. */
-  reconnect = `${label} stopped accepting Hearth's token. Paste a new one in Settings; reading waits until then.`,
+  opts: {
+    /** What to do when access stopped working; by default, paste a new token in Settings. */
+    reconnect?: string;
+    /** One notice per account (the payload's `account`), as alertKey keys them. */
+    perAccount?: boolean;
+  } = {},
 ): ReflexDef {
+  const reconnect =
+    opts.reconnect ??
+    `${label} stopped accepting Hearth's token. Paste a new one in Settings; reading waits until then.`;
   return {
     name: `${module}.sync_failed`,
     description: `When ${label} stops syncing (a token to replace, or failing for half an hour), you get one notice, closed again once it syncs.`,
@@ -143,7 +159,12 @@ export function syncFailedReflex(
         ? reconnect
         : `Hearth hasn't been able to read ${label} for a while. It keeps trying every few minutes.`;
       const dedupeKey = since
-        ? alertKey(module, since, Boolean(p.reconnect))
+        ? alertKey(
+            module,
+            since,
+            Boolean(p.reconnect),
+            opts.perAccount && typeof p.account === "string" ? p.account : undefined,
+          )
         : `${module}.sync_failed:${localDate(event.at, (await getSetting(ctx.db, "owner.dayRules")).timeZone)}`;
       return [
         {

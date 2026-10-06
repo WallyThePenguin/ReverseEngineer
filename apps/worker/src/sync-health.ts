@@ -154,9 +154,11 @@ async function google(kernel: Kernel, clock: ErrorClock, now: Date): Promise<Syn
   for (const a of accounts) {
     if (!syncing.has(a.email) || a.status === "revoked") continue;
     const pause = pauses.get(`${a.email} calendar`);
+    // As with mail: an error from before a pause doesn't hide it while the sync still says ok.
+    const paused = Boolean(pause?.pausedUntil && pause.pausedUntil > now);
     out.push({
       name: `${a.email} calendar`,
-      error: a.calendarError,
+      error: paused && a.calendarState === "ok" ? null : a.calendarError,
       failing: a.calendarState !== "ok",
       lastGood: a.calendarSyncedAt,
       pausedUntil: pause?.pausedUntil,

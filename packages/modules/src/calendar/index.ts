@@ -102,7 +102,11 @@ const syncFailed = syncFailedReflex(
       .where(eq(googleAccount.email, p.account));
     return a?.since;
   },
-  "Google signed Hearth out of your calendar. Connect the account again in Settings > Google; your calendar waits until then.",
+  {
+    reconnect:
+      "Google signed Hearth out of your calendar. Connect the account again in Settings > Google; your calendar waits until then.",
+    perAccount: true,
+  },
 );
 
 const noRoom: ReflexDef = {

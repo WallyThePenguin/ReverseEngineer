@@ -1,12 +1,12 @@
 // How each Google account's calendars are syncing, saved after each round the way Slack, GitHub
 // and Notion save theirs (D61). One that won't pass by itself (a calendar Google says isn't there,
 // or won't show Hearth) is told at once; others after 3 rounds in a row and half an hour with
-// nothing read, and Google signing Hearth out at once, with how to connect again. Each run of
-// failures is told once, and the first good round closes the notice. A slowdown Google asks for
-// isn't a failure.
-import { calendar, googleAccount } from "@hearth/db";
+// nothing read, and Google signing Hearth out at once, with how to connect again. Each account's
+// run of failures is told once, and its first good round closes its notice (keyed by account,
+// connector-health.ts). A slowdown Google asks for isn't a failure.
+import { googleAccount } from "@hearth/db";
 import type { ActionContext } from "@hearth/kernel";
-import { and, eq, isNotNull, ne } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { closeAlerts, nextHealth, type Trouble, worst } from "../connector-health.ts";
 import { GoogleApiError } from "../google/errors.ts";
 
@@ -23,23 +23,9 @@ export function troubleOf(err: unknown, what: string): Trouble {
   return { kind: "transient", message };
 }
 
-/**
- * Calendar's notices close once nothing left is failing: no account's calendars, and no calendar
- * still synced, say they have a problem.
- */
-export async function closeCalendarAlerts(ctx: ActionContext) {
-  const [failing] = await ctx.tx
-    .select({ id: calendar.id })
-    .from(calendar)
-    .where(and(eq(calendar.selected, true), isNotNull(calendar.lastError)))
-    .limit(1);
-  const [troubled] = await ctx.tx
-    .select({ email: googleAccount.email })
-    .from(googleAccount)
-    .where(ne(googleAccount.calendarState, "ok"))
-    .limit(1);
-  if (!failing && !troubled) await closeAlerts(ctx, "calendar");
-}
+/** Closes the account's open calendar notices: it syncs again, or it's gone. */
+export const closeCalendarAlerts = (ctx: ActionContext, account: string) =>
+  closeAlerts(ctx, "calendar", account);
 
 /**
  * Saves how an account's round went, and tells or closes its notice. `paused`: Google asked
@@ -82,7 +68,7 @@ export async function recordCalendarHealth(
       ...(v.syncedAt ? { calendarSyncedAt: v.syncedAt } : {}),
     })
     .where(mine);
-  if (next.recovered) await closeCalendarAlerts(ctx);
+  if (next.recovered) await closeCalendarAlerts(ctx, acct.email);
   if (next.alert && trouble)
     ctx.emit({
       kind: "calendar.sync_failed",
