@@ -131,7 +131,7 @@ async function hear(ws: WebSocket, req: IncomingMessage, deps: SocketDeps, data:
   });
 }
 
-export function attachBrowserSockets(server: Server, deps: SocketDeps): () => void {
+export function attachBrowserSockets(servers: Server[], deps: SocketDeps): () => void {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 * 1024 });
   const onUpgrade = (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     const path = new URL(req.url ?? "/", "http://hearth").pathname;
@@ -156,11 +156,11 @@ export function attachBrowserSockets(server: Server, deps: SocketDeps): () => vo
     }
     refuse(socket, "404 Not Found");
   };
-  server.on("upgrade", onUpgrade);
+  for (const server of servers) server.on("upgrade", onUpgrade);
   const stopHealth = watchBrowserHealth(deps.kernel, deps.bridge);
   return () => {
     stopHealth();
-    server.off("upgrade", onUpgrade);
+    for (const server of servers) server.off("upgrade", onUpgrade);
     for (const ws of wss.clients) ws.terminate();
     wss.close();
   };
