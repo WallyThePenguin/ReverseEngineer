@@ -48,6 +48,19 @@ describe("the sub-products", () => {
     expect(appOf("thread").id).toBe("mail");
   });
 
+  it("open Jarvis on what it did, with Memory and Chrome as its other tabs", () => {
+    expect(appOf("activity").views).toEqual(["activity", "memory", "browser"]);
+    // The other tabbed ones: Docs, Today and Settings.
+    expect(appOf("notes").views).toEqual(["notes", "sheets", "canvases"]);
+    expect(appOf("settings").views).toEqual(["settings", "voice", "trash"]);
+  });
+
+  it("make Today the Today app's home, with the inbox beside it", () => {
+    expect(appOf("today").views).toEqual(["today", "inbox"]);
+    expect(appOf("inbox").id).toBe("today");
+    expect(productOf("today")).toBe("today");
+  });
+
   it("each have their own colour, except Settings, which keeps the accent", () => {
     for (const app of APPS) {
       if (app.utility) expect(app.hue, app.id).toBeUndefined();
@@ -76,6 +89,7 @@ describe("places", () => {
     for (const k of keys) expect(k).toMatch(/^g [a-z]$/);
     // The ones fingers already know.
     expect(Object.fromEntries(PLACES.map((p) => [p.view, p.keys]))).toEqual({
+      today: "g h",
       inbox: "g i",
       mail: "g e",
       tasks: "g t",
@@ -93,62 +107,70 @@ describe("places", () => {
     });
   });
 
-  it("keep the names the sidebar, the shortcuts sheet and Cmd+K have always used", () => {
+  it("are named as their tabs are, in the shortcuts sheet and Cmd+K too", () => {
     expect(PLACES.map((p) => p.label)).toEqual([
-      "Inbox",
+      "Today",
+      "Updates",
       "Mail",
       "Tasks",
       "Notes",
       "Calendar",
-      "Canvas",
-      "Spreadsheets",
+      "Boards",
+      "Sheets",
       "People",
       "Memory",
-      "Voice",
-      "Browser",
-      "Jarvis's activity",
+      "Dictation",
+      "Chrome",
+      "What Jarvis did",
       "Settings",
       "Trash",
     ]);
     expect(PLACES.map(goLabel)).toEqual([
-      "Go to Inbox",
+      "Go to Today",
+      "Go to Updates",
       "Go to Mail",
       "Go to Tasks",
       "Go to Notes",
       "Go to Calendar",
-      "Go to Canvas",
-      "Go to Spreadsheets",
+      "Go to Boards",
+      "Go to Sheets",
       "Go to People",
       "Go to Memory",
-      "Go to Voice",
-      "Go to the browser",
-      "Go to Jarvis's activity",
+      "Go to Dictation",
+      "Go to Chrome",
+      "Go to what Jarvis did",
       "Go to Settings",
       "Go to the trash",
     ]);
     expect(PLACES.map(paletteLabel)).toEqual([
-      "Go to Inbox",
+      "Go to Today (your morning on one screen)",
+      "Go to Updates (everything Jarvis told you)",
       "Go to Mail",
       "Go to Tasks",
       "Go to Notes",
       "Go to Calendar",
-      "Go to Canvas (boards)",
-      "Go to Spreadsheets",
+      "Go to Boards (canvas boards)",
+      "Go to Sheets (spreadsheets)",
       "Go to People",
       "Go to Memory (what Jarvis remembers)",
-      "Go to Voice (dictation history, dictionary, snippets)",
-      "Go to the browser (your Chrome, live)",
-      "Go to Jarvis's activity",
+      "Go to Dictation (dictation history, dictionary, snippets)",
+      "Go to Chrome (your Chrome, live)",
+      "Go to what Jarvis did",
       "Go to Settings",
       "Go to the trash (restore what you deleted)",
     ]);
-    expect(goLabel(placeOf("browser"))).toBe("Go to the browser");
+    expect(goLabel(placeOf("activity"))).toBe("Go to what Jarvis did");
   });
 
   it("still open from every view name a link may carry", () => {
     for (const view of LIST_VIEWS) expect(decodeRoute(view)).toEqual({ view });
     for (const view of RECORD_VIEWS) expect(decodeRoute(`${view}/${ID}`)).toEqual({ view, id: ID });
     expect(decodePath(`/inbox+task/${ID}`)).toEqual([{ view: "inbox" }, { view: "task", id: ID }]);
+    expect(decodePath("/today")).toEqual([{ view: "today" }]);
+    // Hearth opens on Today; /inbox still opens Updates.
+    expect(decodePath("/")).toEqual([{ view: "today" }]);
+    expect(decodePath("/nonsense")).toEqual([{ view: "today" }]);
+    expect(decodePath("/inbox")).toEqual([{ view: "inbox" }]);
   });
 
   it("send a lone pane to the list its trashed record was in", () => {
@@ -163,9 +185,13 @@ describe("places", () => {
 });
 
 describe("the phone's tab bar", () => {
-  it("shows Inbox, Tasks and Calendar, each a sub-product's home", () => {
-    expect(phoneTabs().map((p) => p.label)).toEqual(["Inbox", "Tasks", "Calendar"]);
-    for (const tab of phoneTabs()) expect(appOf(tab.view).views[0]).toBe(tab.view);
+  it("shows Today, Mail, Jarvis in the middle and Tasks, each a sub-product's home", () => {
+    const names = phoneTabs().map((t) => (t === "jarvis" ? "Jarvis" : t.label));
+    expect(names).toEqual(["Today", "Mail", "Jarvis", "Tasks"]);
+    for (const tab of phoneTabs())
+      if (tab !== "jarvis") expect(appOf(tab.view).views[0]).toBe(tab.view);
+    // Calendar is behind More.
+    expect(APPS.find((a) => a.id === "calendar")?.phoneTab).toBeUndefined();
     const slots = APPS.flatMap((a) => (a.phoneTab === undefined ? [] : [a.phoneTab]));
     expect(new Set(slots).size).toBe(slots.length);
   });

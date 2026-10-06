@@ -11,6 +11,7 @@
 
 import { chromium, type Page } from "playwright";
 import { boardSteps } from "./boards.ts";
+import { home } from "./home.ts";
 import { titleSteps } from "./titles.ts";
 import { storedZip } from "./zip.ts";
 
@@ -72,7 +73,7 @@ try {
     await p.goto(base);
     await p.locator("input[autocomplete=one-time-code]").fill(code);
     await p.getByRole("button", { name: "Create passkey" }).click();
-    await p.getByRole("heading", { name: "Inbox" }).waitFor();
+    await home(p).waitFor();
   });
 
   await step("tasks, one of them for Jarvis", async (p) => {
@@ -90,7 +91,7 @@ try {
 
   await step("a live note that @mentions a task", async (p) => {
     await keys("Escape");
-    await p.locator("nav").click({ position: { x: 100, y: 600 } });
+    await p.getByRole("navigation", { name: "Places" }).click({ position: { x: 100, y: 600 } });
     await keys("g", "n");
     await p.getByRole("button", { name: "New note" }).click();
     const title = p.locator("input[placeholder=Untitled]");
@@ -178,7 +179,7 @@ try {
   });
 
   await step("something for Jarvis to remember, changed and put back", async (p) => {
-    await p.locator("nav").click({ position: { x: 100, y: 600 } });
+    await p.getByRole("navigation", { name: "Places" }).click({ position: { x: 100, y: 600 } });
     await keys("g", "m");
     await p.getByRole("heading", { name: "Memory" }).waitFor();
     await p.getByPlaceholder("Add something for Jarvis to remember…").fill(`Coffee ${tag}`);
@@ -197,9 +198,9 @@ try {
   });
 
   await step("dictation cleaned with your dictionary, in the voice history", async (p) => {
-    await p.locator("nav").click({ position: { x: 100, y: 600 } });
+    await p.getByRole("navigation", { name: "Places" }).click({ position: { x: 100, y: 600 } });
     await keys("g", "v");
-    await p.getByRole("heading", { name: "Voice" }).waitFor();
+    await p.getByRole("heading", { name: "Dictation" }).waitFor();
     await p.getByRole("tab", { name: "Dictionary" }).click();
     await p.getByPlaceholder("When it hears… (optional)").fill("auto pair");
     await p.getByPlaceholder("Write it as").fill(`OtoPair${tag}`);
@@ -222,7 +223,7 @@ try {
   });
 
   await step("the calendar, mail, Google, Slack, GitHub and Notion in Settings", async (p) => {
-    await p.locator("nav").click({ position: { x: 100, y: 600 } });
+    await p.getByRole("navigation", { name: "Places" }).click({ position: { x: 100, y: 600 } });
     await keys("g", "c");
     await p.getByRole("heading", { name: "Calendar" }).waitFor();
     await keys("g", "e");
@@ -231,9 +232,12 @@ try {
     await keys("g", "s");
     await p.getByRole("heading", { name: "Google" }).waitFor();
     await p.getByRole("heading", { name: "Slack" }).waitFor();
-    const create = p.getByRole("link", { name: "Create Hearth's Slack app" });
-    if (!(await create.getAttribute("href"))?.includes("search%3Aread"))
-      throw new Error("the Slack app link doesn't ask for its scopes");
+    // The manifest to merge into your Slack app: your token's reading scopes, and Jarvis's bot.
+    await p.getByText("App manifest (YAML)").first().waitFor();
+    const manifest = await p.locator("pre", { hasText: "oauth_config:" }).first().textContent();
+    if (!manifest?.includes("search:read") || !manifest.includes("socket_mode_enabled: true"))
+      throw new Error("the Slack manifest doesn't ask for its scopes and Socket Mode");
+    await p.getByLabel("Slack user token").waitFor();
     await p.getByRole("heading", { name: "GitHub" }).waitFor();
     await p.getByRole("link", { name: "Make a read-only token" }).waitFor();
     await p.getByLabel("Notion integration secret").waitFor();
@@ -276,7 +280,7 @@ try {
       const pc = await browser.newContext();
       const win = await pc.newPage();
       await win.goto(`${base}/api/auth/desktop/window?code=${once}`);
-      await win.getByRole("heading", { name: "Inbox" }).waitFor();
+      await home(win).waitFor();
       await p.reload();
       await p.getByText("Connected", { exact: true }).waitFor();
       await p.getByRole("button", { name: "Disconnect" }).click();
@@ -322,9 +326,10 @@ try {
 
   await step("sign out and back in with the passkey", async (p) => {
     signedOut = true;
-    await p.getByRole("button", { name: "Sign out" }).click();
+    await p.getByRole("button", { name: "Hearth menu" }).click();
+    await p.getByRole("menuitem", { name: "Sign out" }).click();
     await p.getByRole("button", { name: "Sign in with your passkey" }).click();
-    await p.getByRole("button", { name: "Sign out" }).waitFor();
+    await p.getByRole("button", { name: "Hearth menu" }).waitFor();
     signedOut = false;
   });
 
@@ -344,20 +349,24 @@ try {
     "on a phone: one pane, a tab bar, Jarvis full screen, the phone settings",
     async (p) => {
       await p.setViewportSize({ width: 390, height: 844 });
-      const tabs = p.locator("nav").last();
+      const tabs = p.getByRole("navigation", { name: "Main" });
       await tabs.getByRole("button", { name: "Tasks" }).click();
       await p.getByRole("heading", { name: "Tasks" }).waitFor();
       await p.getByText(`Pack for the trip ${tag}`).first().click();
       // The task fills the screen; closing it goes back to the list.
       await p.getByTitle("Close pane (Alt+W)").click();
       await p.getByRole("heading", { name: "Tasks" }).waitFor();
-      await tabs.getByRole("button", { name: "Jarvis", exact: true }).click();
+      const jarvisTab = tabs.getByRole("button", { name: "Jarvis", exact: true });
+      await jarvisTab.click();
       await p.locator("aside").getByText("Jarvis", { exact: true }).waitFor();
-      // Talk from the tab bar: Jarvis opens listening; the second tap sends what the PC heard.
+      // Talk from the tab bar: holding Jarvis's tab listens; a tap sends what the PC heard.
       await p.route("**/api/voice/transcribe", (r) =>
         r.fulfill({ json: { text: `What is on today ${tag}` } }),
       );
-      await tabs.getByRole("button", { name: "Talk to Jarvis" }).click();
+      await jarvisTab.hover();
+      await p.mouse.down();
+      await p.waitForTimeout(700);
+      await p.mouse.up();
       await p.waitForTimeout(1500);
       await tabs.getByRole("button", { name: "Stop and send" }).click();
       await p.locator("aside").getByText(`What is on today ${tag}`).first().waitFor();

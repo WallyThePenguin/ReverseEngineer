@@ -267,7 +267,8 @@ export const live = createRoot(createLive);
 export interface Toast {
   id: number;
   text: string;
-  tone: "info" | "error";
+  /** "ok" for something done as you asked ("Sent to Dana Ruiz"), with a tick. */
+  tone: "info" | "ok" | "error";
   /** A button on the toast, like Undo. */
   action?: { label: string; run: () => void };
 }
@@ -279,8 +280,8 @@ function createToasts() {
   return {
     toasts,
     dismiss,
-    /** The newest toast with a button (Undo), while it shows. */
-    latestAction: () => toasts().findLast((t) => t.action),
+    /** The newest toast offering Undo, while it shows: what z runs. Not "Open" or the like. */
+    latestAction: () => toasts().findLast((t) => t.action?.label === "Undo"),
     show(text: string, tone: Toast["tone"] = "info", action?: Toast["action"]) {
       const id = next++;
       setToasts((t) => [...t, { id, text, tone, action }]);

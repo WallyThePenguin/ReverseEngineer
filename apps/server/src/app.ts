@@ -21,9 +21,13 @@ import {
   httpGithub,
   httpNotion,
   httpSlack,
+  httpSlackBot,
+  INSTALL_SERVICE,
+  installFromEnv,
   NOTION_SERVICE,
   POLISH_SERVICE,
   polisherFromEnv,
+  SLACK_BOT_SERVICE,
   SLACK_SERVICE,
   VAULT_SERVICE,
   vaultFromEnv,
@@ -32,6 +36,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type pg from "pg";
+import { ActionTimings } from "./action-timing.ts";
 import { authenticate, sameOriginWrites } from "./auth/middleware.ts";
 import { BrowserBridge } from "./browser/bridge.ts";
 import { createLauncher } from "./browser/launch.ts";
@@ -101,6 +106,10 @@ export function createApp(opts: AppOptions) {
   opts.kernel.services[GOOGLE_SERVICE] ??= googleFromEnv(opts.kernel.db);
   opts.kernel.services[VAULT_SERVICE] ??= vaultFromEnv();
   opts.kernel.services[SLACK_SERVICE] ??= httpSlack();
+  // Connecting Jarvis's Slack bot proves its tokens, and records this install as the one that
+  // listens on its socket (D62).
+  opts.kernel.services[SLACK_BOT_SERVICE] ??= httpSlackBot();
+  opts.kernel.services[INSTALL_SERVICE] ??= installFromEnv();
   opts.kernel.services[GITHUB_SERVICE] ??= httpGithub();
   opts.kernel.services[NOTION_SERVICE] ??= httpNotion();
   opts.kernel.services[BLOB_SERVICE] ??= blobsFromEnv();
@@ -114,6 +123,7 @@ export function createApp(opts: AppOptions) {
     config: opts.config,
     hub,
   };
+  const timings = new ActionTimings();
   const app = new Hono<AppEnv>();
 
   app.use("*", requestLog({ log: opts.requestLog }));
@@ -144,7 +154,7 @@ export function createApp(opts: AppOptions) {
   app.use("/api/*", authenticate());
   app.use("/mcp", authenticate());
   app.use("/api/*", sameOriginWrites());
-  app.route("/api/health", healthRoutes(bridge, opts.config.webDist));
+  app.route("/api/health", healthRoutes(bridge, opts.config.webDist, timings));
   app.route("/api/auth", authRoutes());
   app.route("/api/events", eventRoutes());
   app.route("/api/browser", browserRoutes(bridge));
@@ -156,7 +166,7 @@ export function createApp(opts: AppOptions) {
   app.route("/api/voice", voiceRoutes());
   app.route("/api/push", pushRoutes(sendPush));
   app.route("/api/import", importRoutes());
-  app.route("/api", actionRoutes());
+  app.route("/api", actionRoutes(timings));
   app.route("/mcp", mcpRoutes());
   app.all("/api/*", (c) => c.json({ error: "Not found." }, 404));
 
@@ -198,9 +208,9 @@ export function createApp(opts: AppOptions) {
     /** Resolves once phone notifications for the events so far are sent (for tests). */
     pushIdle: () => push?.idle() ?? Promise.resolve(),
     speech,
-    /** Adds the WebSockets (the extension's link and the live view) to the HTTP server. */
-    attach(server: Server) {
-      detachSockets = attachBrowserSockets(server, {
+    /** Adds the WebSockets (the extension's link and the live view) to the HTTP servers. */
+    attach(...servers: Server[]) {
+      detachSockets = attachBrowserSockets(servers, {
         kernel: opts.kernel,
         config: opts.config,
         bridge,
@@ -208,6 +218,7 @@ export function createApp(opts: AppOptions) {
       });
     },
     async stop() {
+      timings.report();
       detachSockets?.();
       bridge.close();
       push?.stop();

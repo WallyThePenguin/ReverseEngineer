@@ -6,6 +6,7 @@ import { isVisibleTo } from "@hearth/kernel";
 import { Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { z } from "zod";
+import type { ActionTimings } from "../action-timing.ts";
 import { requireCaller } from "../auth/middleware.ts";
 import type { AppEnv } from "../env.ts";
 
@@ -69,7 +70,7 @@ function parseJson(text: string): unknown {
 
 const decisionBody = z.object({ decision: z.enum(["approve", "deny"]) });
 
-export function actionRoutes() {
+export function actionRoutes(timings?: ActionTimings) {
   const app = new Hono<AppEnv>();
   app.use("*", requireCaller());
 
@@ -90,7 +91,12 @@ export function actionRoutes() {
       ...c.get("caller")!,
       correlationId: correlation && isUuid(correlation) ? correlation : undefined,
     };
-    const result = await kernel.execute(c.req.param("name"), input, caller);
+    const name = c.req.param("name");
+    const started = performance.now();
+    const result = await kernel.execute(name, input, caller);
+    // Only actions that exist: a made-up name isn't kept.
+    if (result.status !== "error" || result.code !== "unknown_action")
+      timings?.record(name, performance.now() - started);
     return c.json(result, httpStatus(result));
   });
 

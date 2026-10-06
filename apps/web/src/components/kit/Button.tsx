@@ -9,7 +9,8 @@ export function Button(props: {
   /** Submits its form (so Enter in any of the form's fields does too). */
   submit?: boolean;
   children: JSX.Element;
-  kind?: "primary" | "plain" | "danger" | "jarvis";
+  /** "quiet" has no border or fill: the lesser of two choices, as Deny beside Approve. */
+  kind?: "primary" | "plain" | "quiet" | "danger" | "jarvis";
   disabled?: boolean;
   title?: string;
   /** What a screen reader says, when the button shows only a symbol. */
@@ -22,6 +23,7 @@ export function Button(props: {
     ({
       primary: "bg-accent text-on-fill",
       plain: "border border-line bg-panel hover:bg-sunk",
+      quiet: "text-muted hover:bg-sunk hover:text-ink",
       danger: "border border-line bg-panel text-bad hover:bg-sunk",
       jarvis: "bg-jarvis text-on-fill",
     })[props.kind ?? "plain"];

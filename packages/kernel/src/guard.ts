@@ -1,9 +1,10 @@
-// D25/D30 for every call made as Jarvis (D58). Before such a call runs or waits for your yes,
-// Hearth checks the page it would open (opensUrl), pins it to the page it acts on (pin), and
-// captures what it will do (snapshot). Doing it here rather than in a turn's tools means a
-// reflex's "act", a self-test step and a turn's tool call all get the same checks, and an approval
-// you give later runs exactly what was checked and shown.
+// D25/D30 for every call made as Jarvis (D58), or as a Slack member (D62). Before such a call
+// runs or waits for your yes, Hearth checks the page it would open (opensUrl), pins it to the
+// page it acts on (pin), and captures what it will do (snapshot). Doing it here rather than in a
+// turn's tools means a reflex's "act", a self-test step and a turn's tool call all get the same
+// checks, and an approval you give later runs exactly what was checked and shown.
 import { normalizeUrl, type SiteRules } from "@hearth/core";
+import { ActionError } from "./errors.ts";
 import type { Kernel } from "./kernel.ts";
 import { getSetting } from "./settings.ts";
 import { checkActing, checkOpen, type TrustState } from "./trust.ts";
@@ -17,6 +18,14 @@ export type Guarded =
 /** Whether an action has a page or records to check before Jarvis's call to it runs. */
 export function isGuarded(def: ActionDef): boolean {
   return Boolean(def.opensUrl || def.pin || def.snapshot);
+}
+
+/**
+ * Whether a caller's calls get these checks: Jarvis's, and a Slack member's turn, whose words
+ * come from outside and whose held reply must run as it was shown to you (D62).
+ */
+export function guardsCaller(caller: Pick<Caller, "kind">): boolean {
+  return caller.kind === "agent" || caller.kind === "member";
 }
 
 /** The input without a snapshot: Hearth fills that in, so what a caller put there is never shown. */
@@ -82,7 +91,16 @@ export async function guardAgentCall(
     const pinned = parse(given);
     if (!pinned.success) return { kind: "invalid", error: pinned.error };
     try {
-      const snap = await def.snapshot(pinned.data, { db: kernel.db, now: kernel.clock.now() });
+      const snap = await def.snapshot(pinned.data, {
+        db: kernel.db,
+        now: kernel.clock.now(),
+        service: <T>(name: string): T => {
+          const s = kernel.services[name];
+          if (!s)
+            throw new ActionError("unavailable", `The ${name} isn't available in this process.`);
+          return s as T;
+        },
+      });
       given = { ...given, ...snap };
     } catch (err) {
       return { kind: "invalid", error: err };

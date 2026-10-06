@@ -1,16 +1,19 @@
 // Calendar sync: your calendars and their events from a week back to two months ahead, pulled
 // from Google every few minutes. Changes become events Jarvis can react to. Calls are paced like
 // Gmail's, against Calendar's own quota; when Google asks Hearth to slow down, the account waits
-// for the next round instead of failing, and one event that won't save is skipped (D55).
+// for the next round instead of failing, and one event that won't save is skipped (D55). How each
+// account's calendars are doing is saved after the round, and told once when it's bad (health.ts).
 import { startOfLocalDay } from "@hearth/core";
 import { calendar, calendarEvent, entity, googleAccount } from "@hearth/db";
 import { type ActionContext, getSetting, savepoint } from "@hearth/kernel";
 import { and, arrayContains, asc, eq, gt, isNull, lt, ne, notInArray } from "drizzle-orm";
+import type { Trouble } from "../connector-health.ts";
 import { CalendarApi, type GEvent } from "../google/calendar-api.ts";
 import { cleanDeep } from "../google/clean.ts";
 import { GOOGLE_SERVICE, GoogleApiError, type GoogleClient, SCOPES } from "../google/client.ts";
 import { id } from "../shared.ts";
 import { syncCalendarList } from "./calendars.ts";
+import { recordCalendarHealth, troubleOf } from "./health.ts";
 import { emitChange, mapEvent, saveEvent } from "./store.ts";
 
 const DAY_MS = 24 * 3600_000;
@@ -79,18 +82,31 @@ export async function syncCalendars(ctx: ActionContext): Promise<SyncResult> {
     skipped: 0,
   };
   for (const acct of accounts) {
+    const troubles: Trouble[] = [];
+    let progressed = false;
+    let paused = false;
+    const cals = () =>
+      ctx.tx
+        .select()
+        .from(calendar)
+        .where(and(eq(calendar.account, acct.email), eq(calendar.selected, true)));
     try {
       await syncCalendarList(ctx, api, acct.email);
     } catch (err) {
-      if (slowDown(err)) result.paused.push(acct.email);
-      else result.failed.push(`${acct.email}: ${messageOf(err)}`);
+      if (slowDown(err)) {
+        result.paused.push(acct.email);
+        continue;
+      }
+      // None of the account's calendars could be read: each says why, in Settings too.
+      const message = messageOf(err);
+      result.failed.push(`${acct.email}: ${message}`);
+      troubles.push(troubleOf(err, `${acct.email}'s calendar list`));
+      for (const cal of await cals())
+        await ctx.tx.update(calendar).set({ lastError: message }).where(eq(calendar.id, cal.id));
+      await recordCalendarHealth(ctx, acct, troubles, false, false);
       continue;
     }
-    const cals = await ctx.tx
-      .select()
-      .from(calendar)
-      .where(and(eq(calendar.account, acct.email), eq(calendar.selected, true)));
-    for (const cal of cals) {
+    for (const cal of await cals()) {
       let items: Awaited<ReturnType<CalendarApi["events"]>>;
       try {
         items = await api.events(acct.email, cal.googleId, from, to);
@@ -98,14 +114,17 @@ export async function syncCalendars(ctx: ActionContext): Promise<SyncResult> {
         // A slowdown holds every calendar of the account: the rest wait for the next round.
         if (slowDown(err)) {
           result.paused.push(acct.email);
+          paused = true;
           break;
         }
         const message = messageOf(err);
         result.failed.push(`${cal.title}: ${message}`);
+        troubles.push(troubleOf(err, cal.title));
         await ctx.tx.update(calendar).set({ lastError: message }).where(eq(calendar.id, cal.id));
         continue;
       }
       result.calendars++;
+      progressed = true;
       const seen: string[] = [];
       for (const g of items) {
         const m = mapEvent(cal.id, cleanDeep(g), rules.timeZone);
@@ -156,9 +175,7 @@ export async function syncCalendars(ctx: ActionContext): Promise<SyncResult> {
         .set({ lastSyncedAt: ctx.now, lastError: null })
         .where(eq(calendar.id, cal.id));
     }
-  }
-  if (result.failed.length) {
-    ctx.emit({ kind: "calendar.sync_failed", payload: { errors: result.failed } });
+    await recordCalendarHealth(ctx, acct, troubles, progressed, paused);
   }
   return result;
 }

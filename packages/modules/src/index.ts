@@ -18,7 +18,7 @@ import { notionModule } from "./notion/index.ts";
 import { peopleModule } from "./people/index.ts";
 import { routinesModule } from "./routines/index.ts";
 import { sheetsModule } from "./sheets/index.ts";
-import { slackModule } from "./slack/index.ts";
+import { memberModule, slackModule } from "./slack/index.ts";
 import { systemModule } from "./system/index.ts";
 import { tasksModule } from "./tasks/index.ts";
 import { voiceModule } from "./voice/index.ts";
@@ -42,6 +42,7 @@ export const ALL_MODULES: HearthModule[] = [
   voiceModule,
   canvasModule,
   slackModule,
+  memberModule,
   githubModule,
   notionModule,
   sheetsModule,
@@ -76,21 +77,26 @@ export {
   TEST_PAGE_PATH,
 } from "./browser/self-test.ts";
 export { VAULT_SERVICE, Vault, vaultFromEnv } from "./browser/vault.ts";
+export { gist } from "./calendar/soon.ts";
 export type { EventView } from "./calendar/store.ts";
 export { appendLog, type LogEntry, type LogKind, routeLane } from "./chat/index.ts";
 export { MENTION_SETTLE_MS } from "./chat/mention.ts";
 export { FakeGithub, GITHUB_SERVICE, type GithubApi, httpGithub } from "./github/index.ts";
 export { GOOGLE_SERVICE, GoogleClient, googleFromEnv, SCOPES } from "./google/client.ts";
+export { INSTALL_SERVICE, type Install, installFromEnv } from "./install.ts";
 export {
   BLOB_SERVICE,
   BlobStore,
   blobsFromEnv,
+  DAYTIME_DRAFTS,
   type DraftView,
   type MessageView,
   messageAttachment,
   messageHtml,
+  NEEDS_REPLY,
   type ThreadSummary,
   type ThreadView,
+  threadsToDraft,
 } from "./mail/index.ts";
 export { recallMemory, renderMemory } from "./memory/index.ts";
 export { parseChecklist } from "./notes/checklist.ts";
@@ -112,13 +118,77 @@ export {
   secretMigrations,
 } from "./secrets.ts";
 export {
+  ackOf,
+  BACKOFF_RESET_MS,
+  BACKOFF_S,
+  type BotDown,
+  type BotRow,
+  backoffMs,
+  botTrouble,
+  CATCH_UP_EVERY_MS,
+  type CatchUp,
+  CHANNEL_CHECK_MS,
+  catchUp,
+  claimMessages,
+  clearOldInbound,
   FakeSlack,
+  type Frame,
+  type Hearing,
+  holdMessages,
+  holdsSocket,
   httpSlack,
+  httpSlackBot,
+  INBOUND_POOL,
+  type InboundRow,
+  type InboundStore,
+  inboundStore,
+  isYou,
+  JARVIS_APP_ID,
+  MEMBER_TIERS,
+  type MemberBrief,
+  memberBrief,
+  memberGate,
+  OUTBOX_CHANNEL,
+  OUTBOX_POLL_MS,
+  type Ours,
+  type OutboxRound,
+  OWNER_DM_IDLE_MS,
+  OWNER_REPLIES,
+  onDisconnect,
+  openBotToken,
+  PACE_MS,
+  POST_MAX,
+  parseFrame,
+  plainOf,
+  REPLY_ACTION,
+  REVOKED_CODES,
+  receive,
+  replaceHeldReplies,
+  SETTLE_MS,
+  SLACK_ASKS,
+  SLACK_BOT_SERVICE,
+  SLACK_FOR_YOU,
   SLACK_SCOPES,
   SLACK_SERVICE,
+  SLOW_MS,
   type SlackApi,
+  type SlackBotApi,
+  SlackError,
+  type SlackUser,
+  saveBotHealth,
+  sendOutbox,
+  slackContext,
+  slackCovered,
+  slackTs,
+  storeInbound,
+  type TakeRound,
+  THREAD_LINES,
+  type ThreadLine,
+  taskAbout,
+  writtenAt,
 } from "./slack/index.ts";
 export {
+  EXTERNAL_COMPONENTS,
   type HealthRecord,
   type HealthStatus,
   type JudgedHealth,
@@ -139,6 +209,7 @@ export {
   inboxModule,
   mailModule,
   meetingsModule,
+  memberModule,
   memoryModule,
   notesModule,
   notionModule,

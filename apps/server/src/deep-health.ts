@@ -1,7 +1,8 @@
 // Deep health (D57): what an update gate, `hearth doctor` or the web app needs to call Hearth
 // healthy, in one report. The database, whether its migrations fit this code, which build is
 // running, every component's last report (a stale one fails), when the Jarvis process last checked
-// in, Jarvis's turns, and the Chrome link.
+// in, Jarvis's turns, and the Chrome link. A component that reports on someone else's service
+// (EXTERNAL_COMPONENTS) is told but never makes the whole report fail.
 import {
   type Db,
   jarvisTurn,
@@ -18,7 +19,8 @@ import {
   type JudgedHealth,
   judgeHealth,
 } from "@hearth/modules";
-import { and, desc, gt, isNotNull, isNull, like, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull, isNull, like, ne, or, sql } from "drizzle-orm";
+import type { ActionTiming } from "./action-timing.ts";
 import { buildId, type VersionStamp } from "./version.ts";
 
 export interface TurnStats {
@@ -29,6 +31,12 @@ export interface TurnStats {
   total: number;
   failed: number;
   last: { status: string; trigger: string; at: string; error: string | null } | null;
+  /**
+   * Failed turns in the last 48 hours by what started them and how they failed, most first:
+   * counts only, never a turn's text, so they can be read off the live Hearth safely. Missing
+   * from a report by a Hearth from before it.
+   */
+  failures48h?: { trigger: string; routine: string | null; errorKind: string | null; n: number }[];
 }
 
 export interface DeepHealth {
@@ -66,6 +74,8 @@ export interface DeepHealth {
     /** Why Hearth last couldn't open Chrome, until it connects. */
     openError: string | null;
   } | null;
+  /** The slowest of the app's actions since the server started (action-timing.ts). */
+  actions: ActionTiming[] | null;
 }
 
 export interface DeepHealthInput {
@@ -74,6 +84,7 @@ export interface DeepHealthInput {
   version: VersionStamp | null;
   startedAt: Date | null;
   browser: BrowserStatus | null;
+  actions?: ActionTiming[];
 }
 
 const RANK: Record<HealthStatus, number> = { ok: 0, degraded: 1, failing: 2 };
@@ -93,6 +104,17 @@ export function whyFailed(err: unknown): string {
 export const sqlRunner = (db: Db): SqlRunner => ({
   query: async <R>(text: string) => ({ rows: (await db.execute(sql.raw(text))).rows as R[] }),
 });
+
+/** Routines Hearth itself runs, as their turns name them (context.routine). */
+const BUILT_IN_ROUTINES = [
+  "brief",
+  "journal",
+  "heartbeat",
+  "prep",
+  "memory",
+  "follow_ups",
+  "reply_drafts",
+] as const;
 
 export async function turnStats(db: Db, now: Date): Promise<TurnStats> {
   const since = new Date(now.getTime() - 24 * 3_600_000);
@@ -115,9 +137,34 @@ export async function turnStats(db: Db, now: Date): Promise<TurnStats> {
     .where(and(isNotNull(jarvisTurn.finishedAt), counted))
     .orderBy(desc(jarvisTurn.finishedAt))
     .limit(1);
+  // Hearth's own routines by name; one of yours is just "owner_routine", since its name is yours.
+  const named = sql.raw(BUILT_IN_ROUTINES.map((r) => `'${r}'`).join(", "));
+  const routine = sql<string | null>`CASE WHEN ${jarvisTurn.context}->>'routine' IN (${named})
+    THEN ${jarvisTurn.context}->>'routine'
+    WHEN ${jarvisTurn.context}->>'routine' IS NOT NULL THEN 'owner_routine' END`;
+  const failures = await db
+    .select({
+      trigger: jarvisTurn.trigger,
+      routine,
+      errorKind: jarvisTurn.errorKind,
+      n: sql<number>`count(*)::int`,
+    })
+    .from(jarvisTurn)
+    .where(
+      and(
+        eq(jarvisTurn.status, "failed"),
+        isNotNull(jarvisTurn.finishedAt),
+        gt(jarvisTurn.finishedAt, new Date(now.getTime() - 48 * 3_600_000)),
+        counted,
+      ),
+    )
+    .groupBy(jarvisTurn.trigger, routine, jarvisTurn.errorKind)
+    .orderBy(desc(sql`count(*)`), jarvisTurn.trigger, routine, jarvisTurn.errorKind)
+    .limit(20);
   return {
     total: count("done") + count("failed") + count("canceled"),
     failed: count("failed"),
+    failures48h: failures,
     last: last
       ? {
           status: last.status,
@@ -146,6 +193,7 @@ export async function deepHealth(input: DeepHealthInput): Promise<DeepHealth> {
           openError: input.browser.openError ?? null,
         }
       : null,
+    actions: input.actions ?? null,
   };
   const started = performance.now();
   try {
@@ -186,7 +234,10 @@ export async function deepHealth(input: DeepHealthInput): Promise<DeepHealth> {
     const name = r.key.slice("health.".length);
     const judged = judgeHealth(name, r.value as HealthRecord, now);
     components[name] = judged;
-    if (judged.status !== "ok") add(judged.status, `${name}: ${judged.detail}`);
+    // Someone else's service failing (Slack and Jarvis's socket) is worth a look, never Hearth
+    // failing: an update can't fix it, so it mustn't fail the update's gate (D62).
+    const status = judged.external && judged.status === "failing" ? "degraded" : judged.status;
+    if (status !== "ok") add(status, `${name}: ${judged.detail}`);
   }
 
   const turns = await turnStats(db, now);

@@ -228,7 +228,9 @@ export function httpNotion(base = "https://api.notion.com/v1"): NotionApi {
     async pages(token, sourceId, q) {
       const r = await call(token, "POST", `/data_sources/${encodeURIComponent(sourceId)}/query`, {
         page_size: 100,
-        sorts: [{ timestamp: "last_edited_time", direction: "descending" }],
+        // By when each was made, which an edit while Hearth reads doesn't change: sorted by the
+        // last edit, a ticket edited mid-read moves past the page being read and is missed.
+        sorts: [{ timestamp: "created_time", direction: "descending" }],
         ...(q.person
           ? { filter: { property: q.person.column, people: { contains: q.person.userId } } }
           : {}),

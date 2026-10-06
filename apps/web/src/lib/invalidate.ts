@@ -11,13 +11,23 @@ const MAIL: Rule = ["mail.", "person.view", "company.view"];
 
 /** By the event's module: the part of its kind before the first dot. */
 const BY_MODULE: Record<string, Rule> = {
-  notification: ["inbox.list"],
-  approval: ["inbox.list", "approval.list", "conversation.", "standing_rule.list"],
+  // A channel Jarvis stopped answering in tells you with a card (D62).
+  notification: ["inbox.list", "slack.channels"],
+  approval: [
+    "inbox.list",
+    "approval.list",
+    "conversation.",
+    "standing_rule.list",
+    // A held reply to someone in Slack shows on their conversation's bar (D62).
+    "slack.conversation",
+    "slack.conversations",
+  ],
   link: ["entity.", "task.", "note.list", "person.view", "company.view", "doc."],
   mail: MAIL,
   task: ["task.", "inbox.list"],
   calendar: ["calendar.", "person.view", "company.view"],
-  conversation: ["conversation.", "jarvis.activity"],
+  // A Slack member's conversation growing shows on the Slack screens too (D62).
+  conversation: ["conversation.", "jarvis.activity", "slack.conversation", "slack.conversations"],
   chat: ["conversation.", "jarvis.activity"],
   jarvis: ["jarvis.", "observation.list", "system.status", "conversation."],
   system: ["system.status"],
@@ -34,8 +44,18 @@ const BY_MODULE: Record<string, Rule> = {
   clock: ["routine.list", "system.status"],
 };
 
-/** A record change can show anywhere it's linked or titled... */
-const ANY_RECORD: Rule = ["entity.", "inbox.list", "person.view", "company.view", "doc."];
+/**
+ * A record change can show anywhere it's linked or titled, and in what Jarvis did when Jarvis made
+ * it (a routine's prep, say, outside any turn)...
+ */
+const ANY_RECORD: Rule = [
+  "entity.",
+  "inbox.list",
+  "person.view",
+  "company.view",
+  "doc.",
+  "jarvis.did",
+];
 
 /** ...and in the lists of its own type. */
 const BY_TYPE: Record<string, Rule> = {
@@ -77,6 +97,8 @@ const AFTER_CHANGE: Record<string, Rule> = {
   routine: ["system.status"],
   approval: ["inbox.list", "conversation."],
   standing_rule: ["approval.list"],
+  // Jarvis's Slack bot holds the standing rule that lets its replies to members go out (D62).
+  slack: ["standing_rule.list"],
 };
 
 const moduleOf = (name: string) => name.split(".", 1)[0] ?? "";

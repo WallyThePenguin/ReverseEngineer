@@ -37,5 +37,7 @@ CREATE TABLE notion_task (
   due_is_date boolean NOT NULL DEFAULT false,
   -- Still assigned to you, as of the last full read of the board.
   assigned boolean NOT NULL DEFAULT true,
+  -- Brought in quietly by the board's first read: not news for the brief.
+  backfill boolean NOT NULL DEFAULT false,
   edited_at timestamptz NOT NULL
 );

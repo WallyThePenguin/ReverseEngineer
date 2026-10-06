@@ -782,6 +782,8 @@ Reading every channel every round (a workspace with 100 channels would hit Slack
 **Why:** Polling with one read-only token is the least setup and the smallest thing to leak, and
 it fits a PC with no public address.
 
+*Later:* posting as its own bot: D62.
+
 ## D49. The GitHub loop reads pull requests with your token and only moves tasks forward (2026-10-03)
 
 **Decision:** GitHub (PLAN.md section 8.4) connects with a fine-grained, read-only personal access
@@ -1407,7 +1409,11 @@ without happening twice.
   won't pass by itself, after three failures and half an hour for the network); the first good
   round or a disconnect closes it. A token that stops working stops the polling: no calls until
   `replace_token` takes a new one for the same workspace or login, keeping everything read in.
-  GitHub's token expiry is warned of a week ahead, once.
+  GitHub's token expiry is warned of a week ahead, once. *Later (2026-10-06):* each Google
+  account's calendars are judged the same way (migration 0046), not with a notice a day for any
+  failed round that never closed; Google signing Hearth out is told at once, with how to
+  connect again. A pause Google asked for that keeps a sync quiet is worth a look after
+  half an hour and failing after two, with what Google said in Settings and `hearth doctor`.
 - **Read everything in, a budget at a time.** Slack channels and threads and GitHub's pull
   requests are read a page at a time, newest first; what a round can't read waits for the next,
   and a channel's or repo's mark only moves past what's been read. Each channel, thread and repo
@@ -1528,6 +1534,355 @@ learn the backup stopped). Alerts outside the budget (a bad night could wake the
 **Why:** Owner's call, taking the defaults proposed with the daily-loops work: the audit log has
 to stay fast to query and small to back up, and a failure nobody hears about is the kind that
 loses a week of mail or backups.
+
+## D62. Jarvis talks to Otopair members as its own bot, and a member's turn knows only what you've shared (2026-10-05)
+
+*This replaces D48's "never posted to". Reading Slack doesn't change: it still uses your own token
+(xoxp), polled every two minutes, and Hearth never posts as you. What's new is that Jarvis posts
+as its own bot.*
+
+**Decision:** Jarvis joins Otopair as the bot "Jarvis", using the existing Slack app A0C0RPY4WKV
+and its bot token (xoxb). Events come in over Socket Mode with an app-level token (xapp), because
+Hearth has no public address. Members can DM Jarvis, or @mention it in channels you've turned on,
+and it answers them. You can also have it message people.
+
+A member's message never becomes your instruction. It starts a turn **as that member**, under a
+new kind of principal, `member`. The kernel refuses a member every action unless that action
+names `member` as an allowed caller.
+
+**Who is who (Slack ids only, never names or emails).**
+- **Every envelope is checked.** It must carry our app id (`api_app_id` equal to the
+  `connection_info.app_id` from `hello`, which is A0C0RPY4WKV) and our team id. Anything carrying
+  a `user_team` or `source_team` from another org is dropped.
+- **It's you** only when all four of these hold: `user` is `slack_workspace.user_id` (from the
+  xoxp's `auth.test`); the channel is `owner_im`, the bot's DM with you, opened once at connect;
+  there is no `bot_id`, `app_id` or subtype; the team is ours.
+- **It's a member** when `users.info`, read with your xoxp, shows a full member: not
+  `is_restricted`, `is_ultra_restricted`, `is_bot` or `deleted`. This is checked again daily
+  (`slack_user.checked_at`). The principal is `member:slack:<team>:<user>`, created the first
+  time they write. A link to a person by email is for display only.
+- **Ignored, and never answered:** guests and Slack Connect users; deactivated users; bots and
+  apps, including Jarvis itself (`bot_id`, `app_id`, or `user` equal to the bot user);
+  USLACKBOT; edits.
+- **Messages that count:** ones with no subtype, `file_share` (Jarvis reads the text and says it
+  can't open files) and `thread_broadcast`.
+- **In a channel, everyone, including you, is a member at that channel's tier.** The channel is
+  who reads the answer.
+
+**The kernel: `member` is denied by default.**
+- `PRINCIPAL_KINDS` gains `member` and `VIAS` gains `slack`.
+- `decide()` denies a member any action whose `callers` list doesn't include `member`. An action
+  with no list means "everyone but members".
+- For the actions that do name `member`: read and internal are allowed; outward asks unless a
+  standing rule exists and the call carries no `askFirst`; self_external, destructive and secret
+  are denied. An `askFirst` holds any call for your yes, as it does Jarvis's.
+- `isVisibleTo` follows the same rule. `hasStandingRule` now answers for members, and
+  `guardAgentCall` runs for them too.
+- **Who may call is settled first.** `execute` refuses a call `decide()` denies before it reads
+  the input or runs the action's snapshot or pin. Those read your data (`mail.send` loads the
+  draft), so a member asking for an action that isn't theirs gets "denied" and an audit row,
+  never that code's error.
+- **A member's call is always untrusted.** `memberCaller` builds it that way, and the kernel
+  (`execute`, `run`, `context`) makes any member caller untrusted before anything reads its
+  origin: event stamps (and so the turns a reflex starts from them), `entity.outside` on what it
+  writes or edits, and the approval it waits on. A runner that builds a member's caller wrongly
+  still can't make their words inside content.
+- **Why this survives approvals:** the kind lives on the principal row, so a held reply is still
+  a member's call after you approve it. `resolveApproval` rebuilds the caller with
+  `principalKind(requestedBy)`. An optional field on Jarvis's caller would be gone at that point
+  and would fail open.
+- **Checks that used to list outsiders now list insiders**, so a new kind is outside by default:
+  only owner, agent and system writes call Jarvis through an @Jarvis tag (`graph.ts`
+  `syncMentions`); only those can vouch for a deadline (`notify.ts`); only you, Jarvis and Hearth
+  itself write inside content, so `member:` authors are outside content (`outside.ts`
+  `fromOutsideTool`, which `shared.ts` `writtenOutside` now reuses instead of keeping its own
+  copy); `hiddenTypes` hides every type from a member; and a token's caller is untrusted unless
+  it's Jarvis's or Hearth's own.
+- Members never get a session or a token: the server refuses one, and `hearth token create` only
+  makes them for outside agents.
+
+**What a member turn can do.** Exactly four actions name `member`:
+- **`member.free_time {minutes, days ≤ 10}`** (read, tier `schedule`): free slots only, rounded
+  to 30 minutes, inside working hours (`calendar/free.ts` `freeSlots`). No titles, attendees or
+  places.
+- **`member.leave_message {text ≤ 2000, urgent?}`** (internal, every tier): writes a
+  `slack_member_message` record (an outside type) and an inbox card. The text goes through
+  `named()` and `plainText` first, so it can't carry an `<m-ref>`.
+- **`member.request_meeting {minutes, options ≤ 3, about ≤ 500}`** (internal, `schedule`): a
+  request card for you. It books nothing. You schedule through `calendar.schedule_meeting` as
+  usual.
+- **`slack.reply`** (outward): the runner calls it when the turn ends. The model is never offered
+  it.
+
+Each handler takes who's asking from `ctx.caller` and reads the tier again itself.
+
+Nothing else is reachable: no mail, notes, tasks, docs, people, memory, brief, browser or web
+(`web: false`, so no built-in tools), no GitHub, no Slack reads (`slack.messages`), no other
+conversations and no approvals.
+
+Member turns are bare, like voice commands: no memory recall, no digest and no subject record.
+They get their own prompt (`prompts/member.ts`), which holds the persona, the member's cleaned
+name and tier, the answers you've shared, and the last five messages you had Jarvis send them.
+The member's words reach the model inside `asUntrusted(…, "slack:U…")`.
+
+**Tiers, shaped like per-site trust (D30/D52).**
+- **Member tiers:** `blocked` (blocking also sets `principal.disabled_at`); `relay`, the default
+  for full members; `schedule`, which you give people one at a time. Nobody has it at first.
+- **Channel tiers:** `off` (the default), `relay` or `schedule`. A channel's replies are `review`
+  (the default) or `auto`.
+- **In a thread,** the tier is the lower of the member's and the channel's.
+- **Turning a channel on** (`slack.channel_set`, yours only) needs four things, checked with your
+  xoxp: you're in the channel; it isn't shared with another org (`is_ext_shared`, `is_shared`);
+  it has no guests; and Jarvis's bot was invited, since it can only answer where it is. The check
+  runs again every hour (`slack.check_channels`, from the worker's take loop), and a turn in a
+  channel checked over an hour ago waits for it. A failed check turns the channel off and tells
+  you, and anyone waiting there gets the off-channel note.
+- **Group DMs** are always off.
+- **An @mention in an off channel** gets one ephemeral "I only answer in DMs here: message me
+  directly." in its thread, seen only by them, at most once a day per member per channel, and no
+  turn runs.
+- **Shared answers (`slack_answer`)** are plain text you write in Settings: office hours, status,
+  how to reach you. Each one is for everyone or for named members, and a prompt holds at most
+  4 KB of them. Only you can write them (`callers: ["owner"]`), so nothing Jarvis reads can mark
+  something shareable. Channel turns see only the "everyone" answers.
+- **A channel turn also sees its thread:** the last 20 messages, read by the worker with your
+  xoxp when the turn is queued, and given to the model wrapped as untrusted, like the member's
+  own words. Everyone in the channel can already read them. Each member in a thread has their
+  own turns there, and a held reply replaces only that member's earlier one.
+
+**When a reply goes out on its own.** The runner fills in `slack.reply {text, to, channelId,
+threadTs}` from `slack_thread`, never from the model. The handler refuses unless those match the
+conversation of `caller.turnId` and that conversation's member. It writes one outbox row keyed
+`answer:{turnId}`, so a turn rerun after a crash can't post twice.
+- **Auto:** the switch "Jarvis answers members on its own" is on, and neither the member nor the
+  channel is set to review. The switch starts on, so DM replies go out on their own from day
+  one; channels start on review, so channel replies wait for your yes until you change one.
+  - The switch is a standing rule for `slack.reply` held by the team's member wildcard principal
+    `member:slack:<team>:*`.
+  - `hasStandingRule` also checks that wildcard for any member of the team.
+  - Only the owner-only `slack.bot_settings` writes it.
+  - When the member or the channel is on review, the runner sets `askFirst`.
+- **Held:** otherwise the reply becomes an approval card: "Reply as Jarvis to Sam Lee (U…) in your
+  DM: …". It runs once (D58) and lapses after a day. A newer held reply in the same conversation
+  replaces it. Approvals happen only in Hearth. The app has no buttons.
+- **One filter covers every post**, in the outbox sender: auto replies, approved replies and your
+  own sends.
+  1. Markdown is turned into mrkdwn without making links.
+  2. Then `& < >` are escaped, so `<!channel>`, `<@U…>` and `<url|label>` can't be produced.
+  3. `parse: none`, no `link_names`, unfurling off.
+  4. `<m-ref>` tags are removed.
+  5. The text is cut at 3,000 characters.
+  6. In a member turn's reply, any URL you didn't write word for word in a shared answer is
+     removed.
+- **Fixed notes** go out without a turn: blocked, paused, over a limit, too long, late. They come
+  from a closed set of templates filled only with the workspace's name and your first name, so
+  nobody's words reach them.
+
+**How this fits D58.**
+- **Member conversations start tainted.** Each is created with `tainted_at`, a "Slack: Sam Lee"
+  badge **and** `entity.outside` set. (`keepTaint` won't set `entity.outside` later when
+  `tainted_at` was already there.) Their log names each line's author instead of "You".
+- **Everything a member caused is marked outside:** relays, meeting requests, digest lines and
+  held-reply cards.
+- **No owner turn from a member's words.** No reflex turns them into a turn with your rights; they
+  only make cards. "Only you or Jarvis call Jarvis" holds: a member's turn runs as the member.
+- **Member conversations stay members-only.** `chat.send` refuses a member conversation
+  (`started_via = 'slack_member'`), so an owner turn never resumes a member's agent session with
+  your data in it. "Ask Jarvis about this" starts a new owner conversation instead, which becomes
+  tainted once it reads.
+- **A DM's session starts over after 12 idle hours**, from a Hearth recap (`recapConversation`).
+  **A channel thread's turns never carry one:** each starts from the thread as Slack has it. Each
+  member there is answered at their own tier, and a kept session or recap would carry an earlier
+  turn's tool results and unsent words (a reply you declined) to someone else.
+
+**You asking Jarvis to message someone.**
+- **Finding them:** `slack.find_member {query}` (read) returns candidates with id, real name,
+  email and linked person. If more than one fits, Jarvis asks you.
+- **Sending:** `slack.dm {to: person | U…, text ≤ 4000, threadTs?}` and `slack.post_in_channel
+  {channelId, text, threadTs?}`. Both are outward, each has its own standing rule, and both work
+  like `mail.send` (D33): the snapshot captures the user id, real name, email and guest flag, and
+  for a channel its name, member count, and whether it has guests or another org; the card leads
+  with the recipient; a snapshot that changed after you approved refuses to send.
+- **Who has to ask:** your own send from the UI goes at once; a trusted Jarvis turn sends at once
+  only with that action's standing rule; any untrusted turn asks, including one that read a
+  member's message or an email saying "tell Sam"; outside agents can't send at all.
+- **Where:** channel posts go only to channels the bot is already in.
+- **Context:** what you send is added to that member's conversation, so their answer has context.
+
+**Your own DM to Jarvis.**
+- It's you, but untrusted and via Slack, like the desktop app (D42): a `chat` turn in one rolling
+  conversation started via Slack, with all your tools. Anything outward or self_external waits for
+  your yes in Hearth.
+- The worker takes it with `slack.take_owner`, which only runs as you via Slack, untrusted, so
+  Slack's words never run with your full trust. After 12 quiet hours, your next message starts a
+  new conversation.
+- Slack gets only fixed replies: "Got it, it's in Hearth: <link>", then "Done", "Needs your yes
+  in Hearth" (when anything in the turn waits for you) or "That didn't work. It's in Hearth.".
+  Jarvis's process tells the outbox when the turn ends (`slack.owner_reply`, system only). Full answers stay in Hearth, because a pasted answer is an outward channel and Slack
+  keeps and exports it. Answering in full there is an opt-in that starts off
+  (`slack.bot.ownerDmAnswers = "full"`).
+- Your @mention in a channel is a channel turn.
+
+**Your own token stays read-only in use.** The app keeps the user-token write scopes it already
+has (`chat:write`, `im:write`, `reactions:write`), because something else of yours may use them.
+The manifest and the Settings checklist list them as kept, merged rather than replaced, and
+Hearth doesn't warn about them. Hearth still never calls a write method with your xoxp: its
+client for that token allows only read methods, enforced in code and tested. Extra bot scopes or
+events are still warned about.
+
+**Where it runs.** The Socket Mode client lives in the worker (`apps/worker/src/slack-bot.ts`,
+with the logic in `packages/modules/src/slack/bot/`). The worker is the always-on service that
+already syncs Slack, and it's the only process that opens the bot and app tokens. The Jarvis
+process only writes outbox rows. The client uses `ws`, as the server does.
+- **Connection:** connect with `apps.connections.open` (xapp) and wait for `hello`. Ping every
+  20 s; no pong within 10 s means terminate and reconnect. On a `disconnect` with reason
+  `warning` or `refresh_requested`, open the new socket first, then close the old one. Back off
+  1, 2, 5, 15, 30, 60, then 120 s, ±20%. Honour Retry-After. Reset after 5 minutes connected.
+- **Revoked:** `link_disabled`, `invalid_auth`, `token_revoked`, `account_inactive`,
+  `app_uninstalled` or `tokens_revoked` sets the state to `revoked`. The socket and the sender
+  stop and you get one alert. Nothing resumes until `slack.bot_replace_tokens` takes new tokens.
+- **Store, then ack.** Check the envelope (a message also needs an authorization naming the bot
+  user, so an event for a user's install of the app, such as your DM with someone else, never
+  counts); `INSERT … ON CONFLICT DO NOTHING` into
+  `slack_inbound`, on a dedicated database connection (`max: 1`, 2 s statement timeout) so syncs
+  can't starve it; then send `{envelope_id}`. There are no network calls before the ack. If the
+  insert fails, Hearth doesn't ack and Slack retries. `(channel_id, ts)` is the key, so each of
+  these is stored once: a retry, overlapping sockets, an `app_mention` and a `message.im` for the
+  same message, and catch-up.
+- **The take loop** (`slack.take` as `integration:slack`) runs every 2 s, one round at a time. It
+  takes rows that have been settled for 1.5 s, in `ts` order, and handles who wrote it and their
+  tier; the limits; the conversation (one per member DM, one per channel thread); the line in the
+  conversation log; and at most one queued `slack_member` turn per conversation. Users are looked
+  up here, after the ack.
+- **Turns:** trigger `slack_member`, fast lane, untrusted, no subject.
+  - **Claiming:** `claimNext` takes your reactive turns first, then member turns, then proactive
+    ones. Only one member turn runs at a time, so a runner is always free for you.
+  - **Folding in:** when a turn starts, it claims every waiting message in its conversation with
+    one `UPDATE … RETURNING`, up to 10 messages and 12,000 characters. A turn left with nothing
+    is skipped without a model call.
+  - **Checks:** the turn reads the tier, the block and the pause again.
+  - **Limits:** at most 8 steps and 2 minutes.
+- **Budgets** (settings): per member, 4 turns in 10 minutes and 20 a day; across all members, 60
+  a day, separate from the proactive budget; member turns stop first when Claude's usage limit is
+  close. When a member is over a limit, Jarvis is paused, or a turn has waited 10 minutes, the
+  member gets one fixed note a day ("I've passed this to …") and the message is relayed to you.
+  The worker sends the apology for any member turn that ended without a reply, so this still
+  works with the Jarvis process stopped.
+- **The outbox** (in the worker) is woken by `pg_notify('hearth_slack_outbox')` and also polls
+  every 5 s. Rows are claimed `FOR UPDATE SKIP LOCKED` and marked `sending` before the call. Pace:
+  at most 1 a second per channel and 20 a minute overall, honouring Retry-After. Each post carries
+  `metadata {event_type: "hearth_outbox", event_payload: {id}}`.
+  - **No double posts:** after a timeout, a 5xx, or a row left in `sending` for over 60 s, the
+    sender reads that place back: a DM with the bot token, a channel with your xoxp (you're in
+    every channel Jarvis answers in). It counts only a message from our `bot_id` carrying that
+    id. If it's there, the row is sent; if not, it's posted again.
+  - `not_in_channel`, `is_archived`, `channel_not_found`, `msg_too_long` and the like fail the
+    row and show it to you.
+  - A row still waiting after 24 hours expires, and you're told.
+- **Threads:** a channel @mention is answered in its thread (`thread_ts ?? ts`) and never
+  broadcast to the channel. A DM is answered at the top level, unless the member wrote in a
+  thread.
+- **When Hearth is off, Slack keeps nothing.** On every `hello` and every 10 minutes, the worker
+  catches up: the bot's DMs, with `conversations.history` since each place's mark (bot token;
+  your xoxp can't see them); @mentions of the bot in channels that are on, with your xoxp's
+  `search.messages`, which includes thread replies. Marks move only past what was read, and the
+  first connect starts at now. A DM's mark is its conversation's (`slack_thread.mark`); a DM
+  without one is read from where listening started. While no channel is on, the mentions mark
+  moves to now, so a channel turned on later isn't caught up from before it was on. Up to 2 hours
+  late: answered, starting "Sorry for the slow reply".
+  Older: no turn; the member gets one fixed note and you get a relay. This also recovers events
+  that a second connection took.
+- **Only one install runs the socket:** the one whose id `slack.bot_connect` recorded, and only
+  while `slack.bot.membersOn` is on. A dev copy with a restored database can't take the live
+  events. Where the socket isn't held, its health isn't judged.
+- **No echoes:** your xoxp poller skips your DM with the bot and Jarvis's own posts, so Jarvis's
+  words don't come back in as Slack messages.
+- **Health:** `slack_bot` keeps its own `nextHealth` state, reported as the `sync.slack_bot`
+  component. It counts as failing after 30 minutes disconnected, which is outside the update
+  gate's window, and deep health treats it as external. The 30 minutes count from when the worker
+  saw the socket go, or started without one, never from the last hello: a PC waking from a long
+  sleep isn't failing while its Wi-Fi comes back. Revoked counts at once. It alerts once a
+  day (D60).
+- **Loop breaker:** after 20 Jarvis posts in one conversation within 10 minutes, that
+  conversation pauses for an hour and you're told.
+
+**Storage (migration 0033_slack_bot).**
+- **Checks:** `principal.kind` allows `member`; `jarvis_turn.trigger` allows `slack_member`.
+- **New `slack_bot`:** team, app id, bot user id and bot id; `owner_im` and the install id; bot
+  and app tokens, sealed separately under `<team>:bot` and `<team>:app`, so a token moved to the
+  other column won't open; where listening and catch-up start; health.
+- **`slack_user` gains** principal, tier, replies, VIP, guest, external, deleted and
+  `checked_at`. Tier starts at `relay` and replies at `auto`.
+- **`slack_channel` gains** Jarvis's tier, its replies setting and `checked_at`. Tier starts
+  `off` and replies `review`, and only a channel (public or private) can be turned on.
+- **New tables:** `slack_answer`; `slack_thread` (channel and thread to conversation, audience,
+  member, mark, pause); `slack_inbound` (text capped at 4,000 characters and cleared after 30
+  days); `slack_outbox` (with a unique dedupe key).
+- The way down deletes what member principals wrote (their messages to you, their
+  conversations, held replies and standing rules) before the principals.
+
+**Connecting** is `slack.bot_connect {botToken, appToken}`, a secret action only you can call.
+It checks the token prefixes, so an xoxp pasted where the xoxb goes is refused; that the bot's
+team is the workspace's; that the xapp's app id is A0C0RPY4WKV and matches `hello`; the scopes,
+from `x-oauth-scopes`, where missing ones refuse the connection, and bot scopes broader than the
+manifest get a warning (your token's kept write scopes don't); and that the first event's
+authorization names the bot user.
+
+**Where you see it.**
+- **Jarvis's activity** gets a Slack filter showing each member conversation, read-only, with
+  Reply as Jarvis, Ask Jarvis about this, tier, Block and Pause (`slack.conversations`,
+  `slack.conversation`, `slack.conversation_pause`, all yours only). It also shows the turns your
+  own Slack DM started, as "You asked in Slack". A member conversation is read-only under that bar
+  wherever it shows, Jarvis's pane included, whose list marks it "Slack".
+- **Settings → Slack** gets the channels Jarvis may answer in, each with its tier, replies and
+  last check, and the switch for full answers in your own DM.
+- **The inbox** gets relays, one card per member per hour (a VIP's may interrupt once a day,
+  within D60's 8); meeting requests; held replies; alerts.
+- **The brief** gets one line, marked as outside content: "Jarvis answered 7 Slack messages from
+  3 people".
+- **`hearth doctor`** gets a line for Jarvis's Slack bot: whether members are on, and what it
+  answered, relayed and took from you in the last day. A revoked bot or a post that didn't go
+  out is a warning, never a fail, so Slack's trouble can't roll an update back.
+
+Everything lands behind `slack.bot.membersOn`, which starts off.
+
+**Alternatives:**
+- **Members as an untrusted Jarvis turn with a member field on the caller.** An untrusted turn
+  can still read everything, and the field is lost once you approve a held reply, so it fails
+  open.
+- **Letting the audience alone set the tier, with an invite counting as a channel's opt-in.** A
+  Slack Connect or guest channel would then receive whatever Jarvis may read.
+- **A worker system job posting replies under a new "system plus standing rule" policy.** That
+  widens what every system job may do.
+- **The Events API.** It needs a public address.
+- **A separate process for the socket.** One more service to install and watch, for about 400
+  lines.
+- **Node's built-in WebSocket.** It can't see Slack's pings, so it either reconnects every quiet
+  minute or misses a dead socket after sleep.
+- **Bot history scopes for catch-up.** A leaked bot token would read every channel it's in, and
+  your xoxp already does the reading.
+- **Approve buttons in Slack.** A stolen Slack session could approve.
+- **Full answers to your own Slack DM by default.** D42 rules that out: a pasted answer is an
+  outward channel.
+- **Dropping the app's user write scopes.** Something else of yours may use them; Hearth not
+  calling them is enforced in its own code instead.
+
+**Trade-offs:**
+- Members get only what you've written down to share, your free time and a relay. Jarvis won't
+  look things up for them.
+- A channel post Hearth can't read back (because you left the channel) is marked "may not have
+  gone out" and isn't retried.
+- Messages more than 2 hours late get a note, not an answer.
+- Your token can still write in Slack, so its leak is worth more than a read-only one; Hearth
+  itself never uses that.
+
+**Why:** You want Jarvis to work with Otopair's people, and any of them can type anything at it.
+The line that holds is that Jarvis, answering a member, knows only what that member may already
+know, and the kernel holds that line, not the prompt. Every post goes through one outbox, so it
+happens once even on a PC that sleeps, restarts and deploys. The owner's answers (2026-10-05) set
+the starting points: DM replies go out on their own from day one, channel replies wait for a yes,
+`schedule` is given person by person, your own DM gets only fixed replies, and the app keeps its
+user write scopes.
 
 ## D63. Jarvis stops when asked; one that won't is named, never worked around (2026-10-05)
 
@@ -1706,9 +2061,10 @@ picked Otopair's board, and only tickets assigned to them. Every 5 minutes the w
 ticket assigned to you on that board (its columns, then its pages a hundred at a time, about
 three requests a second at most) into `notion_task` records written by `integration:notion`
 (outside content, D25). It compares each reading with the last and emits `notion.task_assigned`
-(new to you, handed back, or reopened), `notion.task_done` (its status in the Complete group) and
-`notion.task_changed` (title or due date). The Jarvis lane's reflex makes and closes your Hearth
-tasks from them, unasked (the owner's decision of 2026-10-05). The first read brings in your open
+(new to you, handed back, or reopened), `notion.task_done` (its status in the Complete group),
+`notion.task_changed` (title or due date) and `notion.task_unassigned` (an open one handed to
+someone else or deleted, seen only on a whole read). The Jarvis lane's reflex makes, closes and
+cancels your Hearth tasks from them, unasked (the owner's decision of 2026-10-05). The first read brings in your open
 tickets quietly (`backfill: true`), at the owner's choice. Which columns mean who, done and due is
 picked from their names and kinds (Otopair: Assignee, Status, End date). Hearth never writes to
 Notion. The secret is sealed like GitHub's, and failures follow D61.

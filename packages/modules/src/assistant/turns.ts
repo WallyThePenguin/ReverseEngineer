@@ -27,6 +27,12 @@ async function unseen(tx: Tx, conversationId: string): Promise<boolean> {
   return log?.asked != null && Number(log.asked) > Number(log.seen ?? -1);
 }
 
+/** A turn's context without the mark that it read outside content (packages/jarvis turn-end). */
+function withoutRead(context: Record<string, unknown>): Record<string, unknown> {
+  const { readOutside: _read, ...rest } = context;
+  return rest;
+}
+
 export const turnActions = [
   defineAction({
     name: "jarvis.cancel_turn",
@@ -116,7 +122,8 @@ export const turnActions = [
         origin: t.origin,
         prompt: t.prompt,
         // Asked again now, so it isn't let go for being old.
-        context: { ...t.context, retryOf: t.id, askedAt: ctx.now.toISOString() },
+        // What the failed one read isn't this one's: it says so again if it reads it again.
+        context: { ...withoutRead(t.context), retryOf: t.id, askedAt: ctx.now.toISOString() },
         conversationId: t.conversationId,
         subjectId: t.subjectId,
         sourceEventSeq: t.sourceEventSeq,

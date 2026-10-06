@@ -1,6 +1,7 @@
 // Hearth is Today plus six sub-products, with Settings as a utility (D65). This is the one list
-// of them, and of the places you go: the sidebar, the phone's tab bar, Cmd+K, the g-keys and
-// where a pane lands when its record goes to the trash all read it from here.
+// of them, and of the places you go: the sidebar (one row a sub-product), the tabs along the top
+// of each, the phone's tab bar, Cmd+K, the g-keys and where a pane lands when its record goes to
+// the trash all read it from here.
 
 import type { IconName } from "../components/icons.tsx";
 import type { ListView, RecordView } from "./routes.ts";
@@ -26,13 +27,16 @@ export interface App {
    * `--color-hue`. Settings has none, so it keeps the accent.
    */
   hue?: `--color-${AppId}`;
-  /** The list views it owns, its home first. */
+  /** The list views it owns, its home first, in the order of its tabs. */
   views: readonly ListView[];
   /** The record views that open inside it. */
   records: readonly RecordView[];
   /** Settings: a utility, not a sub-product. */
   utility?: true;
-  /** Its slot on the phone's tab bar, counting from the left. Without one, it's behind More. */
+  /**
+   * Its slot on the phone's tab bar, counting from the left. Without one, it's behind More.
+   * Jarvis's tab opens its pane, whatever list is showing; the others open their home.
+   */
   phoneTab?: number;
 }
 
@@ -42,7 +46,7 @@ export const APPS: readonly App[] = [
     label: "Today",
     icon: "sun",
     hue: "--color-today",
-    views: ["inbox"],
+    views: ["today", "inbox"],
     records: [],
     phoneTab: 1,
   },
@@ -53,6 +57,7 @@ export const APPS: readonly App[] = [
     hue: "--color-mail",
     views: ["mail"],
     records: ["thread"],
+    phoneTab: 2,
   },
   {
     id: "calendar",
@@ -61,7 +66,6 @@ export const APPS: readonly App[] = [
     hue: "--color-calendar",
     views: ["calendar"],
     records: [],
-    phoneTab: 3,
   },
   {
     id: "tasks",
@@ -70,7 +74,7 @@ export const APPS: readonly App[] = [
     hue: "--color-tasks",
     views: ["tasks"],
     records: ["task"],
-    phoneTab: 2,
+    phoneTab: 4,
   },
   {
     id: "docs",
@@ -95,8 +99,9 @@ export const APPS: readonly App[] = [
     label: "Jarvis",
     icon: "mark",
     hue: "--color-jarvis",
-    views: ["memory", "activity", "browser"],
+    views: ["activity", "memory", "browser"],
     records: ["chat"],
+    phoneTab: 3,
   },
   {
     id: "settings",
@@ -108,12 +113,12 @@ export const APPS: readonly App[] = [
   },
 ];
 
-/** A place you go to by name: a list view in the sidebar, in Cmd+K and on a g-key. */
+/** A place you go to by name: a list view, a tab in its sub-product, in Cmd+K and on a g-key. */
 export interface Place {
   view: ListView;
-  /** Its name in the sidebar and on the phone's tab bar. */
+  /** Its name on its tab and on the phone's tab bar. */
   label: string;
-  /** Its icon in the sidebar and on the phone's tab bar. */
+  /** Its icon on the phone's tab bar. */
   icon: IconName;
   /** The keys that go there. */
   keys: string;
@@ -125,26 +130,40 @@ export interface Place {
   lists?: readonly string[];
 }
 
-/** In the sidebar's order. */
+/** In the order Cmd+K and the shortcuts sheet list them. */
 export const PLACES: readonly Place[] = [
-  { view: "inbox", label: "Inbox", icon: "inbox", keys: "g i" },
+  {
+    view: "today",
+    label: "Today",
+    icon: "today",
+    keys: "g h",
+    about: "your morning on one screen",
+  },
+  {
+    view: "inbox",
+    label: "Updates",
+    icon: "inbox",
+    keys: "g i",
+    about: "everything Jarvis told you",
+  },
   { view: "mail", label: "Mail", icon: "mail", keys: "g e" },
   { view: "tasks", label: "Tasks", icon: "tasks", keys: "g t", lists: ["task"] },
   { view: "notes", label: "Notes", icon: "docs", keys: "g n", lists: ["note"] },
   { view: "calendar", label: "Calendar", icon: "calendar", keys: "g c" },
   {
     view: "canvases",
-    label: "Canvas",
+    label: "Boards",
     icon: "board",
     keys: "g w",
-    about: "boards",
+    about: "canvas boards",
     lists: ["canvas"],
   },
   {
     view: "sheets",
-    label: "Spreadsheets",
+    label: "Sheets",
     icon: "sheet",
     keys: "g x",
+    about: "spreadsheets",
     lists: ["spreadsheet"],
   },
   {
@@ -164,20 +183,25 @@ export const PLACES: readonly Place[] = [
   },
   {
     view: "voice",
-    label: "Voice",
+    label: "Dictation",
     icon: "dictation",
     keys: "g v",
     about: "dictation history, dictionary, snippets",
   },
   {
     view: "browser",
-    label: "Browser",
+    label: "Chrome",
     icon: "browser",
     keys: "g b",
-    go: "the browser",
     about: "your Chrome, live",
   },
-  { view: "activity", label: "Jarvis's activity", icon: "activity", keys: "g a" },
+  {
+    view: "activity",
+    label: "What Jarvis did",
+    icon: "activity",
+    keys: "g a",
+    go: "what Jarvis did",
+  },
   { view: "settings", label: "Settings", icon: "settings", keys: "g s" },
   {
     view: "trash",
@@ -222,8 +246,11 @@ export function placeOf(view: ListView): Place {
 export const listFor = (type: string): ListView | undefined =>
   PLACES.find((p) => p.lists?.includes(type))?.view;
 
-/** The phone's tabs, left to right: each one's sub-product home. */
-export const phoneTabs = (): Place[] =>
+/** A tab on the phone's bar: a sub-product's home, or Jarvis, whose tab opens its pane. */
+export type PhoneTab = Place | "jarvis";
+
+/** The phone's tabs, left to right. More, for everything else, follows them. */
+export const phoneTabs = (): PhoneTab[] =>
   APPS.filter((a) => a.phoneTab !== undefined)
     .sort((a, b) => a.phoneTab! - b.phoneTab!)
-    .map((a) => placeOf(a.views[0]!));
+    .map((a) => (a.id === "jarvis" ? "jarvis" : placeOf(a.views[0]!)));

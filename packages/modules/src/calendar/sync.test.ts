@@ -1,8 +1,16 @@
 // Calendar sync, paced and hard to stall (D55, 6.2): a slowdown waits for the next round, and one
-// event that won't save is skipped instead of failing the rest.
-import { randomBytes } from "node:crypto";
-import { calendarEvent, entity } from "@hearth/db";
-import { getSetting, integrationCaller, ownerCaller } from "@hearth/kernel";
+// event that won't save is skipped instead of failing the rest. Failures that last are told once
+// and closed when it syncs again (D61).
+import { randomBytes, randomUUID } from "node:crypto";
+import {
+  calendar,
+  calendarEvent,
+  entity,
+  googleAccount,
+  googleQuota,
+  notification,
+} from "@hearth/db";
+import { getSetting, type HearthEvent, integrationCaller, ownerCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -43,6 +51,27 @@ const titles = async () =>
     .map((r) => r.title)
     .sort();
 const at = (iso: string) => ({ dateTime: iso });
+const health = async () =>
+  (await t.tdb.db.select().from(googleAccount).where(eq(googleAccount.email, ME)))[0]!;
+
+/** What the calendar.sync_failed reflex makes of an event, saved as the notice it would be. */
+async function notice(e: HearthEvent) {
+  const reflex = ALL_MODULES.flatMap((m) => m.reflexes ?? []).find(
+    (r) => r.name === "calendar.sync_failed",
+  )!;
+  const [out] = await reflex.run(e, { db: t.tdb.db, now: t.clock.now() } as never);
+  const key = (out as { notification: { dedupeKey: string } }).notification.dedupeKey;
+  await t.tdb.db.insert(notification).values({
+    id: randomUUID(),
+    kind: "system.alert",
+    title: "Google Calendar",
+    dedupeKey: key,
+    createdBy: "jarvis",
+  });
+  return key;
+}
+const stateOf = async (key: string) =>
+  (await t.tdb.db.select().from(notification).where(eq(notification.dedupeKey, key)))[0]?.state;
 
 describe("calendar sync", () => {
   it("waits for the next round when Google says slow down, without an alert", async () => {
@@ -54,6 +83,10 @@ describe("calendar sync", () => {
     g.failCalendar(1, 429);
     expect(await sync()).toMatchObject({ failed: [], paused: [ME], events: 0 });
     expect(await t.events("calendar.sync_failed")).toEqual([]);
+    expect(await health()).toMatchObject({ calendarState: "ok", calendarFailures: 0 });
+    // What Google said is kept for Settings and the doctor.
+    const [pause] = await t.tdb.db.select().from(googleQuota);
+    expect(pause?.reason).toContain("Quota exceeded");
     // Paused for every process: the next sync in the same minute doesn't ask Google.
     const calls = g.calls.length;
     expect(await sync()).toMatchObject({ paused: [ME] });
@@ -63,10 +96,67 @@ describe("calendar sync", () => {
     expect(await titles()).toEqual(["Standup"]);
   });
 
-  it("still alerts when Google fails for another reason", async () => {
-    g.failCalendar(1, 500);
+  it("tells you once when calendars keep failing, and closes the notice when they sync", async () => {
+    await sync();
+    const outage = async () => {
+      g.failCalendar(1, 500);
+      expect((await sync()).failed).toHaveLength(1);
+      t.clock.advance(15 * 60_000);
+    };
+    // A blip or two isn't news.
+    await outage();
+    await outage();
+    expect(await t.events("calendar.sync_failed")).toEqual([]);
+    expect(await health()).toMatchObject({ calendarState: "ok", calendarFailures: 2 });
+    // Three in a row with nothing read for half an hour is, once.
+    await outage();
+    await outage();
+    const failed = await t.events("calendar.sync_failed");
+    expect(failed).toHaveLength(1);
+    expect(failed[0]?.payload).toMatchObject({ account: ME, reconnect: false });
+    expect(await health()).toMatchObject({ calendarState: "failing" });
+    // Each calendar says why in Settings, the list it couldn't read included.
+    const [cal] = await t.tdb.db.select().from(calendar).where(eq(calendar.selected, true));
+    expect(cal?.lastError).toContain("Backend Error");
+    const key = await notice(failed[0]!);
+    expect(await sync()).toMatchObject({ failed: [] });
+    expect(await stateOf(key)).toBe("done");
+    expect(await health()).toMatchObject({ calendarState: "ok", calendarError: null });
+  });
+
+  it("tells you at once when Google signs Hearth out, and how to connect again", async () => {
+    await sync();
+    await t.tdb.db.update(googleAccount).set({ accessExpiresAt: new Date(0) });
+    g.revoked = true;
+    expect((await sync()).failed).toHaveLength(1);
+    const [e] = await t.events("calendar.sync_failed");
+    expect(e?.payload).toMatchObject({ account: ME, reconnect: true });
+    expect(await health()).toMatchObject({ calendarState: "revoked" });
+    const reflex = ALL_MODULES.flatMap((m) => m.reflexes ?? []).find(
+      (r) => r.name === "calendar.sync_failed",
+    )!;
+    const [out] = await reflex.run(e!, { db: t.tdb.db, now: t.clock.now() } as never);
+    expect(JSON.stringify(out)).toContain("Connect the account again in Settings");
+  });
+
+  it("tells you at once about a calendar Google won't show", async () => {
+    await sync();
+    g.failCalendar(1, 404);
     expect((await sync()).failed).toHaveLength(1);
     expect(await t.events("calendar.sync_failed")).toHaveLength(1);
+    expect(await health()).toMatchObject({ calendarState: "failing", calendarFailures: 1 });
+    // Each account's notice is its own, so two failing together are both told.
+    const [failed] = await t.events("calendar.sync_failed");
+    expect(await notice(failed!)).toBe(
+      `calendar.sync_failed:${ME}:${(failed!.payload as { since: string }).since}`,
+    );
+    // An alert Jarvis gets to after it synced again stays unsaid.
+    const [late] = await t.events("calendar.sync_failed");
+    await sync();
+    const reflex = ALL_MODULES.flatMap((m) => m.reflexes ?? []).find(
+      (r) => r.name === "calendar.sync_failed",
+    )!;
+    expect(await reflex.run(late!, { db: t.tdb.db, now: t.clock.now() } as never)).toEqual([]);
   });
 
   it("skips an event that won't save, and keeps the rest", async () => {

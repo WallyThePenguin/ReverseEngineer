@@ -44,6 +44,8 @@ async function digest(ctx: ReadContext & { since: Date }): Promise<DigestItem[]>
         gte(entity.createdAt, ctx.since),
         eq(notionTask.assigned, true),
         eq(notionTask.done, false),
+        // The first read brought these in quietly (D68): not news.
+        eq(notionTask.backfill, false),
       ),
     )
     .orderBy(desc(entity.createdAt))
@@ -84,6 +86,10 @@ export const notionModule = defineModule({
     {
       kind: "notion.task_changed",
       description: `An open ticket of yours on your Notion board has a new title or due date. ${TASK_PAYLOAD}, changed ("title" | "due")[].`,
+    },
+    {
+      kind: "notion.task_unassigned",
+      description: `An open ticket of yours on your Notion board isn't yours any more: handed to someone else, or deleted. ${TASK_PAYLOAD}.`,
     },
     {
       kind: "notion.sync_failed",

@@ -3,14 +3,7 @@
 // words, a routine publishes its plain version, set-aside heartbeat items go back on the pile,
 // and an alert goes out when Jarvis looks broken rather than unlucky.
 import { weakerOrigin } from "@hearth/core";
-import {
-  conversationLog,
-  event,
-  heartbeatItem,
-  jarvisTurn,
-  schedule,
-  type TurnOutcome,
-} from "@hearth/db";
+import { conversationLog, event, jarvisTurn, schedule, type TurnOutcome } from "@hearth/db";
 import {
   appendEvents,
   getSetting,
@@ -21,9 +14,11 @@ import {
   toHearthEvent,
 } from "@hearth/kernel";
 import type { LogEntry } from "@hearth/modules";
-import { and, count, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
+import { and, count, eq, isNotNull, lt, sql } from "drizzle-orm";
 import { BACKOFF_MINUTES, type Failure, failure, friendlyError, PASSING } from "./failures.ts";
+import { releaseHeartbeat } from "./heartbeat.ts";
 import { applyOutcomes } from "./outcomes.ts";
+import { tellSlack } from "./slack-owner.ts";
 import { writeLog } from "./threads.ts";
 import type { ToolCallRecord } from "./tools.ts";
 import { alertFailure } from "./turn-alerts.ts";
@@ -32,10 +27,13 @@ import type { TurnLog } from "./turn-log.ts";
 type TurnRow = typeof jarvisTurn.$inferSelect;
 
 /** How long after it was asked a turn is still worth running: a chat for an hour, a voice
- * command for two minutes (the owner is waiting with the cursor in place). */
+ * command for two minutes (the owner is waiting with the cursor in place), and a Slack member's
+ * ten minutes from their first message (D62): by then the worker has passed it on to the owner
+ * with an apology, so an answer would come after that. */
 export const TURN_TTL_MS: Readonly<Record<string, number>> = {
   chat: 3600_000,
   voice_command: 120_000,
+  slack_member: 10 * 60_000,
 };
 
 /** When the owner asked, which can be well before the turn was queued if Jarvis was down. */
@@ -65,6 +63,9 @@ export interface Ending {
   answered: boolean;
   durationMs: number;
   firstTokenMs: number | null;
+  /** Whether the attempt has read outside content (an email, a web page) so far, or started
+   * from some: its row says so once it ends, for what Today shows of it (D58). */
+  readOutside: () => boolean;
 }
 
 /** An attempt at a turn, before anything has happened in it. */
@@ -76,6 +77,7 @@ export const newEnding = (turn: TurnRow): Ending => ({
   answered: false,
   durationMs: 0,
   firstTokenMs: null,
+  readOutside: () => false,
 });
 
 /** Whether the owner pressed Stop on a turn, as its row says (the signal can be missed). */
@@ -98,9 +100,16 @@ export async function recordEnd(
   const { kernel } = env;
   const { turn, conversationId } = e;
   const now = kernel.clock.now();
+  // Its row keeps the origin it was asked with; that it read outside content on the way goes in
+  // its context, once it's over (a retry reads afresh).
+  const outside = patch.status !== "queued" && turn.origin !== "untrusted" && e.readOutside();
   await kernel.db
     .update(jarvisTurn)
-    .set({ ...patch, finishedAt: now })
+    .set({
+      ...patch,
+      finishedAt: now,
+      ...(outside ? { context: sql`${jarvisTurn.context} || '{"readOutside":true}'::jsonb` } : {}),
+    })
     .where(eq(jarvisTurn.id, turn.id));
   const scheduleId = turn.context.scheduleId;
   if (typeof scheduleId === "string")
@@ -145,6 +154,11 @@ export async function recordEnd(
       { actor: "jarvis", origin: "agent", correlationId: turn.id, at: now },
     ),
   );
+  // Your DM with Jarvis in Slack started it: Slack hears how it went (D62).
+  if (turn.context.via === "slack")
+    await tellSlack(env, e, patch.status, patch.outcome ?? null, patch.reply ?? null).catch((err) =>
+      env.log(`couldn't tell Slack how turn ${turn.id} ended`, err),
+    );
 }
 
 /** Whether the attempt used a Hearth tool, or started one that may still be running. */
@@ -216,7 +230,7 @@ export async function failTurn(
   await recordEnd(env, e, { ...common, status });
   if (status === "canceled") return status;
   const fellBack = await applyFallback(env, e.turn);
-  await releaseHeartbeat(env, e.turn);
+  await releaseHeartbeat(env.kernel.db, e.turn, wroteAnything(e));
   await alertFailure(env, e.turn, f, said.text, fellBack).catch((err) =>
     env.log(`couldn't raise an alert for turn ${e.turn.id}`, err),
   );
@@ -273,15 +287,9 @@ function revive(outcomes: ReflexOutcome[]): ReflexOutcome[] {
   });
 }
 
-/** Items a failed heartbeat turn took go back, for the next heartbeat to pick up. */
-async function releaseHeartbeat(env: EndEnv, turn: TurnRow): Promise<void> {
-  const ids = turn.context.itemIds;
-  if (!Array.isArray(ids) || ids.length === 0) return;
-  await env.kernel.db
-    .update(heartbeatItem)
-    .set({ takenAt: null })
-    .where(inArray(heartbeatItem.id, ids.map(String)));
-}
+/** Whether the attempt changed anything, or started a tool that may have and never said. */
+const wroteAnything = (e: Ending): boolean =>
+  e.calls.some((c) => c.risk !== "read") || e.started > e.calls.length;
 
 /**
  * Queued turns past their time-to-live are dropped rather than answered late: a chat after an
@@ -324,15 +332,16 @@ export async function recoverInterrupted(env: EndEnv): Promise<number> {
   const { kernel } = env;
   const rows = await kernel.db.select().from(jarvisTurn).where(eq(jarvisTurn.status, "running"));
   for (const turn of rows) {
-    const end = newEnding(turn);
-    if (turn.cancelRequestedAt) {
-      await failTurn(env, end, failure("canceled", "Stopped by the owner"), 0);
-      continue;
-    }
     const [used] = await kernel.db
       .select({ n: count() })
       .from(conversationLog)
       .where(and(eq(conversationLog.turnId, turn.id), eq(conversationLog.kind, "tool_call")));
+    // What it started is all that's known of it now: any of them may have changed something.
+    const end = { ...newEnding(turn), started: used?.n ?? 0 };
+    if (turn.cancelRequestedAt) {
+      await failTurn(env, end, failure("canceled", "Stopped by the owner"), 0);
+      continue;
+    }
     if ((used?.n ?? 0) === 0 && turn.attempts <= BACKOFF_MINUTES.length) {
       await kernel.db
         .update(jarvisTurn)

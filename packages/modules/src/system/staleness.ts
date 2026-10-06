@@ -16,12 +16,23 @@ export const REPORT_EVERY_MS: Readonly<Record<string, number>> = {
   "sync.slack": 60_000,
   "sync.github": 60_000,
   "sync.notion": 60_000,
+  "sync.slack_bot": 60_000,
   backup: 24 * 3_600_000,
 };
+
+/**
+ * Components that report on someone else's service more than on Hearth's own parts. Their
+ * failing is told (an alert, Settings, the doctor's warning) but never makes Hearth itself
+ * unhealthy, so Slack dropping or revoking Jarvis's socket can't fail an update's gate or roll it
+ * back (D62).
+ */
+export const EXTERNAL_COMPONENTS: ReadonlySet<string> = new Set(["sync.slack_bot"]);
 
 export interface JudgedHealth extends HealthRecord {
   /** True when the component stopped reporting; status is then "failing". */
   stale: boolean;
+  /** One of EXTERNAL_COMPONENTS: its failing doesn't make Hearth unhealthy. */
+  external?: boolean;
 }
 
 /** "3 min", "5 h", "2 days": how long ago, roughly. */
@@ -36,11 +47,13 @@ export function roughly(ms: number): string {
 export function judgeHealth(component: string, record: HealthRecord, now: Date): JudgedHealth {
   const every = REPORT_EVERY_MS[component];
   const age = now.getTime() - new Date(record.at).getTime();
-  if (!every || !(age > 2 * every)) return { ...record, stale: false };
+  const external = EXTERNAL_COMPONENTS.has(component) ? { external: true } : {};
+  if (!every || !(age > 2 * every)) return { ...record, stale: false, ...external };
   return {
     status: "failing",
     detail: `No report for ${roughly(age)} (last: ${record.detail || record.status}).`,
     at: record.at,
     stale: true,
+    ...external,
   };
 }

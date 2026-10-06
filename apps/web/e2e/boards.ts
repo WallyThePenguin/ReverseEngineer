@@ -11,7 +11,7 @@ interface Smoke {
 export async function boardSteps({ step, keys, base, tag }: Smoke) {
   await step("a canvas board with a sticky, a box, an arrow and a task card", async (p) => {
     await p.goto(`${base}/canvases`);
-    await p.getByRole("heading", { name: "Canvas" }).waitFor();
+    await p.getByRole("heading", { name: "Boards" }).waitFor();
     await p.getByRole("button", { name: "New board" }).click();
     // Name it and draw once the board has loaded: the toolbar shows before that, and loading sets
     // the name the board came with and frames the view, which would move what's drawn already.
@@ -37,27 +37,41 @@ export async function boardSteps({ step, keys, base, tag }: Smoke) {
     await p.getByRole("button", { name: "@ Record" }).click();
     await p.getByLabel("Find a record").fill(`Pay rent ${tag}`);
     await p.getByRole("button", { name: new RegExp(`Pay rent ${tag}`) }).click();
-    await p.waitForTimeout(1500);
     const id = new URL(p.url()).pathname.split("canvas/")[1]!.split("+")[0]!;
-    const saved = await p.evaluate(async (id) => {
-      const r = await fetch("/api/actions/canvas.get", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id }),
-      });
-      type Saved = {
-        title: string;
-        board: {
-          nodes: { type: string }[];
-          edges: { from: { type: string }; to: { type: string } }[];
-        };
+    type Saved = {
+      title: string;
+      board: {
+        nodes: { type: string }[];
+        edges: { from: { type: string }; to: { type: string } }[];
       };
-      return ((await r.json()) as { result: Saved }).result;
-    }, id);
-    const kinds = saved.board.nodes
-      .map((n: { type: string }) => n.type)
-      .sort()
-      .join(",");
+    };
+    const read = () =>
+      p.evaluate(async (id) => {
+        const r = await fetch("/api/actions/canvas.get", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id }),
+        });
+        return ((await r.json()) as { result: Saved }).result;
+      }, id);
+    const kindsOf = (b: Saved) =>
+      b.board.nodes
+        .map((n) => n.type)
+        .sort()
+        .join(",");
+    // The board saves a moment after the last change, later on a busy PC: read until it has.
+    let saved = await read();
+    for (let waited = 0; waited < 15_000; waited += 250) {
+      if (
+        saved.title === `Trip plan ${tag}` &&
+        kindsOf(saved) === "entitymention,shape,text" &&
+        saved.board.edges.length > 0
+      )
+        break;
+      await p.waitForTimeout(250);
+      saved = await read();
+    }
+    const kinds = kindsOf(saved);
     if (saved.title !== `Trip plan ${tag}`) throw new Error(`board named ${saved.title}`);
     if (kinds !== "entitymention,shape,text") throw new Error(`board holds ${kinds}`);
     const edge = saved.board.edges[0];
@@ -69,7 +83,7 @@ export async function boardSteps({ step, keys, base, tag }: Smoke) {
 
   await step("a spreadsheet that adds up as you type", async (p) => {
     await p.goto(`${base}/sheets`);
-    await p.getByRole("heading", { name: "Spreadsheets" }).waitFor();
+    await p.getByRole("heading", { name: "Sheets" }).waitFor();
     await p.getByRole("button", { name: "New spreadsheet" }).click();
     await p.locator('[data-cell="A1"]').waitFor();
     const name = p.getByLabel("Spreadsheet name");

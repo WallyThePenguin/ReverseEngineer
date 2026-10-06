@@ -13,6 +13,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { createServer, type Server, type Socket } from "node:net";
 import { join } from "node:path";
 import { chromium } from "playwright";
+import { home } from "./home.ts";
 
 const port = Number(process.env.HEARTH_E2E_PORT ?? 4404);
 const base = `http://localhost:${port}`;
@@ -98,7 +99,7 @@ try {
       { timeout: 15_000 },
     );
     await page.reload();
-    await page.getByRole("heading", { name: "Inbox" }).waitFor();
+    await home(page).waitFor();
     const cached = (await page.evaluate(`(async () => {
       const out = {};
       for (const k of await caches.keys())
@@ -142,7 +143,7 @@ try {
   await step("Hearth back: the app comes back by itself, without a reload", async () => {
     await page.evaluate("window.sameLoad = true");
     await start();
-    await page.getByRole("heading", { name: "Inbox" }).waitFor({ timeout: 40_000 });
+    await home(page).waitFor({ timeout: 40_000 });
     if (!(await page.evaluate("window.sameLoad === true"))) throw new Error("the page reloaded");
   });
   console.log("Offline checks passed.");

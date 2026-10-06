@@ -14,5 +14,6 @@ export * from "./people.ts";
 export * from "./push.ts";
 export * from "./sheets.ts";
 export * from "./slack.ts";
+export * from "./slack-bot.ts";
 export * from "./vault.ts";
 export * from "./voice.ts";

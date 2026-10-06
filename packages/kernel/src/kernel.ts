@@ -1,10 +1,12 @@
 // The executor: every action from every surface runs through here, gets a policy decision,
 // an audit row and its events (PLAN.md section 5.4).
+import { memberWildcard } from "@hearth/core";
 import { type Db, principal, standingRule, type Tx } from "@hearth/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { requestApproval, resolveApproval } from "./approvals.ts";
 import { isAudited, writeAudit } from "./audit.ts";
+import { normalizeCaller } from "./callers.ts";
 import { type Clock, systemClock } from "./clock.ts";
 import {
   ActionError,
@@ -15,7 +17,7 @@ import {
   stackFrames,
 } from "./errors.ts";
 import { appendEvents } from "./events.ts";
-import { guardAgentCall, isGuarded, withoutGiven } from "./guard.ts";
+import { guardAgentCall, guardsCaller, isGuarded, withoutGiven } from "./guard.ts";
 import { newId } from "./ids.ts";
 import { type RunHooks, runIo } from "./io.ts";
 import { decide } from "./policy.ts";
@@ -58,7 +60,7 @@ export class Kernel {
     caller: Caller,
   ): Promise<ExecuteResult<R>> {
     try {
-      return await this.decideAndRun<R>(name, rawInput, caller);
+      return await this.decideAndRun<R>(name, rawInput, normalizeCaller(caller));
     } catch (err) {
       // Failed before the action itself ran: checking a standing rule, asking for approval.
       this.log(`Action ${name} couldn't start: ${logLine(err)}`);
@@ -74,16 +76,26 @@ export class Kernel {
     const def = this.registry.action(name);
     if (!def)
       return { status: "error", code: "unknown_action", message: `No action named ${name}` };
-    // Calls made as Jarvis are checked against the page they open or act on, and capture what
-    // they'll do, before they run or wait for your yes (D25, D30, D58).
-    const guarded = caller.kind === "agent" && isGuarded(def);
+    const correlationId = caller.correlationId ?? newId();
+    // Calls made as Jarvis, or as a Slack member's turn, are checked against the page they open
+    // or act on, and capture what they'll do, before they run or wait for your yes (D25, D30,
+    // D58, D62).
+    const guarded = guardsCaller(caller) && isGuarded(def);
     const raw = guarded ? withoutGiven(def, rawInput ?? {}) : (rawInput ?? {});
+    // Whether this caller may make this call at all is settled before its input is read or its
+    // snapshot or pin runs. Those read your data (a draft, a meeting, the open tab), and a caller
+    // that's refused, a Slack member above all, mustn't set them off or get their errors back
+    // instead of a refusal (D62). The guard below only adds an askFirst, so the decision after it
+    // can turn an allow into an ask but can't let through what this refuses.
+    const standing = await this.hasStandingRule(def.name, caller);
+    const refused = decide(def, caller, standing);
+    if (refused.kind === "deny")
+      return this.refuse(def, caller, raw, refused.reason, correlationId);
     const parsed = def.input.safeParse(raw);
     if (!parsed.success) {
       return { status: "error", code: "invalid_input", message: z.prettifyError(parsed.error) };
     }
     let input: unknown = parsed.data;
-    const correlationId = caller.correlationId ?? newId();
     if (guarded) {
       const g = await guardAgentCall(this, def, raw, input, caller);
       if (g.kind === "invalid")
@@ -97,7 +109,7 @@ export class Kernel {
       input = g.input;
       if (g.askFirst) caller = { ...caller, askFirst: caller.askFirst ?? g.askFirst };
     }
-    const decision = decide(def, caller, await this.hasStandingRule(def.name, caller));
+    const decision = decide(def, caller, standing);
     if (decision.kind === "deny")
       return this.refuse(def, caller, input, decision.reason, correlationId);
     if (decision.kind === "ask") {
@@ -159,6 +171,8 @@ export class Kernel {
     caller: Caller & { correlationId: string },
     hooks: RunHooks = {},
   ): Promise<ExecuteResult<R>> {
+    // An approved call comes straight here, so a member's is made untrusted here too (D62).
+    caller = normalizeCaller(caller);
     // Actions that wait on the world hold no transaction while they wait (io.ts, B1).
     if (def.io) return runIo<R>(this, def, input, caller, hooks, (m) => this.log(m));
     const started = performance.now();
@@ -225,6 +239,7 @@ export class Kernel {
     now: Date,
     buffered: EmitEvent[],
   ): ActionContext {
+    caller = normalizeCaller(caller);
     const ctx: ActionContext = {
       tx,
       caller,
@@ -245,7 +260,7 @@ export class Kernel {
         const def = this.registry.action(name);
         if (!def) throw new ActionError("unknown_action", `No action named ${name}`);
         // A page to open or act on, or a send to show you, is checked as a call of its own (D58).
-        if (caller.kind === "agent" && isGuarded(def))
+        if (guardsCaller(caller) && isGuarded(def))
           throw new ActionError("forbidden", `${name} runs only as a step of its own.`);
         const parsed = def.input.safeParse(rawInput ?? {});
         if (!parsed.success) throw new ActionError("invalid_input", z.prettifyError(parsed.error));
@@ -270,12 +285,18 @@ export class Kernel {
     return ctx;
   }
 
+  /**
+   * Whether you've let this caller do this action without asking. A Slack member also has the
+   * rule you hold for every member of their team, member:slack:<team>:* (D62).
+   */
   async hasStandingRule(action: string, caller: Caller, db: Db | Tx = this.db): Promise<boolean> {
-    if (caller.kind !== "agent") return false;
+    if (caller.kind !== "agent" && caller.kind !== "member") return false;
+    const team = caller.kind === "member" ? memberWildcard(caller.principal) : null;
+    const holders = team ? [caller.principal, team] : [caller.principal];
     const rows = await db
       .select({ id: standingRule.id })
       .from(standingRule)
-      .where(and(eq(standingRule.action, action), eq(standingRule.principal, caller.principal)));
+      .where(and(eq(standingRule.action, action), inArray(standingRule.principal, holders)));
     return rows.length > 0;
   }
 

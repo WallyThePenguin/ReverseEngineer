@@ -1,14 +1,16 @@
 // Tasks: quick add, filter by who's on it, j/k to move, x to complete, Enter to open.
 // Assign a task to Jarvis and it starts working on it.
 
-import { createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, For, Show } from "solid-js";
 import { Overflow, ROW_MENU } from "../components/Menu.tsx";
 import { QueryView } from "../components/QueryView.tsx";
 import { Badge, Empty, Kbd, PaneHeader } from "../components/ui.tsx";
+import { useWhen, WhenChip } from "../components/WhenChip.tsx";
 import { due, PRIORITY_LABEL } from "../lib/format.ts";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
 import { toast } from "../lib/live.ts";
 import { narrow } from "../lib/narrow.ts";
+import { newTaskTaken, newTaskWanted } from "../lib/newTask.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
 import { quickAdd } from "../lib/quickadd.ts";
@@ -111,6 +113,12 @@ export function Tasks(props: { pane: number }) {
   const sel = createSelection(list, (t) => t.id);
   const focused = () => layout.focused() === props.pane;
   let input!: HTMLInputElement;
+  // Cmd+K's New task: the add box, ready to type in.
+  createEffect(() => {
+    if (!newTaskWanted() || !focused()) return;
+    newTaskTaken();
+    input.focus();
+  });
 
   const open = (t: Task | undefined, beside = false) => {
     if (!t) return;
@@ -118,10 +126,16 @@ export function Tasks(props: { pane: number }) {
     else layout.show({ view: "task", id: t.id }, props.pane);
   };
 
+  // "call dentist tomorrow 10am" is due tomorrow at 10, shown as a chip before it's added.
+  const when = useWhen(title);
   const create = async () => {
     const jarvis = forJarvis();
+    const fields = when.fields();
     const made = await quickAdd({ get: title, set: setTitle }, (text) =>
-      act<Task>("task.create", { title: text, ...(jarvis ? { assignee: "jarvis" } : {}) }),
+      act<Task>("task.create", {
+        ...fields(text),
+        ...(jarvis ? { assignee: "jarvis" } : {}),
+      }),
     );
     if (made && jarvis) toast.show(`${made.key} is Jarvis's now. It'll start shortly.`);
   };
@@ -185,6 +199,7 @@ export function Tasks(props: { pane: number }) {
           onInput={(e) => setTitle(e.currentTarget.value)}
           onKeyDown={(e) => e.key === "Escape" && input.blur()}
         />
+        <WhenChip box={when} />
         <label
           class="flex min-h-11 items-center gap-1 text-xs text-muted md:min-h-0"
           title="Jarvis works on tasks assigned to it"

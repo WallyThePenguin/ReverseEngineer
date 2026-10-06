@@ -30,6 +30,8 @@ export interface EventView {
   /** The series it's one time of, for a repeating event. */
   recurringEventId: string | null;
   taskId: string | null;
+  /** Its prep packet's record, when calendar.events lists it. */
+  prepId?: string;
 }
 
 export function toEventView(e: EntityRow, r: EventRow): EventView {
