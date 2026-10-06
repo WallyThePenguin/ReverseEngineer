@@ -10,6 +10,7 @@ import { TYPING_PAUSE_MS } from "../lib/debounce.ts";
 import { useDialogFocus } from "../lib/focus.ts";
 import { dueInFull, TYPE_LABEL } from "../lib/format.ts";
 import { MOD } from "../lib/hotkeys.ts";
+import { toast } from "../lib/live.ts";
 import { askNewTask } from "../lib/newTask.ts";
 import { arrange, type PaletteItem } from "../lib/palette.ts";
 import { layout, routeFor } from "../lib/panes.ts";
@@ -17,6 +18,7 @@ import { setPaused } from "../lib/pause.ts";
 import { act, useAction } from "../lib/query.ts";
 import type { SearchHit, SystemStatus } from "../lib/types.ts";
 import { readWhen } from "../lib/when.ts";
+import { loadCode, ViewLoadError } from "./loadView.tsx";
 import { sidebar } from "./Sidebar.tsx";
 
 type Item = PaletteItem;
@@ -46,11 +48,32 @@ function top(): Item[] {
   ];
 }
 
-/** Docs' lists load when they're opened, so a new one loads its own first. */
+/**
+ * Docs' lists load when they're opened, so a new one loads its own first, as a screen does: on a
+ * page from before an update, it reloads into the new Hearth or says why it can't.
+ */
+const make = (what: string, get: () => Promise<(pane: number) => unknown>) => async () => {
+  let create: (pane: number) => unknown;
+  try {
+    create = await loadCode(get);
+  } catch (err) {
+    if (!(err instanceof ViewLoadError)) throw err;
+    if (err.why === "offline")
+      return toast.show(
+        `Couldn't make a new ${what}. Check your connection, then try again.`,
+        "error",
+      );
+    return toast.show(`Hearth was updated. Reload to make a new ${what}.`, "error", {
+      label: "Reload",
+      run: () => location.reload(),
+    });
+  }
+  await create(layout.focused());
+};
 const docs = {
-  note: () => import("../views/Notes.tsx").then((m) => m.newNote(layout.focused())),
-  canvas: () => import("../views/Canvas.tsx").then((m) => m.newCanvas(layout.focused())),
-  sheet: () => import("../views/Sheets.tsx").then((m) => m.newSheet(layout.focused())),
+  note: make("note", () => import("../views/Notes.tsx").then((m) => m.newNote)),
+  canvas: make("board", () => import("../views/Canvas.tsx").then((m) => m.newCanvas)),
+  sheet: make("spreadsheet", () => import("../views/Sheets.tsx").then((m) => m.newSheet)),
 };
 
 function commands(paused: boolean | undefined): Item[] {

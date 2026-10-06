@@ -12,6 +12,7 @@ import {
   reloadedFor,
   reloadInto,
   type ServerBuild,
+  tryAgainBy,
   wouldLoseWork,
 } from "../lib/version.ts";
 
@@ -31,8 +32,11 @@ async function runningBuild(): Promise<ServerBuild | null> {
   }
 }
 
-/** Loads a screen's code, or reloads into the new Hearth, or says why it can't. */
-async function load<T>(get: () => Promise<T>): Promise<T> {
+/**
+ * Loads a screen's code, or reloads into the new Hearth, or says why it can't (ViewLoadError).
+ * Cmd+K's New note and the like load their screen's code this way too.
+ */
+export async function loadCode<T>(get: () => Promise<T>): Promise<T> {
   try {
     return await get();
   } catch (err) {
@@ -43,6 +47,12 @@ async function load<T>(get: () => Promise<T>): Promise<T> {
     // The page is going; the skeleton stays until it has.
     return new Promise<T>(() => {});
   }
+}
+
+/** "Try again" on a screen the PC didn't send: reloads once it answers (tryAgainBy). */
+export async function tryAgain(reset: () => void): Promise<void> {
+  if (tryAgainBy(await runningBuild(), wouldLoseWork) === "reload") location.reload();
+  else reset();
 }
 
 function Loading() {
@@ -60,7 +70,7 @@ export function view<P extends object>(get: () => Promise<Component<P>>): Compon
     if (loaded) return createComponent(loaded, props);
     // A new try each time it's drawn, so the pane's "Try again" fetches it afresh.
     const [code] = createResource(() =>
-      load(get).then((c) => {
+      loadCode(get).then((c) => {
         loaded = c;
         return c;
       }),

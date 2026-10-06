@@ -89,7 +89,8 @@ export function reloadOnReturn(
  * What to do when a screen's code didn't load (opened the first time on a page from before an
  * update, whose files the update replaced): reload into the build that's running, once per build
  * and only when that loses nothing; otherwise say why, "updated" (reload to open it) or "offline"
- * (the PC didn't answer, or answered with this same build).
+ * (the PC didn't answer, or answered with this same build). The builds are compared directly: a
+ * new build whose database didn't finish updating has still replaced this page's files.
  */
 export function afterLoadFailed(
   mine: string | null,
@@ -97,9 +98,19 @@ export function afterLoadFailed(
   reloadedFor: string | null,
   wouldLose: () => boolean,
 ): { reload: string } | { why: "updated" | "offline" } {
-  if (noticeFor(mine, server) !== "updated" || !server?.build) return { why: "offline" };
-  if (server.build === reloadedFor || wouldLose()) return { why: "updated" };
-  return { reload: server.build };
+  const build = server?.build;
+  if (!mine || !build || build === mine) return { why: "offline" };
+  if (build === reloadedFor || wouldLose()) return { why: "updated" };
+  return { reload: build };
+}
+
+/**
+ * What "Try again" does on a screen whose code the PC didn't send: a browser keeps a failed load
+ * of a file for good, so once the PC answers, reloading the page is what fetches it afresh. Not
+ * when that would lose something on the page: then it tries in place, and Reload is beside it.
+ */
+export function tryAgainBy(server: ServerBuild | null, wouldLose: () => boolean) {
+  return server && !wouldLose() ? "reload" : "retry";
 }
 
 /** Fields you click rather than type into. */
