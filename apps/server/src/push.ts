@@ -69,7 +69,7 @@ export const PUSH_KINDS = ["notification.created", "notification.delivered"];
 
 /** Which inbox items are worth buzzing your phone for. */
 export function worthPushing(p: Record<string, unknown>): boolean {
-  if (p.kind === "approval" || p.kind === "brief") return true;
+  if (p.kind === "approval" || p.kind === "brief" || p.kind === "wrap") return true;
   return p.urgency === "interrupt" && p.delivered === true;
 }
 
@@ -80,12 +80,17 @@ const HEADINGS: Record<string, string> = {
   brief: "Your brief is ready",
 };
 
+/** Where tapping it opens; anything else opens the inbox. */
+const OPENS: Record<string, string> = {
+  wrap: "/today",
+};
+
 export function messageFor(row: { id: string; kind: string; title: string; body: string | null }) {
   const heading = HEADINGS[row.kind];
   return {
     title: heading ?? clip(row.title, 120),
     body: clip(heading ? row.title : (row.body ?? ""), 240),
-    url: "/inbox",
+    url: OPENS[row.kind] ?? "/inbox",
     tag: row.id,
   } satisfies PushMessage;
 }
