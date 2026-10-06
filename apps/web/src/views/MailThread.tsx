@@ -1,5 +1,6 @@
 // One email conversation: its messages (mail/Message.tsx), drafts of replies, and what you can do
-// with it.
+// with it. Archiving it on a computer moves on to the next conversation in the list it was opened
+// from; on a phone it goes back to the list. t makes a task that links back to it.
 
 import { createSignal, For, Show, useContext } from "solid-js";
 import { ActionBar } from "../components/ActionBar.tsx";
@@ -7,6 +8,8 @@ import { Backlinks } from "../components/Backlinks.tsx";
 import { Button, PaneContext, PaneHeader, Placeholder } from "../components/ui.tsx";
 import { useHotkeys } from "../lib/hotkeys.ts";
 import { toast } from "../lib/live.ts";
+import { archive, makeTask, nextInList, reply as replyTo, showThread } from "../lib/mailActions.ts";
+import { narrow } from "../lib/narrow.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
 import type { MailDraft, MailMessage, MailThreadView } from "../lib/types.ts";
@@ -21,8 +24,8 @@ export function MailThreadPane(props: { id: string; pane: number }) {
     threadId: t.data?.id ?? props.id,
   }));
   const draftIds = () => (drafts.data ?? []).map((d) => d.id);
-  const reply = (all: boolean) =>
-    t.data && void act("mail.draft", { threadId: t.data.id, replyAll: all, text: "" });
+  const reply = (all: boolean) => t.data && void replyTo(t.data.id, drafts.data ?? [], all);
+  const task = () => t.data && void makeTask(t.data);
   const [opened, setOpened] = createSignal<Set<string>>(new Set());
   const focused = () => layout.focused() === props.pane;
   const pane = useContext(PaneContext);
@@ -38,19 +41,20 @@ export function MailThreadPane(props: { id: string; pane: number }) {
   const run = async (name: string, input: Record<string, unknown>, done?: string) => {
     if ((await act(name, input)) && done) toast.show(done);
   };
+  // Archived: the next conversation takes its place at once (the list drops this one at once too),
+  // or on a phone, or when it wasn't opened from a list, it closes.
+  const archiveOrBack = () => {
+    const v = t.data;
+    if (!v) return;
+    if (!v.inInbox) return void run("mail.unarchive", { ids: [v.id] }, "Back in the inbox.");
+    const next = narrow() ? undefined : nextInList(v.id);
+    void archive(v.id);
+    if (next) showThread(next, props.pane);
+    else pane.close?.();
+  };
   useHotkeys([
-    {
-      keys: "e",
-      run: () =>
-        t.data &&
-        void run(
-          t.data.inInbox ? "mail.archive" : "mail.unarchive",
-          { ids: [t.data.id] },
-          t.data.inInbox ? "Archived." : "Back in the inbox.",
-        ),
-      when: focused,
-      label: "Archive",
-    },
+    { keys: "e", run: archiveOrBack, when: focused, label: "Archive" },
+    { keys: "t", run: task, when: focused, label: "Make task" },
     {
       keys: "s",
       run: () => t.data && void run("mail.star", { ids: [t.data.id], starred: !t.data.starred }),
@@ -68,18 +72,15 @@ export function MailThreadPane(props: { id: string; pane: number }) {
             title={v().subject}
             sub={`${v().account} · ${v().messageCount} message${v().messageCount === 1 ? "" : "s"} · ${v().lane === "noise" ? "Noise" : "Signal"}${v().waiting === "you" ? " · needs your reply" : v().waiting === "them" ? " · waiting on them" : ""}`}
           >
-            <Button
-              small
-              onClick={() =>
-                void run(
-                  v().inInbox ? "mail.archive" : "mail.unarchive",
-                  { ids: [v().id] },
-                  v().inInbox ? "Archived." : "Back in the inbox.",
-                )
-              }
-            >
+            <Button small onClick={archiveOrBack}>
               {v().inInbox ? "Archive" : "Move to inbox"}
             </Button>
+            {/* A phone has it in the bar along the bottom. */}
+            <Show when={!narrow()}>
+              <Button small onClick={task}>
+                Make task
+              </Button>
+            </Show>
             <Button
               small
               onClick={() => void run("mail.star", { ids: [v().id], starred: !v().starred })}
@@ -123,22 +124,14 @@ export function MailThreadPane(props: { id: string; pane: number }) {
           <ActionBar
             label="Conversation actions"
             actions={[
-              {
-                label: v().inInbox ? "Archive" : "To inbox",
-                run: async () => {
-                  const archive = v().inInbox;
-                  const ok = await act(archive ? "mail.archive" : "mail.unarchive", {
-                    ids: [v().id],
-                  });
-                  if (ok && archive) pane.close?.();
-                },
-              },
+              { label: v().inInbox ? "Archive" : "To inbox", run: archiveOrBack },
               {
                 label: v().starred ? "Unstar" : "Star",
                 on: v().starred,
                 run: () => void run("mail.star", { ids: [v().id], starred: !v().starred }),
               },
               { label: "Reply", run: () => reply(false) },
+              { label: "Make task", run: task },
               {
                 label: "Trash",
                 run: async () => {
