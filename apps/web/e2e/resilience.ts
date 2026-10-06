@@ -110,8 +110,13 @@ try {
     const drawn = await p.locator("main").elementHandle();
     const notice = p.getByRole("heading", { name: "Can't reach Hearth" });
     await notice.waitFor({ timeout: 15_000 });
+    // Keys don't reach what's covered: this would go to Tasks.
+    await p.keyboard.press("g");
+    await p.keyboard.press("t");
     await notice.waitFor({ state: "detached", timeout: 10_000 });
     await home(p).waitFor();
+    if (await p.getByRole("heading", { name: "Tasks", exact: true }).count())
+      throw new Error("a key went to the screen under the notice");
     // The notice was over what was drawn, not instead of it: anything typed there is still there.
     if (!(await drawn?.evaluate((m) => m.isConnected))) throw new Error("Hearth was drawn again");
     await p.unroute("**/api/auth/me");

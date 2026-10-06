@@ -22,7 +22,7 @@ import { JarvisPane, jarvis } from "../jarvis/JarvisPane.tsx";
 import { getMe, setSignedOutHandler } from "../lib/api.ts";
 import { goLabel, PLACES } from "../lib/apps.ts";
 import { forgetAllDocs, sendKeptNotes } from "../lib/docStore.ts";
-import { useHotkeys } from "../lib/hotkeys.ts";
+import { pauseHotkeys, useHotkeys } from "../lib/hotkeys.ts";
 import { live, queryClient, toast } from "../lib/live.ts";
 import { narrow } from "../lib/narrow.ts";
 import { type ListView, layout, type Pane, type PaneRoute } from "../lib/panes.ts";
@@ -285,6 +285,7 @@ export function App() {
     if (me.state === "errored") setUnreachable(true);
     else if (me.state === "ready") setUnreachable(false);
   });
+  createEffect(() => pauseHotkeys(unreachable()));
   const retryNow = useAutoRetry(
     () => (me.state === "errored" ? "failed" : me.state === "ready" ? "ok" : "trying"),
     () => void refetch(),
@@ -312,9 +313,10 @@ export function App() {
                 void refetch();
               }}
             />
-            {/* Over the guess, not instead of it: what you'd started typing is there after. */}
+            {/* Over the guess, not instead of it: what you'd started typing is there after.
+                Above z-50, where an open menu's portal sits outside the shell. */}
             <Show when={unreachable()}>
-              <div class="fixed inset-0 z-50 bg-bg">
+              <div class="fixed inset-0 z-[60] bg-bg">
                 <Unreachable trying={me.loading} retry={retryNow} />
               </div>
             </Show>
