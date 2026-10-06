@@ -104,7 +104,7 @@ try {
     });
     await boot(p);
     // Signed in here before, so Hearth is drawn at once while the server is still being asked.
-    await p.getByRole("heading", { name: "Inbox" }).waitFor({ timeout: 5_000 });
+    await home(p).waitFor({ timeout: 5_000 });
     await p.getByRole("heading", { name: "Can't reach Hearth" }).waitFor({ timeout: 15_000 });
     await home(p).waitFor({ timeout: 10_000 });
     await p.unroute("**/api/auth/me");
