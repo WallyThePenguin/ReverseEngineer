@@ -30,6 +30,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type pg from "pg";
+import { ActionTimings } from "./action-timing.ts";
 import { authenticate, sameOriginWrites } from "./auth/middleware.ts";
 import { BrowserBridge } from "./browser/bridge.ts";
 import { createLauncher } from "./browser/launch.ts";
@@ -111,6 +112,7 @@ export function createApp(opts: AppOptions) {
     config: opts.config,
     hub,
   };
+  const timings = new ActionTimings();
   const app = new Hono<AppEnv>();
 
   app.use("*", requestLog({ log: opts.requestLog }));
@@ -141,7 +143,7 @@ export function createApp(opts: AppOptions) {
   app.use("/api/*", authenticate());
   app.use("/mcp", authenticate());
   app.use("/api/*", sameOriginWrites());
-  app.route("/api/health", healthRoutes(bridge, opts.config.webDist));
+  app.route("/api/health", healthRoutes(bridge, opts.config.webDist, timings));
   app.route("/api/auth", authRoutes());
   app.route("/api/events", eventRoutes());
   app.route("/api/browser", browserRoutes(bridge));
@@ -153,7 +155,7 @@ export function createApp(opts: AppOptions) {
   app.route("/api/voice", voiceRoutes());
   app.route("/api/push", pushRoutes(sendPush));
   app.route("/api/import", importRoutes());
-  app.route("/api", actionRoutes());
+  app.route("/api", actionRoutes(timings));
   app.route("/mcp", mcpRoutes());
   app.all("/api/*", (c) => c.json({ error: "Not found." }, 404));
 
@@ -195,9 +197,9 @@ export function createApp(opts: AppOptions) {
     /** Resolves once phone notifications for the events so far are sent (for tests). */
     pushIdle: () => push?.idle() ?? Promise.resolve(),
     speech,
-    /** Adds the WebSockets (the extension's link and the live view) to the HTTP server. */
-    attach(server: Server) {
-      detachSockets = attachBrowserSockets(server, {
+    /** Adds the WebSockets (the extension's link and the live view) to the HTTP servers. */
+    attach(...servers: Server[]) {
+      detachSockets = attachBrowserSockets(servers, {
         kernel: opts.kernel,
         config: opts.config,
         bridge,
