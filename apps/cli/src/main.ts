@@ -148,12 +148,20 @@ async function main(argv: string[]): Promise<number> {
           return 1;
         }
       }
-      if (command === "serve" || command === "dev")
-        stops.push(await (await import("@hearth/server")).runServer());
-      if (command === "worker" || command === "dev")
-        stops.push(await (await import("@hearth/worker")).runWorker());
-      if (command === "jarvis" || (command === "dev" && !values["no-jarvis"])) {
-        stops.push(await (await import("@hearth/jarvis-service")).runJarvis());
+      try {
+        if (command === "serve" || command === "dev")
+          stops.push(await (await import("@hearth/server")).runServer());
+        if (command === "worker" || command === "dev")
+          stops.push(await (await import("@hearth/worker")).runWorker());
+        if (command === "jarvis" || (command === "dev" && !values["no-jarvis"])) {
+          stops.push(await (await import("@hearth/jarvis-service")).runJarvis());
+        }
+      } catch (err) {
+        // Not starting ends the process, whatever was left open: the service manager only starts
+        // again a process that exited, never one that's up and answering nothing.
+        console.error(`Hearth's ${command} couldn't start: ${(err as Error).message}`);
+        for (const stop of stops.reverse()) await stop().catch((e) => console.error(e));
+        process.exit(1);
       }
       await untilSignal(stops);
       return 0;

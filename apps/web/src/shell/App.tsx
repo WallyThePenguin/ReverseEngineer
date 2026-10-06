@@ -1,8 +1,10 @@
-// The app: sign-in gate, then the shell (sidebar, split panes, Jarvis, Cmd+K).
+// The app: sign-in gate, then the shell (sidebar, split panes, Jarvis, Cmd+K). A device that was
+// signed in last time gets the shell at once, while the server confirms it (lib/signedIn.ts).
 
 import { QueryClientProvider } from "@tanstack/solid-query";
 import {
   createEffect,
+  createMemo,
   createResource,
   createSignal,
   ErrorBoundary,
@@ -24,6 +26,7 @@ import { useHotkeys } from "../lib/hotkeys.ts";
 import { live, queryClient, toast } from "../lib/live.ts";
 import { narrow } from "../lib/narrow.ts";
 import { type ListView, layout, type Pane, type PaneRoute } from "../lib/panes.ts";
+import { rememberSignedIn, showHearth } from "../lib/signedIn.ts";
 import { sendKeptOnRestore } from "../lib/trash.ts";
 import { Inbox } from "../views/Inbox.tsx";
 import { Mail } from "../views/Mail.tsx";
@@ -270,6 +273,7 @@ function Shell(props: { onSignOut: () => void }) {
 export function App() {
   const [me, { refetch }] = createResource(getMe);
   setSignedOutHandler(() => {
+    rememberSignedIn(false);
     live.stop();
     queryClient.clear();
     void refetch();
@@ -286,6 +290,12 @@ export function App() {
   );
   // Read only when there's an answer: an errored resource throws when read.
   const answer = () => (me.state === "ready" || me.state === "refreshing" ? me() : undefined);
+  createEffect(() => {
+    const a = answer();
+    if (a) rememberSignedIn(a.signedIn);
+  });
+  // One condition from the guess to the answer, so the shell isn't drawn twice when they agree.
+  const hearth = createMemo(() => showHearth(answer(), me.loading));
   return (
     <QueryClientProvider client={queryClient}>
       <ErrorBoundary fallback={(error, reset) => <Crashed error={error} reset={reset} />}>
@@ -293,22 +303,19 @@ export function App() {
           <Match when={unreachable()}>
             <Unreachable trying={me.loading} retry={retryNow} />
           </Match>
+          <Match when={hearth()}>
+            <Shell
+              onSignOut={() => {
+                rememberSignedIn(false);
+                live.stop();
+                queryClient.clear();
+                forgetAllDocs();
+                void refetch();
+              }}
+            />
+          </Match>
           <Match when={answer()}>
-            {(m) => (
-              <Show
-                when={m().signedIn}
-                fallback={<Login needsSetup={m().needsSetup} onSignedIn={() => void refetch()} />}
-              >
-                <Shell
-                  onSignOut={() => {
-                    live.stop();
-                    queryClient.clear();
-                    forgetAllDocs();
-                    void refetch();
-                  }}
-                />
-              </Show>
-            )}
+            {(m) => <Login needsSetup={m().needsSetup} onSignedIn={() => void refetch()} />}
           </Match>
         </Switch>
       </ErrorBoundary>
