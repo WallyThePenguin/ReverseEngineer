@@ -45,7 +45,7 @@ export function SlackManifest(props: { text: string }) {
           {copied() ? "Copied" : "Copy"}
         </Button>
       </div>
-      <pre class="max-h-60 overflow-auto rounded border border-line bg-panel p-2 font-mono text-[11px] whitespace-pre">
+      <pre class="max-h-60 overflow-auto rounded border border-line bg-panel p-2 font-mono text-xs whitespace-pre">
         {props.text}
       </pre>
     </div>
