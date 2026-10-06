@@ -8,6 +8,7 @@
 // rebinding) is turned away by its Host header.
 import type { IncomingMessage } from "node:http";
 import { type Context, Hono } from "hono";
+import type { ActionTimings } from "../action-timing.ts";
 import type { BrowserBridge } from "../browser/bridge.ts";
 import { isLoopback } from "../config.ts";
 import { deepHealth } from "../deep-health.ts";
@@ -27,7 +28,11 @@ export function directFromThisPc(c: Context<AppEnv>): boolean {
   return isLoopback(host);
 }
 
-export function healthRoutes(bridge: BrowserBridge, webDist: string | null) {
+export function healthRoutes(
+  bridge: BrowserBridge,
+  webDist: string | null,
+  timings?: ActionTimings,
+) {
   // Read once: the build this server started with.
   const version = readVersionStamp(webDist);
   const startedAt = new Date();
@@ -43,6 +48,7 @@ export function healthRoutes(bridge: BrowserBridge, webDist: string | null) {
       version,
       startedAt,
       browser: bridge.snapshot(),
+      actions: timings?.slowest(),
     });
     // Always 200 when the server can answer: read `status`.
     c.header("Cache-Control", "no-store");

@@ -170,15 +170,38 @@ describe("drafts and sending", () => {
   it("won't send your Send if the draft changed after what you saw", async () => {
     const draft = await ok<DraftView>("mail.draft", { to: ["bo@x.example"], text: "Hi" });
     const seen = await ok<{ snapshot: unknown }>("mail.draft_update", { id: draft.id, text: "Hi" });
-    await ok(
-      "mail.draft_update",
-      { id: draft.id, bcc: ["records@evil.example"] },
-      jarvisCaller("agent"),
-    );
+    // An agent can't slip a Bcc in at all, but can still change the words after you looked.
+    expect(
+      await t.kernel.execute(
+        "mail.draft_update",
+        { id: draft.id, bcc: ["records@evil.example"] },
+        jarvisCaller("agent"),
+      ),
+    ).toMatchObject({ status: "error", code: "forbidden" });
+    await ok("mail.draft_update", { id: draft.id, text: "Hi, and more" }, jarvisCaller("agent"));
     expect(
       await t.kernel.execute("mail.send", { id: draft.id, snapshot: seen.snapshot }, ownerCaller()),
     ).toMatchObject({ status: "error", code: "conflict" });
     expect(g.gmail.sent).toEqual([]);
+  });
+
+  it("lets Jarvis address a reply only to people on the conversation", async () => {
+    g.gmail.deliver({ from: { address: "ana@x.example" }, subject: "Plan", text: "Thoughts?" });
+    await ok("mail.sync", {}, integrationCaller("google"));
+    const thread = (await ok<ThreadSummary[]>("mail.threads", { view: "all" })).find(
+      (x) => x.subject === "Plan",
+    );
+    const jarvis = jarvisCaller("owner");
+    const draft = (input: Record<string, unknown>) =>
+      t.kernel.execute("mail.draft", { threadId: thread!.id, text: "Yes", ...input }, jarvis);
+    expect(await draft({ cc: ["leak@evil.example"] })).toMatchObject({ code: "forbidden" });
+    expect(await draft({ to: ["ANA@x.example"] })).toMatchObject({ status: "ok" });
+    // A new email after reading outside content can't be addressed; one you asked for can.
+    const fresh = { to: ["sam@x.example"], subject: "Hi", text: "Hello" };
+    expect(await t.kernel.execute("mail.draft", fresh, jarvisCaller("untrusted"))).toMatchObject({
+      code: "forbidden",
+    });
+    expect(await t.kernel.execute("mail.draft", fresh, jarvis)).toMatchObject({ status: "ok" });
   });
 
   it("says plainly when a send is held back, and keeps the draft", async () => {

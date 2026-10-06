@@ -15,7 +15,14 @@ import {
   onMount,
   Show,
 } from "solid-js";
-import { approvalStateText, decide, decidedAs, deciding, isWaiting } from "../lib/approvals.ts";
+import {
+  approvalStateText,
+  decide,
+  decidedAs,
+  deciding,
+  isWaiting,
+  type Said,
+} from "../lib/approvals.ts";
 import { humanTimes } from "../lib/format.ts";
 import { Icon, type IconName } from "./icons.tsx";
 import { Card } from "./kit/Card.tsx";
@@ -59,6 +66,10 @@ export function ApprovalCard(props: {
   keys?: boolean;
   /** h2 by default; h3 inside a section that has a heading of its own. */
   level?: 2 | 3;
+  /** Its exact text shown in full from the start, as under Today's "Approve all", which covers it. */
+  open?: boolean;
+  /** More about what it would do, over its text: who a send reaches that's new, on Today. */
+  children?: JSX.Element;
   /** Placement only (a margin); the look is the card's. */
   class?: string;
 }) {
@@ -108,7 +119,8 @@ export function ApprovalCard(props: {
         </Show>
       </div>
       <Show when={props.why}>{(why) => <p class="mt-1 text-sm text-muted">{why()}</p>}</Show>
-      <Show when={props.text}>{(text) => <ExactText text={text()} />}</Show>
+      {props.children}
+      <Show when={props.text}>{(text) => <ExactText text={text()} open={props.open} />}</Show>
       <Show when={state() || meta()}>
         <div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-meta text-muted">
           <Show when={!waiting() && state()}>
@@ -121,36 +133,53 @@ export function ApprovalCard(props: {
             <span class="tabular-nums">{meta()}</span>
           </Show>
           <Show when={waiting()}>
-            <div class="ml-auto flex gap-2" onClick={(e) => e.stopPropagation()}>
-              <Button
-                kind="danger"
-                small
-                icon="x"
-                disabled={deciding(props.approvalId)}
-                onClick={() => decide(props.approvalId, "deny")}
-              >
-                Deny{" "}
-                <Show when={props.keys}>
-                  <Kbd hint>d</Kbd>
-                </Show>
-              </Button>
-              <Button
-                kind="primary"
-                small
-                icon="check"
-                disabled={deciding(props.approvalId)}
-                onClick={() => decide(props.approvalId, "approve")}
-              >
-                Approve{" "}
-                <Show when={props.keys}>
-                  <Kbd hint>a</Kbd>
-                </Show>
-              </Button>
-            </div>
+            <Decide approvalId={props.approvalId} keys={props.keys} class="ml-auto" />
           </Show>
         </div>
       </Show>
     </Card>
+  );
+}
+
+/**
+ * Deny and Approve, for an approval still waiting: off while a decision is on its way. Approve is
+ * the one filled button; Deny, which leaves everything as it is, stays quiet beside it.
+ */
+export function Decide(props: {
+  approvalId: string;
+  /** Shows a and d on them, where the list's keys decide it. */
+  keys?: boolean;
+  /** What the yes says once it's done, rather than "Approved and done." */
+  said?: Said;
+  class?: string;
+}) {
+  return (
+    <div class={`flex gap-1 ${props.class ?? ""}`} onClick={(e) => e.stopPropagation()}>
+      <Button
+        kind="quiet"
+        small
+        icon="x"
+        disabled={deciding(props.approvalId)}
+        onClick={() => decide(props.approvalId, "deny")}
+      >
+        Deny{" "}
+        <Show when={props.keys}>
+          <Kbd hint>d</Kbd>
+        </Show>
+      </Button>
+      <Button
+        kind="primary"
+        small
+        icon="check"
+        disabled={deciding(props.approvalId)}
+        onClick={() => decide(props.approvalId, "approve", props.said)}
+      >
+        Approve{" "}
+        <Show when={props.keys}>
+          <Kbd hint>a</Kbd>
+        </Show>
+      </Button>
+    </div>
   );
 }
 
@@ -161,8 +190,9 @@ export function ApprovalCard(props: {
  * to, since you decide on all of it (D58). The arrow keys scroll it once it has the focus, rather
  * than move the list's selection off the card you're reading.
  */
-function ExactText(props: { text: string }) {
-  const [all, setAll] = createSignal(false);
+export function ExactText(props: { text: string; open?: boolean }) {
+  // Open from the start, it has no box to scroll and nothing to show more of.
+  const [all, setAll] = createSignal(props.open === true);
   const [more, setMore] = createSignal(false);
   let box!: HTMLPreElement;
   const measure = () => {

@@ -110,7 +110,7 @@ self.addEventListener("fetch", (e) => {
 });
 
 self.addEventListener("push", (e) => {
-  let m = { title: "Hearth", body: "", url: "/inbox", tag: undefined };
+  let m = { title: "Hearth", body: "", url: "/today", tag: undefined };
   try {
     m = { ...m, ...e.data.json() };
   } catch {}
@@ -128,9 +128,9 @@ self.addEventListener("push", (e) => {
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
   // Only ever a page of this app.
-  let target = new URL("/inbox", self.location.origin).href;
+  let target = new URL("/today", self.location.origin).href;
   try {
-    const u = new URL(e.notification.data?.url || "/inbox", self.location.origin);
+    const u = new URL(e.notification.data?.url || "/today", self.location.origin);
     if (u.origin === self.location.origin) target = u.href;
   } catch {}
   e.waitUntil(

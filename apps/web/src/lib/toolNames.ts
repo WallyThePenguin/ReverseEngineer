@@ -79,6 +79,12 @@ function actionOf(name: string): string {
 
 const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 
+/** What a tool does, as it's under way, without the dots: "Sending an email". */
+export function toolDoing(name: string): string {
+  const action = actionOf(name);
+  return SAID[action]?.[0] ?? `Using ${action.replace(/[._]/g, " ")}`;
+}
+
 /**
  * The line for a tool Jarvis used: "Drafting an email…" while it runs, "Drafted an email" once
  * done, "Asked before sending an email" while it waits for your yes, and "Sending an email

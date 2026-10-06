@@ -13,8 +13,8 @@ describe("pane routes", () => {
     expect(decodePath(encodePath(panes))).toEqual(panes);
   });
 
-  it("falls back to the inbox and drops anything it doesn't recognise", () => {
-    expect(decodePath("/")).toEqual([{ view: "inbox" }]);
+  it("falls back to Today and drops anything it doesn't recognise", () => {
+    expect(decodePath("/")).toEqual([{ view: "today" }]);
     expect(decodePath("/nope+task/not-an-id+notes")).toEqual([{ view: "notes" }]);
     expect(decodePath(`/inbox+tasks+notes+note/${ID}`)).toHaveLength(3);
   });

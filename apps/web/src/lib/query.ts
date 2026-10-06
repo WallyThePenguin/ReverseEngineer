@@ -1,6 +1,6 @@
 // Reading and writing through actions, cached and refreshed by live events.
 
-import { createMutation, createQuery } from "@tanstack/solid-query";
+import { createMutation, createQueries, createQuery } from "@tanstack/solid-query";
 import { action } from "./api.ts";
 import { affectedByChange } from "./invalidate.ts";
 import { live, queryClient, reportError } from "./live.ts";
@@ -22,6 +22,16 @@ export function useAction<T>(
     queryFn: () => action<T>(name, input()),
     enabled: enabled(),
     refetchInterval: (q: { state: { data?: T } }) => pollMs(q.state.data),
+  }));
+}
+
+/** Reads one action for each of several inputs, sharing useAction's cache: the same reads. */
+export function useActions<T>(name: string, inputs: () => unknown[]) {
+  return createQueries(() => ({
+    queries: inputs().map((input) => ({
+      queryKey: [name, input],
+      queryFn: () => action<T>(name, input),
+    })),
   }));
 }
 

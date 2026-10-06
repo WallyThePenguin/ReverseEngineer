@@ -3,6 +3,7 @@
 import {
   addLocalDays,
   asUntrusted,
+  atLocal,
   filterSchema,
   formatDateTime,
   localDate,
@@ -37,6 +38,12 @@ async function findByTitle(tx: Parameters<typeof liveEntity>[0], type: string, t
     .where(and(eq(entity.type, type), eq(entity.title, title), isNull(entity.deletedAt)));
   return row;
 }
+
+/**
+ * The evening journal's time (routines.ts). "Your day" comes no earlier, so a note added to the
+ * day's journal at 2 p.m. doesn't send it early (and so skip the evening's).
+ */
+const WRAP_FROM = 19 * 60 + 30;
 
 export const assistantModule = defineModule({
   name: "assistant",
@@ -243,7 +250,10 @@ export const assistantModule = defineModule({
           : await createEntity(ctx, { type: "journal", title, body: i.markdown });
         // The evening's "Your day" card, once a day: not for an old entry written again.
         const { timeZone } = await getSetting(ctx.tx, "owner.dayRules");
-        if (i.date >= addLocalDays(localDate(ctx.now, timeZone), -1))
+        if (
+          i.date >= addLocalDays(localDate(ctx.now, timeZone), -1) &&
+          ctx.now >= atLocal(i.date, WRAP_FROM, timeZone)
+        )
           await createNotification(ctx, {
             kind: "wrap",
             title: "Your day",

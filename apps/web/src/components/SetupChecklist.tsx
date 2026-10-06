@@ -1,4 +1,4 @@
-// "Set up Hearth": on an empty inbox, what's still to connect, each with a link to its Settings
+// "Set up Hearth": on Today and an empty Updates list, what's still to connect, each with a link to its Settings
 // section. It goes away once everything's done, or when you hide it.
 
 import { createSignal, createUniqueId, For, Show } from "solid-js";
@@ -19,7 +19,7 @@ function wasHidden(): boolean {
   }
 }
 
-export function SetupChecklist(props: { pane: number }) {
+export function SetupChecklist(props: { pane: number; class?: string }) {
   const status = useAction<SystemStatus>("system.status");
   const [hidden, setHidden] = createSignal(wasHidden());
   const title = createUniqueId();
@@ -34,7 +34,10 @@ export function SetupChecklist(props: { pane: number }) {
 
   return (
     <Show when={!hidden() && steps().length > 0 && finished() < steps().length}>
-      <section aria-labelledby={title} class="mx-4 mt-4 rounded-lg border border-line bg-panel p-4">
+      <section
+        aria-labelledby={title}
+        class={`${props.class ?? "mx-4 mt-4"} rounded-lg border border-line bg-panel p-4`}
+      >
         <div class="flex items-center gap-3">
           <h2 id={title} class="flex-1 text-heading">
             Set up Hearth

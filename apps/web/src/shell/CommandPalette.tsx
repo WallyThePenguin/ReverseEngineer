@@ -5,54 +5,70 @@ import { createEffect, createSignal, For, on, onCleanup } from "solid-js";
 import { Kbd } from "../components/ui.tsx";
 import { jarvis } from "../jarvis/JarvisPane.tsx";
 import { action } from "../lib/api.ts";
-import { PLACES, type Place, paletteLabel } from "../lib/apps.ts";
+import { PLACES, type Place, paletteLabel, placeOf } from "../lib/apps.ts";
 import { TYPING_PAUSE_MS } from "../lib/debounce.ts";
 import { useDialogFocus } from "../lib/focus.ts";
 import { dueInFull, TYPE_LABEL } from "../lib/format.ts";
 import { MOD } from "../lib/hotkeys.ts";
+import { askNewTask } from "../lib/newTask.ts";
 import { arrange, type PaletteItem } from "../lib/palette.ts";
 import { layout, routeFor } from "../lib/panes.ts";
-import { act } from "../lib/query.ts";
-import type { SearchHit } from "../lib/types.ts";
+import { setPaused } from "../lib/pause.ts";
+import { act, useAction } from "../lib/query.ts";
+import type { SearchHit, SystemStatus } from "../lib/types.ts";
 import { readWhen } from "../lib/when.ts";
-import { newCanvas } from "../views/Canvas.tsx";
-import { newNote } from "../views/Notes.tsx";
-import { setPaused } from "../views/Settings.tsx";
-import { newSheet } from "../views/Sheets.tsx";
 import { sidebar } from "./Sidebar.tsx";
 
 type Item = PaletteItem;
 
-function commands(): Item[] {
-  const go = (p: Place): Item => ({
-    id: `go:${p.view}`,
-    label: paletteLabel(p),
-    hint: "Go",
-    run: (beside) => layout.open({ view: p.view }, { beside }),
-  });
+const go = (p: Place): Item => ({
+  id: `go:${p.view}`,
+  label: paletteLabel(p),
+  hint: "Go",
+  run: (beside) => layout.open({ view: p.view }, { beside }),
+});
+
+/** What you do most: first when Cmd+K opens. */
+function top(): Item[] {
   return [
-    ...PLACES.map(go),
-    { id: "new:note", label: "New note", hint: "Create", run: () => newNote(layout.focused()) },
+    go(placeOf("today")),
+    { id: "new:task", label: "New task", hint: "Create", run: (beside) => askNewTask(beside) },
     {
-      id: "new:canvas",
-      label: "New canvas board",
+      id: "new:email",
+      label: "Write email",
       hint: "Create",
-      run: () => newCanvas(layout.focused()),
+      run: async (beside) => {
+        // A new message is written at the top of Mail.
+        if (await act("mail.draft", { text: "" })) layout.open({ view: "mail" }, { beside });
+      },
     },
-    {
-      id: "new:sheet",
-      label: "New spreadsheet",
-      hint: "Create",
-      run: () => newSheet(layout.focused()),
-    },
+    { id: "jarvis:ask", label: "Ask Jarvis", hint: "Jarvis", run: () => jarvis.toggle(true) },
+  ];
+}
+
+/** Docs' lists load when they're opened, so a new one loads its own first. */
+const docs = {
+  note: () => import("../views/Notes.tsx").then((m) => m.newNote(layout.focused())),
+  canvas: () => import("../views/Canvas.tsx").then((m) => m.newCanvas(layout.focused())),
+  sheet: () => import("../views/Sheets.tsx").then((m) => m.newSheet(layout.focused())),
+};
+
+function commands(paused: boolean | undefined): Item[] {
+  return [
+    ...PLACES.filter((p) => p.view !== "today").map(go),
+    { id: "new:note", label: "New note", hint: "Create", run: docs.note },
+    { id: "new:canvas", label: "New canvas board", hint: "Create", run: docs.canvas },
+    { id: "new:sheet", label: "New spreadsheet", hint: "Create", run: docs.sheet },
     {
       id: "new:chat",
       label: "New conversation with Jarvis",
       hint: "Jarvis",
       run: () => jarvis.newChat(),
     },
-    { id: "jarvis:pause", label: "Pause Jarvis", hint: "Jarvis", run: () => setPaused(true) },
-    { id: "jarvis:resume", label: "Resume Jarvis", hint: "Jarvis", run: () => setPaused(false) },
+    // Only the one that applies.
+    paused
+      ? { id: "jarvis:resume", label: "Resume Jarvis", hint: "Jarvis", run: () => setPaused(false) }
+      : { id: "jarvis:pause", label: "Pause Jarvis", hint: "Jarvis", run: () => setPaused(true) },
     { id: "pane:split", label: "Split pane", hint: "Layout", run: () => layout.split() },
     { id: "pane:close", label: "Close pane", hint: "Layout", run: () => layout.close() },
     {
@@ -89,6 +105,7 @@ export function CommandPalette(props: { onClose: () => void }) {
     window.clearTimeout(timer);
   });
   useDialogFocus(() => dialog);
+  const status = useAction<SystemStatus>("system.status");
 
   const search = async (q: string, mine: number) => {
     const found = q
@@ -157,7 +174,8 @@ export function CommandPalette(props: { onClose: () => void }) {
     const q = text().trim();
     return arrange({
       query: q,
-      commands: commands(),
+      top: top(),
+      commands: commands(status.data?.jarvisPaused),
       records: {
         query: hits().query,
         list: hits().list.map((h) => ({

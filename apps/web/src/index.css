@@ -25,9 +25,10 @@
   --color-warn-soft: #fdf5d5;
   --color-bad-soft: #fde6e6;
   --color-info-soft: #e8f1fb;
-  /* Jarvis's colour stays its own: it means "Jarvis did this". */
-  --color-jarvis: #4338ca;
-  --color-jarvis-soft: #eef0ff;
+  /* Jarvis is part of Hearth, so it wears Hearth's orange: its mark, not a second colour, says
+     "Jarvis did this". */
+  --color-jarvis: var(--color-accent);
+  --color-jarvis-soft: var(--color-accent-soft);
   /* Text on a solid accent, failure or Jarvis fill: a button, a count, an error toast. Dark mode
      brightens those fills, so their text turns dark to stay readable. */
   --color-on-fill: #ffffff;
@@ -138,8 +139,6 @@
     --color-warn-soft: #33260f;
     --color-bad-soft: #3a1a1a;
     --color-info-soft: #162636;
-    --color-jarvis: #a5b4fc;
-    --color-jarvis-soft: #23234a;
     --color-on-fill: #15130f;
     --color-today: #fb923c;
     --color-mail: #7dd3fc;

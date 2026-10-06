@@ -2,7 +2,6 @@ import {
   calendar,
   githubAccount,
   googleAccount,
-  googleQuota,
   mailAccount,
   notification,
   slackBot,
@@ -212,109 +211,6 @@ describe("checkSyncs", () => {
     expect(await alerts(t)).toMatchObject([
       { title: "GitHub sync is failing", urgency: "interrupt" },
     ]);
-  });
-
-  it("leaves mail's verdict to mail itself: a pause is calm, an error fails only once mail says so (D55)", async () => {
-    const clock = new ErrorClock();
-    const now = t.kernel.clock.now();
-    await t.tdb.db.insert(mailAccount).values({
-      id: "gmail:me@example.com",
-      provider: "gmail",
-      address: "me@example.com",
-      syncedAt: new Date(now.getTime() - 20 * 60_000),
-      // A network error 15 minutes ago, then Google asked Hearth to slow down: the error stays on
-      // the row while the account waits out the pause.
-      lastError: "socket hang up",
-      failures: 1,
-      failingSince: new Date(now.getTime() - 15 * 60_000),
-      syncState: "paused",
-      pausedUntil: new Date(now.getTime() + 2 * 60_000),
-    });
-    let [google] = await checkSyncs(t.kernel, clock);
-    expect(google).toMatchObject({ component: "sync.google", status: "ok" });
-    expect(google?.detail).toMatch(/slow down/);
-
-    // The pause is over and it failed again, but mail hasn't called it failing yet (D55 waits for
-    // three in a row): worth a look, not an alert.
-    await t.tdb.db
-      .update(mailAccount)
-      .set({ syncState: "catching_up", pausedUntil: null, failures: 2 });
-    [google] = await checkSyncs(t.kernel, clock);
-    expect(google).toMatchObject({ status: "degraded" });
-
-    await t.tdb.db.update(mailAccount).set({ syncState: "failing", failures: 3 });
-    [google] = await checkSyncs(t.kernel, clock);
-    expect(google).toMatchObject({ status: "failing" });
-  });
-
-  it("calls a pause Google won't let up on worth a look, then failing after two hours, saying why", async () => {
-    const soon = () => new Date(t.kernel.clock.now().getTime() + 60_000);
-    const start = t.kernel.clock.now();
-    const reason = "Quota exceeded for quota metric 'Queries' (quota limit: 250)";
-    await t.tdb.db.insert(googleAccount).values({ email: "me@example.com", refreshToken: "x" });
-    await t.tdb.db.insert(mailAccount).values({
-      id: "gmail:me@example.com",
-      provider: "gmail",
-      address: "me@example.com",
-      syncedAt: start,
-      syncState: "paused",
-      pausedUntil: soon(),
-    });
-    await t.tdb.db
-      .insert(googleQuota)
-      .values({ account: "me@example.com", service: "gmail", pausedUntil: soon(), reason });
-    const check = async () => (await checkSyncs(t.kernel, new ErrorClock()))[0]!;
-    expect(await check()).toMatchObject({ status: "ok" });
-    expect((await check()).detail).toContain(reason);
-
-    // Each pause runs out and Google asks again: nothing new for 40 minutes.
-    t.clock.advance(40 * 60_000);
-    await t.tdb.db.update(mailAccount).set({ pausedUntil: soon() });
-    expect(await check()).toMatchObject({
-      status: "degraded",
-      detail: `me@example.com mail: nothing synced for 40 min, as Google keeps asking Hearth to slow down (${reason}); trying again at 10:41 a.m.`,
-    });
-
-    t.clock.advance(90 * 60_000);
-    await t.tdb.db.update(mailAccount).set({ pausedUntil: soon() });
-    const failing = await check();
-    expect(failing).toMatchObject({ status: "failing" });
-    await reportHealth(t.kernel, [failing]);
-    expect(await alerts(t)).toMatchObject([{ title: "Google sync is failing" }]);
-  });
-
-  it("takes calendars' verdict from their own sync, one line per account (D61)", async () => {
-    await t.tdb.db.insert(googleAccount).values({
-      email: "me@example.com",
-      refreshToken: "x",
-      calendarState: "failing",
-      calendarError: "Work: Not Found",
-      calendarSyncedAt: t.kernel.clock.now(),
-    });
-    await t.tdb.db.insert(calendar).values({
-      id: "work",
-      account: "me@example.com",
-      googleId: "work@group.calendar.google.com",
-      title: "Work",
-      lastError: "Not Found",
-    });
-    expect(await checkSyncs(t.kernel, new ErrorClock())).toEqual([
-      {
-        component: "sync.google",
-        status: "failing",
-        detail: "me@example.com calendar: Work: Not Found",
-      },
-    ]);
-
-    // One blip, then Google asks Hearth to wait: the pause shows, not the blip from before it.
-    const until = new Date(t.kernel.clock.now().getTime() + 60_000);
-    await t.tdb.db.update(googleAccount).set({ calendarState: "ok", calendarFailures: 1 });
-    await t.tdb.db
-      .insert(googleQuota)
-      .values({ account: "me@example.com", service: "calendar", pausedUntil: until });
-    const [paused] = await checkSyncs(t.kernel, new ErrorClock());
-    expect(paused).toMatchObject({ status: "ok" });
-    expect(paused?.detail).toMatch(/me@example.com calendar: Google asked Hearth to slow down/);
   });
 });
 

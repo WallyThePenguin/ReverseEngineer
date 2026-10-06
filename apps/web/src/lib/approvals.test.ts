@@ -8,8 +8,16 @@ vi.mock("./live.ts", () => ({
   toast: { show: (text: string, tone = "info") => shown.push({ text, tone }) },
 }));
 
-const { approvalStateText, decide, decidedAs, deciding, isDecided, isWaiting, settledAs } =
-  await import("./approvals.ts");
+const {
+  approvalStateText,
+  decide,
+  decideQuietly,
+  decidedAs,
+  deciding,
+  isDecided,
+  isWaiting,
+  settledAs,
+} = await import("./approvals.ts");
 
 let calls = 0;
 function reply(status: number, body: unknown, wait = 0) {
@@ -36,7 +44,7 @@ describe("deciding an approval", () => {
     expect(deciding("a1")).toBe(false);
     expect(isDecided("a1")).toBe(true);
     expect(decidedAs("a1")).toBe("executed");
-    expect(shown).toEqual([{ text: "Approved and done.", tone: "info" }]);
+    expect(shown).toEqual([{ text: "Approved and done.", tone: "ok" }]);
     await decide("a1", "approve");
     expect(calls).toBe(1);
   });
@@ -71,6 +79,35 @@ describe("deciding an approval", () => {
     expect(isWaiting("a4", "pending")).toBe(false);
     expect(decidedAs("a4")).toBe("denied");
     expect(shown).toEqual([{ text: "Denied.", tone: "info" }]);
+  });
+
+  it("says how each decision went, quietly when its caller reports them together", async () => {
+    const quietly = async (id: string) => (await decideQuietly(id, "approve")).outcome;
+    reply(200, { status: "ok", result: {} });
+    expect(await decideQuietly("b1", "approve")).toEqual({ outcome: "done", message: null });
+    // Decided a moment ago: not the one Approve all saw waiting.
+    expect(await quietly("b1")).toBe("changed");
+    reply(409, { status: "error", code: "conflict", message: "This was already denied." });
+    expect(await quietly("b2")).toBe("changed");
+    const changed = "The draft changed since you were asked, so nothing was sent.";
+    reply(400, { status: "error", code: "conflict", message: changed });
+    // With Hearth's reason, for the line that reports them.
+    expect(await decideQuietly("b3", "approve")).toEqual({ outcome: "changed", message: changed });
+    expect(decidedAs("b3")).toBe("failed");
+    reply(404, { status: "error", code: "not_found", message: "Approval not found" });
+    expect(await quietly("b4")).toBe("changed");
+    reply(502, { status: "error", code: "failed", message: "Gmail said no." });
+    expect(await decideQuietly("b5", "approve")).toEqual({
+      outcome: "failed",
+      message: "Gmail said no.",
+    });
+    reply(503, { status: "error", code: "unavailable", message: "Hearth is busy." });
+    expect(await quietly("b6")).toBe("failed");
+    expect(isDecided("b6")).toBe(false);
+    expect(shown).toEqual([]);
+    // Without quiet, the same answer is a toast.
+    expect(await decide("b7", "approve")).toBe("failed");
+    expect(shown).toEqual([{ text: "Hearth is busy.", tone: "error" }]);
   });
 
   it("reads what became of it from what Hearth said when it couldn't take the decision", () => {

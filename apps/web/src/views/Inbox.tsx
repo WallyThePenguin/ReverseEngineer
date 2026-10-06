@@ -1,4 +1,5 @@
-// One inbox: Jarvis's results, approvals, due dates and alerts, split into Signal and Noise.
+// Updates (the inbox, at /inbox): Jarvis's results, approvals, due dates and alerts, split into
+// Signal and Noise.
 // j/k to move, Enter to open, e done, s snooze, a/d approve or deny. An approval waiting for
 // you can't be put away with e, s or its menu: it needs a yes or a no. Each row is an InboxItem
 // (inbox/InboxItem.tsx); an approval's is the shared ApprovalCard, its text in full.
@@ -100,7 +101,7 @@ export function Inbox(props: { pane: number }) {
 
   return (
     <div class="flex h-full flex-col">
-      <PaneHeader title="Inbox">
+      <PaneHeader title="Updates">
         <Show when={view() === "live"}>
           <button type="button" class={tab(lane() === "signal")} onClick={() => pickLane("signal")}>
             Signal
@@ -128,7 +129,7 @@ export function Inbox(props: { pane: number }) {
         <Show
           when={rows.data !== undefined}
           fallback={
-            <NoRows query={rows} what="the inbox">
+            <NoRows query={rows} what="your updates">
               {null}
             </NoRows>
           }

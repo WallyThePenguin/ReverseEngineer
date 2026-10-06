@@ -1,17 +1,22 @@
-// Your calendar as a list: the next week, day by day, with focus blocks and answers marked. The
-// box at the top adds an event to your own calendar from a line like "Dentist Fri 3pm 1h"; one
-// with guests still goes through Jarvis, who asks first.
+// Your calendar as a list: the next week, day by day, with focus blocks, answers and "Prep ready"
+// marked. An event's page opens with its prep, when Jarvis has written one. The box at the top
+// adds an event to your own calendar from a line like "Dentist Fri 3pm 1h"; one with guests still
+// goes through Jarvis, who asks first.
 
 import { createMemo, createSignal, For, Show } from "solid-js";
+import { Body } from "../components/Body.tsx";
+import { InviteAnswers } from "../components/InviteAnswers.tsx";
 import { Icon } from "../components/icons.tsx";
 import { Pill } from "../components/kit/Pill.tsx";
+import { OutsideMark } from "../components/OutsideMark.tsx";
 import { Badge, Button, Empty, PaneHeader } from "../components/ui.tsx";
 import { hours, plural, span, time } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
-import { layout } from "../lib/panes.ts";
+import { layout, routeFor } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
 import { quickAdd } from "../lib/quickadd.ts";
-import type { CalEvent } from "../lib/types.ts";
+import { unanswered } from "../lib/today.ts";
+import type { CalEvent, Entity } from "../lib/types.ts";
 import { type EventDraft, readEvent } from "../lib/when.ts";
 import { takeNotes } from "./Meeting.tsx";
 
@@ -126,7 +131,7 @@ export function Calendar(props: { pane: number }) {
                   <For each={list}>
                     {(e) => (
                       <li
-                        class="flex cursor-pointer items-baseline gap-3 border-b border-line px-4 py-2"
+                        class="flex cursor-pointer flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line px-4 py-2"
                         onClick={() =>
                           layout.open(
                             { view: "record", id: e.id },
@@ -145,13 +150,22 @@ export function Calendar(props: { pane: number }) {
                         <Show when={e.taskId}>
                           <Badge tone="jarvis">focus</Badge>
                         </Show>
-                        <Show when={e.selfResponse === "needsAction"}>
-                          <Badge tone="warn">not answered</Badge>
+                        <Show when={e.prepId}>
+                          <Pill tone="ok">Prep ready</Pill>
                         </Show>
                         <Show when={e.attendees.filter((a) => !a.self).length > 0}>
                           <span class="text-xs text-faint">
                             {plural(e.attendees.filter((a) => !a.self).length, "guest")}
                           </span>
+                        </Show>
+                        {/* Not answered yet: answered right here, under its name on a phone. */}
+                        <Show when={unanswered(e)}>
+                          <InviteAnswers
+                            eventId={e.id}
+                            response={e.selfResponse}
+                            recurring={e.recurringEventId !== null}
+                            class="w-full pl-23 md:w-auto md:pl-0"
+                          />
                         </Show>
                       </li>
                     )}
@@ -166,71 +180,116 @@ export function Calendar(props: { pane: number }) {
   );
 }
 
-/** An event's own part of its record: when, where, who, and a link to it in Google. */
+/** An event's own part of its record: its prep first, then when, where, who, and Google's link. */
 export function EventPanel(props: { id: string }) {
   const ev = useAction<CalEvent | null>("calendar.get", () => ({ id: props.id }));
   return (
     <Show when={ev.data}>
       {(e) => (
-        <div class="space-y-1 rounded-md bg-sunk px-3 py-3 text-sm">
-          <p class="font-medium">
-            {e().allDay
-              ? `${dayLabel(new Date(e().startsAt))}, all day`
-              : when(new Date(e().startsAt), new Date(e().endsAt))}
-            {e().status === "cancelled" ? " (cancelled)" : ""}
-          </p>
-          <Show when={e().location}>
-            <p class="text-muted">{e().location}</p>
-          </Show>
-          <Show when={e().attendees.filter((a) => !a.self).length > 0}>
-            <p class="text-muted">
-              With{" "}
-              <For each={e().attendees.filter((a) => !a.self)}>
-                {(a, i) => (
-                  <>
-                    {i() > 0 ? ", " : ""}
-                    {a.name ?? a.email}
-                    <Show when={a.response === "accepted"}>
-                      <Icon name="check" size={14} label="(going)" class={`${ANSWERED} text-ok`} />
-                    </Show>
-                    <Show when={a.response === "declined"}>
-                      <Icon name="x" size={14} label="(not going)" class={`${ANSWERED} text-bad`} />
-                    </Show>
-                  </>
-                )}
-              </For>
+        <>
+          <Show when={e().prepId}>{(id) => <Prep id={id()} />}</Show>
+          <div class="space-y-1 rounded-md bg-sunk px-3 py-3 text-sm">
+            <p class="font-medium">
+              {e().allDay
+                ? `${dayLabel(new Date(e().startsAt))}, all day`
+                : when(new Date(e().startsAt), new Date(e().endsAt))}
+              {e().status === "cancelled" ? " (cancelled)" : ""}
             </p>
-          </Show>
-          <p class="flex gap-3 pt-1">
-            <button
-              type="button"
-              class="text-jarvis underline"
-              onClick={(ev) => void takeNotes(e().id, ev.shiftKey)}
+            <Show when={e().location}>
+              <p class="text-muted">{e().location}</p>
+            </Show>
+            <Show when={e().attendees.filter((a) => !a.self).length > 0}>
+              <p class="text-muted">
+                With{" "}
+                <For each={e().attendees.filter((a) => !a.self)}>
+                  {(a, i) => (
+                    <>
+                      {i() > 0 ? ", " : ""}
+                      {a.name ?? a.email}
+                      <Show when={a.response === "accepted"}>
+                        <Icon
+                          name="check"
+                          size={14}
+                          label="(going)"
+                          class={`${ANSWERED} text-ok`}
+                        />
+                      </Show>
+                      <Show when={a.response === "declined"}>
+                        <Icon
+                          name="x"
+                          size={14}
+                          label="(not going)"
+                          class={`${ANSWERED} text-bad`}
+                        />
+                      </Show>
+                    </>
+                  )}
+                </For>
+              </p>
+            </Show>
+            <p class="flex gap-3 pt-1">
+              <button
+                type="button"
+                class="text-jarvis underline"
+                onClick={(ev) => void takeNotes(e().id, ev.shiftKey)}
+              >
+                Meeting notes
+              </button>
+              <Show when={e().meetUrl}>
+                <a
+                  class="text-jarvis underline"
+                  href={e().meetUrl ?? ""}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Join video call
+                </a>
+              </Show>
+              <Show when={e().htmlLink}>
+                <a
+                  class="text-jarvis underline"
+                  href={e().htmlLink ?? ""}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open in Google Calendar
+                </a>
+              </Show>
+            </p>
+          </div>
+        </>
+      )}
+    </Show>
+  );
+}
+
+/**
+ * What Jarvis gathered for the meeting, at the top of its page, and a way to the packet itself.
+ * A packet that quotes what other people wrote says so (D25).
+ */
+function Prep(props: { id: string }) {
+  const rec = useAction<Entity>("entity.get", () => ({ id: props.id }));
+  return (
+    <Show when={rec.data}>
+      {(p) => (
+        <section aria-labelledby={`prep-${p().id}`} class="rounded-lg bg-raised p-4 shadow-card">
+          <div class="mb-2 flex flex-wrap items-center gap-2">
+            <h2 id={`prep-${p().id}`} class="text-heading">
+              Prep
+            </h2>
+            <Show when={p().outside}>
+              <OutsideMark>Quotes outside content</OutsideMark>
+            </Show>
+            <span class="flex-1" />
+            <Button
+              small
+              onClick={(ev) => layout.open(routeFor(p().type, p().id), { beside: ev.shiftKey })}
             >
-              Meeting notes
-            </button>
-            <Show when={e().meetUrl}>
-              <a
-                class="text-jarvis underline"
-                href={e().meetUrl ?? ""}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Join video call
-              </a>
-            </Show>
-            <Show when={e().htmlLink}>
-              <a
-                class="text-jarvis underline"
-                href={e().htmlLink ?? ""}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open in Google Calendar
-              </a>
-            </Show>
-          </p>
-        </div>
+              Open
+            </Button>
+          </div>
+          <Body text={p().body} />
+        </section>
       )}
     </Show>
   );

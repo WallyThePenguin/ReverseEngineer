@@ -4,7 +4,7 @@ import { max } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pairDevice } from "./auth/devices.ts";
 import { EventHub } from "./hub.ts";
-import { type PushMessage, type PushSend, pushToAll, startPush } from "./push.ts";
+import { messageFor, type PushMessage, type PushSend, pushToAll, startPush } from "./push.ts";
 import { createTestServer, type TestServer } from "./testing/server.ts";
 
 let t: TestServer;
@@ -82,7 +82,8 @@ describe("phone notifications", () => {
     await t.kernel.execute("task.create", { title: "Not worth a buzz" }, jarvisCaller("owner"));
     await settle();
     expect(sent.map((s) => s.message.title)).toEqual(["Your brief is ready"]);
-    expect(sent[0]).toMatchObject({ endpoint: PHONE, message: { url: "/inbox" } });
+    // The brief opens on Today, where it's in full.
+    expect(sent[0]).toMatchObject({ endpoint: PHONE, message: { url: "/today" } });
 
     // A device that's gone is forgotten.
     gone.add(PHONE);
@@ -106,6 +107,15 @@ describe("phone notifications", () => {
     expect(sent.map((s) => s.message)).toMatchObject([
       { title: "Your day", body: "Nothing on your calendar tomorrow.", url: "/today" },
     ]);
+    // A late run's card waits in the inbox at night instead of buzzing.
+    t.clock.set("2026-10-03T03:30:00Z"); // 11:30 p.m. the next day
+    await t.kernel.execute(
+      "journal.write",
+      { markdown: "Late.", date: "2026-10-02" },
+      jarvisCaller("system"),
+    );
+    await settle();
+    expect(sent).toHaveLength(1);
   });
 
   it("buzzes for an interrupt held overnight when it goes out in the morning", async () => {
@@ -211,6 +221,13 @@ describe("phone notifications", () => {
     const list = (await (await t.browser("/api/push")).json()) as { devices: unknown[] };
     expect(list.devices).toHaveLength(2);
     warn.mockRestore();
+  });
+
+  it("opens an approval and the brief on Today, and everything else on the inbox", () => {
+    const row = { id: "n1", title: "Jarvis asks: Send an email", body: null };
+    expect(messageFor({ ...row, kind: "brief" }).url).toBe("/today");
+    expect(messageFor({ ...row, kind: "approval" }).url).toBe("/today");
+    expect(messageFor({ ...row, kind: "alert" }).url).toBe("/inbox");
   });
 
   it("is off limits to the desktop app's code", async () => {

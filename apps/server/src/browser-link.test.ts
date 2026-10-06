@@ -10,6 +10,8 @@ import { type ServerType, serve } from "@hono/node-server";
 import { afterEach, describe, expect, it } from "vitest";
 import { BrowserBridge } from "./browser/bridge.ts";
 import { watchBrowserHealth } from "./browser/health.ts";
+import { selfUrl } from "./browser/routes.ts";
+import { closeAll, listen } from "./listen.ts";
 import { type FakeOptions, fakeExtension, type Msg, Refusal, socket } from "./testing/extension.ts";
 import { createTestServer, TEST_ORIGIN, type TestServer } from "./testing/server.ts";
 
@@ -214,5 +216,46 @@ describe("Test Jarvis's Chrome", () => {
       ],
     });
     expect(await getSetting(t!.kernel.db, "browser.pairing")).not.toBeNull();
+  });
+
+  it("sends Chrome to 127.0.0.1 whichever loopback you asked on", () => {
+    const at = (localAddress: string) =>
+      selfUrl({ incoming: { socket: { localAddress, localPort: 4400 } } });
+    expect(at("::1")).toBe("http://127.0.0.1:4400");
+    expect(at("::ffff:127.0.0.1")).toBe("http://127.0.0.1:4400");
+    expect(at("127.0.0.1")).toBe("http://127.0.0.1:4400");
+    expect(at("::")).toBe("http://127.0.0.1:4400");
+    // Anything else is where it came in.
+    expect(at("100.64.0.5")).toBe("http://100.64.0.5:4400");
+    expect(selfUrl({})).toBeNull();
+  });
+
+  it("opens its test page on 127.0.0.1 when you ran it from localhost over [::1]", async () => {
+    // Hearth on this PC, as main.ts starts it: on 127.0.0.1 and [::1].
+    t = await createTestServer({ devAuth: true });
+    const servers = await listen(t.server.app.fetch, "127.0.0.1", 0);
+    t.server.attach(...servers);
+    try {
+      if (servers.length < 2) return; // No IPv6 on this machine: nothing to check.
+      const port = (servers[0]!.address() as AddressInfo).port;
+      base = `ws://127.0.0.1:${port}`;
+      const paired = await t.browser("/api/browser/pair", { method: "POST" });
+      token = ((await paired.json()) as { token: string }).token;
+      const ext = await chrome({ "tabs.list": () => [] });
+      await ext.next("welcome");
+
+      const res = await fetch(`http://[::1]:${port}/api/browser/self-test`, {
+        method: "POST",
+        headers: { origin: TEST_ORIGIN },
+      });
+      expect(res.status).toBe(200);
+      const asked = JSON.stringify(ext.calls);
+      expect(asked).toContain(`http://127.0.0.1:${port}/api/browser/test-page`);
+      expect(asked).not.toContain("[::1]");
+      ext.ws.close();
+    } finally {
+      for (const s of servers) s.closeAllConnections();
+      await closeAll(servers);
+    }
   });
 });

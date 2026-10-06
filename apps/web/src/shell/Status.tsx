@@ -7,6 +7,7 @@ import { UpdateNotice } from "../components/UpdateNotice.tsx";
 import { Button } from "../components/ui.tsx";
 import { degraded } from "../lib/degraded.ts";
 import { backoff, live } from "../lib/live.ts";
+import { ViewLoadError } from "./loadView.tsx";
 
 /**
  * Tries again while `state` says the last try failed: after about a second, backing off to 30 s,
@@ -84,18 +85,41 @@ export function Crashed(props: { error: unknown; reset: () => void }) {
   );
 }
 
-/** One pane broke: the rest of the app keeps working. */
+/**
+ * One pane broke: the rest of the app keeps working. A screen whose code couldn't load says why:
+ * Hearth was updated (reload to open it), or the PC didn't answer (try again).
+ */
 export function PaneCrashed(props: { error: unknown; reset: () => void }) {
   console.error(props.error);
+  const why = () => (props.error instanceof ViewLoadError ? props.error.why : null);
   return (
     <div
       class="flex h-full flex-col items-center justify-center gap-3 p-6 text-center"
       role="alert"
     >
-      <p class="text-sm text-muted">This pane hit a problem.</p>
-      <Button small onClick={props.reset}>
-        Try again
-      </Button>
+      <p class="text-sm text-muted">
+        {why() === "updated"
+          ? "Hearth was updated. Reload to open this."
+          : why() === "offline"
+            ? "Couldn't load this. Check your connection, then try again."
+            : "This pane hit a problem."}
+      </p>
+      <div class="flex gap-2">
+        <Show when={why() !== "updated"}>
+          <Button small kind={why() ? "primary" : "plain"} onClick={props.reset}>
+            Try again
+          </Button>
+        </Show>
+        <Show when={why()}>
+          <Button
+            small
+            kind={why() === "updated" ? "primary" : "plain"}
+            onClick={() => location.reload()}
+          >
+            Reload
+          </Button>
+        </Show>
+      </div>
     </div>
   );
 }

@@ -1,13 +1,15 @@
 // A "more" button that opens a short list of actions: on a record's header, on a list row (where
-// a phone has no hover and no keyboard), anywhere a row of buttons would crowd.
+// a phone has no hover and no keyboard), anywhere a row of buttons would crowd. With its own
+// content in place of the "…", it's a named menu, as Hearth's at the top of the sidebar.
 
-import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import { Portal } from "solid-js/web";
-import { Icon } from "./icons.tsx";
+import { Icon, type IconName } from "./icons.tsx";
 
 export interface MenuItem {
   label: string;
   run: () => void;
+  icon?: IconName;
   /** Shown in red: it removes something (it can still be undone). */
   danger?: boolean;
 }
@@ -19,14 +21,19 @@ export interface MenuItem {
 export const ROW_MENU =
   "flex min-h-11 min-w-11 items-center justify-center rounded text-muted hover:bg-sunk hover:text-ink md:-my-1 md:min-h-7 md:min-w-7 md:opacity-0 md:group-hover:opacity-100 md:group-data-[active=true]:opacity-100 md:focus:opacity-100 md:aria-expanded:opacity-100";
 
-/** Where the menu goes: under the button, or above it when there's no room below. */
-function placement(button: HTMLElement, items: number): Record<string, string> {
+/**
+ * Where the menu goes: under the button, or above it when there's no room below; lined up with
+ * the button's right edge, or its left one for a menu that opens from the left of the screen.
+ */
+function placement(button: HTMLElement, items: number, start: boolean): Record<string, string> {
   const r = button.getBoundingClientRect();
-  const right = `${Math.max(8, window.innerWidth - r.right)}px`;
+  const side: Record<string, string> = start
+    ? { left: `${Math.max(8, r.left)}px` }
+    : { right: `${Math.max(8, window.innerWidth - r.right)}px` };
   const tall = items * 44 + 16;
   return r.bottom + tall > window.innerHeight && r.top > tall
-    ? { right, bottom: `${window.innerHeight - r.top + 4}px` }
-    : { right, top: `${r.bottom + 4}px` };
+    ? { ...side, bottom: `${window.innerHeight - r.top + 4}px` }
+    : { ...side, top: `${r.bottom + 4}px` };
 }
 
 export function Overflow(props: {
@@ -35,6 +42,10 @@ export function Overflow(props: {
   label?: string;
   /** Classes for the button, to fit where it sits. */
   class?: string;
+  /** What the button shows in place of the "…", for a named menu. */
+  children?: JSX.Element;
+  /** Opens lined up with the button's left edge. */
+  start?: boolean;
 }) {
   const [open, setOpen] = createSignal(false);
   const [where, setWhere] = createSignal<Record<string, string>>({});
@@ -57,7 +68,7 @@ export function Overflow(props: {
     const follow = () => {
       const r = button.getBoundingClientRect();
       if (!button.isConnected || r.bottom < 0 || r.top > window.innerHeight) close(false);
-      else setWhere(placement(button, props.items.length));
+      else setWhere(placement(button, props.items.length, !!props.start));
     };
     document.addEventListener("pointerdown", outside, true);
     window.addEventListener("resize", follow);
@@ -89,12 +100,12 @@ export function Overflow(props: {
         aria-haspopup="menu"
         aria-expanded={open()}
         onClick={() => {
-          setWhere(placement(button, props.items.length));
+          setWhere(placement(button, props.items.length, !!props.start));
           setOpen(!open());
           if (open()) queueMicrotask(() => items()[0]?.focus({ preventScroll: true }));
         }}
       >
-        <Icon name="ellipsis" size={18} />
+        {props.children ?? <Icon name="ellipsis" size={18} />}
       </button>
       <Show when={open()}>
         {/* Drawn over everything, so a scrolling list can't cut it off. */}
@@ -126,12 +137,15 @@ export function Overflow(props: {
                 <button
                   type="button"
                   role="menuitem"
-                  class={`block min-h-11 w-full px-3 text-left hover:bg-sunk focus:bg-sunk focus:outline-none md:min-h-8 ${item.danger ? "text-bad" : ""}`}
+                  class={`flex min-h-11 w-full items-center gap-2.5 px-3 text-left hover:bg-sunk focus:bg-sunk focus:outline-none md:min-h-8 ${item.danger ? "text-bad" : ""}`}
                   onClick={() => {
                     close(true);
                     item.run();
                   }}
                 >
+                  <Show when={item.icon}>
+                    {(icon) => <Icon name={icon()} class={item.danger ? "" : "text-faint"} />}
+                  </Show>
                   {item.label}
                 </button>
               )}

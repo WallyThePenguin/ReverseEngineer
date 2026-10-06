@@ -125,8 +125,8 @@ const probe = defineModule({
     }),
     defineAction({
       name: "probe.interrupt",
-      description: "An interrupt with a deadline",
-      input: z.object({ key: z.string() }),
+      description: "An interrupt, with a deadline unless `untimed`",
+      input: z.object({ key: z.string(), untimed: z.boolean().default(false) }),
       risk: "internal",
       callers: everyone,
       handler: (i, ctx) =>
@@ -135,7 +135,7 @@ const probe = defineModule({
           title: i.key,
           urgency: "interrupt",
           dedupeKey: i.key,
-          deadline: new Date("2026-10-01T16:00:00Z"),
+          ...(i.untimed ? {} : { deadline: new Date("2026-10-01T16:00:00Z") }),
         }),
     }),
   ],
@@ -274,8 +274,9 @@ describe("the kernel, for a member", () => {
   });
 
   it("doesn't let a member's deadline break through the day's budget", async () => {
+    // Alerts with no set time spend the day's budget (Hearth's own timed reminders don't).
     for (let i = 0; i < 8; i++)
-      await t.kernel.execute("probe.interrupt", { key: `day${i}` }, systemCaller());
+      await t.kernel.execute("probe.interrupt", { key: `day${i}`, untimed: true }, systemCaller());
     await t.kernel.execute("probe.interrupt", { key: "member" }, member(OWN));
     await t.kernel.execute("probe.interrupt", { key: "hearth" }, systemCaller());
     const rows = await t.tdb.db.select().from(notification).where(eq(notification.kind, "test"));
@@ -283,6 +284,17 @@ describe("the kernel, for a member", () => {
     expect(byKey.member).toMatchObject({ deliveredAt: null, deferredReason: "budget_spent" });
     expect(byKey.member?.deadline).not.toBeNull();
     expect(byKey.hearth?.deliveredAt).not.toBeNull();
+  });
+
+  it("counts a member's own deadlines in the day's budget, so they can't buzz you without end", async () => {
+    // A day on from the test above, whose interrupts spent that day's budget.
+    t.clock.advance(86_400_000);
+    for (let i = 0; i < 9; i++)
+      await t.kernel.execute("probe.interrupt", { key: `buzz${i}` }, member(OWN));
+    const rows = await t.tdb.db.select().from(notification).where(eq(notification.kind, "test"));
+    const byKey = Object.fromEntries(rows.map((r) => [r.dedupeKey, r]));
+    for (let i = 0; i < 8; i++) expect(byKey[`buzz${i}`]?.deliveredAt).not.toBeNull();
+    expect(byKey.buzz8).toMatchObject({ deliveredAt: null, deferredReason: "budget_spent" });
   });
 
   it("refuses a member before a guarded action's snapshot or pin reads anything", async () => {

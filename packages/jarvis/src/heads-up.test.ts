@@ -1,9 +1,15 @@
 // Step 7 end to end: a heads-up ten minutes before a real meeting with its prep and join link
 // (even while paused, and following a moved meeting), the evening's Your day card, calendar
 // rows that say their prep is ready, and what Jarvis did, read from what it made.
-import { notification, schedule } from "@hearth/db";
-import { type Caller, integrationCaller, jarvisCaller, ownerCaller } from "@hearth/kernel";
-import { type EventView, GOOGLE_SERVICE, SCOPES } from "@hearth/modules";
+import { entity, notification, schedule, setting } from "@hearth/db";
+import {
+  type Caller,
+  integrationCaller,
+  jarvisCaller,
+  ownerCaller,
+  systemCaller,
+} from "@hearth/kernel";
+import { type EventView, GOOGLE_SERVICE, gist, SCOPES } from "@hearth/modules";
 import { FakeGoogle } from "@hearth/modules/google-testing";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -53,7 +59,10 @@ describe("the heads-up before a meeting", () => {
     await h.settle();
     const [ev] = await events();
     await ok("prep.publish", { eventId: ev!.id, markdown: "Ask Sam about the budget." });
-    expect((await events())[0]?.prepId).toBeTruthy();
+    const prepId = (await events())[0]?.prepId;
+    expect(prepId).toBeTruthy();
+    // The event's own page opens with the same packet.
+    expect((await ok<EventView>("calendar.get", { id: ev!.id })).prepId).toBe(prepId);
     await ok("jarvis.pause", {});
     h.clock.set("2026-10-01T14:49:00Z");
     await h.settle();
@@ -63,7 +72,7 @@ describe("the heads-up before a meeting", () => {
     expect(await inbox("calendar.meeting_soon")).toMatchObject([
       {
         title: '"Design review" in 10 min',
-        body: "Ask Sam about the budget.\nJoin: https://meet.google.com/abc-defg-hij",
+        body: "Join: https://meet.google.com/abc-defg-hij\nAsk Sam about the budget.",
         entityId: ev!.id,
         urgency: "interrupt",
       },
@@ -108,6 +117,53 @@ describe("the heads-up before a meeting", () => {
 });
 
 describe("the evening and what Jarvis did", () => {
+  it("doesn't use up the day's interrupts, and skips calendars that aren't yours", async () => {
+    await h.kernel.db.insert(setting).values({ key: "owner.maxInterruptsPerDay", value: 1 });
+    g.put(ME, review("2026-10-01T15:00:00Z", "2026-10-01T16:00:00Z"));
+    // Shared with you: their dentist is no heads-up of yours.
+    g.addCalendar({ id: "partner@example.com", summary: "Partner", accessRole: "owner" });
+    g.put("partner@example.com", {
+      ...review("2026-10-01T15:00:00Z", "2026-10-01T16:00:00Z"),
+      id: "theirs",
+      summary: "Their dentist",
+      organizer: { email: "partner@example.com", self: true },
+    });
+    await sync();
+    h.clock.set("2026-10-01T14:50:10Z");
+    await h.settle();
+    expect((await inbox("calendar.meeting_soon")).map((n) => n.title)).toEqual([
+      '"Design review" in 10 min',
+    ]);
+    const alert = await ok<{ delivered: boolean }>(
+      "inbox.notify",
+      { title: "Backup failed", urgency: "interrupt" },
+      systemCaller(),
+    );
+    expect(alert.delivered).toBe(true);
+  });
+
+  it("starts a plain prep with what it says, not its facts", () => {
+    const facts = [
+      "## Design review",
+      "- When: Thu 11 a.m.",
+      "- Event id: 7f0c",
+      "- Guests: Sam",
+      "- About Sam (person 9a1b): runs the budget",
+      "Bring the Q3 numbers.",
+    ].join("\n");
+    expect(gist(facts)).toBe("Bring the Q3 numbers.");
+    expect(gist("## Only facts\n- When: now")).toBe("");
+  });
+
+  it("waits for the evening to send Your day", async () => {
+    h.clock.set("2026-10-01T18:00:00Z"); // 2 p.m.
+    await ok("journal.write", { markdown: "Noted.", date: "2026-10-01" }, jarvisCaller("owner"));
+    expect(await inbox("wrap")).toEqual([]);
+    h.clock.set("2026-10-01T23:30:00Z"); // 7:30 p.m.
+    await ok("journal.write", { markdown: "The day.", date: "2026-10-01" }, jarvisCaller("system"));
+    expect(await inbox("wrap")).toHaveLength(1);
+  });
+
   it("sends Your day with tomorrow's first meetings and what's due", async () => {
     g.put(ME, review("2026-10-02T13:00:00Z", "2026-10-02T14:00:00Z")); // Fri 9 a.m.
     await sync();
@@ -132,11 +188,14 @@ describe("the evening and what Jarvis did", () => {
     await ok("chat.send", { text: "remind me to book the venue" });
     await h.settle();
     await ok("task.create", { title: "Mine, not Jarvis's" });
-    const did = await ok<{ text: string; turnId?: string }[]>("jarvis.did", {
-      since: "2026-10-01T00:00:00Z",
-    });
-    expect(did).toMatchObject([
-      { text: "Made a task: Book the venue", turnId: expect.any(String) },
+    type Did = { text: string; entityId: string; turnId?: string; outside: boolean };
+    const did = () => ok<Did[]>("jarvis.did", { since: "2026-10-01T00:00:00Z" });
+    const made = await did();
+    expect(made).toMatchObject([
+      { text: "Made a task: Book the venue", turnId: expect.any(String), outside: false },
     ]);
+    // One written after reading outside content says so, as the record does (D58).
+    await h.tdb.db.update(entity).set({ outside: true }).where(eq(entity.id, made[0]!.entityId));
+    expect(await did()).toMatchObject([{ outside: true }]);
   });
 });
