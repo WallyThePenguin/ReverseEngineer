@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { audit, notionAccount, notionTask } from "@hearth/db";
+import { audit, entity, notionAccount, notionTask } from "@hearth/db";
 import { type Caller, integrationCaller, jarvisCaller, ownerCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { eq } from "drizzle-orm";
@@ -9,6 +9,7 @@ import { ALL_MODULES } from "../index.ts";
 import { NOTION_SERVICE, NotionError } from "./api.ts";
 import { pickColumns, ticketOf } from "./columns.ts";
 import { FakeNotion, type FakeTicket, taskBoard } from "./fake.ts";
+import { notionModule } from "./index.ts";
 
 let t: TestKernel;
 let n: FakeNotion;
@@ -138,6 +139,14 @@ describe("notion tasks", () => {
       ]),
     );
 
+    // The brief tells of the new one, not the ones the first read brought in quietly.
+    const brief = await notionModule.digest!({
+      db: t.tdb.db,
+      now: t.clock.now(),
+      since: new Date(0),
+    });
+    expect(brief.map((i) => i.text)).toEqual(["New on your Notion board: Ticket new"]);
+
     ticket("a", { status: "Done", due: "2026-11-01" });
     await sync();
     expect((await t.events("notion.task_done")).map((e) => e.payload.title)).toEqual(["Ticket a"]);
@@ -194,6 +203,49 @@ describe("notion tasks", () => {
     n.failWith = null;
     await ok("notion.replace_token", { token: n.token });
     expect(await sync()).toMatchObject({ assigned: 1 });
+  });
+
+  it("never takes the whole board as yours when the column saying whose a ticket is goes", async () => {
+    await connected();
+    ticket("a");
+    await sync();
+    ticket("sams", { assignees: ["user-sam"] });
+    // Someone renames Assignee: the only people column left would be guessed, and isn't.
+    const b = n.boards.get(BOARD)!;
+    b.schema.columns = b.schema.columns.map((c) =>
+      c.name === "Assignee" ? { ...c, name: "Reviewer" } : c,
+    );
+    expect((await sync()).failed[0]).toMatch(/no "Assignee" column any more.*Pick the board again/);
+    expect(await kinds()).toEqual(["notion.task_assigned"]);
+    expect(await ok("notion.status")).toMatchObject({ state: "failing" });
+    expect(n.calls.filter((c) => c.startsWith("pages")).length).toBe(1);
+  });
+
+  it("leaves out a ticket that isn't yours even if Notion sends it", async () => {
+    await connected();
+    n.ignoreFilter = true;
+    ticket("a");
+    ticket("sams", { assignees: ["user-sam"] });
+    expect(await sync()).toMatchObject({ tickets: 1, assigned: 1 });
+    expect((await t.events("notion.task_assigned")).map((e) => e.payload.title)).toEqual([
+      "Ticket a",
+    ]);
+  });
+
+  it("keeps a ticket you deleted in Hearth out, and keeps syncing", async () => {
+    await connected();
+    ticket("a");
+    ticket("b");
+    await sync();
+    const [row] = await t.tdb.db.select().from(notionTask).where(eq(notionTask.pageId, "a"));
+    await t.tdb.db
+      .update(entity)
+      .set({ deletedAt: t.clock.now() })
+      .where(eq(entity.id, row!.entityId));
+    ticket("a", { title: "Ticket a, renamed" });
+    ticket("b", { status: "Done" });
+    expect(await sync()).toMatchObject({ failed: [], done: 1 });
+    expect(await ok("notion.status")).toMatchObject({ state: "ok" });
   });
 
   it("describes a ticket for Jarvis with its link", async () => {

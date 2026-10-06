@@ -107,6 +107,14 @@ async function verify(ctx: ActionContext, ws: WorkspaceRow, i: Tokens): Promise<
     refuse(
       `Your own Slack token is missing ${yours.missing.join(", ")}. Merge in the manifest, reinstall the app, and paste its new User OAuth Token under Slack → New token.`,
     );
+  // The bot is Jarvis's app's too, not another bot in the workspace: its user's profile says whose.
+  const botUser = await ask("your own token", () =>
+    slackApi(ctx).user(openToken(ctx, ws), bot.userId),
+  );
+  if (botUser?.appId !== JARVIS_APP_ID || botUser.botId !== bot.botId)
+    refuse(
+      `That bot token is for ${botUser?.appId ? `app ${botUser.appId}` : "another app"}, not Jarvis's (${JARVIS_APP_ID}). Copy the Bot User OAuth Token from Jarvis's app.`,
+    );
   const socket = await ask("the app token", () => api.openSocket(i.appToken), {
     missing_scope: NEEDS_CONNECTIONS,
   });

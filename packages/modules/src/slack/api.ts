@@ -76,6 +76,9 @@ export interface SlackUser {
   deleted?: boolean;
   /** Their own workspace: another org's for a Slack Connect user. */
   teamId?: string;
+  /** For a bot's user: the app it belongs to, and the bot (B…). */
+  appId?: string;
+  botId?: string;
 }
 
 export interface SlackMatch extends SlackMessage {

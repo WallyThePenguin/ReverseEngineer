@@ -42,5 +42,6 @@ export const notionTask = pgTable("notion_task", {
   dueAt: text("due_at"),
   dueIsDate: boolean("due_is_date").notNull().default(false),
   assigned: boolean("assigned").notNull().default(true),
+  backfill: boolean("backfill").notNull().default(false),
   editedAt: ts("edited_at").notNull(),
 });

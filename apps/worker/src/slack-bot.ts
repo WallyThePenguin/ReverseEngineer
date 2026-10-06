@@ -58,7 +58,11 @@ type Settled = Required<Omit<SlackBotOptions, keyof SocketTimings>> & SocketTimi
 
 const sleepFor = (ms: number, stop: AbortSignal) =>
   new Promise<void>((resolve) => {
-    const t = setTimeout(resolve, ms);
+    // Each wait takes its listener off again, so a long run of retries doesn't pile them up.
+    const t = setTimeout(() => {
+      stop.removeEventListener("abort", early);
+      resolve();
+    }, ms);
     const early = () => {
       clearTimeout(t);
       resolve();

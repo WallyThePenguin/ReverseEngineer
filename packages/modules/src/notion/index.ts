@@ -43,6 +43,8 @@ async function digest(ctx: ReadContext & { since: Date }): Promise<DigestItem[]>
         gte(entity.createdAt, ctx.since),
         eq(notionTask.assigned, true),
         eq(notionTask.done, false),
+        // The first read brought these in quietly (D68): not news.
+        eq(notionTask.backfill, false),
       ),
     )
     .orderBy(desc(entity.createdAt))

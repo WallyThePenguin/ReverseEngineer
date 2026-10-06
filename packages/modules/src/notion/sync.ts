@@ -14,7 +14,7 @@ import { type Columns, pickColumns, type Ticket, ticketOf } from "./columns.ts";
 
 export type AccountRow = typeof notionAccount.$inferSelect;
 /** A ticket as last read, with its record's title. */
-type Known = typeof notionTask.$inferSelect & { title: string };
+type Known = typeof notionTask.$inferSelect & { title: string; deletedAt: Date | null };
 
 /** Pages of a hundred tickets one round may read. */
 export const MAX_PAGES = 20;
@@ -93,7 +93,7 @@ async function follow(
     id = (await createEntity(ctx, { type: "notion_task", title })).id;
     await ctx.tx
       .insert(notionTask)
-      .values({ entityId: id, pageId: p.id, sourceId: board.id, ...values });
+      .values({ entityId: id, pageId: p.id, sourceId: board.id, backfill: first, ...values });
   }
   const change = changeOf(before, { ...t, title }, first);
   if (!change) return null;
@@ -120,18 +120,28 @@ export interface NotionSyncResult {
 async function readBoard(ctx: ActionContext, account: AccountRow, token: string, sourceId: string) {
   const api = notionApi(ctx);
   const schema = await api.schema(token, sourceId);
-  const cols: Columns = pickColumns(schema);
+  // Who a ticket is for comes from the column you picked the board with, never a fresh guess: a
+  // renamed column must not let the whole board in as yours. Gone, it's for you to pick again.
+  const assignee = account.columns ? account.columns.assignee : pickColumns(schema).assignee;
+  if (assignee && !schema.columns.some((c) => c.name === assignee && c.type === "people"))
+    throw new NotionError(
+      400,
+      `${schema.title} has no "${assignee}" column any more, which said who a ticket is for. Pick the board again in Settings > Notion.`,
+    );
+  if (assignee && !account.ownerUserId)
+    throw new NotionError(400, "Pick who you are on the board in Settings > Notion.");
+  const cols: Columns = { ...pickColumns(schema), assignee };
   const person =
-    cols.assignee && account.ownerUserId
-      ? { column: cols.assignee, userId: account.ownerUserId }
-      : undefined;
+    assignee && account.ownerUserId ? { column: assignee, userId: account.ownerUserId } : undefined;
+  // Notion was asked for yours only; one that isn't is left out all the same.
+  const mine = (p: NotionPage) => !person || ticketOf(p, cols).assignees.includes(person.userId);
   const pages = new Map<string, NotionPage>();
   let cursor: string | null = null;
   let whole = false;
   for (let n = 0; n < MAX_PAGES; n++) {
     const r = await api.pages(token, sourceId, { person, cursor });
-    // One edited while Hearth read can show up twice: the first is the newest.
-    for (const p of r.pages) if (!pages.has(p.id)) pages.set(p.id, p);
+    // One made while Hearth read pushes the rest down a place, so one can show up twice.
+    for (const p of r.pages) if (!pages.has(p.id) && mine(p)) pages.set(p.id, p);
     cursor = r.next;
     if (!cursor) {
       whole = true;
@@ -139,16 +149,21 @@ async function readBoard(ctx: ActionContext, account: AccountRow, token: string,
     }
   }
   const rows = await ctx.tx
-    .select({ row: notionTask, title: entity.title })
+    .select({ row: notionTask, title: entity.title, deletedAt: entity.deletedAt })
     .from(notionTask)
     .innerJoin(entity, eq(entity.id, notionTask.entityId))
     .where(eq(notionTask.sourceId, sourceId));
-  const known = new Map(rows.map((r) => [r.row.pageId, { ...r.row, title: r.title }]));
+  const known = new Map(
+    rows.map((r) => [r.row.pageId, { ...r.row, title: r.title, deletedAt: r.deletedAt }]),
+  );
   const first = account.syncedAt === null;
   const board = { id: sourceId, title: schema.title };
   const out = { tickets: pages.size, assigned: 0, done: 0, changed: 0, unassigned: 0 };
   for (const p of pages.values()) {
-    const kind = await follow(ctx, board, p, ticketOf(p, cols), known.get(p.id), first);
+    const before = known.get(p.id);
+    // One you deleted in Hearth stays out of it, rather than fail every round.
+    if (before?.deletedAt) continue;
+    const kind = await follow(ctx, board, p, ticketOf(p, cols), before, first);
     if (kind === "notion.task_assigned") out.assigned++;
     else if (kind === "notion.task_done") out.done++;
     else if (kind === "notion.task_changed") out.changed++;
@@ -166,7 +181,7 @@ async function readBoard(ctx: ActionContext, account: AccountRow, token: string,
         ),
       );
     // An open one leaving you is news (its task can go); a done one's task is closed already.
-    for (const g of gone.filter((k) => !k.done)) {
+    for (const g of gone.filter((k) => !k.done && !k.deletedAt)) {
       ctx.emit({
         kind: "notion.task_unassigned",
         entityId: g.entityId,

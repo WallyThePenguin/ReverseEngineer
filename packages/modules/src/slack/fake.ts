@@ -70,6 +70,8 @@ export class FakeSlack {
     scopes: [...BOT_SCOPES] as string[],
     appScopes: ["connections:write"],
     helloApp: JARVIS_APP_ID,
+    /** The app its user's profile names (users.info). */
+    app: JARVIS_APP_ID,
   };
   /** The bot's DMs, by who they're with. */
   ims = new Map<string, string>();
@@ -193,6 +195,16 @@ export class FakeSlack {
       },
       user: async (token, id) => {
         check(token);
+        // Jarvis's bot's own user, as users.info shows a bot: whose app it is.
+        if (id === this.bot.userId)
+          return {
+            id,
+            name: "Jarvis",
+            bot: true,
+            ...this.users.get(id),
+            appId: this.bot.app,
+            botId: this.bot.botId,
+          };
         return this.users.get(id) ?? null;
       },
       mentions: async (token, userId, page = 1) => {

@@ -50,6 +50,8 @@ export function userOf(u: Raw, id = String(u.id)): SlackUser {
     guest: Boolean(u.is_restricted || u.is_ultra_restricted),
     deleted: Boolean(u.deleted),
     teamId: str(u.team_id),
+    ...(str(profile.api_app_id) ? { appId: str(profile.api_app_id) } : {}),
+    ...(str(profile.bot_id) ? { botId: str(profile.bot_id) } : {}),
   };
 }
 

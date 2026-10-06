@@ -45,6 +45,8 @@ export class FakeNotion {
   boards = new Map<string, { schema: NotionSchema; pages: NotionPage[] }>();
   /** Set to have every call fail with it (Notion unreachable, say). */
   failWith: NotionError | null = null;
+  /** Answers as if Notion ignored the person filter, to test that Hearth checks it too. */
+  ignoreFilter = false;
   /** The most it sends in one page (Notion's own is 100). */
   pageSize = 100;
   calls: string[] = [];
@@ -115,7 +117,7 @@ export class FakeNotion {
         check(token);
         const mine = board(id)
           .pages.filter((p) => {
-            if (!q.person) return true;
+            if (!q.person || this.ignoreFilter) return true;
             const v = p.values[q.person.column];
             return v?.type === "people" && v.ids.includes(q.person.userId);
           })

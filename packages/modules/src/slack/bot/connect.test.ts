@@ -125,6 +125,10 @@ describe("connecting Jarvis's Slack bot", () => {
     s.bot.teamId = "T2";
     expect(await refused()).toMatch(/another Slack workspace, not Acme/);
     s.bot.teamId = "T1";
+    // Another app's bot in the same workspace, with Jarvis's app token beside it.
+    s.bot.app = "A0OTHERAPP1";
+    expect(await refused()).toMatch(/bot token is for app A0OTHERAPP1, not Jarvis's/);
+    s.bot.app = "A0C0RPY4WKV";
     // The token says it's Jarvis's app, but the socket's hello names another.
     s.bot.helloApp = "A0OTHERAPP1";
     expect(await refused()).toMatch(/socket is for app A0OTHERAPP1/);
