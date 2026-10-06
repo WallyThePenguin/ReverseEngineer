@@ -1,4 +1,5 @@
-// Jarvis on every screen: a chat pane on the right (Ctrl+J), with your recent conversations.
+// Jarvis on every screen: a chat pane on the right (Ctrl+J), with your recent conversations. What
+// you have open in the pane you were last in goes with what you ask (lib/looking.ts).
 
 import { createRoot, createSignal, For, Show } from "solid-js";
 import { Icon } from "../components/icons.tsx";
@@ -8,6 +9,7 @@ import { Badge, Button } from "../components/ui.tsx";
 import { debounced } from "../lib/debounce.ts";
 import { ago, day, time } from "../lib/format.ts";
 import { jarvisLiveness } from "../lib/jarvis-health.ts";
+import { useLooking } from "../lib/looking.ts";
 import { narrow } from "../lib/narrow.ts";
 import { layout } from "../lib/panes.ts";
 import { useAction } from "../lib/query.ts";
@@ -114,6 +116,7 @@ async function trashConversation(id: string) {
 }
 
 export function JarvisPane() {
+  const onScreen = useLooking();
   const [search, setSearch] = createSignal("");
   const query = debounced(search);
   const conversations = useAction<ConversationRow[]>("conversation.list", () => ({
@@ -299,6 +302,7 @@ export function JarvisPane() {
       <div class="min-h-0 flex-1">
         <Conversation
           compact
+          onScreen={onScreen}
           id={jarvis.conversationId()}
           onCreated={(id) => jarvis.setConversationId(id)}
           onMissing={() => jarvis.setConversationId(null)}

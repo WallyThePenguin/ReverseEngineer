@@ -2,7 +2,8 @@
 // reply streaming in as it's written. Live and reloaded views come from the same fold. A Slack
 // member's conversation is read-only, under a bar you act from (SlackBar.tsx, D62), wherever it
 // shows, in its own pane or in Jarvis's. That's decided here, from the conversation, so no screen
-// that shows one can forget it.
+// that shows one can forget it. In the Jarvis panel, the record you have open goes with what you
+// ask, shown over the box (step 10); never into a member's conversation.
 
 import { foldConversation, fromEditForm } from "@hearth/core";
 import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js";
@@ -12,12 +13,14 @@ import { MentionEditor } from "../components/MentionEditor.tsx";
 import { Button, PaneHeader } from "../components/ui.tsx";
 import { MOD } from "../lib/hotkeys.ts";
 import { live } from "../lib/live.ts";
+import { type Looking, startersFor } from "../lib/looking.ts";
 import { narrow } from "../lib/narrow.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
 import { isMemberConversation, sendsInto } from "../lib/slack.ts";
 import { hush, mic, say, talkTaken, talkWanted } from "../lib/speech.ts";
 import type { LogRecord } from "../lib/types.ts";
+import { LookingChip, useLookingRecord } from "./LookingChip.tsx";
 import { JarvisSays, LogItem, Starter } from "./Message.tsx";
 import { RenameInput, renameConversation } from "./Rename.tsx";
 import { SlackBar } from "./SlackBar.tsx";
@@ -44,6 +47,8 @@ export function Conversation(props: {
   /** The conversation is gone (trashed, or from before a restore). */
   onMissing?: () => void;
   compact?: boolean;
+  /** What's on screen as you ask (lib/looking.ts): sent with each message, shown over the box. */
+  onScreen?: { looking: () => Looking | null; takeOff: () => void };
 }) {
   const data = useAction<ConversationData>(
     "conversation.get",
@@ -63,6 +68,9 @@ export function Conversation(props: {
     Object.entries(live.streams())
       .filter(([turnId, s]) => s.conversationId === props.id && view().activeTurns.includes(turnId))
       .map(([, s]) => s.text);
+  // Nothing goes along into a Slack member's conversation, which only their turns write.
+  const looking = () => (member() ? null : (props.onScreen?.looking() ?? null));
+  const about = useLookingRecord(looking);
   const [draft, setDraft] = createSignal("");
   const [sending, setSending] = createSignal(false);
   let scroller!: HTMLDivElement;
@@ -151,6 +159,7 @@ export function Conversation(props: {
       text,
       ...(spoken ? { heard: true } : {}),
       ...(into ? { conversationId: into } : {}),
+      ...(looking() ? { looking: looking() } : {}),
     });
     setSending(false);
     if (!r) return false;
@@ -170,7 +179,15 @@ export function Conversation(props: {
           setPinned(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80)
         }
       >
-        <Show when={props.id} fallback={<Starter onPick={(t) => setDraft(t)} />}>
+        <Show
+          when={props.id}
+          fallback={
+            <Starter
+              onPick={(t) => setDraft(t)}
+              about={looking() ? startersFor(about.type()) : null}
+            />
+          }
+        >
           <Show when={data.data?.conversation.taintedAt}>
             <OutsideNote source={data.data?.conversation.taintSource} />
           </Show>
@@ -228,6 +245,11 @@ export function Conversation(props: {
         </p>
       </Show>
       <div class={`border-t border-line p-3 ${member() ? "hidden" : ""}`}>
+        <Show when={looking()}>
+          <div class="mb-2 flex min-w-0">
+            <LookingChip label={about.label()} onTakeOff={() => props.onScreen?.takeOff()} />
+          </div>
+        </Show>
         <MentionEditor
           value={draft()}
           onInput={setDraft}
