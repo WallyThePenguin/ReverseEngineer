@@ -21,7 +21,12 @@ export async function tomorrowAtAGlance(db: DbOrTx, date: string, tz: string): P
   const from = atLocal(day, 0, tz);
   const to = atLocal(addLocalDays(day, 1), 0, tz);
   const meetings = await db
-    .select({ title: entity.title, startsAt: calendarEvent.startsAt })
+    .select({
+      id: entity.id,
+      title: entity.title,
+      startsAt: calendarEvent.startsAt,
+      icalUid: calendarEvent.icalUid,
+    })
     .from(calendarEvent)
     .innerJoin(entity, eq(entity.id, calendarEvent.entityId))
     .innerJoin(
@@ -52,10 +57,18 @@ export async function tomorrowAtAGlance(db: DbOrTx, date: string, tz: string): P
         lt(task.dueAt, to),
       ),
     );
-  const named = meetings
+  // The same invitation on two of your calendars is one meeting.
+  const seen = new Set<string>();
+  const once = meetings.filter((m) => {
+    const key = `${m.icalUid ?? m.id}:${m.startsAt.toISOString()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const named = once
     .slice(0, FIRST_MEETINGS)
     .map((m) => `${formatTime(m.startsAt, tz)} ${plain(m.title)}`);
-  const more = meetings.length - named.length;
+  const more = once.length - named.length;
   const lines = [
     named.length
       ? `Tomorrow: ${named.join(", ")}${more ? `, and ${more} more` : ""}`
