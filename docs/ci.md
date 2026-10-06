@@ -127,7 +127,8 @@ Disk image location.
 Everything else CI keeps is in `D:\hearth-ci`: the Windows runner and its work folder, the tool
 cache with its Node, the pnpm store (`pnpm-store`) and Playwright's Chromium (`ms-playwright`).
 The Postgres cluster on 5499 keeps its data in `%LOCALAPPDATA%\HearthTestDb`, on C:, but each
-run's database is dropped at the end.
+run's database is dropped at the end. The runner's `-Start`, which runs at every sign-in, starts that
+cluster too when it isn't answering, so a restart doesn't leave every job failing at its first step.
 
 ## Adding and removing runners
 
