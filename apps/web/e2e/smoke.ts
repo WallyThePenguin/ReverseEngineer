@@ -231,9 +231,12 @@ try {
     await keys("g", "s");
     await p.getByRole("heading", { name: "Google" }).waitFor();
     await p.getByRole("heading", { name: "Slack" }).waitFor();
-    const create = p.getByRole("link", { name: "Create Hearth's Slack app" });
-    if (!(await create.getAttribute("href"))?.includes("search%3Aread"))
-      throw new Error("the Slack app link doesn't ask for its scopes");
+    // The manifest to merge into your Slack app: your token's reading scopes, and Jarvis's bot.
+    await p.getByText("App manifest (YAML)").first().waitFor();
+    const manifest = await p.locator("pre", { hasText: "oauth_config:" }).first().textContent();
+    if (!manifest?.includes("search:read") || !manifest.includes("socket_mode_enabled: true"))
+      throw new Error("the Slack manifest doesn't ask for its scopes and Socket Mode");
+    await p.getByLabel("Slack user token").waitFor();
     await p.getByRole("heading", { name: "GitHub" }).waitFor();
     await p.getByRole("link", { name: "Make a read-only token" }).waitFor();
   });
