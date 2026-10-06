@@ -307,8 +307,13 @@ try {
     const bg = String(await drawer.evaluate("(el) => getComputedStyle(el).backgroundColor"));
     if (/rgba\(.*, 0(\.\d+)?\)$/.test(bg) || bg === "transparent")
       throw new Error(`the drawer shows the page through it (${bg})`);
-    await drawer.getByRole("button", { name: "Trash" }).tap();
+    await drawer.getByRole("button", { name: "Settings" }).tap();
     await drawer.waitFor({ state: "detached" });
+    // The trash is a tab in Settings.
+    await tp
+      .getByRole("navigation", { name: "Settings" })
+      .getByRole("button", { name: "Trash" })
+      .tap();
     await tp.getByRole("heading", { name: "Trash" }).waitFor();
   });
 } finally {

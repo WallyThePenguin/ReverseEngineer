@@ -7,7 +7,6 @@ import {
   createSignal,
   ErrorBoundary,
   For,
-  lazy,
   Match,
   onCleanup,
   onMount,
@@ -26,32 +25,35 @@ import { live, queryClient, toast } from "../lib/live.ts";
 import { narrow } from "../lib/narrow.ts";
 import { type ListView, layout, type Pane, type PaneRoute } from "../lib/panes.ts";
 import { sendKeptOnRestore } from "../lib/trash.ts";
-import { Calendar } from "../views/Calendar.tsx";
-import { Canvases, CanvasView } from "../views/Canvas.tsx";
 import { Inbox } from "../views/Inbox.tsx";
 import { Mail } from "../views/Mail.tsx";
 import { MailThreadPane } from "../views/MailThread.tsx";
-import { Memory } from "../views/Memory.tsx";
-import { Notes, NoteView } from "../views/Notes.tsx";
-import { People } from "../views/People.tsx";
-import { RecordView } from "../views/Record.tsx";
-import { Sheets, SheetView } from "../views/Sheets.tsx";
-import { Tasks } from "../views/Tasks.tsx";
-import { TaskView } from "../views/TaskView.tsx";
 import { Today } from "../views/Today.tsx";
 import { CommandPalette } from "./CommandPalette.tsx";
+import {
+  Activity,
+  Browser,
+  Calendar,
+  Canvases,
+  CanvasView,
+  Memory,
+  Notes,
+  NoteView,
+  People,
+  RecordView,
+  Settings,
+  Sheets,
+  SheetView,
+  Tasks,
+  TaskView,
+  Trash,
+  Voice,
+} from "./lazyViews.ts";
 import { MenuDrawer, Shortcuts } from "./Overlays.tsx";
 import { Sidebar, SidebarRail, sidebar, useWaiting } from "./Sidebar.tsx";
 import { Crashed, Notices, PaneCrashed, Unreachable, useAutoRetry } from "./Status.tsx";
 import { TabBar } from "./TabBar.tsx";
 import { Toasts } from "./Toasts.tsx";
-
-// Places rarely opened first load when they're opened, so the first download stays small.
-const Activity = lazy(() => import("../views/Activity.tsx").then((m) => ({ default: m.Activity })));
-const Browser = lazy(() => import("../views/Browser.tsx").then((m) => ({ default: m.Browser })));
-const Settings = lazy(() => import("../views/Settings.tsx").then((m) => ({ default: m.Settings })));
-const Trash = lazy(() => import("../views/Trash.tsx").then((m) => ({ default: m.Trash })));
-const Voice = lazy(() => import("../views/Voice.tsx").then((m) => ({ default: m.Voice })));
 
 function PaneView(props: { route: PaneRoute; index: number }) {
   const id = () => ("id" in props.route ? props.route.id : "");
@@ -197,6 +199,12 @@ function Shell(props: { onSignOut: () => void }) {
           value={{
             get close() {
               return layout.panes().length > 1 ? () => layout.close(index()) : null;
+            },
+            get view() {
+              return entry.route.view;
+            },
+            get index() {
+              return index();
             },
           }}
         >

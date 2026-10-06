@@ -11,7 +11,7 @@ interface Smoke {
 export async function boardSteps({ step, keys, base, tag }: Smoke) {
   await step("a canvas board with a sticky, a box, an arrow and a task card", async (p) => {
     await p.goto(`${base}/canvases`);
-    await p.getByRole("heading", { name: "Canvas" }).waitFor();
+    await p.getByRole("heading", { name: "Boards" }).waitFor();
     await p.getByRole("button", { name: "New board" }).click();
     // Name it and draw once the board has loaded: the toolbar shows before that, and loading sets
     // the name the board came with and frames the view, which would move what's drawn already.
@@ -69,7 +69,7 @@ export async function boardSteps({ step, keys, base, tag }: Smoke) {
 
   await step("a spreadsheet that adds up as you type", async (p) => {
     await p.goto(`${base}/sheets`);
-    await p.getByRole("heading", { name: "Spreadsheets" }).waitFor();
+    await p.getByRole("heading", { name: "Sheets" }).waitFor();
     await p.getByRole("button", { name: "New spreadsheet" }).click();
     await p.locator('[data-cell="A1"]').waitFor();
     const name = p.getByLabel("Spreadsheet name");

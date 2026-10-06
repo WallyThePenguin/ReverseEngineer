@@ -40,7 +40,7 @@ export function Activity() {
 
   return (
     <div class="flex h-full flex-col">
-      <PaneHeader title="Jarvis's activity" sub="Everything Jarvis did, and why" />
+      <PaneHeader title="What Jarvis did" sub="Everything Jarvis did, and why" />
       <div class="flex-1 space-y-6 overflow-auto px-4 py-4">
         <Show when={(watches.data ?? []).length > 0}>
           <section>

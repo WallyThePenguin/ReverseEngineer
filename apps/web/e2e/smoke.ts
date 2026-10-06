@@ -200,7 +200,7 @@ try {
   await step("dictation cleaned with your dictionary, in the voice history", async (p) => {
     await p.locator("nav").click({ position: { x: 100, y: 600 } });
     await keys("g", "v");
-    await p.getByRole("heading", { name: "Voice" }).waitFor();
+    await p.getByRole("heading", { name: "Dictation" }).waitFor();
     await p.getByRole("tab", { name: "Dictionary" }).click();
     await p.getByPlaceholder("When it hears… (optional)").fill("auto pair");
     await p.getByPlaceholder("Write it as").fill(`OtoPair${tag}`);

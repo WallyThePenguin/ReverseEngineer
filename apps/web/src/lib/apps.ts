@@ -1,6 +1,7 @@
 // Hearth is Today plus six sub-products, with Settings as a utility (D65). This is the one list
-// of them, and of the places you go: the sidebar, the phone's tab bar, Cmd+K, the g-keys and
-// where a pane lands when its record goes to the trash all read it from here.
+// of them, and of the places you go: the sidebar (one row a sub-product), the tabs along the top
+// of each, the phone's tab bar, Cmd+K, the g-keys and where a pane lands when its record goes to
+// the trash all read it from here.
 
 import type { IconName } from "../components/icons.tsx";
 import type { ListView, RecordView } from "./routes.ts";
@@ -26,7 +27,7 @@ export interface App {
    * `--color-hue`. Settings has none, so it keeps the accent.
    */
   hue?: `--color-${AppId}`;
-  /** The list views it owns, its home first. */
+  /** The list views it owns, its home first, in the order of its tabs. */
   views: readonly ListView[];
   /** The record views that open inside it. */
   records: readonly RecordView[];
@@ -98,7 +99,7 @@ export const APPS: readonly App[] = [
     label: "Jarvis",
     icon: "mark",
     hue: "--color-jarvis",
-    views: ["memory", "activity", "browser"],
+    views: ["activity", "memory", "browser"],
     records: ["chat"],
     phoneTab: 3,
   },
@@ -112,12 +113,12 @@ export const APPS: readonly App[] = [
   },
 ];
 
-/** A place you go to by name: a list view in the sidebar, in Cmd+K and on a g-key. */
+/** A place you go to by name: a list view, a tab in its sub-product, in Cmd+K and on a g-key. */
 export interface Place {
   view: ListView;
-  /** Its name in the sidebar and on the phone's tab bar. */
+  /** Its name on its tab and on the phone's tab bar. */
   label: string;
-  /** Its icon in the sidebar and on the phone's tab bar. */
+  /** Its icon on the phone's tab bar. */
   icon: IconName;
   /** The keys that go there. */
   keys: string;
@@ -129,7 +130,7 @@ export interface Place {
   lists?: readonly string[];
 }
 
-/** In the sidebar's order. */
+/** In the order Cmd+K and the shortcuts sheet list them. */
 export const PLACES: readonly Place[] = [
   {
     view: "today",
@@ -151,17 +152,18 @@ export const PLACES: readonly Place[] = [
   { view: "calendar", label: "Calendar", icon: "calendar", keys: "g c" },
   {
     view: "canvases",
-    label: "Canvas",
+    label: "Boards",
     icon: "board",
     keys: "g w",
-    about: "boards",
+    about: "canvas boards",
     lists: ["canvas"],
   },
   {
     view: "sheets",
-    label: "Spreadsheets",
+    label: "Sheets",
     icon: "sheet",
     keys: "g x",
+    about: "spreadsheets",
     lists: ["spreadsheet"],
   },
   {
@@ -181,20 +183,25 @@ export const PLACES: readonly Place[] = [
   },
   {
     view: "voice",
-    label: "Voice",
+    label: "Dictation",
     icon: "dictation",
     keys: "g v",
     about: "dictation history, dictionary, snippets",
   },
   {
     view: "browser",
-    label: "Browser",
+    label: "Chrome",
     icon: "browser",
     keys: "g b",
-    go: "the browser",
     about: "your Chrome, live",
   },
-  { view: "activity", label: "Jarvis's activity", icon: "activity", keys: "g a" },
+  {
+    view: "activity",
+    label: "What Jarvis did",
+    icon: "activity",
+    keys: "g a",
+    go: "what Jarvis did",
+  },
   { view: "settings", label: "Settings", icon: "settings", keys: "g s" },
   {
     view: "trash",

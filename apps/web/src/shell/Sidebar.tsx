@@ -1,15 +1,16 @@
-// The left rail: where you are, what's waiting, and whether the live connection is up.
+// The left rail: Hearth's seven places (Today and six sub-products), where you are, what's waiting
+// on you, and whether the live connection is up. Settings sits at the bottom, with Jarvis's chat.
 
-import { createRoot, createSignal, For, Show } from "solid-js";
+import { createRoot, createSignal, For, type JSX, Show } from "solid-js";
 import { Icon } from "../components/icons.tsx";
 import { Flame } from "../components/Mark.tsx";
 import { JarvisStatusMark, jarvis } from "../jarvis/JarvisPane.tsx";
 import { authPost } from "../lib/api.ts";
-import { PLACES, productOf } from "../lib/apps.ts";
+import { APPS, type App, type AppId, appOf } from "../lib/apps.ts";
 import { okToSignOut } from "../lib/docStore.ts";
 import { MOD } from "../lib/hotkeys.ts";
 import { live } from "../lib/live.ts";
-import { type ListView, layout } from "../lib/panes.ts";
+import { layout } from "../lib/panes.ts";
 import { inboxInput, useAction, usePendingApprovals } from "../lib/query.ts";
 import type { InboxRow } from "../lib/types.ts";
 
@@ -83,13 +84,53 @@ export function Sidebar(props: {
 }) {
   const waiting = useWaiting();
   const mail = useAction<{ unread: number; toReply: number }>("mail.counts");
-  const current = () => layout.panes()[layout.focused()]?.view;
+  const current = () => {
+    const view = layout.panes()[layout.focused()]?.view;
+    return view ? appOf(view).id : undefined;
+  };
 
-  const count = (view: ListView) => {
-    if (view === "today") return waiting() || null;
-    if (view === "mail") return mail.data?.unread || null;
+  // Today counts what's waiting for your yes or a look; Mail, the replies you owe.
+  const count = (id: AppId) => {
+    if (id === "today") return waiting() || null;
+    if (id === "mail") return mail.data?.toReply || null;
     return null;
   };
+
+  /** Opens a place at its home, beside on shift-click; on a phone, in place of what's there. */
+  const go = (app: App, beside: boolean) => {
+    const route = { view: app.views[0]! };
+    if (props.onPicked) {
+      jarvis.toggle(false);
+      layout.reset(route);
+      props.onPicked();
+    } else layout.open(route, { beside });
+  };
+
+  const row = (app: App): JSX.Element => (
+    <button
+      type="button"
+      // Its icon takes its sub-product's colour while it's the place you're in.
+      data-product={app.hue ? app.id : undefined}
+      class={`group flex min-h-11 w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm md:min-h-0 ${current() === app.id ? "bg-panel font-medium shadow-sm" : "text-muted hover:text-ink"}`}
+      aria-current={current() === app.id ? "page" : undefined}
+      onClick={(e) => go(app, e.shiftKey)}
+    >
+      {app.icon === "mark" ? (
+        <JarvisStatusMark />
+      ) : (
+        <Icon
+          name={app.icon}
+          class={current() === app.id ? "text-hue" : "text-faint group-hover:text-muted"}
+        />
+      )}
+      <span class="flex-1">{app.label}</span>
+      <Show when={count(app.id)}>
+        <span class="rounded-full bg-accent px-1.5 text-micro font-semibold text-on-fill tabular-nums">
+          {count(app.id)}
+        </span>
+      </Show>
+    </button>
+  );
 
   return (
     <nav class="flex h-full w-52 shrink-0 flex-col border-r border-line bg-sunk/50 px-2 py-3">
@@ -123,40 +164,10 @@ export function Sidebar(props: {
         <span class="hidden text-xs md:inline">{MOD === "⌘" ? "⌘K" : "Ctrl K"}</span>
       </button>
       <ul class="min-h-0 space-y-0.5 overflow-y-auto">
-        <For each={PLACES}>
-          {(item) => (
-            <li>
-              <button
-                type="button"
-                // Its icon takes its sub-product's colour while it's the place you're in.
-                data-product={productOf(item.view)}
-                class={`group flex min-h-11 w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm md:min-h-0 ${current() === item.view ? "bg-panel font-medium shadow-sm" : "text-muted hover:text-ink"}`}
-                aria-current={current() === item.view ? "page" : undefined}
-                title={`${item.label} (${item.keys})`}
-                onClick={(e) => {
-                  if (props.onPicked) {
-                    jarvis.toggle(false);
-                    layout.reset({ view: item.view });
-                    props.onPicked();
-                  } else layout.open({ view: item.view }, { beside: e.shiftKey });
-                }}
-              >
-                <Icon
-                  name={item.icon}
-                  class={current() === item.view ? "text-hue" : "text-faint group-hover:text-muted"}
-                />
-                <span class="flex-1">{item.label}</span>
-                <Show when={count(item.view)}>
-                  <span class="rounded-full bg-accent px-1.5 text-micro font-semibold text-on-fill">
-                    {count(item.view)}
-                  </span>
-                </Show>
-              </button>
-            </li>
-          )}
-        </For>
+        <For each={APPS.filter((a) => !a.utility)}>{(app) => <li>{row(app)}</li>}</For>
       </ul>
       <div class="flex-1" />
+      <For each={APPS.filter((a) => a.utility)}>{(app) => <div class="mb-1">{row(app)}</div>}</For>
       <button
         type="button"
         class={`mb-1 flex min-h-11 items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm md:min-h-0 ${jarvis.open() ? "text-ink" : "text-muted hover:text-ink"}`}
@@ -166,8 +177,9 @@ export function Sidebar(props: {
         }}
         title="Ctrl+J"
       >
-        <JarvisStatusMark />
-        {jarvis.open() ? "Hide Jarvis" : "Show Jarvis"}
+        {/* Jarvis's chat, at the side: the Jarvis row above is what it did and knows. */}
+        <Icon name="panel-right" class="text-faint" />
+        {jarvis.open() ? "Hide Jarvis" : "Ask Jarvis"}
       </button>
       <button
         type="button"

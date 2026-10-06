@@ -48,6 +48,13 @@ describe("the sub-products", () => {
     expect(appOf("thread").id).toBe("mail");
   });
 
+  it("open Jarvis on what it did, with Memory and Chrome as its other tabs", () => {
+    expect(appOf("activity").views).toEqual(["activity", "memory", "browser"]);
+    // The other tabbed ones: Docs, Today and Settings.
+    expect(appOf("notes").views).toEqual(["notes", "sheets", "canvases"]);
+    expect(appOf("settings").views).toEqual(["settings", "voice", "trash"]);
+  });
+
   it("make Today the Today app's home, with the inbox beside it", () => {
     expect(appOf("today").views).toEqual(["today", "inbox"]);
     expect(appOf("inbox").id).toBe("today");
@@ -100,8 +107,7 @@ describe("places", () => {
     });
   });
 
-  it("keep the names the sidebar, the shortcuts sheet and Cmd+K have always used", () => {
-    // Except the inbox, now Updates: Today is where you start, and the inbox was Jarvis's news.
+  it("are named as their tabs are, in the shortcuts sheet and Cmd+K too", () => {
     expect(PLACES.map((p) => p.label)).toEqual([
       "Today",
       "Updates",
@@ -109,13 +115,13 @@ describe("places", () => {
       "Tasks",
       "Notes",
       "Calendar",
-      "Canvas",
-      "Spreadsheets",
+      "Boards",
+      "Sheets",
       "People",
       "Memory",
-      "Voice",
-      "Browser",
-      "Jarvis's activity",
+      "Dictation",
+      "Chrome",
+      "What Jarvis did",
       "Settings",
       "Trash",
     ]);
@@ -126,13 +132,13 @@ describe("places", () => {
       "Go to Tasks",
       "Go to Notes",
       "Go to Calendar",
-      "Go to Canvas",
-      "Go to Spreadsheets",
+      "Go to Boards",
+      "Go to Sheets",
       "Go to People",
       "Go to Memory",
-      "Go to Voice",
-      "Go to the browser",
-      "Go to Jarvis's activity",
+      "Go to Dictation",
+      "Go to Chrome",
+      "Go to what Jarvis did",
       "Go to Settings",
       "Go to the trash",
     ]);
@@ -143,17 +149,17 @@ describe("places", () => {
       "Go to Tasks",
       "Go to Notes",
       "Go to Calendar",
-      "Go to Canvas (boards)",
-      "Go to Spreadsheets",
+      "Go to Boards (canvas boards)",
+      "Go to Sheets (spreadsheets)",
       "Go to People",
       "Go to Memory (what Jarvis remembers)",
-      "Go to Voice (dictation history, dictionary, snippets)",
-      "Go to the browser (your Chrome, live)",
-      "Go to Jarvis's activity",
+      "Go to Dictation (dictation history, dictionary, snippets)",
+      "Go to Chrome (your Chrome, live)",
+      "Go to what Jarvis did",
       "Go to Settings",
       "Go to the trash (restore what you deleted)",
     ]);
-    expect(goLabel(placeOf("browser"))).toBe("Go to the browser");
+    expect(goLabel(placeOf("activity"))).toBe("Go to what Jarvis did");
   });
 
   it("still open from every view name a link may carry", () => {

@@ -51,7 +51,7 @@ export function Voice() {
   const [tab, setTab] = createSignal<Tab>("history");
   return (
     <div class="flex h-full flex-col">
-      <PaneHeader title="Voice" sub="What you've dictated, and how it's cleaned up" />
+      <PaneHeader title="Dictation" sub="What you've dictated, and how it's cleaned up" />
       <div role="tablist" class="flex gap-1 border-b border-line px-4 py-1.5">
         <For each={TABS}>
           {(t) => (
