@@ -4,7 +4,7 @@
 
 import { Show } from "solid-js";
 import { timeNow } from "../lib/clock.ts";
-import { ago, time } from "../lib/format.ts";
+import { ago, timeOn } from "../lib/format.ts";
 import type { MailAccount } from "../lib/types.ts";
 
 const count = (n: number) => n.toLocaleString("en-US");
@@ -32,8 +32,9 @@ export function syncLine(a: MailAccount): SyncLine {
     };
   if (a.state === "paused" && a.pausedUntil) {
     const quiet = a.syncedAt ? timeNow().getTime() - new Date(a.syncedAt).getTime() : 0;
-    // The time ends in "a.m." or "p.m.", which ends the sentence too.
-    const resuming = time(new Date(a.pausedUntil));
+    // "a.m." or "p.m." ends the sentence too; "tomorrow" needs its own period.
+    const at = timeOn(new Date(a.pausedUntil));
+    const resuming = at.endsWith(".") ? at : `${at}.`;
     return {
       badge: "mail paused",
       tone: quiet >= PAUSED_BAD_MS ? "bad" : "muted",
