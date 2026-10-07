@@ -44,6 +44,13 @@ export interface TurnState {
   sites: SiteRules;
   /** What first made it untrusted (a tool or record type), kept on the conversation (D58). */
   taintedBy?: string;
+  /**
+   * The owner's own ask still drives it: nothing outside was read this turn, and it isn't about
+   * an outside record. Reading anything clears it (readFrom). Only a reminder's cap reads it.
+   */
+  asked?: boolean;
+  /** The owner said it to the chat mic (D46). */
+  heard?: boolean;
 }
 
 export type LogFn = (
@@ -83,6 +90,7 @@ export function buildTools(kernel: Kernel, state: TurnState, log: LogFn): BrainT
       conversationId: state.conversationId,
       correlationId: state.turnId,
       ...(state.causationId ? { causationId: state.causationId } : {}),
+      ...(state.asked ? { asked: true, ...(state.heard ? { heard: true } : {}) } : {}),
     }),
     trust: {
       seenUrls: state.seenUrls,

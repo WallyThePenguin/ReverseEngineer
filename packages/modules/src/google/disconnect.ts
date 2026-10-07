@@ -106,10 +106,14 @@ async function rehome(ctx: ActionContext, leaving: string): Promise<string[]> {
   return [...kept];
 }
 
-/** Postgres stopped waiting (on a lock, or for the statement), wherever the driver wrapped it. */
+/**
+ * Postgres stopped waiting (on a lock, or for the statement) or picked this to undo in a deadlock
+ * (a calendar sync noting the account's health just then), wherever the driver wrapped it.
+ */
+const WAITED = new Set(["57014", "55P03", "40P01"]);
 function gaveUpWaiting(err: unknown): boolean {
   for (let e = err; e instanceof Error; e = e.cause)
-    if ("code" in e && (e.code === "57014" || e.code === "55P03")) return true;
+    if ("code" in e && WAITED.has(String(e.code))) return true;
   return false;
 }
 
@@ -127,13 +131,7 @@ async function holdAll(ctx: ActionContext) {
     ...mail.map((a) => a.id),
     ...google.map((g) => accountId("gmail", g.email)),
   ]);
-  try {
-    await holdSyncs(ctx, [...ids]);
-  } catch (err) {
-    if (gaveUpWaiting(err))
-      throw new ActionError("conflict", "Mail is syncing; try again in a moment.");
-    throw err;
-  }
+  await holdSyncs(ctx, [...ids]);
 }
 
 export const disconnectAction = defineAction({
@@ -144,64 +142,73 @@ export const disconnectAction = defineAction({
   risk: "internal",
   callers: ["owner"],
   async handler(i, ctx) {
-    const email = i.email.toLowerCase();
-    // A sync running now may be filing mail into this account's conversations, which a sync of
-    // another account can join too: none of its mail may go with them, never to be fetched again.
-    await holdAll(ctx);
-    // And a sync starting now waits until it's gone, rather than make its mail account again.
-    await ctx.tx.select().from(googleAccount).where(eq(googleAccount.email, email)).for("update");
-    const cals = await ctx.tx.select().from(calendar).where(eq(calendar.account, email));
-    await handOver(ctx, cals);
-    await dropCalendars(
-      ctx,
-      cals.map((c) => c.id),
-    );
-    const mailId = `gmail:${email}`;
-    const files = await ctx.tx
-      .selectDistinct({ hash: mailMessage.rawHash })
-      .from(mailMessage)
-      .where(eq(mailMessage.accountId, mailId));
-    const kept = i.keepDrafts
-      ? await ctx.tx
-          .select({ id: mailDraft.entityId })
-          .from(mailDraft)
-          .where(eq(mailDraft.accountId, mailId))
-      : [];
-    const shared = await rehome(ctx, mailId);
-    // Its mail in the other accounts' conversations (a copy that joined one, an answer that came
-    // only here) goes too; those are worked out again, and go if nothing's left.
-    const joined = await ctx.tx
-      .selectDistinct({ id: mailMessage.threadId })
-      .from(mailMessage)
-      .innerJoin(mailThread, eq(mailThread.entityId, mailMessage.threadId))
-      .where(and(eq(mailMessage.accountId, mailId), ne(mailThread.accountId, mailId)));
-    await dropMail(ctx, mailMessage, mailId);
-    await ctx.tx.delete(mailOp).where(eq(mailOp.accountId, mailId));
-    await dropMail(ctx, mailThread, mailId);
-    // Kept drafts lose their account with it (the key is set to null) and wait for a new From.
-    if (!i.keepDrafts) await dropMail(ctx, mailDraft, mailId);
-    await closeMailAlerts(ctx, mailId, false);
-    await ctx.tx.delete(mailAccount).where(eq(mailAccount.id, mailId));
-    // Worked out once the account's gone, as its address is no longer one of yours.
-    for (const id of new Set([...shared, ...joined.map((j) => j.id)]))
-      await recomputeThread(ctx, id);
-    const gone = await ctx.tx
-      .delete(googleAccount)
-      .where(eq(googleAccount.email, email))
-      .returning({ email: googleAccount.email, token: googleAccount.refreshToken });
-    await closeCalendarAlerts(ctx, email);
-    let google: GoogleClient | null = null;
     try {
-      google = ctx.service<GoogleClient>(GOOGLE_SERVICE);
-    } catch {}
-    for (const g of gone) await google?.revoke(g.token, g.email);
-    await forgetFiles(
-      ctx,
-      files.map((f) => f.hash),
-    );
-    return { removed: gone.length, keptDrafts: kept.length };
+      return await disconnect(i, ctx);
+    } catch (err) {
+      if (gaveUpWaiting(err))
+        throw new ActionError("conflict", "Google is syncing; try again in a moment.");
+      throw err;
+    }
   },
 });
+
+async function disconnect(i: { email: string; keepDrafts: boolean }, ctx: ActionContext) {
+  const email = i.email.toLowerCase();
+  // A sync running now may be filing mail into this account's conversations, which a sync of
+  // another account can join too: none of its mail may go with them, never to be fetched again.
+  await holdAll(ctx);
+  // And a sync starting now waits until it's gone, rather than make its mail account again.
+  await ctx.tx.select().from(googleAccount).where(eq(googleAccount.email, email)).for("update");
+  const cals = await ctx.tx.select().from(calendar).where(eq(calendar.account, email));
+  await handOver(ctx, cals);
+  await dropCalendars(
+    ctx,
+    cals.map((c) => c.id),
+  );
+  const mailId = `gmail:${email}`;
+  const files = await ctx.tx
+    .selectDistinct({ hash: mailMessage.rawHash })
+    .from(mailMessage)
+    .where(eq(mailMessage.accountId, mailId));
+  const kept = i.keepDrafts
+    ? await ctx.tx
+        .select({ id: mailDraft.entityId })
+        .from(mailDraft)
+        .where(eq(mailDraft.accountId, mailId))
+    : [];
+  const shared = await rehome(ctx, mailId);
+  // Its mail in the other accounts' conversations (a copy that joined one, an answer that came
+  // only here) goes too; those are worked out again, and go if nothing's left.
+  const joined = await ctx.tx
+    .selectDistinct({ id: mailMessage.threadId })
+    .from(mailMessage)
+    .innerJoin(mailThread, eq(mailThread.entityId, mailMessage.threadId))
+    .where(and(eq(mailMessage.accountId, mailId), ne(mailThread.accountId, mailId)));
+  await dropMail(ctx, mailMessage, mailId);
+  await ctx.tx.delete(mailOp).where(eq(mailOp.accountId, mailId));
+  await dropMail(ctx, mailThread, mailId);
+  // Kept drafts lose their account with it (the key is set to null) and wait for a new From.
+  if (!i.keepDrafts) await dropMail(ctx, mailDraft, mailId);
+  await closeMailAlerts(ctx, mailId, false);
+  await ctx.tx.delete(mailAccount).where(eq(mailAccount.id, mailId));
+  // Worked out once the account's gone, as its address is no longer one of yours.
+  for (const id of new Set([...shared, ...joined.map((j) => j.id)])) await recomputeThread(ctx, id);
+  const gone = await ctx.tx
+    .delete(googleAccount)
+    .where(eq(googleAccount.email, email))
+    .returning({ email: googleAccount.email, token: googleAccount.refreshToken });
+  await closeCalendarAlerts(ctx, email);
+  let google: GoogleClient | null = null;
+  try {
+    google = ctx.service<GoogleClient>(GOOGLE_SERVICE);
+  } catch {}
+  for (const g of gone) await google?.revoke(g.token, g.email);
+  await forgetFiles(
+    ctx,
+    files.map((f) => f.hash),
+  );
+  return { removed: gone.length, keptDrafts: kept.length };
+}
 
 /**
  * Deletes the raw copies of the account's mail, but not ones another account's mail has too. In

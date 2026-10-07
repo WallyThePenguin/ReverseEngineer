@@ -10,6 +10,7 @@ import { copyKey, copyThread, otherAccounts } from "./copies.ts";
 import { recomputeThread } from "./flags.ts";
 import { isCalendar, parseInvite } from "./invites.ts";
 import { type ParsedMail, parseMail, snippetOf } from "./mime.ts";
+import { accountAddresses } from "./mine.ts";
 import { laneFor, linkPeople } from "./people.ts";
 import type { RawMail } from "./provider.ts";
 
@@ -81,11 +82,15 @@ function inviteIn(p: ParsedMail) {
   return invite && invite.organizer === p.from?.address ? invite : null;
 }
 
-/** Saves one message from the provider. Returns null for mail Hearth leaves out. */
+/**
+ * Saves one message from the provider. Returns null for mail Hearth leaves out. `yours` gives your
+ * accounts' addresses: a sync reads them once for everything it saves.
+ */
 export async function saveMail(
   ctx: ActionContext,
   account: AccountRow,
   mail: RawMail,
+  yours: () => Promise<ReadonlySet<string>> = () => accountAddresses(ctx.tx),
 ): Promise<Saved | null> {
   if (leftOut(mail.labels)) {
     await removeMail(ctx, account.id, [mail.providerId]);
@@ -165,12 +170,7 @@ export async function saveMail(
     bulk: p.bulk,
     copyKey: key,
   });
-  await linkPeople(
-    ctx,
-    message.id,
-    { outbound, from: p.from, to: p.to, cc: p.cc },
-    account.address,
-  );
+  await linkPeople(ctx, message.id, { outbound, from: p.from, to: p.to, cc: p.cc }, await yours());
   await recomputeThread(ctx, threadId);
   return { id: message.id, threadId, added: true, outbound, parsed: p };
 }

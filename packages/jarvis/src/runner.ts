@@ -231,6 +231,15 @@ export class TurnRunner {
     const record = turn.subjectId ? await readRecord(this.kernel, turn.subjectId) : null;
     // A turn about something an outside tool wrote starts untrusted.
     if (record?.fromOutside) readFrom(state, record.source, record.text);
+    // Still the owner's own ask, though it may run untrusted: their own message in a
+    // conversation that read outside content before, or what they said to the chat mic (D46).
+    // Never a routine's run, a watch or an approval's resume, which the owner didn't just send;
+    // not one about an outside record; and not once it reads anything (readFrom).
+    state.asked =
+      !record?.fromOutside &&
+      turn.trigger === "chat" &&
+      (turn.origin === "owner" || turn.context.spoken === true);
+    state.heard = turn.context.spoken === true;
     const subject = record?.text ?? null;
     // A tool-less turn's answer leaves Hearth unseen, so it gets no memory either.
     const bare = NO_TOOLS.has(turn.trigger);
