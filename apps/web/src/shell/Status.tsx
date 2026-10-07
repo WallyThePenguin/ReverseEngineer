@@ -7,7 +7,7 @@ import { UpdateNotice } from "../components/UpdateNotice.tsx";
 import { Button } from "../components/ui.tsx";
 import { degraded } from "../lib/degraded.ts";
 import { backoff, live } from "../lib/live.ts";
-import { ViewLoadError } from "./loadView.tsx";
+import { tryAgain, ViewLoadError } from "./loadView.tsx";
 
 /**
  * Tries again while `state` says the last try failed: after about a second, backing off to 30 s,
@@ -87,7 +87,8 @@ export function Crashed(props: { error: unknown; reset: () => void }) {
 
 /**
  * One pane broke: the rest of the app keeps working. A screen whose code couldn't load says why:
- * Hearth was updated (reload to open it), or the PC didn't answer (try again).
+ * Hearth was updated (reload to open it), or the PC didn't answer (try again, which reloads the
+ * page once the PC answers: a browser keeps a failed load).
  */
 export function PaneCrashed(props: { error: unknown; reset: () => void }) {
   console.error(props.error);
@@ -106,7 +107,11 @@ export function PaneCrashed(props: { error: unknown; reset: () => void }) {
       </p>
       <div class="flex gap-2">
         <Show when={why() !== "updated"}>
-          <Button small kind={why() ? "primary" : "plain"} onClick={props.reset}>
+          <Button
+            small
+            kind={why() ? "primary" : "plain"}
+            onClick={() => (why() === "offline" ? void tryAgain(props.reset) : props.reset())}
+          >
             Try again
           </Button>
         </Show>

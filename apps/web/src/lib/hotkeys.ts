@@ -20,6 +20,16 @@ export const MOD = IS_MAC ? "⌘" : "Ctrl";
 const stack: Binding[][] = [];
 let pending: string | null = null;
 let pendingTimer: number | undefined;
+let paused = false;
+
+/**
+ * No key does anything while the screen it would act on is covered (Hearth can't be reached):
+ * inert stops clicks and focus there, not keys heard by the window.
+ */
+export function pauseHotkeys(on: boolean): void {
+  paused = on;
+  pending = null;
+}
 
 export function chordOf(e: KeyboardEvent): string {
   const parts: string[] = [];
@@ -37,7 +47,8 @@ function typing(target: EventTarget | null): boolean {
 }
 
 function handle(e: KeyboardEvent) {
-  if (e.isComposing || ["shift", "control", "meta", "alt"].includes(e.key.toLowerCase())) return;
+  if (paused || e.isComposing || ["shift", "control", "meta", "alt"].includes(e.key.toLowerCase()))
+    return;
   const chord = chordOf(e);
   const inInput = typing(e.target);
   const candidates = pending ? [`${pending} ${chord}`, chord] : [chord];
