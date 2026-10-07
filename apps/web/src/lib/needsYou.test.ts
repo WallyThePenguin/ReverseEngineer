@@ -56,6 +56,7 @@ const draft = (id: string, threadId: string | null): MailDraft => ({
   subject: "Re: Lease",
   text: "Hi Dana",
   updatedAt: "2026-10-05T11:45:00Z",
+  version: 0,
   by: "jarvis",
 });
 

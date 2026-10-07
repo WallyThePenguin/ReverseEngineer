@@ -17,49 +17,24 @@ import {
   createEntity,
   defineAction,
   type ReadContext,
+  trashEntity,
   updateEntity,
 } from "@hearth/kernel";
-import { and, asc, desc, eq, gte, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { body, id } from "../shared.ts";
+import { addresses, clean, parseAll } from "./addresses.ts";
 import { once } from "./copies.ts";
-import { cleanName, newMessageId } from "./mime.ts";
+import { newMessageId } from "./mime.ts";
 import { addressKey, yourAddresses } from "./mine.ts";
 import { checkRecipients } from "./recipients.ts";
 import { loadThread } from "./views.ts";
 import { threadsToDraft } from "./waiting.ts";
 
-const address = z.string().trim().max(320).describe('An email address, or "Name <address>".');
-const addresses = z.array(address).max(50);
-
-/** "Ana Silva <ana@x.example>" or "ana@x.example" → an address, or null if it isn't one. */
-export function parseAddress(raw: string): MailAddress | null {
-  const m =
-    raw.trim().match(/^(?:"?([^"<]*?)"?\s*)?<([^<>\s]+@[^<>\s]+)>$/) ??
-    raw.trim().match(/^()([^<>\s]+@[^<>\s]+)$/);
-  if (!m || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(m[2]!)) return null;
-  return clean({ address: m[2]!, name: m[1] });
-}
-
-/** An address as a draft keeps it: lower-case, with a name that's safe to show. */
-function clean(a: MailAddress): MailAddress {
-  const name = cleanName(a.name);
-  return { address: a.address.toLowerCase(), ...(name ? { name } : {}) };
-}
-
 /** Address first, so a name can't pass for another recipient: "ana@x.example (Ana Silva)". */
 const shown = (a: MailAddress) => (a.name ? `${a.address} (${a.name})` : a.address);
 /** Subjects on one line, without characters that change how the line reads. */
 export const oneLine = (s: string) => s.replace(/[\p{Cc}\p{Cf}]/gu, " ");
-
-function parseAll(list: string[] | undefined): MailAddress[] | undefined {
-  if (!list) return undefined;
-  return list.map((raw) => {
-    const a = parseAddress(raw);
-    if (!a) throw new ActionError("invalid_input", `"${raw}" isn't an email address.`);
-    return a;
-  });
-}
 
 export interface DraftView {
   id: string;
@@ -72,6 +47,8 @@ export interface DraftView {
   subject: string;
   text: string;
   updatedAt: Date;
+  /** Raised by every change: what mail.draft_update's baseVersion and mail.send's version name. */
+  version: number;
   /** Who started it: Jarvis, or you (yourself, or a tool working for you). */
   by: "jarvis" | "owner";
 }
@@ -94,6 +71,7 @@ export async function loadDraft(db: DbOrTx, draftId: string): Promise<DraftView 
     subject: row.e.title,
     text: row.e.body ?? "",
     updatedAt: row.e.updatedAt,
+    version: row.d.version,
     by: row.e.createdBy === PRINCIPAL.jarvis ? "jarvis" : "owner",
   };
 }
@@ -252,7 +230,12 @@ export const draftActions = [
         await oneDraftEach(ctx, i.threadId);
         await stillNeedsDraft(ctx, i.threadId);
       }
-      const asked = { to: parseAll(i.to), cc: parseAll(i.cc), bcc: parseAll(i.bcc) };
+      const typed = ctx.caller.kind === "owner";
+      const asked = {
+        to: parseAll(i.to, typed),
+        cc: parseAll(i.cc, typed),
+        bcc: parseAll(i.bcc, typed),
+      };
       await checkRecipients(ctx, i.threadId ?? null, asked);
       const reply = i.threadId ? await replyHeaders(ctx, i.threadId, i.replyAll) : null;
       const account = reply?.account ?? (await accountFor(ctx, i.account));
@@ -290,28 +273,42 @@ export const draftActions = [
       subject: z.string().max(500).optional(),
       text: body.optional(),
       account: z.string().email().optional().describe("Which of the owner's accounts it's from."),
+      baseVersion: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe("The version you read. If the draft changed since, nothing is saved."),
     }),
     risk: "internal",
     async handler(i, ctx) {
+      // Held until this change is in, so two saves on one version can't both pass.
+      await ctx.tx.select().from(mailDraft).where(eq(mailDraft.entityId, i.id)).for("update");
       const before = await loadDraft(ctx.tx, i.id);
       if (!before) throw new ActionError("not_found", "No draft with that id.");
-      const to = parseAll(i.to);
-      const cc = parseAll(i.cc);
-      const bcc = parseAll(i.bcc);
+      if (i.baseVersion !== undefined && i.baseVersion !== before.version)
+        throw new ActionError(
+          "conflict",
+          "The draft changed since you read it (Jarvis or another screen). Read it again.",
+        );
+      const typed = ctx.caller.kind === "owner";
+      const to = parseAll(i.to, typed);
+      const cc = parseAll(i.cc, typed);
+      const bcc = parseAll(i.bcc, typed);
       await checkRecipients(ctx, before.threadId ?? null, { to, cc, bcc });
       await updateEntity(ctx, i.id, { title: i.subject, body: i.text }, { type: "email_draft" });
       // The Message-ID stays: a Send that went out from this account is still found in Sent.
       const from = i.account ? await accountFor(ctx, i.account) : null;
-      if (to || cc || bcc || from)
-        await ctx.tx
-          .update(mailDraft)
-          .set({
-            ...(to ? { toAddresses: to } : {}),
-            ...(cc ? { ccAddresses: cc } : {}),
-            ...(bcc ? { bccAddresses: bcc } : {}),
-            ...(from ? { accountId: from.id } : {}),
-          })
-          .where(eq(mailDraft.entityId, i.id));
+      await ctx.tx
+        .update(mailDraft)
+        .set({
+          ...(to ? { toAddresses: to } : {}),
+          ...(cc ? { ccAddresses: cc } : {}),
+          ...(bcc ? { bccAddresses: bcc } : {}),
+          ...(from ? { accountId: from.id } : {}),
+          version: sql`${mailDraft.version} + 1`,
+        })
+        .where(eq(mailDraft.entityId, i.id));
       const d = (await loadDraft(ctx.tx, i.id))!;
       // What's in the draft now, for a Send that must match it.
       return { ...d, snapshot: snapshotOf(d) };
@@ -319,8 +316,9 @@ export const draftActions = [
   }),
   defineAction({
     name: "mail.drafts",
-    description: "Drafts waiting to be sent, newest first, or the ones for one conversation.",
-    input: z.object({ threadId: id.optional() }),
+    description:
+      "Drafts waiting to be sent, newest first, or the ones for one conversation, or one by id.",
+    input: z.object({ threadId: id.optional(), id: id.optional() }),
     risk: "read",
     // Replies carry the sender's subject and names, and may hold text written after reading mail.
     external: true,
@@ -333,6 +331,7 @@ export const draftActions = [
           and(
             isNull(entity.deletedAt),
             i.threadId ? eq(mailDraft.threadId, i.threadId) : undefined,
+            i.id ? eq(mailDraft.entityId, i.id) : undefined,
           ),
         )
         .orderBy(desc(entity.updatedAt))
@@ -348,13 +347,13 @@ export const draftActions = [
   }),
   defineAction({
     name: "mail.discard",
-    description: "Throw a draft away.",
+    description: "Throw a draft away, to the trash: entity.restore brings it back.",
     input: z.object({ id }),
     risk: "internal",
     async handler(i, ctx) {
       if (!(await loadDraft(ctx.tx, i.id)))
         throw new ActionError("not_found", "No draft with that id.");
-      await ctx.tx.delete(entity).where(eq(entity.id, i.id));
+      await trashEntity(ctx, i.id);
       return { discarded: true };
     },
   }),

@@ -375,6 +375,8 @@ export function createSaver<T>(o: SaverOptions<T>) {
     },
     /** Whether a new name is waiting to be saved (so a copy from elsewhere doesn't undo it). */
     renaming: () => title !== undefined,
+    /** Saves now: the version Hearth has it as, or null while it isn't all saved. */
+    flush: () => save().then(() => (loaded() && !gone() && !unsaved() ? version : null)),
     /** Saves now and stops listening (closing it). */
     close() {
       closed = true;

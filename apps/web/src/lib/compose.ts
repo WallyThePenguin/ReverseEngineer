@@ -1,9 +1,11 @@
 // What a draft shows when it opens. A reply folds Bcc and Subject behind "More", since they come
 // from the conversation, but never a Bcc with anyone on it, nor a Subject that isn't just the
 // conversation's: nothing an email carries is out of sight when you press Send, whoever filled
-// the draft in (Jarvis drafts replies too, and can set the subject).
+// the draft in (Jarvis drafts replies too, and can set the subject). A draft changed elsewhere
+// while you type (Jarvis, another screen) is merged into yours, field by field.
 
-import type { MailDraft } from "./types.ts";
+import { mergeText } from "@hearth/core";
+import type { MailAddress, MailDraft } from "./types.ts";
 
 type Draft = Pick<MailDraft, "threadId" | "cc" | "bcc" | "subject">;
 
@@ -28,4 +30,50 @@ export function foldsExtras(draft: Draft, conversation?: string): boolean {
 /** Whether Cc starts out showing on its own: it has someone on it. It then stays while you edit. */
 export function showsCc(draft: Draft, conversation?: string): boolean {
   return !foldsExtras(draft, conversation) || draft.cc.length > 0;
+}
+
+/** A draft as the composer has it: each field as it shows, addresses as typed. */
+export interface DraftFields {
+  from: string | null;
+  to: string;
+  cc: string;
+  bcc: string;
+  subject: string;
+  text: string;
+}
+
+/** Recipients as a field shows them: "Ana Silva <ana@x.example>, bo@x.example". */
+export const showAddresses = (xs: MailAddress[]) =>
+  xs.map((a) => (a.name ? `${a.name} <${a.address}>` : a.address)).join(", ");
+
+/** A field's recipients, split at commas, semicolons and new lines. */
+export const splitAddresses = (s: string) =>
+  s
+    .split(/[,;\n]/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+export const fieldsOf = (d: MailDraft): DraftFields => ({
+  from: d.account,
+  to: showAddresses(d.to),
+  cc: showAddresses(d.cc),
+  bcc: showAddresses(d.bcc),
+  subject: d.subject,
+  text: d.text,
+});
+
+/**
+ * Yours and a copy saved elsewhere since `base`: a field you changed keeps your change, one you
+ * didn't takes theirs. In the message, the lines only they wrote are kept too, after yours.
+ */
+export function mergeDraft(base: DraftFields, mine: DraftFields, theirs: DraftFields): DraftFields {
+  const pick = <K extends keyof DraftFields>(k: K) => (mine[k] !== base[k] ? mine[k] : theirs[k]);
+  return {
+    from: pick("from"),
+    to: pick("to"),
+    cc: pick("cc"),
+    bcc: pick("bcc"),
+    subject: pick("subject"),
+    text: mergeText(base.text, mine.text, theirs.text),
+  };
 }

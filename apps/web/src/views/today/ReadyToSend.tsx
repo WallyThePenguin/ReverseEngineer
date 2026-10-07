@@ -119,7 +119,13 @@ function DraftRow(props: { draft: MailDraft; fresh: boolean; go: Go }) {
   const discard = async () => {
     setBusy(true);
     try {
-      if (await act("mail.discard", { id: d().id })) toast.show("Draft thrown away.");
+      const id = d().id;
+      // It goes to the trash, so Undo brings it back.
+      if (await act("mail.discard", { id }))
+        toast.show("Draft thrown away.", "info", {
+          label: "Undo",
+          run: () => void act("entity.restore", { id }),
+        });
     } finally {
       setBusy(false);
     }

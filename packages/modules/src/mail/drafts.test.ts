@@ -8,8 +8,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GOOGLE_SERVICE, SCOPES } from "../google/client.ts";
 import { FakeGoogle } from "../google/fake.ts";
 import { ALL_MODULES } from "../index.ts";
+import { parseAddress } from "./addresses.ts";
 import { BLOB_SERVICE, BlobStore } from "./blobs.ts";
-import { type DraftView, parseAddress } from "./drafts.ts";
+import type { DraftView } from "./drafts.ts";
 import { parseMail } from "./mime.ts";
 import type { ThreadSummary, ThreadView } from "./views.ts";
 
@@ -132,10 +133,20 @@ describe("drafts and sending", () => {
       text: "Hello",
     });
     expect(draft.to).toEqual([{ address: "bo@friends.example", name: "Bo Lee" }]);
+    // One you're still typing is saved as typed, and Send names it and sends nothing.
+    const half = await ok<DraftView>("mail.draft", { to: ["bo@friends", " "], text: "" });
+    expect(half.to).toEqual([{ address: "bo@friends" }]);
+    expect(await t.kernel.execute("mail.send", { id: half.id }, ownerCaller())).toMatchObject({
+      status: "error",
+      code: "invalid_input",
+      message: `"bo@friends" isn't an email address, so nothing was sent.`,
+    });
+    expect(g.gmail.sent).toEqual([]);
+    // Jarvis's must be addresses.
     const bad = await t.kernel.execute(
       "mail.draft",
       { to: ["not an address"], text: "" },
-      ownerCaller(),
+      jarvisCaller("owner"),
     );
     expect(bad).toMatchObject({ status: "error", code: "invalid_input" });
     const empty = await ok<DraftView>("mail.draft", { text: "No one to send to" });
@@ -183,6 +194,35 @@ describe("drafts and sending", () => {
       await t.kernel.execute("mail.send", { id: draft.id, snapshot: seen.snapshot }, ownerCaller()),
     ).toMatchObject({ status: "error", code: "conflict" });
     expect(g.gmail.sent).toEqual([]);
+  });
+
+  it("saves on the version you read, and sends only the version you saw", async () => {
+    const draft = await ok<DraftView>("mail.draft", { to: ["bo@x.example"], text: "Hi" });
+    await ok("mail.draft", { to: ["sam@x.example"], text: "Another" });
+    expect(draft.version).toBe(0);
+    const save = (text: string, baseVersion: number) =>
+      t.kernel.execute("mail.draft_update", { id: draft.id, text, baseVersion }, ownerCaller());
+    expect(await save("Hi Bo", 0)).toMatchObject({ status: "ok", result: { version: 1 } });
+    // Changed meanwhile (Jarvis, another screen): a save on the version before isn't written.
+    await ok("mail.draft_update", { id: draft.id, text: "Hi Bo, from the phone" });
+    expect(await save("Hi Bo!", 1)).toMatchObject({ status: "error", code: "conflict" });
+    expect(await ok<DraftView[]>("mail.drafts", { id: draft.id })).toMatchObject([
+      { id: draft.id, text: "Hi Bo, from the phone", version: 2 },
+    ]);
+    const send = (version: number) =>
+      t.kernel.execute("mail.send", { id: draft.id, version }, ownerCaller());
+    expect(await send(1)).toMatchObject({ status: "error", code: "conflict" });
+    expect(g.gmail.sent).toEqual([]);
+    expect(await send(2)).toMatchObject({ status: "ok" });
+    expect(g.gmail.sent).toHaveLength(1);
+  });
+
+  it("throws a draft away to the trash, and Undo brings it back", async () => {
+    const draft = await ok<DraftView>("mail.draft", { to: ["bo@x.example"], text: "Hi" });
+    await ok("mail.discard", { id: draft.id });
+    expect(await ok("mail.drafts")).toEqual([]);
+    await ok("entity.restore", { id: draft.id });
+    expect(await ok<DraftView[]>("mail.drafts")).toMatchObject([{ id: draft.id, text: "Hi" }]);
   });
 
   it("lets Jarvis address a reply only to people on the conversation", async () => {

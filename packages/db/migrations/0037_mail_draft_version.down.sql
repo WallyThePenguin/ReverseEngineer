@@ -1,0 +1,1 @@
+ALTER TABLE mail_draft DROP COLUMN IF EXISTS version;
