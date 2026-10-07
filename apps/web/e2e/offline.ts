@@ -128,6 +128,9 @@ try {
     "a page kept from before an update opens, then reloads into Hearth's build",
     async () => {
       type Doc = { document: { querySelector(q: string): { content: string } | null } };
+      // Back from the file to the app, which says which build it is.
+      await page.goto(base);
+      await home(page).waitFor();
       const running = await page.evaluate(
         `document.querySelector('meta[name="hearth-build"]').content`,
       );
