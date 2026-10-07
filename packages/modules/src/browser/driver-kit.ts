@@ -10,6 +10,8 @@ export {
   dialogVerdict,
   type Floor,
   FREE,
+  HEARTH_PAGE,
+  isHearthPage,
   judge,
   REJECT,
   type Verdict,

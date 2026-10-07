@@ -7,7 +7,7 @@
 // Passwords are typed only by browser.sign_in, from the vault, and card details never.
 import { type ActionContext, ActionError, defineAction } from "@hearth/kernel";
 import { z } from "zod";
-import { assertAllowed, browser, CALLERS } from "./access.ts";
+import { assertAllowed, assertNotHearth, browser, CALLERS } from "./access.ts";
 import { askWhy, isTrusted, judge, type Verdict } from "./classify.ts";
 import type { BrowserClient, TabInfo } from "./client.ts";
 import { DRIVER_REF, point } from "./drive.ts";
@@ -181,6 +181,7 @@ export const actActions = [
       const ref = i.ref as string;
       const { client, tab, known, el } = await locate(ctx, { tabId: i.tabId, ref }, "inspect");
       assertSite(tab, i.site);
+      assertNotHearth(ctx, tab.url);
       if (el.isLink)
         throw new ActionError(
           "invalid_input",
@@ -219,6 +220,7 @@ export const actActions = [
         "inspect",
       );
       assertSite(tab, i.site);
+      assertNotHearth(ctx, tab.url);
       if (el.kind === "password field")
         throw new ActionError(
           "forbidden",
@@ -255,6 +257,7 @@ export const actActions = [
     async handler(i, ctx) {
       const peek = await locate(ctx, i, "inspect");
       assertSite(peek.tab, i.site);
+      assertNotHearth(ctx, peek.tab.url);
       await assertMayPress(ctx, peek.tab, peek.el, `Changing "${peek.el.label}"`);
       const { client, tab, el } = await locate(ctx, i, "choose", { value: i.value }, false);
       if (el.error) throw new ActionError("invalid_input", el.error);

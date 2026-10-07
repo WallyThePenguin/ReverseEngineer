@@ -3,8 +3,11 @@
 // sends to another site. Only then come a few words in a control's name. Whether Jarvis may go
 // ahead is decided here: what doesn't send is free, what does is free on a site you trust, and
 // the floor (payments, passwords and security, moving money, deleting an account) always asks.
+import { networkInterfaces } from "node:os";
 import { onSiteList } from "@hearth/core";
 import { type ActionContext, getSetting } from "@hearth/kernel";
+import { isLoopbackHost } from "./pace.ts";
+import { TEST_PAGE_PATH } from "./self-test.ts";
 
 /** Words in a control's name that mean pressing it sends something. */
 export const VERBS =
@@ -93,6 +96,48 @@ export function askWhy(what: string, v: Verdict, trusted: boolean, instead: stri
     return `${what} ${FLOOR_WHY[v.floor]}, which always needs the owner's yes, even on a trusted site. ${instead}`;
   const tail = trusted ? "" : " On a site the owner trusts, it wouldn't need to ask.";
   return `${what} would ${v.why || "send something"}. ${instead}${tail}`;
+}
+
+/** Why Jarvis's hands stay off Hearth's own pages. */
+export const HEARTH_PAGE =
+  "That's Hearth's own page. Jarvis does what's there with its own actions (approvals, tasks, mail, chat, settings), never by working the page; reading it is fine. If the owner wants something pressed there, browser_submit asks them first.";
+
+const bare = (host: string) => host.replace(/^\[|\]$/g, "").toLowerCase();
+
+/** An address's host and port ("localhost", "4400"), or null if it isn't one. */
+function hostPort(raw: string | undefined) {
+  try {
+    const u = new URL(raw ?? "");
+    const port = u.port || (u.protocol === "https:" ? "443" : "80");
+    return { host: bare(u.hostname), port, path: u.pathname };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether an address is one of Hearth's own pages: where you open it (HEARTH_ORIGIN,
+ * HEARTH_LOCAL_ORIGIN), or this PC on Hearth's port or the usual 4400. Jarvis has its own actions
+ * for all of it, so a press, a key or typing there is never its own to do. Chrome's test page is
+ * Hearth's too, but has nothing behind it.
+ */
+export function isHearthPage(url: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  const at = hostPort(url);
+  if (!at || at.path === TEST_PAGE_PATH) return false;
+  if (at.port === "4400" || at.port === (env.HEARTH_PORT ?? "4400")) {
+    if (isLoopbackHost(at.host)) return true;
+    // Bound to every address (0.0.0.0), Hearth answers on each of this PC's.
+    const bound = bare(env.HEARTH_HOST ?? "");
+    const here =
+      bound === "0.0.0.0" || bound === "::"
+        ? Object.values(networkInterfaces()).flatMap((l) => (l ?? []).map((a) => bare(a.address)))
+        : [bound];
+    if (here.includes(at.host)) return true;
+  }
+  return [env.HEARTH_ORIGIN, env.HEARTH_LOCAL_ORIGIN].some((o) => {
+    const own = hostPort(o);
+    return own !== null && own.host === at.host && own.port === at.port;
+  });
 }
 
 /** The floor a piece of text (a button's name, a dialog's message) hits, if any. */

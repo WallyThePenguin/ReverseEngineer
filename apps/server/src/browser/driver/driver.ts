@@ -260,6 +260,8 @@ export class Driver {
     op: StepName,
     raw: Record<string, unknown>,
   ): Promise<string | Record<string, unknown>> {
+    // Every step on its own or in a batch, but not browser_submit's press, which the owner approved.
+    d.assertNotHearth();
     switch (op) {
       case "click":
         return clickStep(d, STEPS.click.parse(raw));

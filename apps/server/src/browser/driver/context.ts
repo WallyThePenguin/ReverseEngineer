@@ -1,7 +1,13 @@
 // What one driver step works with (B1): the tab, its protocol commands and isolated worlds, and
 // the policy the kernel sent along (blocked and trusted sites, pacing, an approved step's site).
 import { onSiteList } from "@hearth/core";
-import { type DriverPolicy, judge, type Verdict } from "@hearth/modules/driver-kit";
+import {
+  type DriverPolicy,
+  HEARTH_PAGE,
+  isHearthPage,
+  judge,
+  type Verdict,
+} from "@hearth/modules/driver-kit";
 import { fail } from "./errors.ts";
 import type { TabState } from "./tab.ts";
 import type { Cdp, CdpTransport } from "./transport.ts";
@@ -66,6 +72,11 @@ export class DriverContext {
     const host = hostOf(url);
     if (host && onSiteList(host, this.policy.blocked))
       throw fail("blocked", `${host} is on the owner's list of sites Jarvis never opens.`);
+  }
+
+  /** Hearth's own pages are the owner's to work: Jarvis presses there only with their yes. */
+  assertNotHearth(): void {
+    if (!this.policy.owner && isHearthPage(this.url())) throw fail("refused", HEARTH_PAGE);
   }
 
   /** An approved step runs only on the site it was approved for (a batch, on its own). */

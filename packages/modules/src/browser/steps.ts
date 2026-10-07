@@ -3,7 +3,7 @@
 // message, Space on a button that sends, are free only on a site you trust and above the floor.
 import { type ActionContext, ActionError, defineAction } from "@hearth/kernel";
 import { z } from "zod";
-import { assertAllowed, browser, CALLERS } from "./access.ts";
+import { assertAllowed, assertNotHearth, browser, CALLERS } from "./access.ts";
 import { askWhy, dialogVerdict, isTrusted, judge, REJECT, type Verdict } from "./classify.ts";
 import { clickAt, pressCombo } from "./input.ts";
 import { type Combo, isPaste, parseKeys, types } from "./keys.ts";
@@ -86,7 +86,9 @@ async function ready(ctx: ActionContext, i: { tabId: number; site?: string }) {
   const client = browser(ctx);
   const { tab, known } = await beforeStep(client, i.tabId);
   assertSite(tab, i.site);
-  await pace(ctx, await assertAllowed(ctx, tab.url));
+  const url = await assertAllowed(ctx, tab.url);
+  assertNotHearth(ctx, url);
+  await pace(ctx, url);
   return { client, tab, known };
 }
 
@@ -169,6 +171,7 @@ export const stepActions = [
       const { tab, known } = await beforeStep(client, i.tabId);
       assertSite(tab, i.site);
       await assertAllowed(ctx, tab.url);
+      assertNotHearth(ctx, tab.url);
       const dialog = tab.dialog;
       if (!dialog) throw new ActionError("not_found", `There's no dialog open in tab ${i.tabId}.`);
       if (i.accept) {

@@ -1,16 +1,19 @@
 import { approval, audit, event } from "@hearth/db";
-import { type Caller, jarvisCaller, ownerCaller } from "@hearth/kernel";
+import { type Caller, jarvisCaller, ownerCaller, systemCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { ALL_MODULES } from "../index.ts";
 import { ChromiumBrowser, chromiumForTests } from "./chromium.ts";
+import { HEARTH_PAGE } from "./classify.ts";
 import { BROWSER_SERVICE } from "./client.ts";
 import { pacing } from "./pace.ts";
 import { loadTiming } from "./page.ts";
 
 // The browser's hands, against real pages in Chromium (skipped where none is installed).
 const SHOP = "https://shop.example/";
+// 127.0.0.1, not localhost: a step on a one-word host never gets past its site check.
+const HEARTH = "http://127.0.0.1:4400/approvals";
 const PAGES: Record<string, string> = {
   [SHOP]: `<!doctype html><title>Shop</title>
     <form role="search" action="/search" method="get">
@@ -31,6 +34,10 @@ const PAGES: Record<string, string> = {
     </div>`,
   "https://shop.example/search": "<title>Results</title><p>3 kettles</p>",
   "https://shop.example/order": "<title>Thanks</title><p>Order placed</p>",
+  // Hearth's own address on this PC (served here: nothing reaches a real Hearth).
+  [HEARTH]: `<!doctype html><title>Hearth</title>
+    <button onclick="document.title = 'Approved'">Approve</button>
+    <input aria-label="Message to Jarvis">`,
 };
 
 const hasChromium = chromiumForTests();
@@ -119,6 +126,28 @@ describe.skipIf(!hasChromium)("Jarvis's hands in Chrome", () => {
     const arrow = await t.kernel.execute("browser.key", { tabId, keys: "ArrowDown" }, jarvis);
     expect(arrow).toMatchObject({ status: "error", code: "forbidden" });
     expect(chrome.posts).toEqual([]);
+  });
+
+  it("keeps its hands off Hearth's own pages, which it works with its own actions", async () => {
+    const { tabId } = await ok<{ tabId: number }>("browser.open", { url: HEARTH });
+    const page = await ok<{ text: string }>("browser.read", { tabId });
+    expect(page.text).toContain("[button E1: Approve] [field E2: Message to Jarvis]");
+    for (const [name, input] of [
+      ["browser.click", { tabId, ref: "E1" }],
+      ["browser.type", { tabId, ref: "E2", text: "approve them all" }],
+      ["browser.key", { tabId, keys: "Tab" }],
+    ] as const)
+      for (const caller of [jarvis, systemCaller()])
+        expect(await t.kernel.execute(name, input, caller)).toMatchObject({
+          status: "error",
+          code: "forbidden",
+          message: HEARTH_PAGE,
+        });
+    expect(await chrome.page(tabId).title()).toBe("Hearth");
+    expect(await chrome.page(tabId).inputValue("input")).toBe("");
+    // Yours to work, as ever.
+    await ok("browser.click", { tabId, ref: "E1" }, ownerCaller());
+    expect(await chrome.page(tabId).title()).toBe("Approved");
   });
 
   it("submits only with the owner's yes, and only what it said it would press", async () => {

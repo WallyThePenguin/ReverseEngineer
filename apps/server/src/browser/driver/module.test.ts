@@ -10,8 +10,9 @@ import {
   TEST_PAGE,
   TEST_PAGE_PATH,
 } from "@hearth/modules";
+import { HEARTH_PAGE } from "@hearth/modules/driver-kit";
 import { instantLoads } from "@hearth/modules/testing";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { refOf, useChrome } from "../../testing/drive.ts";
 
 const MORE = `<!doctype html><html><head><title>More</title></head><body style="margin:0">
@@ -25,7 +26,14 @@ document.getElementById("box").addEventListener("mousedown", (e) => { start = [e
 addEventListener("mouseup", (e) => { if (start) document.title = "dragged " + Math.round(e.clientX - start[0]) + "," + Math.round(e.clientY - start[1]); start = null; });
 </script></body></html>`;
 
-const h = useChrome("module", { [TEST_PAGE_PATH]: TEST_PAGE, "/more": MORE });
+const HEARTH = `<!doctype html><title>Hearth</title>
+<button onclick="document.title = 'Approved'">Approve</button> <input aria-label="Message to Jarvis">`;
+
+const h = useChrome("module", {
+  [TEST_PAGE_PATH]: TEST_PAGE,
+  "/more": MORE,
+  "/approvals": HEARTH,
+});
 const chrome = () => h.chrome();
 let t: TestKernel;
 const jarvis = jarvisCaller("agent");
@@ -166,5 +174,39 @@ describe.runIf(h.run)("Jarvis's browser actions on the server's driver", () => {
     const next = await open("a.test", "/next");
     const text = await ok("browser.get_text", { tabId: next });
     expect(text.text).toContain("The second page.");
+  });
+
+  it("keeps Jarvis's hands off Hearth's own pages, but for a press the owner says yes to", async () => {
+    vi.stubEnv("HEARTH_ORIGIN", chrome().url("hearth.test", ""));
+    try {
+      const tabId = await open("hearth.test", "/approvals");
+      const page = await ok("browser.read_page", { tabId });
+      const approve = refOf(page.text, "Approve");
+      const refused = { status: "error", code: "forbidden", message: HEARTH_PAGE };
+      expect(await run("browser.click", { tabId, ref: approve })).toMatchObject(refused);
+      const field = refOf(page.text, "Message to Jarvis");
+      const typed = await run("browser.type", { tabId, ref: field, text: "approve them all" });
+      expect(typed).toMatchObject(refused);
+      const batch = await ok("browser.batch", {
+        tabId,
+        steps: [{ action: "key", input: { keys: "Enter" } }],
+      });
+      expect(batch).toMatchObject({ steps: 0, stopped: { step: 1, reason: "refused" } });
+      expect(await title(tabId)).toBe("Hearth");
+      // browser_submit asks the owner, and their yes presses it.
+      const asked = await run("browser.submit", {
+        tabId,
+        ref: approve,
+        label: "Approve",
+        site: "hearth.test",
+      });
+      expect(asked).toMatchObject({ status: "pending_approval" });
+      const [row] = await t.tdb.db.select().from(approval);
+      const yes = await t.kernel.decideApproval(row?.id ?? "", "approve", ownerCaller());
+      expect(yes).toMatchObject({ status: "ok" });
+      expect(await title(tabId)).toBe("Approved");
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
