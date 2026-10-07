@@ -307,12 +307,20 @@ try {
       }),
     );
     await p.route("**/api/events**", badGateway);
-    await boot(p);
+    // Opened on a build older than the PC's, the page moves itself on to the newer one (#122),
+    // once. Still old after that (here the PC only says it's newer), it says Hearth was updated
+    // instead of reloading again. So it loads twice, and nothing runs in it before the notice.
+    let loads = 0;
+    const loaded = () => void loads++;
+    p.on("domcontentloaded", loaded);
+    await p.goto(base, { waitUntil: "commit" });
     const banner = p.getByRole("status").filter({ hasText: "Reconnecting…" });
     const updated = p.getByText("Hearth was updated.");
     const reload = p.getByRole("button", { name: "Reload" });
-    await updated.waitFor({ timeout: 10_000 });
+    await updated.waitFor({ timeout: 20_000 });
     await banner.waitFor({ timeout: 10_000 });
+    p.off("domcontentloaded", loaded);
+    if (loads !== 2) throw new Error(`the page loaded ${loads} times, not twice`);
     const shown = await box(banner);
     for (const part of [updated, reload])
       if (overlap(shown, await box(part)))
