@@ -83,9 +83,14 @@ describe("who may accept on its own", () => {
     expect(patches()).toEqual([]);
   });
 
-  it("a turn you started", async () => {
+  it("a turn you started, though its notice still carries the sender's words", async () => {
     const turn = jarvisCaller("owner", { turnId: newId() });
     expect(await accept("standup", turn)).toMatchObject({ status: "ok" });
+    const notes = await t.tdb.db
+      .select()
+      .from(notification)
+      .where(eq(notification.kind, "calendar.accepted"));
+    expect(notes.map((n) => n.outside)).toEqual([true]);
   });
 
   it("not while Jarvis is paused", async () => {
