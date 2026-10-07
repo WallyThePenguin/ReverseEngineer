@@ -11,6 +11,7 @@
 import {
   approval,
   type Db,
+  type DbOrTx,
   jarvisTurn,
   notification,
   slackChannel,
@@ -136,6 +137,8 @@ export const replyAction = defineAction({
       conversationId: turn.conversationId,
       turnId: turn.id,
     });
+    // An older reply still waiting for your yes would go out after this one: it expires.
+    await expireHeldReplies(ctx.tx, thread.conversationId, ctx.caller.principal, ctx.now);
     // What it answers is settled: the take loop leaves it be.
     await ctx.tx
       .update(slackInbound)
@@ -171,7 +174,7 @@ export async function replaceHeldReplies(
  * newer one replaced them, or went out on its own, so approving one now would post it after.
  */
 export async function expireHeldReplies(
-  db: Db,
+  db: DbOrTx,
   conversationId: string,
   by: string,
   now: Date,

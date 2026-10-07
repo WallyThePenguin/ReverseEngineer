@@ -1,8 +1,18 @@
 // Telling you about Jarvis's Slack posts that didn't go out, or may not have (D62): one card per
 // post, naming who or where it was for. The sender (outbox.ts) tells you as posts fail; letting
-// the bot or the whole workspace go settles every post not yet out, and tells you about each.
+// the bot or the whole workspace go settles every post not yet out, and tells you about each. A
+// member's answer that didn't go also ends their DM's agent session, which has it as said.
 import { PRINCIPAL } from "@hearth/core";
-import { type DbOrTx, slackChannel, slackOutbox, slackThread, slackUser } from "@hearth/db";
+import {
+  conversation,
+  type DbOrTx,
+  notification,
+  slackChannel,
+  slackOutbox,
+  slackThread,
+  slackUser,
+  type Tx,
+} from "@hearth/db";
 import {
   type ActionContext,
   appendEvents,
@@ -12,7 +22,7 @@ import {
   newId,
   systemCaller,
 } from "@hearth/kernel";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { preview } from "../../shared.ts";
 import { named } from "../save.ts";
 import type { OutboxRow } from "./queue.ts";
@@ -77,6 +87,42 @@ export async function tellNotSent(ctx: ActionContext, row: OutboxRow, what: stri
 /** The card's key, so a post Slack confirms after all can close it. */
 export const notSentKey = (rowId: string) => `slack.outbox:${rowId}`;
 
+/** Closes a post's card, since Slack has it after all; an open inbox drops it too. */
+export async function closeNotSent(tx: Tx, rowId: string, now: Date) {
+  const closed = await tx
+    .update(notification)
+    .set({ state: "done", updatedAt: now })
+    .where(and(eq(notification.dedupeKey, notSentKey(rowId)), ne(notification.state, "done")))
+    .returning({ id: notification.id, entityId: notification.entityId });
+  await appendEvents(
+    tx,
+    closed.map((n) => ({
+      kind: "notification.updated",
+      entityId: n.entityId,
+      payload: { notificationId: n.id, state: "done" },
+    })),
+    { actor: PRINCIPAL.system, origin: "system", at: now },
+  );
+}
+
+/**
+ * Members' answers that didn't go: their DMs start afresh, since the agent session there has
+ * each one as said (D62). Whatever ended it: Slack refused it, it was stopped at the last check,
+ * it waited a day, or you let the bot go.
+ */
+export async function forgetUnsaid(db: DbOrTx, rows: Pick<OutboxRow, "kind" | "conversationId">[]) {
+  const ids = [
+    ...new Set(
+      rows.flatMap((r) => (r.kind === "answer" && r.conversationId ? [r.conversationId] : [])),
+    ),
+  ];
+  if (ids.length)
+    await db
+      .update(conversation)
+      .set({ agentSessionId: null })
+      .where(inArray(conversation.entityId, ids));
+}
+
 /**
  * Settles every post of the workspace not yet out, once its bot is gone (deleted first, in this
  * transaction): nothing it hadn't sent goes out later, after a reconnect you may not expect it
@@ -89,17 +135,20 @@ export async function settleUnsent(
   teamId: string,
   why: { unsent: string; unsure: string },
 ) {
-  const team = eq(slackOutbox.teamId, teamId);
-  const unsent = await ctx.tx
+  // One statement, so a post the sender puts back in the queue meanwhile isn't missed.
+  const queued = sql`${slackOutbox.state} = 'queued'`;
+  const rows = await ctx.tx
     .update(slackOutbox)
-    .set({ state: "failed", error: why.unsent, finishedAt: ctx.now })
-    .where(and(team, eq(slackOutbox.state, "queued")))
+    .set({
+      state: sql`CASE WHEN ${queued} THEN 'failed' ELSE 'unknown' END`,
+      error: sql`CASE WHEN ${queued} THEN ${why.unsent} ELSE ${why.unsure} END`,
+      finishedAt: ctx.now,
+    })
+    .where(and(eq(slackOutbox.teamId, teamId), inArray(slackOutbox.state, ["queued", "sending"])))
     .returning();
-  const unsure = await ctx.tx
-    .update(slackOutbox)
-    .set({ state: "unknown", error: why.unsure, finishedAt: ctx.now })
-    .where(and(team, eq(slackOutbox.state, "sending")))
-    .returning();
+  const unsent = rows.filter((r) => r.state === "failed");
+  const unsure = rows.filter((r) => r.state === "unknown");
+  await forgetUnsaid(ctx.tx, unsent);
   for (const row of unsent) await tellNotSent(ctx, row, "didn't go out", row.error ?? "");
   for (const row of unsure) await tellNotSent(ctx, row, "may not have gone out", row.error ?? "");
   return { unsent: unsent.length, unsure: unsure.length };
