@@ -83,6 +83,7 @@ export { appendLog, type LogEntry, type LogKind, routeLane } from "./chat/index.
 export { MENTION_SETTLE_MS } from "./chat/mention.ts";
 export { FakeGithub, GITHUB_SERVICE, type GithubApi, httpGithub } from "./github/index.ts";
 export { GOOGLE_SERVICE, GoogleClient, googleFromEnv, SCOPES } from "./google/client.ts";
+export { OUTSIDE_REMINDERS } from "./inbox/reminders.ts";
 export { INSTALL_SERVICE, type Install, installFromEnv } from "./install.ts";
 export {
   BLOB_SERVICE,

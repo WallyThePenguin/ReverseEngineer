@@ -114,7 +114,8 @@ export const systemModule = defineModule({
             lastOutcome: schedule.lastOutcome,
           })
           .from(schedule)
-          .where(isNotNull(schedule.nextRunAt))
+          // Reminders have their own list; 20 near ones would crowd out the routines.
+          .where(and(isNotNull(schedule.nextRunAt), ne(schedule.kind, "reminder")))
           .orderBy(asc(schedule.nextRunAt))
           .limit(20);
         return {

@@ -340,12 +340,19 @@ export const chatModule = defineModule({
           )
           .limit(1);
         if (stopped) return [];
+        // Said to the chat mic in your own session, not sent by a device on its own (D42): still
+        // untrusted (D46), but your ask, for a reminder's cap.
+        const spoken = p.heard === true && event.origin === "owner";
+        const context = {
+          ...(p.via === "slack" ? { via: "slack" } : {}),
+          ...(spoken ? { spoken } : {}),
+        };
         return [
           {
             kind: "turn",
             trigger: "chat",
             ...(p.heard ? { untrusted: true } : {}),
-            ...(p.via === "slack" ? { context: { via: "slack" } } : {}),
+            ...(Object.keys(context).length ? { context } : {}),
             lane: p.lane,
             conversationId: p.conversationId,
             prompt: p.looking
