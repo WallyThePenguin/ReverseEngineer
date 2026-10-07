@@ -18,7 +18,8 @@ import {
 } from "@hearth/kernel";
 import { and, eq, isNull } from "drizzle-orm";
 import type { GEvent } from "../google/calendar-api.ts";
-import { ensurePerson, linkPerson, personFor } from "../people/store.ts";
+import { addressKey } from "../mail/mine.ts";
+import { ensurePerson, linkPerson, personFor, yourAccounts } from "../people/store.ts";
 
 export type EventRow = typeof calendarEvent.$inferSelect;
 
@@ -181,7 +182,11 @@ const MAX_GUESTS = 20;
  */
 async function linkGuests(ctx: ActionContext, id: string, m: Mapped): Promise<void> {
   if (m.status === "cancelled") return;
-  const list = m.attendees.filter((a) => !a.self).slice(0, MAX_GUESTS);
+  const guests = m.attendees.filter((a) => !a.self);
+  if (guests.length === 0) return;
+  // You aren't a guest you know: your other accounts are on the invitation too, at times.
+  const mine = await yourAccounts(ctx.tx);
+  const list = guests.filter((a) => !mine.has(addressKey(a.email))).slice(0, MAX_GUESTS);
   const yours =
     m.attendees.length <= MAX_GUESTS + 1 && (m.selfOrganizer || m.selfResponse === "accepted");
   for (const g of list) {
