@@ -142,7 +142,8 @@ async function replyHeaders(ctx: ActionContext, threadId: string, all: boolean) 
     .select()
     .from(mailMessage)
     .where(eq(mailMessage.threadId, threadId))
-    .orderBy(desc(mailMessage.sentAt));
+    // Of an email's copies in two of your accounts, the first saved (as the conversation shows).
+    .orderBy(desc(mailMessage.sentAt), asc(mailMessage.entityId));
   const last = rows.find((m) => !m.outbound) ?? rows[0];
   if (!last) throw new ActionError("not_found", "That conversation has no messages.");
   const [account] = await ctx.tx

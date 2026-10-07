@@ -12,8 +12,9 @@ import {
   mailThread,
 } from "@hearth/db";
 import { type ActionContext, newId, updateEntity } from "@hearth/kernel";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, getTableColumns, inArray } from "drizzle-orm";
 import { personFor } from "../people/store.ts";
+import { once } from "./copies.ts";
 import { addressKey, toAnyOf, yourAddresses } from "./mine.ts";
 import { type MailProvider, MailProviderError } from "./provider.ts";
 
@@ -70,10 +71,11 @@ async function waitingFor(
 /** Works the conversation's state out again from its messages. Removes it if none are left. */
 export async function recomputeThread(ctx: ActionContext, threadId: string): Promise<void> {
   const msgs = await ctx.tx
-    .select()
+    .select({ ...getTableColumns(mailMessage), subject: entity.title })
     .from(mailMessage)
+    .innerJoin(entity, eq(entity.id, mailMessage.entityId))
     .where(eq(mailMessage.threadId, threadId))
-    .orderBy(asc(mailMessage.sentAt));
+    .orderBy(asc(mailMessage.sentAt), asc(mailMessage.entityId));
   if (msgs.length === 0) {
     // Only ever a conversation: never another kind of record that was passed by mistake.
     await ctx.tx
@@ -93,7 +95,8 @@ export async function recomputeThread(ctx: ActionContext, threadId: string): Pro
     return;
   }
   const live = msgs.filter((m) => !m.labels.includes("TRASH"));
-  const shown = live.length ? live : msgs;
+  // The same email in two of your accounts counts once.
+  const shown = once(live.length ? live : msgs);
   const last = shown.at(-1)!;
   const any = (label: string) => live.some((m) => m.labels.includes(label));
   const lastOf = (out: boolean) => shown.filter((m) => m.outbound === out).at(-1)?.sentAt ?? null;
@@ -115,11 +118,7 @@ export async function recomputeThread(ctx: ActionContext, threadId: string): Pro
   // Counted, not dated: a new message's date is whatever its sender's clock says.
   const said = thread?.noReplyCount != null && thread.noReplyCount >= shown.length;
   // The conversation is named by its first message, whichever arrived first.
-  const [first] = await ctx.tx
-    .select({ title: entity.title })
-    .from(entity)
-    .where(eq(entity.id, msgs[0]!.entityId));
-  if (first) await updateEntity(ctx, threadId, { title: first.title }).catch(() => {});
+  await updateEntity(ctx, threadId, { title: msgs[0]!.subject }).catch(() => {});
   const known = !last.outbound && Boolean(await personFor(ctx.tx, last.fromAddress.toLowerCase()));
   await ctx.tx
     .update(mailThread)
@@ -177,16 +176,20 @@ export async function changeFlags(
         .update(mailMessage)
         .set({ labels: withFlags(m.labels, add, remove) })
         .where(eq(mailMessage.entityId, m.entityId));
-    await ctx.tx.insert(mailOp).values({
-      id: newId(),
-      accountId: touched[0]!.accountId,
-      threadId,
-      providerIds: touched.map((m) => m.providerId),
-      addLabels: add,
-      removeLabels: remove,
-      undo: Object.fromEntries(touched.map((m) => [m.providerId, m.labels])),
-      createdAt: ctx.now,
-    });
+    // An email in two of your accounts has a copy in each: the change goes to each account.
+    for (const accountId of new Set(touched.map((m) => m.accountId))) {
+      const theirs = touched.filter((m) => m.accountId === accountId);
+      await ctx.tx.insert(mailOp).values({
+        id: newId(),
+        accountId,
+        threadId,
+        providerIds: theirs.map((m) => m.providerId),
+        addLabels: add,
+        removeLabels: remove,
+        undo: Object.fromEntries(theirs.map((m) => [m.providerId, m.labels])),
+        createdAt: ctx.now,
+      });
+    }
     await recomputeThread(ctx, threadId);
     ctx.emit({ kind: "mail.changed", entityId: threadId, payload: { add, remove } });
   }

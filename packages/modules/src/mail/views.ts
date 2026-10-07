@@ -13,6 +13,7 @@ import {
 import { and, asc, desc, eq, inArray, isNotNull, lt, or, type SQL, sql } from "drizzle-orm";
 import { loadEvent } from "../calendar/store.ts";
 import type { BlobStore } from "./blobs.ts";
+import { once } from "./copies.ts";
 import { matchInvite } from "./invites.ts";
 import { parseMail } from "./mime.ts";
 
@@ -177,12 +178,16 @@ export async function searchThreads(db: DbOrTx, query: string, limit: number) {
 export async function loadThread(db: DbOrTx, id: string): Promise<ThreadView | null> {
   const [summary] = await listThreads(db, { view: "any", ids: [id], limit: 1 });
   if (!summary) return null;
-  const rows = await db
-    .select({ m: mailMessage, text: entity.body })
+  const all = await db
+    .select({ m: mailMessage, text: entity.body, subject: entity.title })
     .from(mailMessage)
     .innerJoin(entity, eq(entity.id, mailMessage.entityId))
     .where(eq(mailMessage.threadId, id))
-    .orderBy(asc(mailMessage.sentAt));
+    .orderBy(asc(mailMessage.sentAt), asc(mailMessage.entityId));
+  // The same email in two of your accounts shows once: the first saved, unread if either is.
+  const rows = once(all.map(({ m, text, subject }) => ({ ...m, subject, text }))).map(
+    ({ subject: _s, text, ...m }) => ({ m, text }),
+  );
   const invites = new Map<string, InviteView>();
   // The newest few: a conversation full of invitations doesn't slow every view.
   for (const { m } of rows.filter((r) => r.m.invite).slice(-10)) {

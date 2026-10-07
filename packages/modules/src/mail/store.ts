@@ -6,6 +6,7 @@ import { type ActionContext, createEntity } from "@hearth/kernel";
 import { and, eq, inArray } from "drizzle-orm";
 import { cleanDeep } from "../google/clean.ts";
 import { BLOB_SERVICE, type BlobStore } from "./blobs.ts";
+import { copyThread } from "./copies.ts";
 import { recomputeThread } from "./flags.ts";
 import { isCalendar, parseInvite } from "./invites.ts";
 import { type ParsedMail, parseMail, snippetOf } from "./mime.ts";
@@ -101,7 +102,11 @@ export async function saveMail(
   const sentAt = p.date && p.date < ctx.now ? p.date : ctx.now;
   const subject = p.subject || "(no subject)";
 
-  let threadId = await findThread(ctx, account.id, messageId, refs);
+  const fromAddress = p.from?.address ?? "";
+  // The same email in another of your accounts joins its conversation there, as a copy.
+  let threadId =
+    (await findThread(ctx, account.id, messageId, refs)) ??
+    (await copyThread(ctx, account.id, { messageId, fromAddress, sentAt, subject }));
   if (!threadId) {
     const thread = await createEntity(ctx, { type: "email_thread", title: subject });
     await ctx.tx.insert(mailThread).values({
@@ -127,7 +132,7 @@ export async function saveMail(
     messageId,
     inReplyTo: p.inReplyTo,
     refs: p.references,
-    fromAddress: p.from?.address ?? "",
+    fromAddress,
     fromName: p.from?.name ?? null,
     toAddresses: p.to,
     ccAddresses: p.cc,
