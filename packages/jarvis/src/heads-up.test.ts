@@ -1,7 +1,7 @@
 // Step 7 end to end: a heads-up ten minutes before a real meeting with its prep and join link
 // (even while paused, and following a moved meeting), the evening's Your day card, calendar
 // rows that say their prep is ready, and what Jarvis did, read from what it made.
-import { calendar, entity, notification, schedule, setting } from "@hearth/db";
+import { calendar, entity, googleAccount, notification, schedule, setting } from "@hearth/db";
 import {
   type Caller,
   integrationCaller,
@@ -162,6 +162,46 @@ describe("the heads-up before a meeting", () => {
     await h.settle();
     expect((await inbox("calendar.meeting_soon")).map((n) => n.title)).toEqual([
       '"Design review" in 4 min',
+    ]);
+  });
+
+  it("rings on time while Google slows the calendar down: the PC is awake and trying", async () => {
+    g.put(ME, review("2026-10-01T15:00:00Z", "2026-10-01T15:30:00Z"));
+    await sync();
+    await h.settle();
+    // From 2:35, Google asks Hearth to slow down every round.
+    for (const time of ["14:35:00", "14:40:00", "14:45:00", "14:50:10"]) {
+      g.failCalendar(1, 429);
+      await awakeAt(`2026-10-01T${time}Z`);
+    }
+    expect((await inbox("calendar.meeting_soon")).map((n) => n.title)).toEqual([
+      '"Design review" in 10 min',
+    ]);
+  });
+
+  it("rings from Hearth's copy 3 minutes before when no sync comes at all", async () => {
+    g.put(ME, review("2026-10-01T15:00:00Z", "2026-10-01T15:30:00Z"));
+    await sync();
+    await h.settle();
+    h.clock.set("2026-10-01T14:50:10Z");
+    await h.settle();
+    expect(await inbox("calendar.meeting_soon")).toEqual([]);
+    h.clock.set("2026-10-01T14:57:10Z");
+    await h.settle();
+    expect((await inbox("calendar.meeting_soon")).map((n) => n.title)).toEqual([
+      '"Design review" in 3 min',
+    ]);
+  });
+
+  it("rings for an account that needs connecting again, which isn't synced till then", async () => {
+    g.put(ME, review("2026-10-01T15:00:00Z", "2026-10-01T15:30:00Z"));
+    await sync();
+    await h.settle();
+    await h.tdb.db.update(googleAccount).set({ status: "revoked" });
+    h.clock.set("2026-10-01T14:50:10Z");
+    await h.settle();
+    expect((await inbox("calendar.meeting_soon")).map((n) => n.title)).toEqual([
+      '"Design review" in 10 min',
     ]);
   });
 

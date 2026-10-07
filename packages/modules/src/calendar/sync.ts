@@ -97,6 +97,11 @@ export async function syncCalendars(ctx: ActionContext): Promise<SyncResult> {
     } catch (err) {
       if (slowDown(err)) {
         result.paused.push(acct.email);
+        // Tried, awake: a heads-up isn't held for a sync the PC slept through (soon.ts).
+        await ctx.tx
+          .update(googleAccount)
+          .set({ calendarAttemptedAt: ctx.now })
+          .where(eq(googleAccount.email, acct.email));
         continue;
       }
       // None of the account's calendars could be read: each says why, in Settings too.
