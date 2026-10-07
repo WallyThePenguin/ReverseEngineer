@@ -55,6 +55,19 @@ export async function revokeDesktopWindow(db: DbOrTx, now = new Date()): Promise
 }
 
 /**
+ * Whether the desktop app is paired now. The window's own passkey signs in only then (D69), so
+ * Disconnect leaves it nothing to sign in as until you connect again.
+ */
+export async function desktopPaired(db: DbOrTx): Promise<boolean> {
+  const rows = await db
+    .select({ hash: session.tokenHash })
+    .from(session)
+    .where(and(eq(session.label, label("desktop")), isNull(session.revokedAt)))
+    .limit(1);
+  return rows.length > 0;
+}
+
+/**
  * Unpairs a device, from Settings or `hearth device unpair`. For the desktop app that signs
  * Hearth's window on the PC out too (D53). Pairing again doesn't: it only replaces the token.
  */

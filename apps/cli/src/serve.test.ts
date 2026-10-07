@@ -28,6 +28,7 @@ it("exits when the server can't have its port", async () => {
   const cli = fileURLToPath(new URL("./main.ts", import.meta.url));
   const child = spawn(process.execPath, [cli, "serve"], {
     cwd: dir,
+    windowsHide: true,
     env: {
       ...process.env,
       HEARTH_DATABASE_URL: db.url,

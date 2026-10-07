@@ -21,7 +21,11 @@ afterEach(async () => {
 /** Runs `code` in a fresh Node; resolves its exit code and output, or "still running" after `ms`. */
 function runNode(code: string, env: NodeJS.ProcessEnv, cwd: string, ms = 30_000) {
   return new Promise<{ exit: number | "still running"; output: string }>((resolve) => {
-    const child = spawn(process.execPath, ["--input-type=module", "-e", code], { env, cwd });
+    const child = spawn(process.execPath, ["--input-type=module", "-e", code], {
+      env,
+      cwd,
+      windowsHide: true,
+    });
     let output = "";
     child.stdout.on("data", (d) => (output += d));
     child.stderr.on("data", (d) => (output += d));

@@ -1,13 +1,10 @@
 // Settings: pause Jarvis's initiative, see Hearth's health, and manage what Jarvis may do
 // without asking.
 
-import { startRegistration } from "@simplewebauthn/browser";
 import { For, Show } from "solid-js";
 import { Badge, Button, PaneHeader } from "../components/ui.tsx";
-import { authPost } from "../lib/api.ts";
 import { ago } from "../lib/format.ts";
 import { jarvisLiveness } from "../lib/jarvis-health.ts";
-import { toast } from "../lib/live.ts";
 import { setPaused } from "../lib/pause.ts";
 import { act, useAction } from "../lib/query.ts";
 import type { StandingRule, SystemStatus } from "../lib/types.ts";
@@ -17,6 +14,7 @@ import { GithubSettings } from "./GithubSettings.tsx";
 import { GoogleSettings } from "./GoogleSettings.tsx";
 import { ImportSettings } from "./ImportSettings.tsx";
 import { NotionSettings } from "./NotionSettings.tsx";
+import { PasskeySettings } from "./PasskeySettings.tsx";
 import { PhoneSettings } from "./PhoneSettings.tsx";
 import { ReminderSettings } from "./ReminderSettings.tsx";
 import { RoutineSettings } from "./RoutineSettings.tsx";
@@ -36,23 +34,6 @@ const PART: Record<string, string> = {
   "sync.slack_bot": "Slack bot",
   browser: "Chrome",
 };
-
-/** Adds another passkey (your phone, a security key) while you're signed in. */
-async function addPasskey() {
-  try {
-    const options =
-      await authPost<Parameters<typeof startRegistration>[0]["optionsJSON"]>("register/options");
-    const response = await startRegistration({ optionsJSON: options });
-    await authPost("register/verify", { response, label: navigator.platform || "Passkey" });
-    toast.show("Passkey added.");
-  } catch (err) {
-    const e = err as Error;
-    toast.show(
-      e.name === "NotAllowedError" ? "The passkey prompt was closed." : e.message,
-      "error",
-    );
-  }
-}
 
 export function Settings() {
   const status = useAction<SystemStatus>("system.status");
@@ -167,15 +148,7 @@ export function Settings() {
         </Anchor>
 
         <Anchor id="passkeys">
-          <section class="space-y-2">
-            <h2 class="font-semibold">Passkeys</h2>
-            <div class="flex items-center gap-3">
-              <p class="flex-1 text-sm text-muted">
-                Add a passkey on another device, like your phone, so you can sign in there too.
-              </p>
-              <Button onClick={() => void addPasskey()}>Add a passkey</Button>
-            </div>
-          </section>
+          <PasskeySettings />
         </Anchor>
 
         <Anchor id="health">
