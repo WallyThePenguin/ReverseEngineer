@@ -14,7 +14,7 @@ import { BLOB_SERVICE, BlobStore } from "../mail/blobs.ts";
 import type { DraftView } from "../mail/drafts.ts";
 import { sendAction } from "../mail/send.ts";
 import type { ThreadSummary } from "../mail/views.ts";
-import { GOOGLE_SERVICE, SCOPES } from "./client.ts";
+import { GOOGLE_SERVICE, type GoogleClient, SCOPES } from "./client.ts";
 import { FakeGoogle } from "./fake.ts";
 
 const ME = "owner@example.com";
@@ -50,14 +50,7 @@ beforeEach(async () => {
   g.accounts
     .get(WORK)!
     .gmail.deliver({ from: ANA, to: [{ address: WORK }], subject: "Q4", text: "?" });
-  for (let i = 0; i < 10; i++) {
-    const res = await t.kernel.execute<{ more: boolean }>(
-      "mail.sync",
-      {},
-      integrationCaller("google"),
-    );
-    if (res.status !== "ok" || !res.result.more) break;
-  }
+  await syncMail();
   await t.kernel.execute("calendar.sync", {}, integrationCaller("google"));
   expect(await t.tdb.db.select().from(calendar)).toHaveLength(2);
 });
@@ -66,6 +59,16 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
+async function syncMail() {
+  for (let i = 0; i < 10; i++) {
+    const res = await t.kernel.execute<{ more: boolean }>(
+      "mail.sync",
+      {},
+      integrationCaller("google"),
+    );
+    if (res.status !== "ok" || !res.result.more) break;
+  }
+}
 async function ok<T>(name: string, input: unknown = {}) {
   const res = await t.kernel.execute<T>(name, input, ownerCaller());
   if (res.status !== "ok") throw new Error(`${name}: ${JSON.stringify(res)}`);
@@ -264,9 +267,64 @@ describe("disconnecting a Google account", () => {
     expect(left.map((a) => a.id)).toEqual([`gmail:${ME}`]);
   });
 
+  it("works out what waits on you without it, its mail and Google account both gone", async () => {
+    const IMPORTANT = ["INBOX", "UNREAD", "CATEGORY_PERSONAL", "IMPORTANT"];
+    const date = new Date(Date.UTC(2026, 9, 1, 11));
+    const work = g.accounts.get(WORK)!.gmail;
+    // To you here, with work cc'd; and from you here to Bob, with work cc'd.
+    const lunch = { from: ANA, to: [{ address: ME }], cc: [{ address: WORK }], date };
+    for (const box of [g.gmail, work])
+      box.deliver({ ...lunch, subject: "Lunch?", text: "Noon?", messageId: "lunch@x" }, IMPORTANT);
+    const plans = { from: { address: ME }, to: [{ address: "bob@x.example" }, { address: WORK }] };
+    const sent = { ...plans, subject: "Plans", text: "Go?", messageId: "plans@x", date };
+    g.gmail.deliver(sent, ["SENT"]);
+    work.deliver(sent, IMPORTANT);
+    await syncMail();
+    expect(await threadOf("Lunch?")).toMatchObject({ waiting: "you" });
+    await ok("google.disconnect", { email: ME });
+    // Work was only cc'd; and the mail you sent from there is now someone else's, to work.
+    expect(await threadOf("Lunch?")).toMatchObject({ account: WORK, waiting: null });
+    expect(await threadOf("Plans")).toMatchObject({ account: WORK, waiting: "you" });
+  });
+
   it("leaves another account's calendar notice open", async () => {
     const cal = await alert(`calendar.sync_failed:${ME}:2026-10-01T14:00:00.000Z`);
     await ok("google.disconnect", { email: WORK });
     expect(await cal()).toBe("unseen");
+  });
+
+  const accounts = async () =>
+    (await t.tdb.db.select({ id: mailAccount.id }).from(mailAccount)).map((a) => a.id).sort();
+
+  it("says Google is syncing when it stops waiting for a sync", async () => {
+    const sync = await syncing(ME);
+    const transaction = t.tdb.db.transaction.bind(t.tdb.db);
+    vi.spyOn(t.tdb.db, "transaction").mockImplementation(((run, config) =>
+      transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL lock_timeout = '200ms'`);
+        return run(tx);
+      }, config)) as typeof transaction);
+    const res = await t.kernel.execute("google.disconnect", { email: WORK }, ownerCaller());
+    expect(res).toMatchObject({
+      status: "error",
+      code: "conflict",
+      message: "Google is syncing; try again in a moment.",
+    });
+    vi.restoreAllMocks();
+    await sync();
+    expect(await accounts()).toEqual([`gmail:${ME}`, `gmail:${WORK}`]);
+  });
+
+  it("says so for a deadlock with a sync anywhere, but not when it's slow itself later on", async () => {
+    const failed = (code: string) =>
+      new Error("Failed query", { cause: Object.assign(new Error("from Postgres"), { code }) });
+    vi.spyOn(t.kernel.services[GOOGLE_SERVICE] as GoogleClient, "revoke")
+      .mockRejectedValueOnce(failed("40P01"))
+      .mockRejectedValueOnce(failed("57014"));
+    const deadlock = await t.kernel.execute("google.disconnect", { email: WORK }, ownerCaller());
+    expect(deadlock).toMatchObject({ status: "error", code: "conflict" });
+    const slow = await t.kernel.execute("google.disconnect", { email: WORK }, ownerCaller());
+    expect(slow).toMatchObject({ status: "error", code: "failed" });
+    expect(await accounts()).toEqual([`gmail:${ME}`, `gmail:${WORK}`]);
   });
 });

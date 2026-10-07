@@ -1,6 +1,7 @@
 // Who may use your Chrome, and where: shared by the browser's actions and page watches.
 import { normalizeUrl, onSiteList, type PrincipalKind } from "@hearth/core";
 import { type ActionContext, ActionError, getSetting } from "@hearth/kernel";
+import { HEARTH_PAGE, isHearthPage } from "./classify.ts";
 import { BROWSER_SERVICE, type BrowserClient } from "./client.ts";
 
 /** Your Chrome is yours: outside agents and integrations never get it. */
@@ -29,4 +30,10 @@ export async function assertAllowed(
   if (onSiteList(host, sites.blocked))
     throw new ActionError("forbidden", `${host} is on your list of sites Jarvis never opens.`);
   return url;
+}
+
+/** Hearth's own pages are yours to work: anyone else's press, key or typing there is refused. */
+export function assertNotHearth(ctx: ActionContext, url: string): void {
+  if (ctx.caller.kind !== "owner" && isHearthPage(url))
+    throw new ActionError("forbidden", HEARTH_PAGE);
 }

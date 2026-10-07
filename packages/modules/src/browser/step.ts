@@ -4,9 +4,10 @@
 import { type ActionContext, ActionError } from "@hearth/kernel";
 import { z } from "zod";
 import { assertAllowed } from "./access.ts";
-import type { BrowserClient, TabInfo } from "./client.ts";
+import { HEARTH_MARK, HEARTH_PAGE, isHearthPage } from "./classify.ts";
+import { type BrowserClient, reasonOf, type TabInfo } from "./client.ts";
 import { cdp } from "./input.ts";
-import { findTab, forgetLinks, listTabs, waitForLoad } from "./page.ts";
+import { evaluate, findTab, forgetLinks, listTabs, waitForLoad } from "./page.ts";
 
 export const tabId = z.number().int();
 
@@ -40,6 +41,87 @@ export async function tabPin(i: { tabId: number }, services: Services) {
   const tabs = await listTabs(client);
   const url = tabs.find((t) => t.tabId === i.tabId)?.url;
   return url ? { url } : null;
+}
+
+/** A tab's page as it says itself: where it is, which page it is, and whether it's Hearth's. */
+export interface Here {
+  href: string;
+  /** When the page began: a new page differs, a #part or a history step within it doesn't. */
+  doc: number;
+  hearth: boolean;
+}
+
+const HERE = `({ href: location.href, doc: performance.timeOrigin, mark: document.querySelector(${JSON.stringify(HEARTH_MARK)}) !== null })`;
+
+/** How long a page may take to say where it is: one that doesn't can't be told from Hearth's. */
+export const HERE_MS = 5_000;
+
+/**
+ * Asks a tab's page where it is, and whether it's Hearth's own: by its address, or by the mark in
+ * its head whatever address reached it (a proxy, Hearth's dev server). Null if it doesn't answer.
+ */
+export async function hereOf(client: BrowserClient, tabId: number): Promise<Here | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<null>((resolve) => {
+    timer = setTimeout(resolve, HERE_MS, null);
+  });
+  const asked = evaluate<{ href: string; doc: number; mark: boolean }>(client, tabId, HERE).catch(
+    (err) => {
+      // A dialog in the way, a tab that isn't Jarvis's, Chrome away: those say so themselves.
+      if (reasonOf(err) || (err instanceof ActionError && err.code === "unavailable")) throw err;
+      return null;
+    },
+  );
+  const said = await Promise.race([asked, late]).finally(() => clearTimeout(timer));
+  if (typeof said?.href !== "string") return null;
+  return { href: said.href, doc: said.doc, hearth: said.mark || isHearthPage(said.href) };
+}
+
+const unknown = (tabId: number) =>
+  `Jarvis couldn't tell what page tab ${tabId} is on, so it didn't go ahead. Try again once the page has loaded.`;
+
+/**
+ * For anyone but the owner, as a step that presses, types or uses keys begins and again before
+ * each press: refuses Hearth's own page, a page that doesn't say where it is, and (given where the
+ * step began) another page than that one, so a page that goes to Hearth's while Jarvis waits or
+ * presses stops the step there. Returns where the step began; `pressed` says what already was.
+ */
+export async function assertHere(
+  ctx: ActionContext,
+  client: BrowserClient,
+  tabId: number,
+  began: Here | null = null,
+  pressed = "",
+): Promise<Here | null> {
+  if (ctx.caller.kind === "owner") return null;
+  const now = await hereOf(client, tabId);
+  const tail = pressed ? ` (Already pressed: ${pressed}.)` : "";
+  if (!now) throw new ActionError("conflict", `${unknown(tabId)}${tail}`);
+  if (now.hearth) throw new ActionError("forbidden", `${HEARTH_PAGE}${tail}`);
+  if (began && now.doc !== began.doc)
+    throw new ActionError(
+      "conflict",
+      `The tab went to another page partway through, so Jarvis stopped there.${tail}`,
+    );
+  return now;
+}
+
+/** tabPin, for a step that presses, types or uses keys: on Hearth's own page it's refused before
+ * a card asks you, since it would be refused after your yes anyway. */
+export async function handsPin(
+  i: { tabId: number },
+  services: Services,
+): Promise<{ url: string; refused?: string } | null> {
+  const client = services.service<BrowserClient>("browser");
+  const tab = (await listTabs(client)).find((t) => t.tabId === i.tabId);
+  if (!tab?.url) return null;
+  const pinned = { url: tab.url };
+  if (isHearthPage(tab.url)) return { ...pinned, refused: HEARTH_PAGE };
+  // A page waiting on a dialog can't be asked anything until it's answered.
+  if (tab.dialog) return pinned;
+  const here = await hereOf(client, i.tabId);
+  if (!here) return { ...pinned, refused: unknown(i.tabId) };
+  return here.hearth ? { ...pinned, refused: HEARTH_PAGE } : pinned;
 }
 
 /** The tab a step works in, and the tabs open before it, to tell which ones it opens. */

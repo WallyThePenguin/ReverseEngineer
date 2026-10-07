@@ -6,7 +6,7 @@ import { mailAccount, mailMessage, mailQuarantine } from "@hearth/db";
 import { type ActionContext, ActionError, savepoint } from "@hearth/kernel";
 import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import { setFlags } from "./flags.ts";
-import { accountAddresses, addressKey } from "./mine.ts";
+import { accountAddresses, addressKey, readOnce, yourAddresses } from "./mine.ts";
 import { type MailChange, type MailProvider, MailProviderError, type RawMail } from "./provider.ts";
 import { type AccountRow, leftOut, removeMail, type Saved, saveMail } from "./store.ts";
 import { forget, LOOK_ASIDE_MS, QUARANTINE_AFTER, quarantine, release } from "./sync-aside.ts";
@@ -84,14 +84,11 @@ export async function bringIn(
     .filter(([, p]) => p.at <= now)
     .sort(([, a], [, b]) => a.at - b.at)
     .map(([id]) => id);
-  // Your accounts' addresses, read once for the batch (and again if that read fails).
-  let mine: Promise<Set<string>> | undefined;
-  const yours = () =>
-    (mine ??= accountAddresses(ctx.tx).catch((err: unknown) => {
-      mine = undefined;
-      throw err;
-    }));
-  const one: One = { ctx, provider, account, c, work, doubts: [], yours };
+  // Your addresses, read once for the batch (and again if that read fails): your accounts', and
+  // for mail you sent, every address you've sent from too (Gmail's "Send mail as").
+  const yours = readOnce(() => accountAddresses(ctx.tx));
+  const sentAs = readOnce(() => yourAddresses(ctx.tx));
+  const one: One = { ctx, provider, account, c, work, doubts: [], yours, sentAs };
   try {
     if (c.pending.length + c.relabel.length === 0) {
       const changes = await provider.changes(
@@ -177,8 +174,10 @@ interface One {
    */
   serving?: boolean | null;
   doubts: Doubt[];
-  /** Your addresses, looked up once a sync needs them (mine.ts). */
+  /** Your accounts' addresses, looked up once a sync needs them (mine.ts). */
   yours: () => Promise<Set<string>>;
+  /** And every address you've sent from: read only for mail you sent. */
+  sentAs: () => Promise<Set<string>>;
 }
 
 /**
@@ -211,7 +210,7 @@ async function bringOne(one: One, id: string, quiet: boolean, done: () => void, 
     const mail = raw;
     try {
       // A message that won't save is undone on its own; the rest carry on (6.2).
-      saved = await savepoint(ctx, (sp) => saveMail(sp, account, mail, one.yours));
+      saved = await savepoint(ctx, (sp) => saveMail(sp, account, mail, one.yours, one.sentAs));
     } catch (err) {
       await park(one, id, quiet, err, false, again);
       return;

@@ -5,7 +5,9 @@
 // The page itself, and the built files of each build, a cache per build. A new build's page is
 // kept once its files are; the files of builds before the last go then (the last may still be
 // open), so the cache holds two builds, not every one since.
-const SHELL = "hearth-shell-v2";
+// v3 lets go of a page kept without its files (by the worker before this one kept them), so the
+// one kept next has them.
+const SHELL = "hearth-shell-v3";
 const ASSETS = "hearth-assets";
 const assetsOf = (build) => `${ASSETS}:${build}`;
 /**
@@ -62,6 +64,17 @@ const isPage = (res) => (res.headers.get("content-type") ?? "").startsWith("text
 
 /** A place in the app (/today, /mail+thread/…), as opposed to one of its files (/version.json). */
 const inApp = (url) => !url.pathname.split("/").pop().includes(".");
+
+/**
+ * The desktop app's small windows (/capture, /chat?compact=1: lib/desktop.ts). They're opened to
+ * type into at once, so they come from the PC: one opened from a page kept from before an update
+ * would move itself on to the new one as you start typing. The app opens them once the PC has
+ * answered (offline::load), so this costs no wait.
+ */
+const smallWindow = (url) => {
+  const path = url.pathname.replace(/\/+$/, "");
+  return path === "/capture" || (path === "/chat" && url.searchParams.get("compact") === "1");
+};
 
 /** The build of the page kept, which files fetched now are kept with. */
 const keptBuild = async () => {
@@ -171,7 +184,8 @@ self.addEventListener("fetch", (e) => {
     );
     return;
   }
-  if (e.request.mode === "navigate") e.respondWith(inApp(url) ? openSaved(e) : navigate(e));
+  if (e.request.mode === "navigate")
+    e.respondWith(inApp(url) && !smallWindow(url) ? openSaved(e) : navigate(e));
 });
 
 self.addEventListener("push", (e) => {

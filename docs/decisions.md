@@ -2161,3 +2161,41 @@ for `mail.send` from a card (one tap would let every later email go unread by yo
 
 **Why:** The owner chose it on 2026-10-07: "Yes, add Always allow". The same yes for the same
 channel or person, card after card, is part of why Jarvis "feels very manual".
+
+## D73. Data connectors: hosted data first (Convex), read-only by default, writes are outward with approval (2026-10-07)
+
+**Decision:** In Settings, you connect a Convex deployment with its URL and a deploy key. Hearth
+seals the key with the vault key, and audit keeps none of it. Each source is a `data_source` row
+with a `kind` (`convex` for now) and a `mode`: `read`, or later `approve_writes`.
+
+Hearth calls the deployment's HTTP API with plain fetch, not Convex's npm package. Jarvis, and
+MCP clients, read with:
+
+- `data.tables`: the tables and their shapes, from the streaming export's `json_schemas` where the
+  plan has it, otherwise the declared schema;
+- `data.documents`: a page of one table's documents, at most 100, with a cursor;
+- `data.functions`: the deployment's query functions and their args;
+- `data.query`: one of those queries, run with args through `/api/query`.
+
+A Convex query is read-only by construction: `/api/query` won't run a mutation or an action.
+Hearth runs no code of its own there, and none of Convex's `_system` functions on Jarvis's say;
+it calls the few the Convex CLI uses to list tables, documents and functions. Each call has 15
+seconds. An answer past 4 MB is refused, long strings are cut at 2,000 characters, and a result
+is held to about 100 KB.
+
+A deploy key is an admin key. Settings says so, names the key's kind (production, development,
+preview), and asks for a dev or preview key where there is one. A key whose deployment isn't the
+URL's is refused. The URL is https, or plain http on this PC only (a self-hosted Convex), and a
+redirect isn't followed, so the key goes nowhere else.
+
+What a read returns is outside content (`external`). It makes the rest of Jarvis's turn
+untrusted, so anything outward after it asks you first (D25). Mutations and actions come next as
+`outward` calls, each on your yes, with the function, its args and the deployment on the card.
+MongoDB and other hosted sources follow.
+
+**Alternatives:** Convex's npm client (a dependency for two HTTP calls). Arbitrary one-off
+queries (they would be code Hearth runs in the deployment). Postgres first, with its own login
+and SQL checks (parked when the owner chose Convex).
+
+**Why:** The owner asked on 2026-10-07 for "connectors to data as read-only or controlled AI
+connector", then: "data stuff like convex mongodb, remotehosted data stuff, start with convex."

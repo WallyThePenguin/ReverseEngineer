@@ -3,7 +3,7 @@
 // every few minutes while the page is in view, and when you come back to it. Opening or coming back
 // to a page from before an update (it opens from the last page seen: sw.js), you get the new
 // version at once, unless that would lose something or you've already started doing something
-// on it.
+// on it. The desktop app's Ask window moves on as it's put away instead (updateWhenHidden).
 import { createEffect, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import { live } from "../lib/live.ts";
 import {
@@ -18,10 +18,28 @@ import {
   reloadPage,
   type ServerBuild,
   watchBuild,
+  whenHidden,
   wouldLoseWork,
 } from "../lib/version.ts";
 import { Notice } from "./kit/Notice.tsx";
 import { Button } from "./ui.tsx";
+
+/** The build running on the PC, or null when it didn't answer (offline, or restarting). */
+async function serverBuild(): Promise<ServerBuild | null> {
+  try {
+    const res = await fetch("/api/health/deep", { cache: "no-store" });
+    if (!res.ok) throw new Error(`Hearth answered ${res.status}`);
+    return (await res.json()) as ServerBuild;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Only the page's first watch is its opening: a later one (Shell drawn again after "Try again",
+ * or signing in again) reloads where the page is now, not where it opened.
+ */
+let watched = false;
 
 /**
  * Asks which build is running when watchBuild says to, and moves the page on to a new one when
@@ -31,16 +49,16 @@ import { Button } from "./ui.tsx";
  * without a notice (Mini.tsx).
  */
 export function watchUpdates(say: (n: BuildNotice) => void = () => {}) {
+  const first = !watched;
+  watched = true;
   let owed: { idle: () => boolean; opening?: boolean } | null = null;
   const check = async (idle?: () => boolean, opening?: boolean) => {
-    if (!idle && owed) ({ idle, opening } = owed);
+    if (owed && !idle) ({ idle, opening } = owed);
+    // Coming back makes an owed opening check: it still goes back to where the page opened.
+    else if (owed) opening ||= owed.opening;
     owed = null;
-    let server: ServerBuild;
-    try {
-      const res = await fetch("/api/health/deep", { cache: "no-store" });
-      if (!res.ok) throw new Error(`Hearth answered ${res.status}`);
-      server = (await res.json()) as ServerBuild;
-    } catch {
+    const server = await serverBuild();
+    if (!server) {
       // Offline or restarting: nothing to say yet.
       if (idle) owed = { idle, opening };
       return;
@@ -49,12 +67,29 @@ export function watchUpdates(say: (n: BuildNotice) => void = () => {}) {
     const lose = () => !idle?.() || wouldLoseWork();
     const into = idle ? reloadOnReturn(now, server, reloadedFor(), lose) : null;
     // Opening, it goes back to where it opened: the page may have tidied the address since.
-    if (into) return reloadInto(into, opening ? openedAt : undefined);
+    if (into) return reloadInto(into, opening && first ? openedAt : undefined);
     say(now);
   };
   // The development server rebuilds as you go; there's nothing to reload into.
   const stop = import.meta.env.DEV ? () => {} : watchBuild((idle, o) => void check(idle, o));
   return { check, stop, owes: () => owed !== null };
+}
+
+/**
+ * The desktop app's Ask window keeps its page between uses, and is opened to type into at once,
+ * so it never reloads as it opens or comes back: it asks as it's put away (the app tells it:
+ * window.rs), and moves on to a new build then when that loses nothing. Returns the cleanup.
+ */
+export function updateWhenHidden(): () => void {
+  if (import.meta.env.DEV) return () => {};
+  return whenHidden(async () => {
+    const server = await serverBuild();
+    if (!server) return;
+    const now = noticeFor(pageBuild(), server);
+    const into = reloadOnReturn(now, server, reloadedFor(), wouldLoseWork);
+    // Brought back meanwhile: it waits until it's put away again.
+    if (into && document.visibilityState === "hidden") reloadInto(into);
+  });
 }
 
 export function UpdateNotice() {
