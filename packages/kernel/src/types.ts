@@ -164,6 +164,13 @@ export interface NewNotification {
   lane?: "signal" | "noise";
   deadline?: Date | null;
   dedupeKey?: string | null;
+  /**
+   * Its words came from outside content, though its caller is trusted: a reminder set after
+   * reading an email, rung by Hearth itself. Anything an untrusted caller makes is outside anyway.
+   * A tell set off by outside content is marked too, unless it says false: only Hearth's own words
+   * ("Your GitHub token is about to stop working"). Only an "always" reflex can say so.
+   */
+  outside?: boolean;
 }
 
 export interface NewObservation {
@@ -252,8 +259,8 @@ export interface DigestSection {
 export interface RoutineFiring {
   scheduledFor: Date;
   event: HearthEvent;
-  /** Every module's digest since a time, gathered by the engine. */
-  digest(since: Date): Promise<DigestSection[]>;
+  /** Every module's digest since a time, gathered by the engine: as of `at` if given, else now. */
+  digest(since: Date, at?: Date): Promise<DigestSection[]>;
 }
 
 /** Work that runs on a schedule (the brief, prep, sweeps). Fired by the scheduler as clock.fired. */

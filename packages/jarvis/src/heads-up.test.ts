@@ -1,7 +1,7 @@
 // Step 7 end to end: a heads-up ten minutes before a real meeting with its prep and join link
 // (even while paused, and following a moved meeting), the evening's Your day card, calendar
 // rows that say their prep is ready, and what Jarvis did, read from what it made.
-import { calendar, entity, notification, schedule, setting } from "@hearth/db";
+import { calendar, entity, googleAccount, notification, schedule, setting } from "@hearth/db";
 import {
   type Caller,
   integrationCaller,
@@ -12,7 +12,7 @@ import {
 } from "@hearth/kernel";
 import { type EventView, GOOGLE_SERVICE, gist, SCOPES } from "@hearth/modules";
 import { FakeGoogle } from "@hearth/modules/google-testing";
-import { eq } from "drizzle-orm";
+import { eq, like } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createJarvisHarness, type JarvisHarness } from "./testing.ts";
 
@@ -38,6 +38,12 @@ const review = (start: string, end: string) => ({
   start: at(start),
   end: at(end),
 });
+/** On at that time, as the PC is: the worker syncs the calendar every five minutes. */
+async function awakeAt(iso: string) {
+  h.clock.set(iso);
+  await sync();
+  await h.settle();
+}
 const events = () =>
   ok<EventView[]>("calendar.events", { from: "2026-10-01T00:00:00Z", to: "2026-10-03T00:00:00Z" });
 
@@ -68,8 +74,7 @@ describe("the heads-up before a meeting", () => {
     h.clock.set("2026-10-01T14:49:00Z");
     await h.settle();
     expect(await inbox("calendar.meeting_soon")).toEqual([]);
-    h.clock.set("2026-10-01T14:50:10Z");
-    await h.settle();
+    await awakeAt("2026-10-01T14:50:10Z");
     expect(await inbox("calendar.meeting_soon")).toMatchObject([
       {
         title: '"Design review" in 10 min',
@@ -93,11 +98,9 @@ describe("the heads-up before a meeting", () => {
     g.put(ME, review("2026-10-01T16:00:00Z", "2026-10-01T16:30:00Z"));
     await sync();
     await h.settle();
-    h.clock.set("2026-10-01T14:50:10Z");
-    await h.settle();
+    await awakeAt("2026-10-01T14:50:10Z");
     expect(await inbox("calendar.meeting_soon")).toEqual([]);
-    h.clock.set("2026-10-01T15:50:10Z");
-    await h.settle();
+    await awakeAt("2026-10-01T15:50:10Z");
     expect((await inbox("calendar.meeting_soon")).map((n) => n.title)).toEqual([
       '"Design review" in 10 min',
     ]);
@@ -114,8 +117,7 @@ describe("the heads-up before a meeting", () => {
     g.put(ME, invite("webinar", "Free webinar", "needsAction"));
     g.put(ME, invite("maybe", "Budget sync", "tentative"));
     await sync();
-    h.clock.set("2026-10-01T14:50:10Z");
-    await h.settle();
+    await awakeAt("2026-10-01T14:50:10Z");
     expect((await inbox("calendar.meeting_soon")).map((n) => n.title)).toEqual([
       '"Budget sync" in 10 min',
     ]);
@@ -134,11 +136,84 @@ describe("the heads-up before a meeting", () => {
     await sync();
     const [cal] = await h.tdb.db.select().from(calendar).where(eq(calendar.googleId, personal));
     await ok("calendar.set_default", { id: cal!.id });
-    h.clock.set("2026-10-01T14:50:10Z");
-    await h.settle();
+    await awakeAt("2026-10-01T14:50:10Z");
     expect((await inbox("calendar.meeting_soon")).map((n) => n.title)).toEqual([
       '"Dentist" in 10 min',
     ]);
+  });
+
+  it("waits for the first sync after the PC wakes, so a meeting cancelled overnight doesn't ring", async () => {
+    // Friday at 9 a.m.: the review, and a call that's cancelled in the night.
+    g.put(ME, review("2026-10-02T13:00:00Z", "2026-10-02T13:30:00Z"));
+    g.put(ME, {
+      ...review("2026-10-02T13:00:00Z", "2026-10-02T13:30:00Z"),
+      id: "call",
+      summary: "Call with Sam",
+    });
+    await sync();
+    await h.settle();
+    g.remove(ME, "call");
+    // Asleep from Thursday afternoon until 8:55, after both came due.
+    h.clock.set("2026-10-02T12:55:00Z");
+    await h.settle();
+    expect(await inbox("calendar.meeting_soon")).toEqual([]);
+    await sync();
+    h.clock.advance(60_000);
+    await h.settle();
+    expect((await inbox("calendar.meeting_soon")).map((n) => n.title)).toEqual([
+      '"Design review" in 4 min',
+    ]);
+  });
+
+  it("rings on time while Google slows the calendar down: the PC is awake and trying", async () => {
+    g.put(ME, review("2026-10-01T15:00:00Z", "2026-10-01T15:30:00Z"));
+    await sync();
+    await h.settle();
+    // From 2:35, Google asks Hearth to slow down every round.
+    for (const time of ["14:35:00", "14:40:00", "14:45:00", "14:50:10"]) {
+      g.failCalendar(1, 429);
+      await awakeAt(`2026-10-01T${time}Z`);
+    }
+    expect((await inbox("calendar.meeting_soon")).map((n) => n.title)).toEqual([
+      '"Design review" in 10 min',
+    ]);
+  });
+
+  it("rings from Hearth's copy 3 minutes before when no sync comes at all", async () => {
+    g.put(ME, review("2026-10-01T15:00:00Z", "2026-10-01T15:30:00Z"));
+    await sync();
+    await h.settle();
+    h.clock.set("2026-10-01T14:50:10Z");
+    await h.settle();
+    expect(await inbox("calendar.meeting_soon")).toEqual([]);
+    h.clock.set("2026-10-01T14:57:10Z");
+    await h.settle();
+    expect((await inbox("calendar.meeting_soon")).map((n) => n.title)).toEqual([
+      '"Design review" in 3 min',
+    ]);
+  });
+
+  it("rings for an account that needs connecting again, which isn't synced till then", async () => {
+    g.put(ME, review("2026-10-01T15:00:00Z", "2026-10-01T15:30:00Z"));
+    await sync();
+    await h.settle();
+    await h.tdb.db.update(googleAccount).set({ status: "revoked" });
+    h.clock.set("2026-10-01T14:50:10Z");
+    await h.settle();
+    expect((await inbox("calendar.meeting_soon")).map((n) => n.title)).toEqual([
+      '"Design review" in 10 min',
+    ]);
+  });
+
+  it("still preps and plans the day when the PC wakes at 9:30", async () => {
+    h.clock.set("2026-10-02T13:30:00Z"); // Friday, three and a half hours after 6
+    await h.settle();
+    const rows = await h.tdb.db
+      .select()
+      .from(schedule)
+      .where(like(schedule.id, "routine:calendar.%"));
+    const outcome = (name: string) => rows.find((r) => r.id.endsWith(name))?.lastOutcome;
+    expect([outcome(".prep"), outcome(".time_blocks")]).toEqual(["fired", "fired"]);
   });
 
   it("is set up for meetings already on the calendar when the heartbeat looks ahead", async () => {
@@ -149,8 +224,7 @@ describe("the heads-up before a meeting", () => {
     await h.tdb.db.delete(schedule).where(eq(schedule.kind, "check"));
     h.clock.set("2026-10-01T14:25:10Z"); // the heartbeat
     await h.settle();
-    h.clock.set("2026-10-01T14:50:10Z");
-    await h.settle();
+    await awakeAt("2026-10-01T14:50:10Z");
     expect(await inbox("calendar.meeting_soon")).toHaveLength(1);
   });
 });
@@ -168,8 +242,7 @@ describe("the evening and what Jarvis did", () => {
       organizer: { email: "partner@example.com", self: true },
     });
     await sync();
-    h.clock.set("2026-10-01T14:50:10Z");
-    await h.settle();
+    await awakeAt("2026-10-01T14:50:10Z");
     expect((await inbox("calendar.meeting_soon")).map((n) => n.title)).toEqual([
       '"Design review" in 10 min',
     ]);

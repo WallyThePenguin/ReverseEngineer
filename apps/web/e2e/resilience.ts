@@ -1,6 +1,7 @@
 // End-to-end check that the web app rides through Hearth being slow, down or restarting: errors
 // and timeouts at start-up, on actions and on the live feed, each faked with page.route. After
-// each one the app must come back by itself, in the same page, without a reload.
+// each one the app must come back by itself, in the same page, without a reload. And a slow answer
+// doesn't let a second tap do a thing twice.
 //
 //   HEARTH_DEV_AUTH=1 HEARTH_WEB_DIST=apps/web/dist hearth serve    (in another terminal)
 //   HEARTH_E2E_URL=http://localhost:4400 node apps/web/e2e/resilience.ts
@@ -216,6 +217,66 @@ try {
     if (await inboxRow(p, title).count()) throw new Error("the done item came back");
     await sameLoad(p);
   });
+
+  await step(
+    "Today's chips: tapped twice while slow, or double-clicked, they act once",
+    async (p) => {
+      const sent: string[] = [];
+      const count = (r: { url(): string }) => sent.push(r.url().split("/api/actions/")[1] ?? "");
+      const times = (name: string) => sent.filter((s) => s === name).length;
+      p.on("request", count);
+      await boot(p);
+      await home(p).waitFor();
+      const ask = p.getByRole("textbox", { name: "Ask Jarvis or add a task" });
+      const plan = p.getByRole("button", { name: "Plan my day" });
+      await plan.waitFor();
+      // Asking Jarvis to do something isn't offered as a task of yours.
+      await ask.fill("remind me to call Sam at 3pm");
+      if (!(await plan.isVisible())) throw new Error("asking for a reminder was offered as a task");
+      // Two taps while it's on its way start one conversation (held, then refused, so none starts).
+      let release: () => void = () => {};
+      const held = new Promise<void>((r) => {
+        release = r;
+      });
+      await p.route("**/api/actions/chat.send", async (r) => {
+        await held;
+        await r.fulfill({
+          status: 400,
+          json: { status: "error", code: "invalid_input", message: "x" },
+        });
+      });
+      const answered = p.waitForResponse((r) => r.url().endsWith("/api/actions/chat.send"));
+      await plan.click();
+      await plan.click();
+      // Meanwhile a task can be added: a chip waits only on its own. A double-click adds it once,
+      // and its second click lands on no chip sliding under it.
+      await ask.fill(`Cake ${tag} tomorrow 5pm`);
+      await p.getByRole("button", { name: /^Add task/ }).dblclick();
+      await p.getByText(`Added “Cake ${tag}”`).waitFor();
+      // The box has the focus again, for the next line: not Plan my day, which a key would start.
+      if (!(await ask.evaluate((el) => el.matches(":focus"))))
+        throw new Error("adding a task didn't give the focus back to the box");
+      release();
+      await answered;
+      await p.unroute("**/api/actions/chat.send");
+      await p.waitForTimeout(500);
+      p.off("request", count);
+      if (times("chat.send") !== 1 || times("task.create") !== 1)
+        throw new Error(`the chips sent ${sent.filter((s) => /send|create/.test(s)).join(", ")}`);
+      // New task takes what's typed with it.
+      await ask.fill(`Typed ${tag}`);
+      await p.getByRole("button", { name: "New task" }).click();
+      const tasks = p.locator("section", {
+        has: p.getByRole("heading", { name: "Tasks", exact: true }),
+      });
+      const added = tasks.getByPlaceholder(/^New task…/);
+      await added.waitFor();
+      if ((await added.inputValue()) !== `Typed ${tag}`)
+        throw new Error(`the new task's box has "${await added.inputValue()}", not what was typed`);
+      await sameLoad(p);
+      await tasks.getByTitle("Close pane (Alt+W)").click();
+    },
+  );
 
   await step("live feed: refused at start, banner, then back with live updates", async (p) => {
     await p.route("**/api/events**", badGateway);

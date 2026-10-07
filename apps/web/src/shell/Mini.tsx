@@ -13,6 +13,7 @@ import {
   Show,
   Switch,
 } from "solid-js";
+import { watchUpdates } from "../components/UpdateNotice.tsx";
 import { Button } from "../components/ui.tsx";
 import { useWhen, WhenChip } from "../components/WhenChip.tsx";
 import { Conversation } from "../jarvis/Conversation.tsx";
@@ -143,6 +144,8 @@ export function MiniApp(props: { page: MiniPage }) {
   // Kept between uses: shown again after you've signed in (or Hearth is back), it looks again.
   const stale = () => me.state === "errored" || (me.state === "ready" && !me()!.signedIn);
   onMount(() => onCleanup(whenShownAgain(stale, () => void refetch())));
+  // A new Hearth replaces this window's page when that loses nothing, as it does the main one's.
+  onMount(() => onCleanup(watchUpdates().stop));
 
   const onKey = (e: KeyboardEvent) => {
     // Esc closes the window, unless something on the page (a menu, say) used it first.

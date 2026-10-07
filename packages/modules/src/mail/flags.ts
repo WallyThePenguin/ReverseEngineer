@@ -12,8 +12,10 @@ import {
   mailThread,
 } from "@hearth/db";
 import { type ActionContext, newId, updateEntity } from "@hearth/kernel";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, getTableColumns, inArray } from "drizzle-orm";
 import { personFor } from "../people/store.ts";
+import { once } from "./copies.ts";
+import { accountAddresses, addressKey, toAnyOf, yourAddresses } from "./mine.ts";
 import { type MailProvider, MailProviderError } from "./provider.ts";
 
 type MessageRow = typeof mailMessage.$inferSelect;
@@ -22,35 +24,66 @@ type MessageRow = typeof mailMessage.$inferSelect;
 const AUTOMATED =
   /^(no-?reply|do-?not-?reply|notifications?|notify|mailer-daemon|postmaster|bounces?|alerts?|news(letter)?|updates?|info|hello|support|billing|receipts?|orders?|team|marketing)([+._-][^@]*)?@/i;
 
+type LastMessage = Pick<
+  MessageRow,
+  "outbound" | "fromAddress" | "labels" | "toAddresses" | "invite" | "bulk"
+>;
+
 /**
  * Who the conversation waits on, from its last message: "them" if you sent it (Gmail says so; a
- * From line naming you can be forged); "you" if a person wrote to you directly (not a cc, a list,
- * a newsletter, a notification or a Gmail tab) in Signal, and they're someone you know (`known`:
- * a person in Hearth, as anyone you write to becomes) or Gmail marks it important (D61).
+ * From line naming you can be forged); "you" if a person wrote to you directly (to one of `mine`,
+ * your addresses by addressKey: not a cc, a list, a newsletter, a notification or a Gmail tab) in
+ * Signal, and they're someone you know (`known`: a person in Hearth, as anyone you write to
+ * becomes) or Gmail marks it important (D61).
  */
 export function waitingOn(
-  last: Pick<MessageRow, "outbound" | "fromAddress" | "labels" | "toAddresses" | "invite" | "bulk">,
-  me: string,
+  last: LastMessage,
+  mine: ReadonlySet<string>,
   lane: MailLane,
   known: boolean,
 ): "you" | "them" | null {
   if (last.outbound) return last.labels.includes("SENT") ? "them" : null;
+  // Your own email, as it reached another of yours: it waits on no one there.
+  if (mine.has(addressKey(last.fromAddress))) return null;
   if (lane !== "signal" || AUTOMATED.test(last.fromAddress)) return null;
   // An invitation is answered on the calendar, not by email.
   if (last.invite) return null;
   if (last.bulk) return null;
   if (last.labels.some((l) => l.startsWith("CATEGORY_") && l !== "CATEGORY_PERSONAL")) return null;
-  if (!last.toAddresses.some((a) => a.address.toLowerCase() === me.toLowerCase())) return null;
+  if (!toAnyOf(last.toAddresses, mine)) return null;
   return known || last.labels.includes("IMPORTANT") ? "you" : null;
+}
+
+/**
+ * waitingOn with the account's own address, and your others only when they'd make a difference:
+ * mail to one of them, or from one of your accounts (your own email cc'd here, before its copy in
+ * Sent is saved).
+ */
+async function waitingFor(
+  db: DbOrTx,
+  last: LastMessage,
+  me: string,
+  lane: MailLane,
+  known: boolean,
+): Promise<"you" | "them" | null> {
+  const own = new Set([addressKey(me)]);
+  const waiting = waitingOn(last, own, lane, known);
+  if (waiting === "you")
+    return (await accountAddresses(db)).has(addressKey(last.fromAddress)) ? null : waiting;
+  if (waiting || last.outbound) return waiting;
+  // Only who it was sent to stands in the way: it may be another of your addresses.
+  const ifToYou = waitingOn({ ...last, toAddresses: [{ address: me }] }, own, lane, known);
+  return ifToYou ? waitingOn(last, await yourAddresses(db), lane, known) : null;
 }
 
 /** Works the conversation's state out again from its messages. Removes it if none are left. */
 export async function recomputeThread(ctx: ActionContext, threadId: string): Promise<void> {
   const msgs = await ctx.tx
-    .select()
+    .select({ ...getTableColumns(mailMessage), subject: entity.title })
     .from(mailMessage)
+    .innerJoin(entity, eq(entity.id, mailMessage.entityId))
     .where(eq(mailMessage.threadId, threadId))
-    .orderBy(asc(mailMessage.sentAt));
+    .orderBy(asc(mailMessage.sentAt), asc(mailMessage.entityId));
   if (msgs.length === 0) {
     // Only ever a conversation: never another kind of record that was passed by mistake.
     await ctx.tx
@@ -70,9 +103,10 @@ export async function recomputeThread(ctx: ActionContext, threadId: string): Pro
     return;
   }
   const live = msgs.filter((m) => !m.labels.includes("TRASH"));
-  const shown = live.length ? live : msgs;
+  // The same email in two of your accounts counts once, and only the copy shown has a say.
+  const shown = once(live.length ? live : msgs);
   const last = shown.at(-1)!;
-  const any = (label: string) => live.some((m) => m.labels.includes(label));
+  const any = (label: string) => live.length > 0 && shown.some((m) => m.labels.includes(label));
   const lastOf = (out: boolean) => shown.filter((m) => m.outbound === out).at(-1)?.sentAt ?? null;
   const people = new Map<string, MailAddress>();
   for (const m of shown) {
@@ -92,11 +126,7 @@ export async function recomputeThread(ctx: ActionContext, threadId: string): Pro
   // Counted, not dated: a new message's date is whatever its sender's clock says.
   const said = thread?.noReplyCount != null && thread.noReplyCount >= shown.length;
   // The conversation is named by its first message, whichever arrived first.
-  const [first] = await ctx.tx
-    .select({ title: entity.title })
-    .from(entity)
-    .where(eq(entity.id, msgs[0]!.entityId));
-  if (first) await updateEntity(ctx, threadId, { title: first.title }).catch(() => {});
+  await updateEntity(ctx, threadId, { title: msgs[0]!.subject }).catch(() => {});
   const known = !last.outbound && Boolean(await personFor(ctx.tx, last.fromAddress.toLowerCase()));
   await ctx.tx
     .update(mailThread)
@@ -112,7 +142,7 @@ export async function recomputeThread(ctx: ActionContext, threadId: string): Pro
       inInbox: any("INBOX"),
       trashed: live.length === 0,
       lane,
-      waiting: said || !row ? null : waitingOn(last, row.me, lane, known),
+      waiting: said || !row ? null : await waitingFor(ctx.tx, last, row.me, lane, known),
       waitingSince: last.sentAt,
     })
     .where(eq(mailThread.entityId, threadId));
@@ -154,16 +184,20 @@ export async function changeFlags(
         .update(mailMessage)
         .set({ labels: withFlags(m.labels, add, remove) })
         .where(eq(mailMessage.entityId, m.entityId));
-    await ctx.tx.insert(mailOp).values({
-      id: newId(),
-      accountId: touched[0]!.accountId,
-      threadId,
-      providerIds: touched.map((m) => m.providerId),
-      addLabels: add,
-      removeLabels: remove,
-      undo: Object.fromEntries(touched.map((m) => [m.providerId, m.labels])),
-      createdAt: ctx.now,
-    });
+    // An email in two of your accounts has a copy in each: the change goes to each account.
+    for (const accountId of new Set(touched.map((m) => m.accountId))) {
+      const theirs = touched.filter((m) => m.accountId === accountId);
+      await ctx.tx.insert(mailOp).values({
+        id: newId(),
+        accountId,
+        threadId,
+        providerIds: theirs.map((m) => m.providerId),
+        addLabels: add,
+        removeLabels: remove,
+        undo: Object.fromEntries(theirs.map((m) => [m.providerId, m.labels])),
+        createdAt: ctx.now,
+      });
+    }
     await recomputeThread(ctx, threadId);
     ctx.emit({ kind: "mail.changed", entityId: threadId, payload: { add, remove } });
   }

@@ -3,16 +3,17 @@
 // the same request waits once, a yes claims the approval before the action runs, and what's
 // approved is checked again against the action before it runs.
 import { isUuid } from "@hearth/core";
-import {
-  type AlwaysAllow,
-  type ApprovalStatus,
-  approval,
-  notification,
-  principal,
-  type Tx,
-} from "@hearth/db";
+import { type ApprovalStatus, approval, notification, principal, type Tx } from "@hearth/db";
 import { and, eq, gt, isNull, ne, or } from "drizzle-orm";
 import { z } from "zod";
+import {
+  alreadyKept,
+  alwaysAllowOf,
+  alwaysAllowRule,
+  auditAlwaysAllow,
+  keepAlwaysAllow,
+  NOT_ALWAYS,
+} from "./always-allow.ts";
 import { approvalTtlMs, expireOverdue, resolvedOrigin, withTitles } from "./approval-life.ts";
 import { writeAudit } from "./audit.ts";
 import { ActionError, describeError } from "./errors.ts";
@@ -33,10 +34,6 @@ export interface Deferred {
 
 /** A value as JSON stores it, so the hash is of exactly what's kept (a Date becomes its text). */
 const asStored = (value: unknown): unknown => JSON.parse(JSON.stringify(value ?? {}));
-
-/** What an Always allow for this call would cover, if its action offers one (D70). */
-export const alwaysAllowOf = (def: ActionDef, input: unknown): AlwaysAllow | null =>
-  def.alwaysAllow?.(input as never) ?? null;
 
 export async function requestApproval(
   kernel: Kernel,
@@ -188,6 +185,8 @@ export async function resolveApproval(
   approvalId: string,
   decision: "approve" | "deny",
   caller: Caller,
+  /** Always allow (D70): the yes also writes the card's rule, or neither happens. */
+  opts: { alwaysAllow?: boolean } = {},
 ): Promise<ExecuteResult> {
   if (caller.kind !== "owner")
     return { status: "denied", reason: "Only you can decide approvals." };
@@ -195,11 +194,20 @@ export async function resolveApproval(
   if (!isUuid(approvalId)) return notFound;
   const [row] = await kernel.db.select().from(approval).where(eq(approval.id, approvalId));
   if (!row) return notFound;
+  const now = kernel.clock.now();
+  const correlationId = row.correlationId ?? newId();
+  const always = decision === "approve" && opts.alwaysAllow === true;
+  const offered = always ? alwaysAllowRule(row) : null;
+  const grant = { row, caller, correlationId, at: now };
+  const refuse = async (): Promise<ExecuteResult> => {
+    await auditAlwaysAllow(kernel.db, grant, NOT_ALWAYS);
+    return { status: "denied", reason: NOT_ALWAYS };
+  };
+  // Only from your own screens (a paired device's yes is untrusted), on a card that offers it.
+  if (always && (caller.origin !== "owner" || !offered)) return refuse();
   const def = kernel.registry.action(row.action);
   // As it is when closed: a copy asked meanwhile after reading outside content may lower it.
   let origin = row.origin;
-  const now = kernel.clock.now();
-  const correlationId = row.correlationId ?? newId();
   const stillOpen = and(
     eq(approval.id, approvalId),
     eq(approval.status, "pending"),
@@ -255,6 +263,7 @@ export async function resolveApproval(
             turnId: row.turnId,
             ...(extra.error ? { error: extra.error } : {}),
             ...(extra.result !== undefined ? { result: extra.result } : {}),
+            ...(always && status === "executed" ? { alwaysAllow: true } : {}),
           },
         },
       ],
@@ -290,18 +299,29 @@ export async function resolveApproval(
       : { status: "error", code: "conflict", message: GONE };
   }
 
-  // Claimed before anything runs: a second yes finds it taken instead of running it again.
+  // Claimed before anything runs: a second yes finds it taken instead of running it again. An
+  // Always allow claims it only while it's still from a conversation you started alone.
   const [claimed] = await kernel.db
     .update(approval)
     .set({ status: "executing", decidedBy: caller.principal, decidedAt: now })
-    .where(stillOpen)
+    .where(always ? and(stillOpen, eq(approval.origin, "owner")) : stillOpen)
     .returning();
-  if (!claimed) return taken();
+  if (!claimed) {
+    if (!offered) return taken();
+    // Still waiting, but a turn that read an email has since asked for the same thing.
+    const [open] = await kernel.db.select({ id: approval.id }).from(approval).where(stillOpen);
+    if (open) return refuse();
+    const kept = await alreadyKept(kernel.db, approvalId, row.action, offered.target);
+    return kept ? { status: "ok", result: kept } : taken();
+  }
+  const rule = always ? alwaysAllowRule(claimed) : null;
   // `error` is kept on the approval (and told to Jarvis); you're told `message`.
   const fail = async (message: string, error = message): Promise<ExecuteResult> => {
     await finish("executing", "failed", { error });
     return { status: "error", code: "conflict", message };
   };
+  // Can't happen while the claim checks the origin, but a yes meant with its rule never runs bare.
+  if (always && !rule) return fail(NOT_ALWAYS);
   if (stableHash(claimed.input) !== claimed.inputHash)
     return fail("The approved request doesn't match what was asked, so it wasn't run.");
   // What it would run is checked against the action as it is now, defaults and all.
@@ -332,6 +352,8 @@ export async function resolveApproval(
       ? { status: "error", ...failure }
       : { status: "error", code: "failed", message: NOT_RUN };
   }
+  // Set inside the transaction, so it isn't narrowed to its starting null.
+  let kept = null as Awaited<ReturnType<typeof keepAlwaysAllow>> | null;
   const result = await kernel.run(def, parsed.data, requester, {
     approvalId,
     inTx: async (tx, r) => {
@@ -340,12 +362,16 @@ export async function resolveApproval(
       const result = (r ?? null) as ApprovalRow["result"];
       const d = await close(tx, "executing", "executed", { result }, touched);
       if (!d) throw new ActionError("conflict", "This approval was closed while it ran.");
+      // With the yes it came with: a yes that fails or is refused leaves no rule (D70).
+      if (rule) kept = await keepAlwaysAllow(tx, grant, rule);
       return d;
     },
   });
   if (result.status !== "ok") {
     const message = result.status === "error" ? result.message : "Could not run";
     await finish("executing", "failed", { error: message });
+    return result;
   }
-  return result;
+  // What you're told comes from the rule as written, so a yes without one never says it saved one.
+  return kept ? { status: "ok", result: kept } : result;
 }

@@ -4,6 +4,7 @@ import { type DbOrTx, type MailAddress, type MailLane, mailSenderRule } from "@h
 import type { ActionContext } from "@hearth/kernel";
 import { inArray } from "drizzle-orm";
 import { ensurePerson, linkPerson, personFor } from "../people/store.ts";
+import { addressKey } from "./mine.ts";
 
 /** Gmail's tabs other than Primary. Mail there starts out as Noise. */
 export const NOISE_CATEGORIES = [
@@ -60,15 +61,16 @@ export async function laneFor(
 
 /**
  * Links a message to the people on it. Writing to someone makes them a person; mail from someone
- * is linked only if you already know them.
+ * is linked only if you already know them. You aren't someone you know: none of `mine` (your
+ * connected accounts' addresses, by addressKey) becomes a person, or a company for its domain.
  */
 export async function linkPeople(
   ctx: ActionContext,
   messageId: string,
   m: { outbound: boolean; from: MailAddress | null; to: MailAddress[]; cc: MailAddress[] },
-  self: string,
+  mine: ReadonlySet<string>,
 ): Promise<void> {
-  const others = (list: MailAddress[]) => list.filter((a) => a.address !== self);
+  const others = (list: MailAddress[]) => list.filter((a) => !mine.has(addressKey(a.address)));
   if (m.outbound) {
     for (const who of others([...m.to, ...m.cc]).slice(0, 20)) {
       const personId = await ensurePerson(ctx, who);

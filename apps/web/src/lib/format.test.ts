@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { date, dateTime, due, dueInFull, hours, humanTimes, plural, span } from "./format.ts";
+import {
+  date,
+  dateTime,
+  due,
+  dueInFull,
+  hours,
+  humanTimes,
+  plural,
+  span,
+  timeOn,
+} from "./format.ts";
 
 const NOW = new Date(2026, 9, 5, 9, 0);
 
@@ -23,6 +33,11 @@ describe("dates and times as you'd say them", () => {
     expect(hours(new Date(2026, 9, 7, 11, 30), new Date(2026, 9, 7, 13))).toBe(
       "11:30 a.m. to 1 p.m.",
     );
+  });
+
+  it("says the day of a time only when it isn't today", () => {
+    expect(timeOn(new Date(2026, 9, 5, 14, 40), NOW)).toBe("2:40 p.m.");
+    expect(timeOn(new Date(2026, 9, 6, 6), NOW)).toBe("6 a.m. tomorrow");
   });
 
   it("gives a span across days both its days", () => {

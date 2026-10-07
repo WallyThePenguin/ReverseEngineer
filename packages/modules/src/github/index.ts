@@ -52,6 +52,8 @@ const tokenExpiring: ReflexDef = {
           body: `It expires ${day}. Make a new one and paste it in Settings, under GitHub, so pull requests keep coming in.`,
           urgency: "normal",
           dedupeKey: `github.token_expiring:${at}`,
+          // Only Hearth's words and a date, though GitHub's sync told it: reading it back is safe.
+          outside: false,
         },
       },
     ];
