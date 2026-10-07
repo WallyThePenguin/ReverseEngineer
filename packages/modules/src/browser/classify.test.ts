@@ -1,7 +1,8 @@
+import { networkInterfaces } from "node:os";
 import { type Browser, chromium } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { chromiumForTests, chromiumPath } from "./chromium.ts";
-import { askWhy, dialogVerdict, FREE, judge, type Verdict } from "./classify.ts";
+import { askWhy, dialogVerdict, FREE, isHearthPage, judge, type Verdict } from "./classify.ts";
 import { pageCall } from "./page.ts";
 
 const sends = (floor: Verdict["floor"] = null): Verdict => ({ sends: true, floor, why: "x" });
@@ -45,6 +46,73 @@ describe("whether a press may go ahead (D52)", () => {
     const v = dialogVerdict(dialog);
     expect(v.sends).toBe(sendsIt);
     expect(v.floor).toBe(floor);
+  });
+});
+
+describe("Hearth's own pages", () => {
+  const env = {
+    HEARTH_PORT: "4474",
+    HEARTH_ORIGIN: "https://hearth.tail.ts.net",
+    HEARTH_LOCAL_ORIGIN: "http://hearth.localhost:4400",
+  };
+  it.each([
+    ["http://localhost:4400/approvals", true],
+    ["http://127.0.0.1:4400/", true],
+    ["http://[::1]:4400/settings", true],
+    ["http://localhost:4474/chat", true],
+    ["https://hearth.tail.ts.net/approvals", true],
+    ["https://HEARTH.tail.ts.net:443/", true],
+    // Where you open it from elsewhere, on any port: whatever answers there is Hearth's.
+    ["https://hearth.tail.ts.net:8443/", true],
+    ["http://127.0.0.2:4400/", true],
+    // The same place by another spelling.
+    ["https://hearth.tail.ts.net./approvals", true],
+    ["http://localhost.:4400/", true],
+    ["http://[::ffff:127.0.0.1]:4400/", true],
+    ["http://[::ffff:7f00:1]:4400/", true],
+    ["http://0.0.0.0:4400/", true],
+    ["http://[::]:4400/", true],
+    ["blob:http://localhost:4400/0b1c", true],
+    ["blob:https://hearth.tail.ts.net/0b1c", true],
+    ["http://hearth.localhost:4400/inbox", true],
+    // Other apps on this PC (a dev server), and Hearth's own dev server, which its mark tells.
+    ["http://localhost:3000/", false],
+    ["http://hearth.localhost:3000/", false],
+    ["http://localhost:5173/", false],
+    ["http://localhost/", false],
+    ["https://localhost/", false],
+    ["https://shop.example/", false],
+    ["https://tail.ts.net/", false],
+    ["https://evil-hearth.tail.ts.net/", false],
+    ["http://[::ffff:c000:207]:4400/", false],
+    ["blob:https://shop.example/0b1c", false],
+    // Chrome's test page has nothing behind it.
+    ["http://localhost:4400/api/browser/test-page", false],
+    ["not an address", false],
+  ])("%s: %s", (url, own) => {
+    expect(isHearthPage(url, env)).toBe(own);
+  });
+
+  it("knows this PC's other addresses when Hearth listens on them", () => {
+    const lan =
+      Object.values(networkInterfaces())
+        .flat()
+        .find((a) => a?.family === "IPv4" && !a.internal)?.address ?? "127.0.0.1";
+    expect(isHearthPage(`http://${lan}:4400/`, { HEARTH_HOST: "0.0.0.0" })).toBe(true);
+    expect(isHearthPage(`http://${lan}:3000/`, { HEARTH_HOST: "0.0.0.0" })).toBe(false);
+    // 192.0.2.x is for documentation: never this PC.
+    expect(isHearthPage("http://192.0.2.7:4400/", { HEARTH_HOST: "0.0.0.0" })).toBe(false);
+    expect(isHearthPage("http://192.0.2.7:4400/", { HEARTH_HOST: "192.0.2.7" })).toBe(true);
+    expect(isHearthPage("http://192.0.2.7:4400/", {})).toBe(false);
+  });
+
+  it("knows Hearth's ports on this PC from where it's opened", () => {
+    expect(isHearthPage("http://localhost:4400/", {})).toBe(true);
+    expect(isHearthPage("http://localhost:4400/", { HEARTH_PORT: "4474" })).toBe(false);
+    const at = { HEARTH_PORT: "4474", HEARTH_ORIGIN: "http://127.0.0.1:8080" };
+    expect(isHearthPage("http://localhost:8080/", at)).toBe(true);
+    const server = { HEARTH_PORT: "4474", HEARTH_SERVER_URL: "http://127.0.0.1:4490" };
+    expect(isHearthPage("http://localhost:4490/", server)).toBe(true);
   });
 });
 

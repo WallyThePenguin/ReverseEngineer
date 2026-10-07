@@ -8,7 +8,7 @@ import { z } from "zod";
 import { CALLERS } from "./access.ts";
 import type { BrowserClient } from "./client.ts";
 import { drive, driverRef, point, withImage } from "./drive.ts";
-import { SITE_CHECK, tabId, tabPin } from "./step.ts";
+import { handsPin, SITE_CHECK, tabId, tabPin } from "./step.ts";
 
 const SHOT = z
   .boolean()
@@ -85,6 +85,8 @@ const BATCH_STEPS = [
   "form_input",
   "wait",
 ] as const;
+/** Batch steps that only look or wait: fine on Hearth's own page (the driver says the same). */
+const LOOKS = new Set<string>(["hover", "scroll", "scroll_to", "wait"]);
 
 export const driveActActions = [
   defineAction({
@@ -126,7 +128,7 @@ export const driveActActions = [
     callers: CALLERS,
     io: true,
     external: true,
-    pin: tabPin,
+    pin: handsPin,
     summarize: (i) =>
       `Drag from ${i.fromRef ?? `[${(i.from ?? []).join(", ")}]`} to ${i.toRef ?? `[${(i.to ?? []).join(", ")}]`} in tab ${i.tabId}`,
     handler(i, ctx) {
@@ -179,7 +181,7 @@ export const driveActActions = [
     callers: CALLERS,
     io: true,
     external: true,
-    pin: tabPin,
+    pin: handsPin,
     summarize: (i) => `Set ${i.ref} in tab ${i.tabId} to "${i.value.slice(0, 120)}"`,
     handler: (i, ctx) => step(ctx, "form_input", i),
   }),
@@ -205,7 +207,7 @@ export const driveActActions = [
     callers: CALLERS,
     io: true,
     external: true,
-    pin: tabPin,
+    pin: (i, s) => (i.steps.some((x) => !LOOKS.has(x.action)) ? handsPin(i, s) : tabPin(i, s)),
     summarize: (i) =>
       `${i.steps.length} steps in tab ${i.tabId}: ${i.steps
         .map((s) => {

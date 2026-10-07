@@ -30,6 +30,8 @@ const MAX_TABS = 200;
  * Jarvis's client waits for an answer (150 s) and never runs on unseen after it gave up.
  */
 export const BATCH_MS = 60_000;
+/** Steps that only look or wait: fine on Hearth's own pages, where every other step is refused. */
+const LOOKS = new Set<string>(["hover", "scroll", "scroll_to", "wait"]);
 
 export class Driver {
   private readonly transport: CdpTransport;
@@ -194,14 +196,15 @@ export class Driver {
           label: z.string().max(200),
           sends: z.unknown().optional(),
         }).parse(raw);
-        return this.act(d, () => pressStep(d, i), false);
+        return this.act(d, true, () => pressStep(d, i), false);
       }
       case "batch":
         return this.batch(d, Batch.parse(raw));
       default: {
         if (!(op in STEPS)) throw fail("invalid", `The driver has no "${op}".`);
         const shot = Base.parse(raw).screenshot ?? false;
-        return this.act(d, () => this.step(d, op as StepName, raw), shot);
+        const acts = !LOOKS.has(op);
+        return this.act(d, acts, () => this.step(d, op as StepName, raw), shot);
       }
     }
   }
@@ -285,11 +288,14 @@ export class Driver {
 
   private async act(
     d: DriverContext,
+    acts: boolean,
     run: () => Promise<string | Record<string, unknown>>,
     shot: boolean,
   ) {
     assertFree(d);
     d.assertSite();
+    // Hearth's own page is refused before any wait: a press, key or typing there is never Jarvis's.
+    if (acts) await d.assertNotHearth();
     await this.pace(d);
     const b = await before(d);
     const did = await run();
@@ -308,6 +314,7 @@ export class Driver {
   private async batch(d: DriverContext, i: z.output<typeof Batch>) {
     assertFree(d);
     d.assertSite();
+    if (i.steps.some((s) => !LOOKS.has(s.action))) await d.assertNotHearth();
     await this.pace(d);
     const started = performance.now();
     // The site the batch was asked for: every step runs there, or not at all.
@@ -327,6 +334,8 @@ export class Driver {
         d.assertAllowed(d.url());
         d.assertSite(site);
         if (d.tab.dialog) assertFree(d);
+        // Each step that acts, again: one before it may have taken the tab to Hearth.
+        if (!LOOKS.has(s.action)) await d.assertNotHearth();
         const nb = await before(d);
         const did = await this.step(d, s.action, s.input);
         last = await settle(d, nb);
