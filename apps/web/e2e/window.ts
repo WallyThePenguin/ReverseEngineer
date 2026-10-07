@@ -219,10 +219,21 @@ try {
     await page.goto(`${base}/settings?connect=desktop`);
     // The desktop app's row, by its Connect button: other places can have a Disconnect too.
     const row = page.getByRole("button", { name: "Connect Hearth on this PC" }).locator("xpath=..");
+    // Still signed in when you click: nothing before this signed the window out.
+    const disconnected = page.waitForResponse(
+      (r) => r.url().endsWith("/api/devices/desktop") && r.request().method() === "DELETE",
+    );
     await row.getByRole("button", { name: "Disconnect" }).click();
-    await page.getByText("The desktop app is signed out.").waitFor();
+    const status = (await disconnected).status();
+    if (status !== 200) throw new Error(`Disconnect was answered ${status}`);
+    // Disconnect signs the window out too (D53), this one included: it goes straight to its
+    // sign-in page, which offers only your browser, and its toast goes with the rest of the app.
+    const connect = page.getByRole("button", { name: "Connect in your browser" });
+    await connect.waitFor();
+    await noHello(page);
+    // And it stays that way.
     await page.goto(base);
-    await page.getByRole("button", { name: "Connect in your browser" }).waitFor();
+    await connect.waitFor();
     await noHello(page);
     await noDeadButton(page);
   });
