@@ -42,6 +42,11 @@ export class FakeGoogle {
   latencyMs = 0;
   /** The next `n` Calendar changes are made, but the reply is lost (Hearth sees a 503). */
   loseCalendarReplies = 0;
+  /**
+   * Calendars still in the list whose events Google won't give, with what it says: a 404 for one
+   * whose source was deleted, say. Until removed from here.
+   */
+  readonly brokenCalendars = new Map<string, 403 | 404 | 500>();
   /** The time clients and the fake Gmail see; set it to the test kernel's clock. */
   clock: { now(): Date } = { now: () => new Date() };
   /** What clients made by client() logged. */
@@ -232,6 +237,8 @@ export class FakeGoogle {
     const cal = m ? account.calendars.get(decodeURIComponent(m[1]!)) : undefined;
     if (!m || !cal) return json(404, { error: { message: "Not found" } });
     const eventId = m[2] ? decodeURIComponent(m[2]) : null;
+    const broken = this.brokenCalendars.get(cal.id);
+    if (broken) return errorReply(broken);
     if (method === "GET" && !eventId) {
       const from = new Date(u.searchParams.get("timeMin") ?? 0).getTime();
       const to = new Date(u.searchParams.get("timeMax") ?? 8.64e15).getTime();
