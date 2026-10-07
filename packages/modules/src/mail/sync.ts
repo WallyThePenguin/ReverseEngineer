@@ -158,7 +158,7 @@ export async function syncProgress(ctx: Pick<ActionContext, "tx">, account: Acco
     backfill: c.backfill
       ? { fetched: Math.max(0, c.backfill.listed - c.pending.length), target: c.backfill.target }
       : null,
-    waiting: c.pending.length + c.relabel.length,
+    waiting: c.pending.length + c.relabel.length + Object.keys(c.parked).length,
     setAside: set?.n ?? 0,
   };
 }

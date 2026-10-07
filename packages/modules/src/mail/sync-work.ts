@@ -1,6 +1,7 @@
 // One account's share of a sync: what changed at the provider, brought in a message at a time and
 // saved as it comes. What's left when Gmail says slow down (or anything else stops it) is kept on
-// the cursor as `pending`, so the next sync picks up there and nothing is fetched twice (D55).
+// the cursor as `pending`, so the next sync picks up there and nothing is fetched twice (D55). A
+// message that fails is parked beside the queue, so new mail never waits behind it (6.2).
 import { mailAccount, mailMessage, mailQuarantine } from "@hearth/db";
 import { type ActionContext, ActionError, savepoint } from "@hearth/kernel";
 import { and, eq, gte, inArray, sql } from "drizzle-orm";
@@ -13,35 +14,41 @@ export const CALLS_PER_SYNC = 50;
 /** A message that fails to save (or to download) this many times is set aside for good. */
 export const QUARANTINE_AFTER = 3;
 /**
- * A download that timed out counts against the message at most this often: a huge message on a
- * slow line is set aside after half an hour or so, but a few bad minutes on the line aren't.
+ * A download that timed out, or that Gmail's servers failed on, waits this long before it's tried
+ * again, and counts against the message at most this often: a huge message on a slow line is set
+ * aside after half an hour or so, but a few bad minutes on the line aren't.
  */
 export const TIMEOUT_STRIKE_MS = 10 * 60_000;
 
+type Stuck = "refused" | "timeout" | "server";
+
 /**
- * A failure that's about one message rather than the provider or the network: the provider won't
- * hand it over, or it couldn't arrive in time. It mustn't hold up the rest (6.2).
+ * A failure that may be about one message rather than the provider or the network: the provider
+ * won't hand it over, it couldn't arrive in time, or the provider's servers fail on it. It mustn't
+ * hold up the rest (6.2). A network error is the line's, never the message's.
  */
-function stuckOn(err: unknown): "refused" | "timeout" | null {
+function stuckOn(err: unknown): Stuck | null {
   if (!(err instanceof MailProviderError)) return null;
   if (err.kind === "refused") return "refused";
-  return err.kind === "transient" && err.reason === "timeout" ? "timeout" : null;
+  if (err.kind !== "transient" || err.reason === "network") return null;
+  return err.reason === "timeout" ? "timeout" : "server";
 }
 
 /**
- * A refusal before anything else worked in this sync could be the account's (Gmail turned off for
- * it, say) rather than the message's: one cheap call tells which, and throws if it's the account,
- * so trouble with the account stops the sync instead of setting its mail aside one by one.
+ * A refusal or a server error before anything else worked in this sync could be the account's or
+ * the provider's (Gmail turned off for it, or down) rather than the message's: one cheap call tells
+ * which, and throws if it isn't the message, so the sync stops instead of parking mail one by one.
  */
-async function onlyThisOne(
-  provider: MailProvider,
-  account: AccountRow,
-  work: Work,
-  stuck: "refused" | "timeout",
-) {
-  if (stuck !== "refused" || work.progressed) return;
+async function onlyThisOne(provider: MailProvider, account: AccountRow, work: Work, stuck: Stuck) {
+  if (stuck === "timeout" || work.progressed) return;
   await provider.check(account.address);
   work.progressed = true;
+}
+
+/** A message that failed, waiting beside the queue: when it's tried again, and if it's old mail. */
+export interface Parked {
+  at: number;
+  quiet?: true;
 }
 
 /** The cursor as the sync keeps it: the provider's own, plus what's left to do. */
@@ -49,6 +56,8 @@ export interface SyncCursor {
   provider: Record<string, unknown>;
   /** New mail still to fetch. */
   pending: string[];
+  /** Mail that failed, by provider id: tried again after the queue, once it's due. */
+  parked: Record<string, Parked>;
   /** Messages Hearth has whose flags changed, still to look up. */
   relabel: string[];
   /** What's pending is old mail from a first sync, not news. */
@@ -59,12 +68,20 @@ export interface SyncCursor {
 
 const ids = (v: unknown) => (Array.isArray(v) ? v.filter((x) => typeof x === "string") : []);
 
+function parkedIn(v: unknown): Record<string, Parked> {
+  if (!v || typeof v !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(v as Record<string, Parked>).filter(([, p]) => typeof p?.at === "number"),
+  );
+}
+
 export function readCursor(raw: Record<string, unknown> | null): SyncCursor {
-  const { pending, relabel, quiet, backfill, ...provider } = raw ?? {};
+  const { pending, parked, relabel, quiet, backfill, ...provider } = raw ?? {};
   const b = backfill as SyncCursor["backfill"] | undefined;
   return {
     provider,
     pending: ids(pending),
+    parked: parkedIn(parked),
     relabel: ids(relabel),
     quiet: quiet === true,
     ...(b && typeof b.listed === "number" ? { backfill: b } : {}),
@@ -76,6 +93,7 @@ export function writeCursor(c: SyncCursor): Record<string, unknown> {
   return {
     ...c.provider,
     ...(c.pending.length ? { pending: c.pending } : {}),
+    ...(Object.keys(c.parked).length ? { parked: c.parked } : {}),
     ...(c.relabel.length ? { relabel: c.relabel } : {}),
     ...(left && c.quiet ? { quiet: true } : {}),
     ...(c.backfill && (left || "pageToken" in c.provider) ? { backfill: c.backfill } : {}),
@@ -104,7 +122,12 @@ export async function bringIn(
 ): Promise<Work> {
   const c = readCursor(account.cursor ?? null);
   const work: Work = { added: 0, removed: 0, more: false, progressed: false, stopped: null };
-  const retry: string[] = [];
+  const now = ctx.now.getTime();
+  // Parked mail that's due again, taken before this sync parks any: it's tried after new mail.
+  const due = Object.entries(c.parked)
+    .filter(([, p]) => p.at <= now)
+    .sort(([, a], [, b]) => a.at - b.at)
+    .map(([id]) => id);
   try {
     if (c.pending.length + c.relabel.length === 0) {
       const changes = await provider.changes(
@@ -121,46 +144,12 @@ export async function bringIn(
       await sort(ctx, account, changes.changed, c, work);
     } else work.more = true;
     let calls = CALLS_PER_SYNC;
-    while (c.pending.length && calls-- > 0) {
-      const id = c.pending[0]!;
-      let raw: RawMail | null;
-      try {
-        raw = await provider.fetch(account.address, id);
-      } catch (err) {
-        // One message that won't download goes to the back and is set aside after a few tries,
-        // so it never blocks what came after it. A timeout may be the line rather than the
-        // message, so the sync stops there for now.
-        const stuck = stuckOn(err);
-        if (!stuck) throw err;
-        await onlyThisOne(provider, account, work, stuck);
-        c.pending.shift();
-        const spacing = stuck === "timeout" ? TIMEOUT_STRIKE_MS : 0;
-        if ((await quarantine(ctx, account.id, id, err, spacing)) < QUARANTINE_AFTER)
-          retry.push(id);
-        if (stuck === "timeout") throw err;
-        continue;
-      }
-      c.pending.shift();
-      work.progressed = true;
-      if (!raw) continue;
-      try {
-        // A message that won't save is undone on its own; the rest carry on (6.2).
-        const saved = await savepoint(ctx, (sp) => saveMail(sp, account, raw));
-        if (!saved?.added) continue;
-        work.added++;
-        if (!c.quiet && !saved.outbound)
-          ctx.emit({
-            kind: "mail.received",
-            entityId: saved.id,
-            payload: {
-              threadId: saved.threadId,
-              from: saved.parsed?.from?.address ?? "",
-              subject: saved.parsed?.subject ?? "",
-            },
-          });
-      } catch (err) {
-        if ((await quarantine(ctx, account.id, id, err)) < QUARANTINE_AFTER) retry.push(id);
-      }
+    const one = { ctx, provider, account, c, work };
+    while (c.pending.length && calls-- > 0)
+      await bringOne(one, c.pending[0]!, c.quiet, () => c.pending.shift());
+    for (const id of due) {
+      const p = c.parked[id];
+      if (p && calls-- > 0) await bringOne(one, id, p.quiet === true, () => delete c.parked[id]);
     }
     while (c.relabel.length && calls-- > 0) {
       const id = c.relabel[0]!;
@@ -192,13 +181,86 @@ export async function bringIn(
     if (!(err instanceof MailProviderError || err instanceof ActionError)) throw err;
     work.stopped = err;
   }
-  c.pending.push(...retry);
-  work.more ||= c.pending.length + c.relabel.length > 0;
+  work.more ||=
+    c.pending.length + c.relabel.length > 0 || Object.values(c.parked).some((p) => p.at <= now);
   await ctx.tx
     .update(mailAccount)
     .set({ cursor: writeCursor(c) })
     .where(eq(mailAccount.id, account.id));
   return work;
+}
+
+interface One {
+  ctx: ActionContext;
+  provider: MailProvider;
+  account: AccountRow;
+  c: SyncCursor;
+  work: Work;
+}
+
+/**
+ * Fetches and saves one message; `done` takes it off its list. One that fails is parked beside
+ * the queue, never in front of new mail. A timeout also stops the sync, since it may be the line
+ * rather than the message; anything else that isn't about this message goes up with the message
+ * still where it was.
+ */
+async function bringOne(
+  { ctx, provider, account, c, work }: One,
+  id: string,
+  quiet: boolean,
+  done: () => void,
+) {
+  let raw: RawMail | null;
+  try {
+    raw = await provider.fetch(account.address, id);
+  } catch (err) {
+    const stuck = stuckOn(err);
+    if (!stuck) throw err;
+    await onlyThisOne(provider, account, work, stuck);
+    done();
+    await park(ctx, account.id, c, id, quiet, err, stuck !== "refused");
+    if (stuck === "timeout") throw err;
+    return;
+  }
+  done();
+  work.progressed = true;
+  if (!raw) return;
+  try {
+    // A message that won't save is undone on its own; the rest carry on (6.2).
+    const saved = await savepoint(ctx, (sp) => saveMail(sp, account, raw));
+    if (!saved?.added) return;
+    work.added++;
+    if (!quiet && !saved.outbound)
+      ctx.emit({
+        kind: "mail.received",
+        entityId: saved.id,
+        payload: {
+          threadId: saved.threadId,
+          from: saved.parsed?.from?.address ?? "",
+          subject: saved.parsed?.subject ?? "",
+        },
+      });
+  } catch (err) {
+    await park(ctx, account.id, c, id, quiet, err, false);
+  }
+}
+
+/**
+ * Parks a message that failed, to be tried again after new mail: next sync, or after a while for
+ * a timeout or a server error (`slow`). After QUARANTINE_AFTER tries it's set aside for good.
+ */
+async function park(
+  ctx: ActionContext,
+  accountId: string,
+  c: SyncCursor,
+  id: string,
+  quiet: boolean,
+  err: unknown,
+  slow: boolean,
+) {
+  const wait = slow ? TIMEOUT_STRIKE_MS : 0;
+  if ((await quarantine(ctx, accountId, id, err, wait)) >= QUARANTINE_AFTER) return;
+  c.parked[id] = { at: ctx.now.getTime() + wait, ...(quiet ? { quiet: true as const } : {}) };
 }
 
 /** Sorts a batch of changes: flags to set now, mail to fetch, flags to look up. */
@@ -235,7 +297,8 @@ async function sort(
       if (x.labels === null) c.relabel.push(x.id);
       else if (left) drop.push(x.id);
       else flags.set(x.id, x.labels);
-    } else if ((x.added || x.inboxed) && !left && !skip.has(x.id)) c.pending.push(x.id);
+    } else if ((x.added || x.inboxed) && !left && !skip.has(x.id) && !(x.id in c.parked))
+      c.pending.push(x.id);
     // Otherwise only flags changed, on mail Hearth doesn't keep: nothing to bring in.
   }
   work.removed += await removeMail(ctx, account.id, drop);
