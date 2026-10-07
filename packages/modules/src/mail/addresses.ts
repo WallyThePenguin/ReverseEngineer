@@ -5,8 +5,28 @@ import { ActionError } from "@hearth/kernel";
 import { z } from "zod";
 import { cleanName } from "./mime.ts";
 
-const address = z.string().trim().max(320).describe('An email address, or "Name <address>".');
-export const addresses = z.array(address).max(50);
+// Loose for everyone, as a schema can't tell who's asking: a long paste of yours still saves, and
+// Send names what's wrong with it. Jarvis and outside agents keep to the usual limits (withinLimits).
+const address = z.string().trim().max(4000).describe('An email address, or "Name <address>".');
+export const addresses = z.array(address).max(500);
+export const draftSubject = z.string().max(2000);
+
+/** What Jarvis or an outside agent writes into a draft keeps to the usual limits. */
+export function withinLimits(i: {
+  to?: string[];
+  cc?: string[];
+  bcc?: string[];
+  subject?: string;
+}) {
+  for (const list of [i.to, i.cc, i.bcc]) {
+    if (list && list.length > 50)
+      throw new ActionError("invalid_input", "At most 50 addresses each in To, Cc and Bcc.");
+    const long = list?.find((a) => a.trim().length > 320);
+    if (long) throw new ActionError("invalid_input", `"${long.slice(0, 40)}…" is too long.`);
+  }
+  if ((i.subject?.length ?? 0) > 500)
+    throw new ActionError("invalid_input", "A subject is at most 500 characters.");
+}
 
 /** "Ana Silva <ana@x.example>" or "ana@x.example" → an address, or null if it isn't one. */
 export function parseAddress(raw: string): MailAddress | null {

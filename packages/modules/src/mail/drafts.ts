@@ -22,8 +22,8 @@ import {
 } from "@hearth/kernel";
 import { and, asc, desc, eq, gte, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
-import { body, id } from "../shared.ts";
-import { addresses, clean, parseAll } from "./addresses.ts";
+import { body, id, mustSayBase } from "../shared.ts";
+import { addresses, clean, draftSubject, parseAll, withinLimits } from "./addresses.ts";
 import { once } from "./copies.ts";
 import { newMessageId } from "./mime.ts";
 import { addressKey, yourAddresses } from "./mine.ts";
@@ -104,11 +104,12 @@ export const snapshotSchema = z
 async function accountFor(ctx: ActionContext, wanted?: string) {
   const rows = await ctx.tx.select().from(mailAccount).orderBy(asc(mailAccount.address));
   const row = wanted ? rows.find((r) => r.address === wanted.toLowerCase()) : rows[0];
+  // One no longer connected is a From to change, not a draft that's gone.
   if (!row)
     throw new ActionError(
-      wanted ? "not_found" : "unavailable",
+      wanted ? "invalid_input" : "unavailable",
       wanted
-        ? `No mail account ${wanted} is connected.`
+        ? `No mail account ${wanted} is connected. Pick another From.`
         : "No mail account is connected. Connect Gmail in Settings.",
     );
   return row;
@@ -220,7 +221,7 @@ export const draftActions = [
       to: addresses.optional(),
       cc: addresses.optional(),
       bcc: addresses.optional(),
-      subject: z.string().max(500).optional(),
+      subject: draftSubject.optional(),
       text: body,
       account: z.string().email().optional().describe("Which of the owner's accounts it's from."),
     }),
@@ -231,6 +232,7 @@ export const draftActions = [
         await stillNeedsDraft(ctx, i.threadId);
       }
       const typed = ctx.caller.kind === "owner";
+      if (!typed) withinLimits(i);
       const asked = {
         to: parseAll(i.to, typed),
         cc: parseAll(i.cc, typed),
@@ -264,13 +266,13 @@ export const draftActions = [
   defineAction({
     name: "mail.draft_update",
     description:
-      "Change a draft: recipients, subject, text, or the account it goes from. Leave out what stays the same.",
+      "Change a draft: recipients, subject, text, or the account it goes from. Pass baseVersion, the version you read with mail.drafts; leave out what stays the same.",
     input: z.object({
       id,
       to: addresses.optional(),
       cc: addresses.optional(),
       bcc: addresses.optional(),
-      subject: z.string().max(500).optional(),
+      subject: draftSubject.optional(),
       text: body.optional(),
       account: z.string().email().optional().describe("Which of the owner's accounts it's from."),
       baseVersion: z
@@ -282,6 +284,9 @@ export const draftActions = [
     }),
     risk: "internal",
     async handler(i, ctx) {
+      // Never over newer text: the owner may have typed since.
+      if (i.baseVersion === undefined && mustSayBase(ctx.caller))
+        throw new ActionError("invalid_input", "Pass baseVersion: the version from mail.drafts.");
       // Held until this change is in, so two saves on one version can't both pass.
       await ctx.tx.select().from(mailDraft).where(eq(mailDraft.entityId, i.id)).for("update");
       const before = await loadDraft(ctx.tx, i.id);
@@ -289,9 +294,10 @@ export const draftActions = [
       if (i.baseVersion !== undefined && i.baseVersion !== before.version)
         throw new ActionError(
           "conflict",
-          "The draft changed since you read it (Jarvis or another screen). Read it again.",
+          "The draft changed since you read it (the owner, Jarvis or another screen). Read it again with mail.drafts and redo your change on that version.",
         );
       const typed = ctx.caller.kind === "owner";
+      if (!typed) withinLimits(i);
       const to = parseAll(i.to, typed);
       const cc = parseAll(i.cc, typed);
       const bcc = parseAll(i.bcc, typed);
@@ -366,7 +372,7 @@ export async function describeDraft(entityId: string, ctx: ReadContext): Promise
   const s = snapshotOf(d);
   return [
     `# ${d.subject || "(no subject)"}`,
-    `id: ${d.id} · email draft from ${d.account ?? "(no account: the owner picks one before it can go)"}${d.threadId ? ` · a reply in conversation ${d.threadId}` : ""}`,
+    `id: ${d.id} · version ${d.version} · email draft from ${d.account ?? "(no account: the owner picks one before it can go)"}${d.threadId ? ` · a reply in conversation ${d.threadId}` : ""}`,
     `To: ${s.to.join(", ") || "(nobody yet)"}${s.cc.length ? ` · Cc: ${s.cc.join(", ")}` : ""}${s.bcc.length ? ` · Bcc: ${s.bcc.join(", ")}` : ""}`,
     "",
     d.text,

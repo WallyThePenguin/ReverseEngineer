@@ -43,8 +43,8 @@ const restore: LiveEvent = {
   payload: {},
 };
 
-/** The Web Locks this browser holds, by name, in the order they were taken. */
-const held = new Set<string>();
+/** The Web Locks this browser holds, by name, in the order they were taken, each till let go. */
+const held = new Map<string, Promise<unknown>>();
 /** While set, a look at whether a lock is free waits for it first. */
 let slow: Promise<void> | null = null;
 type Granted = (lock: { name: string } | null) => Promise<unknown>;
@@ -56,12 +56,10 @@ const locks = {
       if (slow) await slow;
       if (held.has(name)) return fn(null);
     }
-    held.add(name);
-    try {
-      return await fn({ name });
-    } finally {
-      held.delete(name);
-    }
+    while (held.has(name)) await held.get(name);
+    const run = fn({ name }).finally(() => held.delete(name));
+    held.set(name, Promise.allSettled([run]));
+    return run;
   },
 };
 
@@ -215,7 +213,7 @@ describe("copies kept by other screens", () => {
     await vi.advanceTimersByTimeAsync(700);
     // P's tab crashes: it hears nothing more, and its lock goes with it.
     feed.delete(fromP!);
-    held.delete([...held][0]!);
+    held.delete([...held.keys()][0]!);
     trashed = false;
     for (const fn of feed) fn(restore);
     await vi.advanceTimersByTimeAsync(0);
@@ -265,7 +263,7 @@ describe("copies kept by other screens", () => {
     expect(texts(b.shown())).toEqual(["one"]);
     b.edit(add(card("n", "Now")));
     await vi.advanceTimersByTimeAsync(0);
-    expect([...kept.keys()]).toEqual([...held]);
+    expect([...kept.keys()]).toEqual([...held.keys()]);
   });
 
   it.each([

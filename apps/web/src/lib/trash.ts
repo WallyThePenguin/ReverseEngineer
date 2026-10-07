@@ -2,6 +2,7 @@
 
 import { sendKeptNotes } from "./docStore.ts";
 import type { Binding } from "./hotkeys.ts";
+import { sendKeptDrafts } from "./keptDrafts.ts";
 import { onLiveEvent, toast } from "./live.ts";
 import { act } from "./query.ts";
 
@@ -77,12 +78,12 @@ export async function restore(id: string): Promise<boolean> {
 
 /**
  * Whenever something comes back from the trash, restored here or anywhere else (Jarvis, the
- * phone, another browser), sends the edits this device kept for notes deleted before they reached
- * Hearth. An open note sends its own; one that isn't open would otherwise wait for the next start
- * of Hearth here (D59). Restores close together send once, and each send waits for the one before,
- * so these sends never have the same note open twice at once. The send at start, or a pane with
- * the note open, still can at the same time, which is safe: each copy edits as its own peer
- * (peer.ts), and a saved copy is only replaced by one holding all it held (keepDoc).
+ * phone, another browser), sends the edits this device kept for notes (and drafts) deleted before
+ * they reached Hearth. An open note sends its own; one that isn't open would otherwise wait for
+ * the next start of Hearth here (D59). Restores close together send once, and each send waits for
+ * the one before, so these sends never have the same note open twice at once. The send at start,
+ * or a pane with the note open, still can at the same time, which is safe: each copy edits as its
+ * own peer (peer.ts), and a saved copy is only replaced by one holding all it held (keepDoc).
  */
 export function sendKeptOnRestore(): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -91,7 +92,10 @@ export function sendKeptOnRestore(): () => void {
     if (e.kind !== "entity.restored") return;
     clearTimeout(timer);
     timer = setTimeout(() => {
-      sending = sending.then(sendKeptNotes).catch(() => {});
+      sending = sending
+        .then(sendKeptNotes)
+        .then(sendKeptDrafts)
+        .catch(() => {});
     }, SEND_KEPT_AFTER_MS);
   });
   return () => {

@@ -7,18 +7,20 @@
 // you can't see goes out. Discard puts it in the trash, with Undo.
 // With more than one account, From picks which it goes from; a draft kept from an account you
 // disconnected waits for you to pick one. A reply starts with the cursor in the message, and its
-// Bcc and Subject (and an empty Cc) folded behind "More", unless its Bcc has anyone on it.
+// Bcc and Subject (and an empty Cc) folded behind "More", unless its Bcc has anyone on it. They
+// unfold, and stay so, once a change made elsewhere puts anyone on Bcc or changes the Subject.
 
 import { createEffect, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
 import { Button } from "../components/ui.tsx";
 import { ApiError, action } from "../lib/api.ts";
 import {
   type DraftFields,
+  draftInput,
+  fieldsFold,
   fieldsOf,
   foldsExtras,
   mergeDraft,
   showsCc,
-  splitAddresses,
 } from "../lib/compose.ts";
 import { toast } from "../lib/live.ts";
 import { cursorFor, cursorPlaced } from "../lib/mailActions.ts";
@@ -43,7 +45,9 @@ export function Composer(props: { draft: MailDraft; conversation?: string; onDon
   const [from, setFrom] = createSignal(start.from);
   const [busy, setBusy] = createSignal(false);
   const accounts = useAction<MailAccount[]>("mail.accounts");
-  const choose = () => (accounts.data ?? []).length > 1 || !from();
+  /** Whether an account is connected; until the accounts are read, every one is. */
+  const connected = (a: string) => !accounts.data || accounts.data.some((x) => x.address === a);
+  const choose = () => (accounts.data ?? []).length > 1 || !from() || !connected(from()!);
   // A reply's recipients and subject come from the conversation: the message is what's left.
   const [more, setMore] = createSignal(!foldsExtras(first, props.conversation));
   const ccShown = showsCc(first, props.conversation);
@@ -63,7 +67,10 @@ export function Composer(props: { draft: MailDraft; conversation?: string; onDon
     text: text(),
   });
   const heard = (d: MailDraft) => {
+    // Its account was disconnected: From is to be picked again, not sent as it was.
+    const was = savedFrom;
     savedFrom = d.account;
+    if (d.account === null && was !== null && from() === was) setFrom(null);
     known = Math.max(known, d.version);
     return d.version;
   };
@@ -72,17 +79,14 @@ export function Composer(props: { draft: MailDraft; conversation?: string; onDon
     key: `draft:${id}`,
     noun: "draft",
     action: "mail.draft_update",
-    input: (d, baseVersion) => ({
-      id,
-      baseVersion,
-      to: splitAddresses(d.to),
-      cc: splitAddresses(d.cc),
-      bcc: splitAddresses(d.bcc),
-      subject: d.subject,
-      text: d.text,
-      // Only when you picked another: an account named here must still be connected.
-      ...(d.from && d.from !== savedFrom ? { account: d.from } : {}),
-    }),
+    // Only an account you picked that's still connected; otherwise From asks for another.
+    input: (d, baseVersion) =>
+      draftInput(
+        id,
+        d,
+        baseVersion,
+        d.from && d.from !== savedFrom && connected(d.from) ? d.from : undefined,
+      ),
     savedAs: (r) => heard(r as MailDraft),
     async get() {
       // The first read is the draft the page has already; after that, Hearth's copy.
@@ -95,6 +99,7 @@ export function Composer(props: { draft: MailDraft; conversation?: string; onDon
     empty: () => ({ from: null, to: "", cc: "", bcc: "", subject: "", text: "" }),
     current,
     show(d) {
+      if (!fieldsFold(d, props.conversation)) setMore(true);
       setFrom(d.from);
       setTo(d.to);
       setCc(d.cc);
@@ -129,7 +134,8 @@ export function Composer(props: { draft: MailDraft; conversation?: string; onDon
   };
 
   const send = async () => {
-    if (!from()) return toast.show("Pick which account it goes from first.");
+    if (busy()) return;
+    if (!from() || !connected(from()!)) return toast.show("Pick which account it goes from first.");
     setBusy(true);
     try {
       const seen = current();
@@ -139,6 +145,11 @@ export function Composer(props: { draft: MailDraft; conversation?: string; onDon
           `Nothing was sent. ${saver.problem() ?? "The draft isn't saved yet."}`,
           "error",
         );
+      // A Bcc or Subject you haven't seen: shown first, and nothing sent.
+      if (!more() && !fieldsFold(current(), props.conversation)) {
+        setMore(true);
+        return toast.show("Check the Subject and Bcc before sending.", "error");
+      }
       // A change made elsewhere was merged in as it saved: what would go isn't what you saw.
       if (!same(current(), seen))
         return toast.show(
@@ -170,10 +181,8 @@ export function Composer(props: { draft: MailDraft; conversation?: string; onDon
   return (
     <form
       class="space-y-2 rounded-lg border border-line p-3"
-      onSubmit={(e) => {
-        e.preventDefault();
-        void send();
-      }}
+      // Enter in To doesn't send: Send and Ctrl+Enter do.
+      onSubmit={(e) => e.preventDefault()}
     >
       <Show when={choose()} fallback={<div class="text-xs text-muted">From {from()}</div>}>
         <label class="flex items-center gap-2 text-xs text-muted">

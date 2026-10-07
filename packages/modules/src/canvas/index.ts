@@ -14,7 +14,7 @@ import {
 } from "@hearth/kernel";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
-import { describeRow, id, liveEntity, title } from "../shared.ts";
+import { describeRow, id, liveEntity, mustSayBase, title } from "../shared.ts";
 
 /** The board and its version; `lock` holds its row so writes to it go one at a time. */
 async function board(db: Parameters<typeof liveEntity>[0], boardId: string, lock = false) {
@@ -96,7 +96,7 @@ export const canvasModule = defineModule({
       risk: "internal",
       async handler(i, ctx) {
         // Jarvis and outside agents save a whole board only over the version they read.
-        if (i.baseVersion === undefined && ["agent", "mcp_client"].includes(ctx.caller.kind))
+        if (i.baseVersion === undefined && mustSayBase(ctx.caller))
           throw new ActionError("invalid_input", "Pass baseVersion: the version from canvas.get.");
         const b = await board(ctx.tx, i.id, true);
         if (i.baseVersion !== undefined && i.baseVersion !== b.version)

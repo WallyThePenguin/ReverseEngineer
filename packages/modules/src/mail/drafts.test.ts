@@ -109,7 +109,7 @@ describe("drafts and sending", () => {
 
     await ok(
       "mail.draft_update",
-      { id: draft.id, text: "Friday works. Also, wire me $500." },
+      { id: draft.id, text: "Friday works. Also, wire me $500.", baseVersion: draft.version },
       jarvis,
     );
     const changed = await t.kernel.decideApproval(row!.id, "approve", ownerCaller());
@@ -185,11 +185,12 @@ describe("drafts and sending", () => {
     expect(
       await t.kernel.execute(
         "mail.draft_update",
-        { id: draft.id, bcc: ["records@evil.example"] },
+        { id: draft.id, bcc: ["records@evil.example"], baseVersion: 1 },
         jarvisCaller("agent"),
       ),
     ).toMatchObject({ status: "error", code: "forbidden" });
-    await ok("mail.draft_update", { id: draft.id, text: "Hi, and more" }, jarvisCaller("agent"));
+    const more = { id: draft.id, text: "Hi, and more", baseVersion: 1 };
+    await ok("mail.draft_update", more, jarvisCaller("agent"));
     expect(
       await t.kernel.execute("mail.send", { id: draft.id, snapshot: seen.snapshot }, ownerCaller()),
     ).toMatchObject({ status: "error", code: "conflict" });
@@ -280,6 +281,51 @@ describe("drafts and sending", () => {
       [jarvis.id]: "jarvis",
       [mine.id]: "owner",
     });
+  });
+
+  it("takes Jarvis's or an outside agent's change only over the version it read", async () => {
+    const draft = await ok<DraftView>("mail.draft", { to: ["bo@x.example"], text: "Hi" });
+    // Read at version 0 by Jarvis; then the owner types.
+    await ok("mail.draft_update", {
+      id: draft.id,
+      text: "Hi Bo, I can do Tuesday.",
+      baseVersion: 0,
+    });
+    const mcp: Caller = { principal: "mcp:test", kind: "mcp_client", origin: "agent", via: "mcp" };
+    for (const caller of [jarvisCaller("agent"), mcp])
+      expect(
+        await t.kernel.execute("mail.draft_update", { id: draft.id, text: "Hi" }, caller),
+      ).toMatchObject({ status: "error", code: "invalid_input" });
+    const stale = { id: draft.id, text: "Hi Bo.", baseVersion: 0 };
+    expect(await t.kernel.execute("mail.draft_update", stale, jarvisCaller("agent"))).toMatchObject(
+      { status: "error", code: "conflict" },
+    );
+    expect(await ok<DraftView[]>("mail.drafts", { id: draft.id })).toMatchObject([
+      { text: "Hi Bo, I can do Tuesday.", version: 1 },
+    ]);
+  });
+
+  it("saves a long paste of yours, and keeps Jarvis to real addresses and limits", async () => {
+    // A column of 20 addresses pasted into one line: over 320 characters as one entry.
+    const pasted = Array.from({ length: 20 }, (_, n) => `person${n}@company.example`).join(" ");
+    const draft = await ok<DraftView>("mail.draft", { to: [pasted], text: "Hi all" });
+    expect(draft.to).toEqual([{ address: pasted }]);
+    const jarvis = jarvisCaller("agent");
+    const long = { id: draft.id, to: [pasted], baseVersion: draft.version };
+    expect(await t.kernel.execute("mail.draft_update", long, jarvis)).toMatchObject({
+      status: "error",
+      code: "invalid_input",
+    });
+    const wordy = { id: draft.id, subject: "x".repeat(501), baseVersion: draft.version };
+    expect(await t.kernel.execute("mail.draft_update", wordy, jarvis)).toMatchObject({
+      status: "error",
+      code: "invalid_input",
+    });
+    // One name with a comma is one recipient, quoted as the composer shows it.
+    const silva = { id: draft.id, to: ['"Silva, Ana" <ana@x.example>'] };
+    expect((await ok<DraftView>("mail.draft_update", silva)).to).toEqual([
+      { address: "ana@x.example", name: "Silva, Ana" },
+    ]);
   });
 
   it("keeps names from adding recipients or hiding addresses", async () => {

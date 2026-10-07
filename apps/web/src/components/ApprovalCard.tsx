@@ -25,6 +25,7 @@ import {
   type Said,
 } from "../lib/approvals.ts";
 import { humanTimes } from "../lib/format.ts";
+import { createKept, KEPT_HERE } from "../lib/keptDrafts.ts";
 import { Icon, type IconName } from "./icons.tsx";
 import { Card } from "./kit/Card.tsx";
 import { JarvisMark } from "./Mark.tsx";
@@ -165,13 +166,24 @@ export function Decide(props: {
   always?: string | null;
   /** What the yes says once it's done, rather than "Approved and done." */
   said?: Said;
+  /** A send's draft: no yes while this device has changes to it that Hearth doesn't. */
+  draft?: { id: string; version: number };
   class?: string;
 }) {
+  const kept = createKept(
+    () => props.draft?.id,
+    () => props.draft?.version,
+  );
   return (
     <div
       class={`flex flex-wrap justify-end gap-1 ${props.class ?? ""}`}
       onClick={(e) => e.stopPropagation()}
     >
+      <Show when={kept()}>
+        <p role="status" class="basis-full text-right text-meta text-warn">
+          {KEPT_HERE}
+        </p>
+      </Show>
       <Button
         kind="quiet"
         small
@@ -201,7 +213,7 @@ export function Decide(props: {
         kind="primary"
         small
         icon="check"
-        disabled={deciding(props.approvalId)}
+        disabled={deciding(props.approvalId) || kept()}
         onClick={() => decide(props.approvalId, "approve", props.said)}
       >
         Approve{" "}

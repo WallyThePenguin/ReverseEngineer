@@ -3,10 +3,13 @@
 import { describe, expect, it } from "vitest";
 import {
   type DraftFields,
+  draftInput,
+  fieldsFold,
   fieldsOf,
   foldsExtras,
   mergeDraft,
   replySubject,
+  showAddresses,
   showsCc,
   splitAddresses,
 } from "./compose.ts";
@@ -55,6 +58,16 @@ describe("what a draft shows when it opens", () => {
     const fresh = { threadId: null, cc: [], bcc: [], subject: "Hello" };
     expect(foldsExtras(fresh, "Hello")).toBe(false);
     expect(showsCc(fresh)).toBe(true);
+  });
+
+  it("unfolds Bcc and Subject once a change from elsewhere fills Bcc or changes the Subject", () => {
+    const shown = { bcc: "", subject: "Re: Lunch" };
+    expect(fieldsFold(shown, "Lunch")).toBe(true);
+    expect(fieldsFold({ ...shown, bcc: "sam@x.example" }, "Lunch")).toBe(false);
+    expect(fieldsFold({ ...shown, subject: "Re: Lunch (and the bank details)" }, "Lunch")).toBe(
+      false,
+    );
+    expect(fieldsFold(shown)).toBe(false);
   });
 
   it("makes the reply subject the way mail.draft does", () => {
@@ -112,5 +125,59 @@ describe("a draft changed elsewhere while you type", () => {
       "bo@exa",
       "sam@example.com",
     ]);
+  });
+});
+
+describe("recipients as a field shows and saves them", () => {
+  it("splits a name with a comma or semicolon back into one recipient, as it showed it", () => {
+    const xs = [
+      { address: "ana@x.example", name: "Silva, Ana" },
+      { address: "boss@x.example", name: "x@evil.example, Boss" },
+      { address: "ab@x.example", name: "A; B" },
+      { address: "bo@x.example", name: "Bo Li" },
+    ];
+    expect(showAddresses(xs)).toBe(
+      '"Silva, Ana" <ana@x.example>, "x@evil.example, Boss" <boss@x.example>, "A; B" <ab@x.example>, Bo Li <bo@x.example>',
+    );
+    expect(splitAddresses(showAddresses(xs))).toEqual([
+      '"Silva, Ana" <ana@x.example>',
+      '"x@evil.example, Boss" <boss@x.example>',
+      '"A; B" <ab@x.example>',
+      "Bo Li <bo@x.example>",
+    ]);
+  });
+
+  it("splits a pasted column of addresses, and keeps a quote left open as typed", () => {
+    expect(splitAddresses("ana@x.example bo@x.example\tsam@x.example")).toEqual([
+      "ana@x.example",
+      "bo@x.example",
+      "sam@x.example",
+    ]);
+    expect(splitAddresses("Ana Silva <ana@x.example>")).toEqual(["Ana Silva <ana@x.example>"]);
+    expect(splitAddresses('"Silva, Ana <ana@x.example>, bo@x.example\nsam@x.example')).toEqual([
+      '"Silva, Ana <ana@x.example>, bo@x.example',
+      "sam@x.example",
+    ]);
+  });
+
+  it("saves a draft on its version, naming From only when another was picked", () => {
+    const d: DraftFields = {
+      from: "me@x.example",
+      to: '"Silva, Ana" <ana@x.example>',
+      cc: "",
+      bcc: "sam@x.example",
+      subject: "Re: Lunch",
+      text: "Friday?",
+    };
+    expect(draftInput("d1", d, 4)).toEqual({
+      id: "d1",
+      baseVersion: 4,
+      to: ['"Silva, Ana" <ana@x.example>'],
+      cc: [],
+      bcc: ["sam@x.example"],
+      subject: "Re: Lunch",
+      text: "Friday?",
+    });
+    expect(draftInput("d1", d, 4, "work@x.example")).toMatchObject({ account: "work@x.example" });
   });
 });

@@ -84,7 +84,7 @@ export function AskRow(props: {
         </span>
       );
     return line().whole ? (
-      <Decide approvalId={a().id} said={said()} always={always()} />
+      <Decide approvalId={a().id} said={said()} always={always()} draft={props.draft} />
     ) : undefined;
   };
   return (
@@ -113,7 +113,7 @@ export function AskRow(props: {
           {[sendFrom(a()) && `From ${sendFrom(a())}`, asked()].filter(Boolean).join(" · ")}
         </span>
         <Show when={waiting()}>
-          <Decide approvalId={a().id} said={said()} always={always()} />
+          <Decide approvalId={a().id} said={said()} always={always()} draft={props.draft} />
         </Show>
       </div>
     </FoldRow>

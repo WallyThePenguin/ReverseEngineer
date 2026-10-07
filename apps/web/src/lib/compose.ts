@@ -42,16 +42,58 @@ export interface DraftFields {
   text: string;
 }
 
-/** Recipients as a field shows them: "Ana Silva <ana@x.example>, bo@x.example". */
-export const showAddresses = (xs: MailAddress[]) =>
-  xs.map((a) => (a.name ? `${a.name} <${a.address}>` : a.address)).join(", ");
+/**
+ * Whether a draft's Bcc and Subject may stay folded as it changes (Jarvis, another screen): only
+ * while its Bcc is empty and its Subject is the conversation's. Once not, they show, and stay.
+ */
+export const fieldsFold = (d: Pick<DraftFields, "bcc" | "subject">, conversation?: string) =>
+  d.bcc.trim() === "" && conversation !== undefined && d.subject === replySubject(conversation);
 
-/** A field's recipients, split at commas, semicolons and new lines. */
-export const splitAddresses = (s: string) =>
-  s
-    .split(/[,;\n]/)
-    .map((x) => x.trim())
-    .filter(Boolean);
+/**
+ * Recipients as a field shows them: "Ana Silva <ana@x.example>, bo@x.example". A name with any
+ * mark but . ' - in it is quoted ("Silva, Ana"), so it splits back as one.
+ */
+export const showAddresses = (xs: MailAddress[]) =>
+  xs
+    .map((a) => {
+      if (!a.name) return a.address;
+      const name = /^[\p{L}\p{N} .'-]*$/u.test(a.name) ? a.name : `"${a.name}"`;
+      return `${name} <${a.address}>`;
+    })
+    .join(", ");
+
+/**
+ * A field's recipients: split at commas and semicolons outside quotes and <…>, and at every new
+ * line. A run of addresses with only spaces between them (a pasted column) splits too. A quote
+ * left open keeps the rest of its line as one, saved as typed and named at Send.
+ */
+export function splitAddresses(s: string): string[] {
+  const out: string[] = [];
+  let piece = "";
+  let quoted = false;
+  let angled = false;
+  for (const ch of s) {
+    if (ch === "\n" || (!quoted && !angled && (ch === "," || ch === ";"))) {
+      out.push(piece);
+      piece = "";
+      if (ch === "\n") quoted = angled = false;
+      continue;
+    }
+    if (ch === '"' && !angled) quoted = !quoted;
+    else if (!quoted && (ch === "<" || ch === ">")) angled = ch === "<";
+    piece += ch;
+  }
+  out.push(piece);
+  return out.flatMap(spaced).filter(Boolean);
+}
+
+/** One piece, or each word of a run of bare addresses ("a@x.example b@x.example"). */
+function spaced(piece: string): string[] {
+  const words = piece.trim().split(/\s+/);
+  return words.length > 1 && words.every((w) => w.includes("@") && !/[<>"]/.test(w))
+    ? words
+    : [piece.trim()];
+}
 
 export const fieldsOf = (d: MailDraft): DraftFields => ({
   from: d.account,
@@ -60,6 +102,21 @@ export const fieldsOf = (d: MailDraft): DraftFields => ({
   bcc: showAddresses(d.bcc),
   subject: d.subject,
   text: d.text,
+});
+
+/**
+ * What saves a draft (mail.draft_update) on the version it was made on. `account` only when
+ * another From was picked: one named must still be connected.
+ */
+export const draftInput = (id: string, d: DraftFields, baseVersion: number, account?: string) => ({
+  id,
+  baseVersion,
+  to: splitAddresses(d.to),
+  cc: splitAddresses(d.cc),
+  bcc: splitAddresses(d.bcc),
+  subject: d.subject,
+  text: d.text,
+  ...(account ? { account } : {}),
 });
 
 /**

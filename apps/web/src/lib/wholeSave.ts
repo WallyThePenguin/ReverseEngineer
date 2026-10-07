@@ -14,9 +14,10 @@
 import { randomHex } from "@hearth/core";
 import { createSignal } from "solid-js";
 import { ApiError, action, isOffline, isTransient, notYet } from "./api.ts";
-import { closedCopies, holdCopy } from "./copyLocks.ts";
+import { closedCopies, holdCopy, whenLetGo } from "./copyLocks.ts";
 import { dropUnsaved, saveUnsaved, takeOverUnsaved } from "./docStore.ts";
 import { backoff, onLiveEvent } from "./live.ts";
+import type { Remote, SaverOptions } from "./saverOptions.ts";
 
 const SAVE_AFTER_MS = 700;
 /** A save that hasn't answered by now is treated as lost and tried again. */
@@ -25,38 +26,6 @@ const TIMEOUT_MS = 10_000;
 const KEEPALIVE_MAX = 60_000;
 /** Merges in a row before waiting: someone else is saving as fast as we are. */
 const MAX_MERGES = 5;
-
-export interface Remote<T> {
-  title: string;
-  data: T;
-  version: number;
-}
-
-export interface SaverOptions<T> {
-  /** The record it saves: once it's restored from the trash, what was changed meanwhile is saved. */
-  id: string;
-  /** Where its unsaved copies are kept: "canvas:<id>" (each screen's under "canvas:<id>#…"). */
-  key: string;
-  /** The action that saves it, and its input. */
-  action: string;
-  input(data: T, baseVersion: number, title: string | undefined): unknown;
-  get(): Promise<Remote<T>>;
-  merge(base: T, mine: T, theirs: T): T;
-  /**
-   * One with nothing in it (a new board, a new spreadsheet's one empty sheet, no notes). A copy an
-   * older Hearth kept before the first read has no base, and is merged onto this as if everything
-   * in it had been added here.
-   */
-  empty(): T;
-  /** A plain copy of what's on screen. */
-  current(): T;
-  /** Puts a copy that came from elsewhere, or a merge, on screen. */
-  show(data: T, title?: string): void;
-  /** What it is, for messages: "board", "spreadsheet". */
-  noun: string;
-  /** The version a save's result says it saved as (by default its `version`). */
-  savedAs?(result: unknown): number;
-}
 
 const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const reason = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -216,6 +185,11 @@ export function createSaver<T>(o: SaverOptions<T>) {
     }
     setLoaded(true);
     setProblem(null);
+    // A screen saving as it closed holds its lock till that's done: if it failed, its copy is
+    // taken in then.
+    void whenLetGo(o.key, own, copies, () => {
+      if (!closed) void absorb().then(() => (unsaved() ? save() : undefined));
+    });
     if (r && !copies.length) {
       base = r.data;
       version = r.version;
@@ -294,6 +268,12 @@ export function createSaver<T>(o: SaverOptions<T>) {
     rereads = 0;
     if (!loaded()) return open(r);
     if (r.version <= version) return;
+    // A save went out meanwhile: read again once it's back. Till then the screen and the version
+    // it was made on stay as they are, so a save Hearth turns down merges onto what's typed.
+    if (running) {
+      reload = true;
+      return;
+    }
     if (!unsaved() && edits === at) {
       base = r.data;
       version = r.version;

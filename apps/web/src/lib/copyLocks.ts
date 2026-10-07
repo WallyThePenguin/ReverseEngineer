@@ -66,3 +66,40 @@ async function ifClosed<T>(key: string, copy: string): Promise<Unsaved<T> | unde
     return undefined;
   }
 }
+
+/**
+ * Calls `then` as each screen whose copy of `key` wasn't taken in (`own` and `taken` left out)
+ * lets its lock go. A closing screen holds it until its last save is done, and a save that failed
+ * leaves its copy behind for whoever has the record open.
+ */
+export async function whenLetGo<T>(
+  key: string,
+  own: string,
+  taken: Unsaved<T>[],
+  then: () => void,
+): Promise<void> {
+  if (typeof navigator === "undefined" || !navigator.locks) return;
+  const skip = new Set([own, ...taken.map((k) => k.key)]);
+  for (const k of await unsavedCopies<T>(key))
+    if (!skip.has(k.key)) navigator.locks.request(k.key, async () => {}).then(then, () => {});
+}
+
+/**
+ * Runs `fn` with the copies kept for `key` whose screens have closed, as they are now, holding each
+ * one's lock meanwhile so a screen opening the record doesn't take them in too. Without Web Locks,
+ * every copy.
+ */
+export async function withClosedCopies<T, R>(
+  key: string,
+  fn: (copies: Unsaved<T>[]) => Promise<R>,
+): Promise<R> {
+  const copies = await unsavedCopies<T>(key);
+  if (typeof navigator === "undefined" || !navigator.locks) return fn(copies);
+  const hold = async ([k, ...rest]: Unsaved<T>[], mine: string[]): Promise<R> => {
+    if (!k) return fn((await unsavedCopies<T>(key)).filter((c) => mine.includes(c.key)));
+    return navigator.locks.request(k.key, { ifAvailable: true }, (lock) =>
+      hold(rest, lock ? [...mine, k.key] : mine),
+    );
+  };
+  return hold(copies, []);
+}
