@@ -2,7 +2,7 @@
 // a phone has no hover and no keyboard), anywhere a row of buttons would crowd. With its own
 // content in place of the "…", it's a named menu, as Hearth's at the top of the sidebar.
 
-import { createEffect, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
+import { createEffect, createSignal, Index, type JSX, onCleanup, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { Icon, type IconName } from "./icons.tsx";
 
@@ -132,24 +132,28 @@ export function Overflow(props: {
               } else if (e.key === "Tab") close(false);
             }}
           >
-            <For each={props.items}>
+            {/* By place, not by object: a row's items are made afresh each time the list is read
+                again, and an open menu keeps its buttons through that, so a tap never lands on
+                one being replaced. A tap runs what the button shows then. */}
+            <Index each={props.items}>
               {(item) => (
                 <button
                   type="button"
                   role="menuitem"
-                  class={`flex min-h-11 w-full items-center gap-2.5 px-3 text-left hover:bg-sunk focus:bg-sunk focus:outline-none md:min-h-8 ${item.danger ? "text-bad" : ""}`}
+                  class={`flex min-h-11 w-full items-center gap-2.5 px-3 text-left hover:bg-sunk focus:bg-sunk focus:outline-none md:min-h-8 ${item().danger ? "text-bad" : ""}`}
                   onClick={() => {
+                    const run = item().run;
                     close(true);
-                    item.run();
+                    run();
                   }}
                 >
-                  <Show when={item.icon}>
-                    {(icon) => <Icon name={icon()} class={item.danger ? "" : "text-faint"} />}
+                  <Show when={item().icon}>
+                    {(icon) => <Icon name={icon()} class={item().danger ? "" : "text-faint"} />}
                   </Show>
-                  {item.label}
+                  {item().label}
                 </button>
               )}
-            </For>
+            </Index>
           </div>
         </Portal>
       </Show>
