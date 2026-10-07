@@ -257,13 +257,19 @@ describe("routines", () => {
     expect(s?.lastOutcome).toBe("skipped_duplicate");
   });
 
-  it("dates a late journal by the day it was due", async () => {
+  it("dates a late journal by the day it was due, and tells that day", async () => {
     await start();
+    // Due at 9 p.m. that evening, and at 3 p.m. the next day.
+    await ok("task.create", { title: "Pay the sitter", dueAt: "2026-10-02T01:00:00Z" });
+    await ok("task.create", { title: "Send the deck", dueAt: "2026-10-02T19:00:00Z" });
     h.clock.set("2026-10-02T04:30:10Z"); // 12:30 a.m., five hours after 7:30 p.m.
     await h.settle();
     const journal = (await turns()).find((t) => t.context.routine === "journal");
     expect(journal).toMatchObject({ dedupeKey: "journal:2026-10-01", status: "done" });
     expect(journal?.context.date).toBe("2026-10-01");
+    const asked = brain.requests.find((r) => r.prompt.startsWith("Write today's journal entry"));
+    expect(asked?.prompt).toMatch(/Due today: T-\d+ Pay the sitter/);
+    expect(asked?.prompt).not.toContain("Send the deck");
   });
 
   it("reads a late memory update's day from when it was due, leaving no gap", async () => {
