@@ -29,6 +29,12 @@ export const settingsTarget = createRoot(() => {
   return { get, set };
 });
 
+/** Hearth's window on this PC asked to be connected again (its sign-in page's button, D69). */
+export const windowAsked = createRoot(() => {
+  const [get, set] = createSignal(false);
+  return { get, set };
+});
+
 /** Opens Settings at a section: next to the pane you're in, or in it on a phone. */
 export function openSettings(section: SettingsSection, from?: number) {
   settingsTarget.set(section);
