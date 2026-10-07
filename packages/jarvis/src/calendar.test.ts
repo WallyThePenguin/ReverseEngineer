@@ -198,6 +198,23 @@ describe("Google Calendar", () => {
     expect(conflicts[0]?.title).toMatch(/^"[AB]" overlaps "[AB]"$/);
   });
 
+  it("doesn't call a meeting in time marked out of office an overlap", async () => {
+    g.put(CAL, {
+      summary: "Out of office",
+      eventType: "outOfOffice",
+      start: at("2026-10-02T13:00:00Z"),
+      end: at("2026-10-02T21:00:00Z"),
+    });
+    g.put(CAL, {
+      summary: "A",
+      start: at("2026-10-02T15:00:00Z"),
+      end: at("2026-10-02T16:00:00Z"),
+    });
+    await sync();
+    await h.settle();
+    expect(await inbox("calendar.conflict")).toEqual([]);
+  });
+
   it("makes prep packets at 6 a.m., plain ones when Jarvis is paused", async () => {
     g.put(CAL, {
       summary: "Planning with Sam",

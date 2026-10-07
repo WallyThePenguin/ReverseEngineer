@@ -4,7 +4,7 @@
 import { createRoot, createSignal, mapArray } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CalEvent } from "./types.ts";
-import { byDay, createWeekStart } from "./week.ts";
+import { byDay, createWeekStart, weeksOn } from "./week.ts";
 
 // Solid's browser build: the server build tests run with by default isn't reactive.
 // @ts-expect-error: the browser build has no types of its own; they're the package's.
@@ -63,5 +63,17 @@ describe("the week, by day", () => {
       expect(from()).toEqual(new Date(2026, 9, 15));
       dispose();
     });
+  });
+
+  it("starts a week the clocks change in at midnight", () => {
+    // New York's clocks go back an hour on 1 November 2026: that week is 7 days and an hour long.
+    vi.stubEnv("TZ", "America/New_York");
+    try {
+      expect(weeksOn(new Date(2026, 9, 29), 1)).toEqual(new Date(2026, 10, 5));
+      expect(weeksOn(new Date(2026, 10, 5), -1)).toEqual(new Date(2026, 9, 29));
+      expect(weeksOn(new Date(2026, 9, 29, 15), 0)).toEqual(new Date(2026, 9, 29));
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

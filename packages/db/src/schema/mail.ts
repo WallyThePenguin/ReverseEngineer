@@ -33,6 +33,8 @@ export const mailAccount = pgTable(
     /** Failed syncs in a row, and when the first of them was. A slowdown isn't a failure. */
     failures: integer("failures").notNull().default(0),
     failingSince: ts("failing_since"),
+    /** When it last tried to sync, worked or not (0048): a long gap since means the PC slept. */
+    attemptedAt: ts("attempted_at"),
     /** The daily look for missing originals: where it got to, and when it last finished. */
     repairFrom: uuid("repair_from"),
     repairedAt: ts("repaired_at"),
