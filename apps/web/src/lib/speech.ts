@@ -109,6 +109,9 @@ export function say(text: string) {
   window.speechSynthesis.speak(new SpeechSynthesisUtterance(words));
 }
 
+/** Whether something is being read aloud. */
+export const speaking = () => "speechSynthesis" in window && window.speechSynthesis.speaking;
+
 export function hush() {
   if ("speechSynthesis" in window) window.speechSynthesis.cancel();
 }

@@ -12,7 +12,7 @@ import { JarvisMark } from "../components/Mark.tsx";
 import { MentionEditor } from "../components/MentionEditor.tsx";
 import { Button, PaneHeader } from "../components/ui.tsx";
 import { MOD } from "../lib/hotkeys.ts";
-import { live } from "../lib/live.ts";
+import { live, onLiveEvent } from "../lib/live.ts";
 import { type Looking, startersFor } from "../lib/looking.ts";
 import { narrow } from "../lib/narrow.ts";
 import { layout } from "../lib/panes.ts";
@@ -46,6 +46,8 @@ export function Conversation(props: {
   onCreated?: (id: string) => void;
   /** The conversation is gone (trashed, or from before a restore). */
   onMissing?: () => void;
+  /** Whether Jarvis's answer to what you asked by voice is still to come, to be read aloud. */
+  onVoiceOwed?: (owed: boolean) => void;
   compact?: boolean;
   /** What's on screen as you ask (lib/looking.ts): sent with each message, shown over the box. */
   onScreen?: { looking: () => Looking | null; takeOff: () => void };
@@ -117,8 +119,12 @@ export function Conversation(props: {
     }),
   );
 
-  // Asked by voice: Jarvis's answers after this point are read aloud.
+  // Asked by voice: Jarvis's answers after this point are read aloud. Until one comes (or the
+  // turn ends without one), it's owed: the Ask window doesn't move on to a new Hearth meanwhile.
   const [speakFrom, setSpeakFrom] = createSignal<number | null>(null);
+  const [owed, setOwed] = createSignal(false);
+  createEffect(() => props.onVoiceOwed?.(owed()));
+  createEffect(on(busy, (still, was) => was && !still && setOwed(false), { defer: true }));
   createEffect(
     on(
       () => view().items.length,
@@ -126,10 +132,23 @@ export function Conversation(props: {
         const from = speakFrom();
         if (from === null || n <= from) return;
         for (const item of view().items.slice(from))
-          if (item.type === "message" && item.role === "jarvis") say(item.text);
+          if (item.type === "message" && item.role === "jarvis") {
+            say(item.text);
+            setOwed(false);
+          }
         setSpeakFrom(n);
       },
     ),
+  );
+  // Out of sight (the Ask window put away), the page only marks what it shows as stale (live.ts),
+  // so Jarvis's answer to a question asked by voice is read here, to be spoken as it comes. Its
+  // event has no text to speak from.
+  onCleanup(
+    onLiveEvent((e) => {
+      if (speakFrom() === null || document.visibilityState !== "hidden") return;
+      if (e.kind !== "conversation.appended" || e.entityId !== props.id) return;
+      if (e.payload.kind === "assistant_message") void data.refetch();
+    }),
   );
 
   const talk = async () => {
@@ -138,7 +157,9 @@ export function Conversation(props: {
     const heard = await mic.listen();
     if (!heard) return;
     setDraft(heard);
-    if (await send(true)) setSpeakFrom(view().items.length);
+    if (!(await send(true))) return;
+    setSpeakFrom(view().items.length);
+    setOwed(true);
   };
 
   // The phone's tab bar mic: start listening as soon as this pane is up.
@@ -151,7 +172,10 @@ export function Conversation(props: {
   const send = async (spoken = false) => {
     const text = fromEditForm(draft().trim());
     if (!text || sending()) return false;
-    if (!spoken) setSpeakFrom(null);
+    if (!spoken) {
+      setSpeakFrom(null);
+      setOwed(false);
+    }
     setSending(true);
     // In a member's conversation only the phone's mic gets here, and starts one of yours.
     const into = sendsInto(props.id, data.data?.conversation.startedVia);

@@ -9,6 +9,7 @@ import { live } from "../lib/live.ts";
 import {
   type Notice as BuildNotice,
   markStarted,
+  moveOnWhenHidden,
   noticeFor,
   openedAt,
   pageBuild,
@@ -18,7 +19,6 @@ import {
   reloadPage,
   type ServerBuild,
   watchBuild,
-  whenHidden,
   wouldLoseWork,
 } from "../lib/version.ts";
 import { Notice } from "./kit/Notice.tsx";
@@ -76,20 +76,12 @@ export function watchUpdates(say: (n: BuildNotice) => void = () => {}) {
 }
 
 /**
- * The desktop app's Ask window keeps its page between uses, and is opened to type into at once,
- * so it never reloads as it opens or comes back: it asks as it's put away (the app tells it:
- * window.rs), and moves on to a new build then when that loses nothing. Returns the cleanup.
+ * The desktop app's Ask window moves on to a new build as it's put away, when that loses nothing
+ * and `busy` says nothing's under way (lib/version.ts). Returns the cleanup.
  */
-export function updateWhenHidden(): () => void {
+export function updateWhenHidden(busy: () => boolean): () => void {
   if (import.meta.env.DEV) return () => {};
-  return whenHidden(async () => {
-    const server = await serverBuild();
-    if (!server) return;
-    const now = noticeFor(pageBuild(), server);
-    const into = reloadOnReturn(now, server, reloadedFor(), wouldLoseWork);
-    // Brought back meanwhile: it waits until it's put away again.
-    if (into && document.visibilityState === "hidden") reloadInto(into);
-  });
+  return moveOnWhenHidden({ server: serverBuild, busy });
 }
 
 export function UpdateNotice() {

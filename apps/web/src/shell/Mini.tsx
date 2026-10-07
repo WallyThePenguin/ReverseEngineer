@@ -30,6 +30,7 @@ import {
 import { live, queryClient, toast } from "../lib/live.ts";
 import { layout } from "../lib/panes.ts";
 import { act } from "../lib/query.ts";
+import { mic, speaking } from "../lib/speech.ts";
 
 /**
  * A record Jarvis mentions opens in Hearth's main window (or, in a browser, this tab): a small
@@ -134,8 +135,11 @@ function store(key: string, value: string | null) {
 function Ask() {
   const [id, setId] = createSignal<string | null>(stored(ASKING));
   createEffect(() => store(ASKING, id()));
-  // A new Hearth replaces this window's page as it's put away, when that loses nothing.
-  onMount(() => onCleanup(updateWhenHidden()));
+  // A new Hearth replaces this window's page as it's put away, when that loses nothing: not while
+  // you're talking, or Jarvis's answer is still to be read aloud.
+  const [owed, setOwed] = createSignal(false);
+  const busy = () => mic.state() !== "idle" || owed() || speaking();
+  onMount(() => onCleanup(updateWhenHidden(busy)));
   onMount(() => live.start());
   onCleanup(() => live.stop());
   onCleanup(sendPagesToMain());
@@ -153,7 +157,12 @@ function Ask() {
         </Button>
       </div>
       <div class="min-h-0 flex-1">
-        <Conversation id={id()} onCreated={setId} />
+        <Conversation
+          id={id()}
+          onCreated={setId}
+          onMissing={() => setId(null)}
+          onVoiceOwed={setOwed}
+        />
       </div>
     </div>
   );

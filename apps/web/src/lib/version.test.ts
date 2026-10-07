@@ -3,6 +3,7 @@ import {
   afterLoadFailed,
   CHECK_EVERY_MS,
   freeze,
+  moveOnWhenHidden,
   noticeFor,
   pageBuild,
   reloadedFor,
@@ -112,6 +113,48 @@ describe("the desktop app's Ask window", () => {
     stop();
     doc.dispatchEvent(new Event("visibilitychange"));
     expect(check).toHaveBeenCalledTimes(1);
+  });
+
+  it("moves on as it's put away, unless that loses or cuts off something, or it's back", async () => {
+    const doc = Object.assign(new EventTarget(), {
+      visibilityState: "visible" as DocumentVisibilityState,
+    });
+    let running: string | null = "abc";
+    let busy = false;
+    let typed = false;
+    const reload = vi.fn();
+    const server = async () => (running ? { build: running, migrations: { ok: true } } : null);
+    const page = () => "abc";
+    const stop = moveOnWhenHidden(
+      { server, busy: () => busy, page, loses: () => typed, reloaded: () => null, reload },
+      doc,
+    );
+    const putAway = async (backAtOnce = false) => {
+      doc.visibilityState = "hidden";
+      doc.dispatchEvent(new Event("visibilitychange"));
+      if (backAtOnce) doc.visibilityState = "visible";
+      await new Promise((r) => setTimeout(r, 0));
+      doc.visibilityState = "visible";
+    };
+    // On the build that's running; then on an old one, while you talk or an answer is still to be
+    // read aloud, with something typed, brought back before the PC answered, and with no answer.
+    await putAway();
+    running = "def";
+    busy = true;
+    await putAway();
+    busy = false;
+    typed = true;
+    await putAway();
+    typed = false;
+    await putAway(true);
+    running = null;
+    await putAway();
+    expect(reload).not.toHaveBeenCalled();
+    // Skipped, it moves on the next time it's put away.
+    running = "def";
+    await putAway();
+    expect(reload).toHaveBeenCalledExactlyOnceWith("def");
+    stop();
   });
 });
 

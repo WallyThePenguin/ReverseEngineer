@@ -1,9 +1,10 @@
 // End-to-end check of the service worker (apps/web/public/sw.js): with Hearth stopped, or taking
 // connections and never answering, the app still opens from the last page seen, says Hearth can't
 // be reached, and comes back by itself once Hearth does, in the same page; an open page moves on
-// to a new build; and quick capture always comes from Hearth. resilience.ts fakes failures with page.route, which needs the service worker
-// out of the way; this one starts and stops a real server instead, so it runs its own (development
-// login, on HEARTH_E2E_PORT), on copies of the build stamped as newer ones.
+// to a new build; and the desktop app's small windows (quick capture, Ask) always come from
+// Hearth, waiting for it when it's slow. resilience.ts fakes failures with page.route, which needs
+// the service worker out of the way; this one starts and stops a real server instead, so it runs
+// its own (development login, on HEARTH_E2E_PORT), on copies of the build stamped as newer ones.
 //
 //   pnpm build:web
 //   HEARTH_DATABASE_URL=postgres://... HEARTH_E2E_PORT=4404 node apps/web/e2e/offline.ts
@@ -257,13 +258,15 @@ try {
       throw new Error("it said so instead of moving on");
   });
 
-  await step("quick capture opens from Hearth, never from a page kept from before", async () => {
+  await step("the small windows open from Hearth, never from a page kept from before", async () => {
     // The desktop app's small windows are typed into as they open: one opened from an older
     // build's kept page would reload into the new one under your first keys.
-    await keepAs("older");
-    const loads = await loadsDuring(() => page.goto(`${base}/capture`));
-    if ((await page.evaluate(buildShown)) !== "newer") throw new Error("the kept page opened");
-    if (loads !== 1) throw new Error(`the page loaded ${loads} times`);
+    for (const path of ["/capture", "/chat?compact=1"]) {
+      await keepAs("older");
+      const loads = await loadsDuring(() => page.goto(`${base}${path}`));
+      if ((await page.evaluate(buildShown)) !== "newer") throw new Error(`${path}: the kept page`);
+      if (loads !== 1) throw new Error(`${path}: the page loaded ${loads} times`);
+    }
     await page.goto(base);
     await home(page).waitFor();
   });
@@ -314,7 +317,17 @@ try {
     // instead runs to the reload's 15 s. A bound between two timers isn't scaled for a slow PC.
     if (took > 6_000) throw new Error(`the page took ${took} ms`);
     await page.getByRole("heading", unreachable).waitFor({ timeout: 20_000 });
+    // A small window waits for Hearth instead: the app opens one once Hearth has answered, so one
+    // opened from the kept page would stay on that page's build.
+    const opened = await page.goto(`${base}/chat?compact=1`, { timeout: 6_000 }).then(
+      () => true,
+      () => false,
+    );
+    if (opened) throw new Error("Ask opened from the kept page");
     await endSilence();
+    // Out of reach altogether, the kept page opens and waits for Hearth.
+    await page.goto(base, { timeout: 10_000 });
+    await page.getByRole("heading", unreachable).waitFor({ timeout: 10_000 });
   });
 
   await step("Hearth back: the app comes back by itself, without a reload", async () => {
