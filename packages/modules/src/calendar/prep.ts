@@ -294,7 +294,8 @@ export const prepRoutine: RoutineDef = {
   name: "calendar.prep",
   description: "At 6 a.m., a prep packet for each meeting in the next 48 hours.",
   cron: "0 6 * * *",
-  staleAfterSeconds: 3 * 3600,
+  // Woken at 9, the PC still preps the day's meetings; woken that night, it waits for the morning.
+  staleAfterSeconds: 12 * 3600,
   async run(firing, ctx) {
     const rules = await getSetting(ctx.db, "owner.dayRules");
     const todo: { ev: EventView; facts: string; outside: boolean }[] = [];
