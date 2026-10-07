@@ -3,6 +3,7 @@
 import { addLocalDays, atLocal, formatTime } from "@hearth/core";
 import { calendar, calendarEvent, type DbOrTx, entity, task } from "@hearth/db";
 import { and, asc, count, eq, gte, isNull, lt, ne, notInArray, or } from "drizzle-orm";
+import { NOT_PLANS } from "../calendar/store.ts";
 
 /** Meetings named on the card; the rest are counted. */
 const FIRST_MEETINGS = 3;
@@ -38,6 +39,7 @@ export async function tomorrowAtAGlance(db: DbOrTx, date: string, tz: string): P
         isNull(entity.deletedAt),
         ne(calendarEvent.status, "cancelled"),
         eq(calendarEvent.allDay, false),
+        notInArray(calendarEvent.kind, NOT_PLANS),
         isNull(calendarEvent.taskId),
         or(isNull(calendarEvent.selfResponse), ne(calendarEvent.selfResponse, "declined")),
         gte(calendarEvent.startsAt, from),

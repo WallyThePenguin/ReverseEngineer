@@ -85,6 +85,8 @@ export async function saveBotHealth(
   // seconds before the Wi-Fi is back would read as half an hour down and buzz your phone (D60).
   // As sync-health's ErrorClock does, failing comes half an hour after that, never sooner (D62).
   if (down && (!h.syncedAt || h.syncedAt < down.since)) h.syncedAt = down.since;
+  // And the run of failures starts then, not at the first try to connect again.
+  if (down && !h.failingSince) h.failingSince = down.since;
   const next = nextHealth(h, now, down?.trouble ?? null, down === null);
   await db.update(slackBot).set(next.values).where(eq(slackBot.teamId, teamId));
   return next;

@@ -54,6 +54,8 @@ export interface GEvent {
   attendees?: GAttendee[];
   recurringEventId?: string;
   iCalUID?: string;
+  /** "default", or an entry Google adds itself: "workingLocation", "birthday", "outOfOffice"... */
+  eventType?: string;
   extendedProperties?: { private?: Record<string, string> };
 }
 
