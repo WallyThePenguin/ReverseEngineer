@@ -4,7 +4,7 @@
 // so it goes on while Jarvis is paused. The same meeting seen through two of your accounts isn't
 // a clash, and two repeating meetings that clash every week are told once.
 import { createHash } from "node:crypto";
-import { formatTime, localParts } from "@hearth/core";
+import { formatDateTime, localParts } from "@hearth/core";
 import { calendar, calendarEvent, entity } from "@hearth/db";
 import { getSetting, type ReadContext, type ReflexDef, type ReflexOutcome } from "@hearth/kernel";
 import { and, eq, gt, lt, ne } from "drizzle-orm";
@@ -82,9 +82,10 @@ function notice(ev: EventView, own: Own, e: EntityRow, r: EventRow, tz: string):
     notification: {
       kind: "calendar.conflict",
       title: `"${ev.title}" overlaps "${e.title}"`,
-      // Each ends on a time, "a.m." or "p.m.": a sentence's end already.
+      // Each ends on a time, "a.m." or "p.m.": a sentence's end already. Two series are told
+      // when they meet, not "every Monday": one week's meeting may only have been moved there.
       body: series
-        ? `Both repeat: every ${WEEKDAYS[weekday]} at ${formatTime(start, tz)}`
+        ? `Both repeat, and overlap on ${WEEKDAYS[weekday]} ${formatDateTime(start, tz)}`
         : `${whenText(ev, tz)} and ${whenText(toEventView(e, r), tz)}`,
       entityId: ev.id,
       urgency: "normal",
