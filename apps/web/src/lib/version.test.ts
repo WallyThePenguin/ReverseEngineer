@@ -8,6 +8,7 @@ import {
   reloadedFor,
   reloadInto,
   reloadOnReturn,
+  tryAgainBy,
   watchBuild,
   wouldLoseWork,
 } from "./version.ts";
@@ -270,6 +271,20 @@ describe("a screen whose code didn't load", () => {
   it("says Hearth was updated, rather than lose what's on the page or reload twice", () => {
     expect(afterLoadFailed("abc", newer, null, loses(true))).toEqual({ why: "updated" });
     expect(afterLoadFailed("abc", newer, "def", loses(false))).toEqual({ why: "updated" });
+  });
+
+  it("knows a new build whose database didn't finish updating is still an update", () => {
+    const halfway = { build: "def", migrations: { ok: false } };
+    expect(afterLoadFailed("abc", halfway, null, loses(false))).toEqual({ reload: "def" });
+    expect(afterLoadFailed("abc", halfway, null, loses(true))).toEqual({ why: "updated" });
+  });
+
+  it("tries again by reloading once the PC answers, since the browser keeps a failed load", () => {
+    const same = { build: "abc", migrations: fits };
+    expect(tryAgainBy(same, loses(false))).toBe("reload");
+    // Still no answer, or something on the page would go: tries in place.
+    expect(tryAgainBy(null, loses(false))).toBe("retry");
+    expect(tryAgainBy(same, loses(true))).toBe("retry");
   });
 
   it("says it couldn't load when the PC didn't answer or runs this same build", () => {
