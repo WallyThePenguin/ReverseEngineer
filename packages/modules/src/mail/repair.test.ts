@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mailAccount, mailMessage } from "@hearth/db";
-import { integrationCaller } from "@hearth/kernel";
+import { integrationCaller, ownerCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { asc } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -85,6 +85,13 @@ describe("missing originals", () => {
       await writeFile(fileOf(h), "x");
     }
     await utimes(fileOf(old), longAgo, longAgo);
+    // And a file you added long ago, now in the trash: its bytes stay, for when it comes back.
+    const photo = await blobs.put(Buffer.from("a photo"));
+    await utimes(fileOf(photo), longAgo, longAgo);
+    const file = { hash: photo, name: "photo.jpg", mime: "image/jpeg", size: 7 };
+    const added = await t.kernel.execute<{ id: string }>("file.create", file, ownerCaller());
+    if (added.status !== "ok") throw new Error(JSON.stringify(added));
+    await t.kernel.execute("entity.trash", { id: added.result.id }, ownerCaller());
     expect(await present()).toBe(0);
 
     // Not again the same day.
@@ -99,6 +106,7 @@ describe("missing originals", () => {
     // That pass is done: what nothing needs went, unless it's new.
     expect(await blobs.has(old)).toBe(false);
     expect(await blobs.has(fresh)).toBe(true);
+    expect(await blobs.has(photo)).toBe(true);
     const [after] = await t.tdb.db.select().from(mailAccount);
     expect(after?.repairFrom).toBeNull();
     expect(after?.repairedAt).toEqual(t.clock.now());

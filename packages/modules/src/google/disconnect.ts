@@ -11,6 +11,7 @@ import {
   mailMessage,
   mailOp,
   mailThread,
+  storedFile,
 } from "@hearth/db";
 import { type ActionContext, ActionError, defineAction } from "@hearth/kernel";
 import { and, eq, inArray, ne } from "drizzle-orm";
@@ -204,9 +205,10 @@ export const disconnectAction = defineAction({
 });
 
 /**
- * Deletes the raw copies of the account's mail, but not ones another account's mail has too. In
- * the background: an account can have a hundred thousand of them. Should one go that's needed
- * after all (the same message arriving in another account just now), it's fetched again (6.6).
+ * Deletes the raw copies of the account's mail, but not ones another account's mail has too, or
+ * a file you added (the same bytes, saved from an email). In the background: an account can have
+ * a hundred thousand of them. Should one go that's needed after all (the same message arriving in
+ * another account just now), it's fetched again (6.6).
  */
 async function forgetFiles(ctx: ActionContext, hashes: string[]) {
   if (hashes.length === 0) return;
@@ -218,11 +220,16 @@ async function forgetFiles(ctx: ActionContext, hashes: string[]) {
   }
   const still = new Set<string>();
   for (let i = 0; i < hashes.length; i += 5000) {
+    const some = hashes.slice(i, i + 5000);
     const rows = await ctx.tx
       .selectDistinct({ hash: mailMessage.rawHash })
       .from(mailMessage)
-      .where(inArray(mailMessage.rawHash, hashes.slice(i, i + 5000)));
-    for (const r of rows) still.add(r.hash);
+      .where(inArray(mailMessage.rawHash, some));
+    const files = await ctx.tx
+      .selectDistinct({ hash: storedFile.hash })
+      .from(storedFile)
+      .where(inArray(storedFile.hash, some));
+    for (const r of [...rows, ...files]) still.add(r.hash);
   }
   void blobs.remove(hashes.filter((h) => !still.has(h))).catch(() => 0);
 }
