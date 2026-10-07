@@ -24,6 +24,12 @@ export function addressKey(address: string): string {
 export const toAnyOf = (addresses: readonly { address: string }[], mine: ReadonlySet<string>) =>
   addresses.some((a) => mine.has(addressKey(a.address)));
 
+/** Your connected accounts' addresses, by addressKey: a quick read, unlike yourAddresses. */
+export async function accountAddresses(db: DbOrTx): Promise<Set<string>> {
+  const accounts = await db.select({ address: mailAccount.address }).from(mailAccount);
+  return new Set(accounts.map((a) => addressKey(a.address)));
+}
+
 /** All your addresses, by addressKey: every connected account's, and every one you've sent from. */
 export async function yourAddresses(db: DbOrTx): Promise<Set<string>> {
   const accounts = await db.select({ address: mailAccount.address }).from(mailAccount);

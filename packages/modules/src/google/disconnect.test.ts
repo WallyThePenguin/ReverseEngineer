@@ -7,12 +7,13 @@ import { join } from "node:path";
 import { calendar, mailMessage, notification } from "@hearth/db";
 import { integrationCaller, ownerCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ALL_MODULES } from "../index.ts";
 import { BLOB_SERVICE, BlobStore } from "../mail/blobs.ts";
 import type { DraftView } from "../mail/drafts.ts";
 import { sendAction } from "../mail/send.ts";
+import { holdSyncs } from "../mail/sync.ts";
 import type { ThreadSummary } from "../mail/views.ts";
 import { GOOGLE_SERVICE, SCOPES } from "./client.ts";
 import { FakeGoogle } from "./fake.ts";
@@ -167,6 +168,37 @@ describe("disconnecting a Google account", () => {
       timeout: 10_000,
     });
     expect(await blobs.has(myFile!)).toBe(true);
+  });
+
+  it("waits for a sync that's running, so none of the mail it brings in is left behind", async () => {
+    let locked!: () => void;
+    let release!: () => void;
+    const holding = new Promise<void>((r) => (locked = r));
+    const done = new Promise<void>((r) => (release = r));
+    // A sync of the other account, working.
+    const syncing = t.tdb.db.transaction(async (tx) => {
+      await holdSyncs({ tx }, [`gmail:${ME}`]);
+      locked();
+      await done;
+    });
+    await holding;
+    let finished = false;
+    const disconnecting = ok("google.disconnect", { email: WORK }).then(() => (finished = true));
+    await vi.waitFor(
+      async () => {
+        const { rows } = await t.tdb.db.execute<{ n: number }>(
+          sql`SELECT count(*)::int AS n FROM pg_stat_activity
+              WHERE datname = current_database() AND wait_event = 'advisory'`,
+        );
+        expect(rows[0]!.n).toBe(1);
+      },
+      { timeout: 10_000 },
+    );
+    expect(finished).toBe(false);
+    release();
+    await syncing;
+    await disconnecting;
+    expect(finished).toBe(true);
   });
 
   it("leaves another account's calendar notice open", async () => {

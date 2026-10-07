@@ -36,6 +36,16 @@ export const accountId = (provider: string, address: string) => `${provider}:${a
 /** Two-key advisory lock namespace for mail sync ("mail"). */
 const LOCK = 0x6d61696c;
 
+/**
+ * Waits for any sync of these accounts that's running to finish, then keeps them from syncing
+ * until the transaction ends (a sync skips an account it can't lock). In one order, so two of
+ * these can't wait on each other.
+ */
+export async function holdSyncs(ctx: Pick<ActionContext, "tx">, accountIds: string[]) {
+  for (const id of [...accountIds].sort())
+    await ctx.tx.execute(sql`SELECT pg_advisory_xact_lock(${LOCK}, hashtext(${id}))`);
+}
+
 export { providerFor };
 
 /** Every Google account you connected Gmail for gets a mail account. */

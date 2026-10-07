@@ -10,23 +10,34 @@ import { and, asc, eq, inArray, ne } from "drizzle-orm";
 import type { ParsedMail } from "./mime.ts";
 
 /**
- * An email's fingerprint: its Message-ID, From, To, Cc, Reply-To, Subject, Date as sent (to the
- * millisecond, or none), body and attachments. A copy delivered to another account has the same;
- * a forgery that matched it all would have nothing left to change.
+ * An email's fingerprint: everything of it Hearth reads. Its Message-ID, From, To and Cc (names
+ * too), Reply-To, Subject, Date as sent (to the millisecond, or none), the messages it answers,
+ * whether it's bulk mail (its list and machine headers), body, and attachments (named as they
+ * are). A copy delivered to another account has the same; a forgery that matched it all would
+ * have nothing left to change.
  */
 export function copyKey(p: ParsedMail, messageId: string): string {
-  const addresses = (xs: readonly { address: string }[]) => xs.map((a) => a.address.toLowerCase());
-  const files = p.attachments.map((a) => createHash("sha256").update(a.content).digest("hex"));
+  const addresses = (xs: readonly { address: string; name?: string }[]) =>
+    xs.map((a) => [a.address.toLowerCase(), a.name ?? null]);
+  const files = p.attachments.map((a) => [
+    createHash("sha256").update(a.content).digest("hex"),
+    a.filename,
+    a.mimeType,
+    a.contentId ?? null,
+  ]);
   return createHash("sha256")
     .update(
       JSON.stringify([
         messageId,
-        p.from?.address.toLowerCase() ?? null,
+        p.from ? addresses([p.from])[0] : null,
         addresses(p.to),
         addresses(p.cc),
         p.replyTo?.toLowerCase() ?? null,
         p.subject,
         p.date?.getTime() ?? null,
+        p.inReplyTo,
+        p.references,
+        p.bulk,
         p.text,
         p.html,
         files,
@@ -69,15 +80,19 @@ export interface Copyable {
   labels: string[];
 }
 
-/** The flags a copy that isn't shown adds to the one that is: unread or starred in either. */
-const POOLED = new Set(["UNREAD", "STARRED"]);
-const pooled = (labels: readonly string[]) => labels.filter((l) => POOLED.has(l));
+/**
+ * The flags a copy that isn't shown adds to the one that is: unread or starred, and in the inbox,
+ * unless the one shown is yours (sent): it's in Sent, not mail to you, wherever else it went.
+ */
+const POOLED = new Set(["INBOX", "UNREAD", "STARRED"]);
+const pooled = (labels: readonly string[], toSent: boolean) =>
+  labels.filter((l) => POOLED.has(l) && !(toSent && l === "INBOX"));
 
 /**
  * Each email once. Of its copies, the one shown is the first saved, or the one you sent if a copy
  * is (your email cc'd to another of yours is yours, not mail to you). It's unread or starred if
- * any copy is; everything else about it (its Gmail tab, importance) is its own. `rows` come in
- * order of sentAt, then entityId (which is in the order saved).
+ * any copy is, and in the inbox if any is unless it's yours; everything else about it (its Gmail
+ * tab, importance) is its own. `rows` come in order of sentAt, then entityId (in the order saved).
  */
 export function once<T extends Copyable>(rows: readonly T[]): T[] {
   const seen = new Map<string, { kept: T; accounts: Set<string> }[]>();
@@ -92,12 +107,12 @@ export function once<T extends Copyable>(rows: readonly T[]): T[] {
       continue;
     }
     of.accounts.add(m.accountId);
-    const flags = (labels: string[], other: string[]) => [
-      ...new Set([...labels, ...pooled(other)]),
+    const flags = (shown: T, other: string[]) => [
+      ...new Set([...shown.labels, ...pooled(other, shown.outbound)]),
     ];
     if (m.outbound && !of.kept.outbound)
-      Object.assign(of.kept, m, { labels: flags(m.labels, of.kept.labels) });
-    else of.kept.labels = flags(of.kept.labels, m.labels);
+      Object.assign(of.kept, m, { labels: flags(m, of.kept.labels) });
+    else of.kept.labels = flags(of.kept, m.labels);
   }
   return out;
 }
