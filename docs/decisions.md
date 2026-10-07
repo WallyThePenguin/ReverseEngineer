@@ -2173,11 +2173,15 @@ hold, checked by the reflex and again by `calendar.accept_invite` as it runs:
 - for a repeating meeting, that holds for every time in the next 4 weeks it would answer. Times
   further out aren't checked; if any time in the 4 weeks clashes, it's a card.
 
-The action only accepts and has no input but the event. It runs as a proactive reflex, so
-nothing is accepted while Jarvis is paused. At most 10 a day; past that, and for any invitation
-that doesn't qualify, it's the card as before. Each one leaves a line in the inbox, "Accepted Sam
-Lee's "Standup", Tue 2026-10-13, 10 a.m.", with an Undo that sets your answer back to unanswered,
-unless you've answered it yourself since. `calendar.respond` is unchanged: it still asks, and an
+The action only accepts and has no input but the event. Only a new invitation: one Google made
+in the last day, so a calendar's first sync or a reconnect doesn't accept the ones you left
+unanswered (those are cards). The action itself refuses a turn that read outside content, and
+outside a turn it keeps to 10 a day (counted by its own Undo) and nothing while Jarvis is paused;
+past that, and for any invitation that doesn't qualify, it's the card as before. Its yes goes
+only to the invitation as checked: if Google's copy says you've answered it since, or it moved,
+it's the card. Each one leaves a line in the inbox, "Accepted "Standup", Tue 2026-10-13, 10
+a.m." with "From sam@partner.example ("Sam Lee")", with an Undo that sets your answer back to
+unanswered, unless you've answered it yourself since. `calendar.respond` is unchanged: it still asks, and an
 untrusted turn's answer is still a card. A meeting Jarvis accepted doesn't make its guests people
 (`calendar_event.jarvis_accepted`, 0042): "someone you know" grows only through your own yes or
 your own mail, so one accept can't vouch for the next. An invitation forged to look like it's
@@ -2200,13 +2204,14 @@ need to make.
 **Decision:** `calendar.create_event` takes a `threadId`, the email thread or conversation the
 turn is about, and ties the event to it (a `derived_from` link). `calendar.move_own_event` and
 `calendar.remove_own_event` are internal, and their handlers refuse unless all three hold: Jarvis
-added the event, it has no guests, and it's tied to something this turn is about (the turn's
-subject, its conversation's, or the items a heartbeat turn took). A refusal names
+added the event, it has no guests, and it's tied to the one thing this turn is about (the turn's
+subject and its conversation's, or the one item a heartbeat turn took). Only the tie
+`calendar.create_event` made as it added the event counts: not one `link.add` made, nor one from a
+create that found the event already there. A refusal names
 `calendar_update_event` or `calendar_delete_event`, which still ask as before. Each change leaves
 a line in the inbox with an Undo that says exactly what it does: "Undo: move "Dentist" back to Mon
-2026-10-12, 10 a.m.", or puts a removed event back. A heartbeat turn takes several items, so an
-email in one of them can move an event tied to another; it's still only Jarvis's own guest-free
-event, and the line says so.
+2026-10-12, 10 a.m.", or puts a removed event back. A heartbeat turn about several items asks,
+so an email in one of them can't move an event tied to another.
 
 The Undo is stored as a closed shape, `notification.undo = {kind, eventId, before}` with kind
 "unaccept", "unmove" or "unremove" (0042). The server maps each kind to one change, made as you

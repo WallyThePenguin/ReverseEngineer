@@ -13,7 +13,7 @@ import {
   personEmail,
 } from "@hearth/db";
 import { getSetting, type ReflexDef, type ReflexOutcome } from "@hearth/kernel";
-import { and, asc, count, eq, gt, gte, isNull, lt, lte, ne, or } from "drizzle-orm";
+import { and, asc, count, eq, gt, gte, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { companyDomain, isRoleAddress } from "../people/domains.ts";
 import { personFor } from "../people/store.ts";
 import { inSelectedCalendar, isOwnCalendar } from "./calendars.ts";
@@ -25,6 +25,8 @@ export const INVITE_CARDS = 15;
 export const AUTO_ACCEPTS = 10;
 /** A repeating meeting is accepted on its own only if every time this far ahead is free (D71). */
 export const SERIES_DAYS = 28;
+/** An invitation made at Google longer ago than this isn't new: the owner left it be. */
+export const NEW_INVITE_MS = 86_400_000;
 /** The FYI's kind when Jarvis accepted an invitation on its own. */
 export const ACCEPTED = "calendar.accepted";
 /** Times of a repeating meeting a card checks for clashes: accepting answers them all. */
@@ -160,15 +162,15 @@ export async function cannotAccept(db: DbOrTx, ev: EventView, now: Date): Promis
   return null;
 }
 
-/** Invitations Jarvis accepted on its own today, by the FYIs it left. */
-async function acceptedToday(db: DbOrTx, now: Date): Promise<number> {
+/** Invitations Jarvis accepted on its own today, by the Undo its FYIs carry (only it writes one). */
+export async function acceptedToday(db: DbOrTx, now: Date): Promise<number> {
   const { timeZone } = await getSetting(db, "owner.dayRules");
   const [row] = await db
     .select({ n: count() })
     .from(notification)
     .where(
       and(
-        eq(notification.kind, ACCEPTED),
+        sql`${notification.undo}->>'kind' = 'unaccept'`,
         gte(notification.createdAt, startOfLocalDay(now, timeZone)),
       ),
     );
@@ -195,9 +197,14 @@ export const newInvite: ReflexDef = {
     // A repeating meeting arrives as many times: one answer, on the first, covers them all.
     if (times[0]?.id !== ev.id) return [];
     const card = await inviteCard(ctx.db, ev, ev.organizer, times, ctx.now);
+    // Only a new one: a calendar's first sync, or a reconnect, brings invitations the owner left
+    // unanswered as "added" too. Those are cards at most.
+    const made = Date.parse(String(event.payload.created ?? ""));
+    const isNew = ctx.now.getTime() - made < NEW_INVITE_MS;
     // The handler checks all of it again as it runs. If it can't accept after all (the meeting
     // changed, Google failed), the card goes out instead; past the day's count, it's the card.
     if (
+      isNew &&
       !(await cannotAccept(ctx.db, ev, ctx.now)) &&
       (await acceptedToday(ctx.db, ctx.now)) < AUTO_ACCEPTS
     )

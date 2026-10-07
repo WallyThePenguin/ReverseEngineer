@@ -215,6 +215,7 @@ describe("new invitations", () => {
         title: "earlier",
         createdBy: "jarvis",
         createdAt: h.clock.now(),
+        undo: { kind: "unaccept" as const, eventId: newId(), before: { scope: "this" as const } },
       })),
     );
     g.put(ME, invite("design", "Design review", BOSS));
@@ -228,6 +229,16 @@ describe("new invitations", () => {
         summary: expect.stringContaining('"Design review"'),
       },
     ]);
+    expect(patches()).toEqual([]);
+  });
+
+  it("leaves an old invitation a calendar's first sync brings as a card", async () => {
+    const monthAgo = new Date(h.clock.now().getTime() - 30 * 86_400_000).toISOString();
+    g.put(ME, { ...invite("design", "Design review", BOSS), created: monthAgo });
+    await syncCalendar();
+    await h.settle();
+    expect(await cards()).toMatchObject([{ reason: `${FROM} You're free then.` }]);
+    expect(await accepted()).toEqual([]);
     expect(patches()).toEqual([]);
   });
 

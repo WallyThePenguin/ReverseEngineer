@@ -261,6 +261,7 @@ export function emitChange(
   id: string,
   change: Change,
   m: Pick<Mapped, "title" | "startsAt" | "endsAt" | "status">,
+  created?: string,
 ) {
   if (!change) return;
   ctx.emit({
@@ -271,6 +272,8 @@ export function emitChange(
       title: m.title,
       startsAt: m.startsAt.toISOString(),
       endsAt: m.endsAt.toISOString(),
+      // When Google got it: a calendar's first sync adds invitations months old too.
+      ...(created ? { created } : {}),
     },
   });
 }

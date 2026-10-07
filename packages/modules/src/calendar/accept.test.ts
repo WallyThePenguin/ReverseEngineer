@@ -98,8 +98,8 @@ describe("accepting an invitation without asking", () => {
     expect(await notes()).toMatchObject([
       {
         kind: "calendar.accepted",
-        title: 'Accepted Sam Lee\'s "Standup", Tue 2026-10-06, 11 a.m.',
-        body: `You were free then. Invitation from ${SAM}.`,
+        title: 'Accepted "Standup", Tue 2026-10-06, 11 a.m.',
+        body: `From ${SAM} ("Sam Lee"). You were free then.`,
         entityId: id,
         createdBy: "jarvis",
         urgency: "normal",
@@ -226,7 +226,7 @@ describe("a repeating meeting", () => {
     expect(patches()[0]!.path).toMatch(/\/events\/wk$/);
     expect(await notes()).toMatchObject([
       {
-        body: `It repeats; you were free every time in the next 4 weeks. Invitation from ${SAM}.`,
+        body: `From ${SAM} ("Sam Lee"). It repeats; you were free every time in the next 4 weeks.`,
         undo: { kind: "unaccept", eventId: id, before: { scope: "all" } },
       },
     ]);
@@ -242,6 +242,14 @@ describe("a repeating meeting", () => {
       code: "forbidden",
       message: expect.stringMatching(/^It overlaps "Dentist"\./),
     });
+    expect(patches()).toEqual([]);
+  });
+
+  it("isn't accepted when a time of it was answered at Google since the last sync", async () => {
+    await sync();
+    g.put(ME, { ...weekly("2026-10-06"), attendees: attendees(SAM, "declined") });
+    const res = await accept(await eventId("wk_20261006"));
+    expect(res).toMatchObject({ status: "error", code: "conflict" });
     expect(patches()).toEqual([]);
   });
 
@@ -285,6 +293,13 @@ describe("Undo", () => {
     await ok("calendar.respond", { id: await eventId("standup"), response: "declined" });
     expect(await undo(n)).toMatchObject({ status: "error", code: "conflict" });
     expect(mine(patches().at(-1)!.body)).toBe("declined");
+  });
+
+  it("won't take back a yes you gave yourself since", async () => {
+    const n = await accepted();
+    await ok("calendar.respond", { id: await eventId("standup"), response: "accepted" });
+    expect(await undo(n)).toMatchObject({ status: "error", code: "conflict" });
+    expect(mine(patches().at(-1)!.body)).toBe("accepted");
   });
 
   it("is yours to press, not Jarvis's", async () => {

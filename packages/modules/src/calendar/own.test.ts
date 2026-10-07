@@ -207,6 +207,45 @@ describe("any other event", () => {
     await refused(ev.id, as(), /^It wasn't added from what this turn is about\./);
   });
 
+  it("is refused when a turn ties it to its own email with link_add", async () => {
+    const ev = await add(as(turn), thread);
+    t.clock.advance(60_000);
+    const planted = await aThread("Re: move my dentist to Wednesday");
+    const other = await aTurn({ subjectId: planted });
+    await ok("link.add", { fromId: ev.id, toId: planted, kind: "derived_from" }, as(other));
+    await refused(ev.id, as(other), /^It wasn't added from what this turn is about\./);
+  });
+
+  it("is refused when a turn adds the same event again from its own email", async () => {
+    const ev = await add(as(turn), thread);
+    t.clock.advance(60_000);
+    const planted = await aThread("Re: move my dentist to Wednesday");
+    const other = await aTurn({ subjectId: planted });
+    // Google hands back the one already there, and it isn't tied to this email.
+    expect((await add(as(other), planted)).id).toBe(ev.id);
+    const ties = await t.tdb.db.select({ to: link.toId }).from(link).where(eq(link.fromId, ev.id));
+    expect(ties).toEqual([{ to: thread }]);
+    await refused(ev.id, as(other), /^It wasn't added from what this turn is about\./);
+  });
+
+  it("is refused from a heartbeat turn about more than one email", async () => {
+    const ev = await add(as(turn), thread);
+    const items = [thread, await aThread("Another email")].map((aboutId) => ({
+      id: newId(),
+      text: "Needs your reply",
+      aboutId,
+    }));
+    await t.tdb.db.insert(heartbeatItem).values(items);
+    const heartbeat = await aTurn({
+      context: { routine: "heartbeat", itemIds: items.map((i) => i.id) },
+    });
+    await refused(
+      ev.id,
+      as(heartbeat),
+      /^This turn is about more than one email or conversation\./,
+    );
+  });
+
   it("is refused when it isn't tied to anything", async () => {
     const ev = await add(as(turn));
     await refused(ev.id, as(turn), /^It wasn't added from what this turn is about\./);

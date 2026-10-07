@@ -144,7 +144,7 @@ export async function syncCalendars(ctx: ActionContext): Promise<SyncResult> {
         }
         if (saved.change && m.endsAt > ctx.now) {
           result.changed++;
-          emitChange(ctx, saved.id, saved.change, m);
+          emitChange(ctx, saved.id, saved.change, m, g.created);
         }
       }
       // Anything in the window Google no longer lists was deleted there.

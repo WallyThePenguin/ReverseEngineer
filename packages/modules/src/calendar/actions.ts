@@ -1,7 +1,8 @@
 // Writing your calendar. Your own events (no guests) change directly; anything guests would see
 // is a separate action that waits for your yes (PLAN.md section 5.5).
-import type { DbOrTx } from "@hearth/db";
+import { type DbOrTx, entity } from "@hearth/db";
 import { type ActionContext, ActionError, addLink, defineAction, getSetting } from "@hearth/kernel";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { CalendarApi, type GEvent, type SendUpdates } from "../google/calendar-api.ts";
 import { cleanDeep } from "../google/clean.ts";
@@ -206,7 +207,14 @@ export const calendarWriteActions = [
           "threadId has to be the email or conversation this turn is about. Leave it out otherwise.",
         );
       const ev = await insertEvent(ctx, i);
-      if (threadId) await addLink(ctx, { fromId: ev.id, toId: threadId, kind: "derived_from" });
+      // Only an event this call added: Google hands back one that was already there for the same
+      // title and times, and that one isn't this thread's to move (D72).
+      const [made] = await ctx.tx
+        .select({ at: entity.createdAt })
+        .from(entity)
+        .where(eq(entity.id, ev.id));
+      if (threadId && made?.at.getTime() === ctx.now.getTime())
+        await addLink(ctx, { fromId: ev.id, toId: threadId, kind: "derived_from" });
       return ev;
     },
   }),

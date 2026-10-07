@@ -41,6 +41,8 @@ export interface GAttendee {
 export interface GEvent {
   id: string;
   etag?: string;
+  /** When it was made at Google, whenever a sync first brings it to Hearth. */
+  created?: string;
   status?: "confirmed" | "tentative" | "cancelled";
   summary?: string;
   description?: string;

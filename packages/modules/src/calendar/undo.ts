@@ -3,7 +3,7 @@
 // it. calendar.undo maps the kind to one exact change, made as you, so a stored row can never
 // run anything else.
 import { formatTime, localDate } from "@hearth/core";
-import { type NotificationUndo, notification } from "@hearth/db";
+import { calendarEvent, type NotificationUndo, notification } from "@hearth/db";
 import { type ActionContext, ActionError, createNotification, defineAction } from "@hearth/kernel";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -69,7 +69,12 @@ async function unaccept(ctx: ActionContext, eventId: string, scope: "this" | "al
   if (!ev || ev.status === "cancelled")
     throw new ActionError("not_found", "That meeting isn't on your calendar any more.");
   await mustBeYours(ctx.tx, ev);
-  if (ev.selfResponse !== "accepted")
+  const [row] = await ctx.tx
+    .select({ byJarvis: calendarEvent.jarvisAccepted })
+    .from(calendarEvent)
+    .where(eq(calendarEvent.entityId, ev.id));
+  // Jarvis's yes only: one you gave yourself since (in Hearth) isn't its to take back.
+  if (ev.selfResponse !== "accepted" || !row?.byJarvis)
     throw new ActionError("conflict", "You've answered this invitation yourself since.");
   return answer(ctx, ev, "needsAction", scope === "all" && ev.recurringEventId ? "all" : undefined);
 }

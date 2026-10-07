@@ -30,12 +30,24 @@ async function ownEvent(ctx: ActionContext, eventId: string, asks: string): Prom
   if (made?.by !== PRINCIPAL.jarvis) throw refuse("Jarvis didn't add this event.");
   if (guests(ev).length > 0) throw refuse("This event has guests.");
   const about = await turnSubjects(ctx.tx, ctx.caller);
+  // One thing at a time: a heartbeat turn with several emails asks, so one email can't move
+  // what another one's event was for.
+  if (about.length > 1) throw refuse("This turn is about more than one email or conversation.");
   const [tied] = about.length
     ? await ctx.tx
         .select({ id: link.id })
         .from(link)
+        .innerJoin(entity, eq(entity.id, link.fromId))
         .where(
-          and(eq(link.fromId, ev.id), eq(link.kind, "derived_from"), inArray(link.toId, about)),
+          and(
+            eq(link.fromId, ev.id),
+            eq(link.kind, "derived_from"),
+            inArray(link.toId, about),
+            // Tied by calendar_create_event as it added the event, in the same moment: never by
+            // link_add, or by a create that found the event already there.
+            eq(link.createdBy, PRINCIPAL.jarvis),
+            eq(link.createdAt, entity.createdAt),
+          ),
         )
         .limit(1)
     : [];
