@@ -4,7 +4,7 @@
 // you can't be put away with e, s or its menu: it needs a yes or a no. Each row is an InboxItem
 // (inbox/InboxItem.tsx); an approval's is the shared ApprovalCard, its text in full.
 
-import { createSignal, For, Show } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import { NoRows } from "../components/QueryView.tsx";
 import { SetupChecklist } from "../components/SetupChecklist.tsx";
 import { Empty, PaneHeader } from "../components/ui.tsx";
@@ -27,6 +27,10 @@ export function Inbox(props: { pane: number }) {
   const list = () => rows.data ?? [];
   // Kept by id: a new arrival above it doesn't move the keys onto a different row.
   const sel = createSelection(list, (r) => r.notification.id);
+  // Rows are drawn by id too, not by object: a row read again after any change keeps its
+  // element, so its open menu stays (on a phone, the next row's menu right after Done).
+  const ids = createMemo(() => list().map((r) => r.notification.id));
+  const byId = createMemo(() => new Map(list().map((row, i) => [row.notification.id, { row, i }])));
   const current = sel.current;
   const focused = () => layout.focused() === props.pane;
 
@@ -150,23 +154,29 @@ export function Inbox(props: { pane: number }) {
             }
           >
             <ul>
-              <For each={list()}>
-                {(row, i) => (
-                  <InboxItem
-                    row={row}
-                    view={view()}
-                    active={focused() && i() === sel.index()}
-                    snoozing={snoozing() === row.notification.id}
-                    onSelect={() => sel.select(i())}
-                    onOpen={(beside) => {
-                      sel.select(i());
-                      open(row, beside);
-                    }}
-                    onDone={() => done(row)}
-                    onSnooze={() => startSnooze(row)}
-                    onSnoozeUntil={(until) => snooze(row.notification.id, until)}
-                  />
-                )}
+              <For each={ids()}>
+                {(id) => {
+                  let last = byId().get(id)!;
+                  const at = () => (last = byId().get(id) ?? last);
+                  const row = () => at().row;
+                  const i = () => at().i;
+                  return (
+                    <InboxItem
+                      row={row()}
+                      view={view()}
+                      active={focused() && i() === sel.index()}
+                      snoozing={snoozing() === id}
+                      onSelect={() => sel.select(i())}
+                      onOpen={(beside) => {
+                        sel.select(i());
+                        open(row(), beside);
+                      }}
+                      onDone={() => done(row())}
+                      onSnooze={() => startSnooze(row())}
+                      onSnoozeUntil={(until) => snooze(id, until)}
+                    />
+                  );
+                }}
               </For>
             </ul>
           </Show>

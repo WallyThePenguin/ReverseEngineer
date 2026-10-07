@@ -274,16 +274,26 @@ try {
     # An older Jarvis that wouldn't stop is left running, as it was before the update: its task
     # couldn't start another, and waiting three minutes to find that out would say less.
     $restart = Get-RollbackParts
-    try { Start-Hearth $restart.Parts } catch { Write-Host "Couldn't start Hearth again: $_" }
+    # Only what is down: a stop that failed at Jarvis, or partway through the services, left the
+    # rest running, and waiting for those to restart would only time out, holding the lock.
+    # (Jarvis is in the parts only when none is running.)
+    $down = @($restart.Parts | Where-Object {
+        $_ -eq "jarvis" -or (Get-Service "hearth-$_" -ErrorAction SilentlyContinue).Status -ne "Running"
+      })
     $running = (git rev-parse HEAD).Trim()
-    $why = Wait-Hearth -Since $since -Sha $running -Parts $restart.Parts -TimeoutSec $HealthTimeoutSec -AllowOld `
-      -Failed (Get-FailingChecks $before)
-    if ($why) {
-      Write-Host "HEARTH ISN'T BACK UP on $(Format-Sha $running): $why. Run pnpm hearth doctor to see why."
-    } elseif ($restart.Stuck) {
-      Write-Host "== Hearth is back up on $(Format-Sha $running), with Jarvis left as it was. $($restart.Stuck)."
+    if (-not $down.Count) {
+      Write-Host "== Hearth's services were never stopped: it's still up on $(Format-Sha $running), with Jarvis left as it was."
     } else {
-      Write-Host "== Hearth is back up on $(Format-Sha $running)."
+      try { Start-Hearth $down } catch { Write-Host "Couldn't start Hearth again: $_" }
+      $why = Wait-Hearth -Since $since -Sha $running -Parts $down -TimeoutSec $HealthTimeoutSec -AllowOld `
+        -Failed (Get-FailingChecks $before)
+      if ($why) {
+        Write-Host "HEARTH ISN'T BACK UP on $(Format-Sha $running): $why. Run pnpm hearth doctor to see why."
+      } elseif ($restart.Stuck) {
+        Write-Host "== Hearth is back up on $(Format-Sha $running), with Jarvis left as it was. $($restart.Stuck)."
+      } else {
+        Write-Host "== Hearth is back up on $(Format-Sha $running)."
+      }
     }
   }
 } finally {

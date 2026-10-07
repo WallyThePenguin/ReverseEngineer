@@ -85,17 +85,21 @@ try {
   await step(
     "a task trashed from its row's menu leaves at once, and Undo puts it back",
     async (p) => {
+      // Its own task: the step before completes whichever is second in the list, which is one of
+      // the titles above only when nothing older is open (a database used before, say).
+      const title = `Daily trash ${tag}`;
+      await run(p, "task.create", { title });
       await p.goto(`${base}/tasks`);
       const tasks = pane(p, "Tasks");
-      const row = tasks.locator("li", { hasText: titles[0]! });
+      const row = tasks.locator("li", { hasText: title });
       await row.hover();
       await row.getByRole("button", { name: /^Actions for/ }).click();
       await p.getByRole("menuitem", { name: "Move to trash" }).click();
       await row.waitFor({ state: "detached" });
-      await p.getByText(`Moved "${titles[0]}" to the trash.`).waitFor();
+      await p.getByText(`Moved "${title}" to the trash.`).waitFor();
       await p.getByRole("button", { name: "Undo" }).click();
       await row.waitFor();
-      await p.getByText(`Restored "${titles[0]}".`).waitFor();
+      await p.getByText(`Restored "${title}".`).waitFor();
     },
   );
 
@@ -207,7 +211,8 @@ try {
       if (await p.getByText("No tasks here.").count()) throw new Error("a failed read looks empty");
       await p.unroute("**/api/actions/task.list");
       await p.getByRole("button", { name: "Try again" }).click();
-      await p.getByText(titles[0]!).waitFor();
+      // The newest of the three: the first step completes the second row, never the last.
+      await p.getByText(titles[2]!).waitFor();
       await p.getByText("Hearth can't get to your data right now").waitFor({ state: "detached" });
 
       // A record that isn't there is "not found" at once; one that failed to load isn't.
