@@ -105,7 +105,10 @@ try {
     });
     await p.route("**/api/auth/me", async (r) => {
       // Left hanging: the app stops waiting after 10 s.
-      if (first) return void (first = false);
+      if (first) {
+        first = false;
+        return;
+      }
       // Its retries wait for the keys below, so the notice is still up when they're pressed.
       await answering;
       await r.continue();
