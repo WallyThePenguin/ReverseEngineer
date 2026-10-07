@@ -179,15 +179,16 @@ export async function loadThread(db: DbOrTx, id: string): Promise<ThreadView | n
   const [summary] = await listThreads(db, { view: "any", ids: [id], limit: 1 });
   if (!summary) return null;
   const all = await db
-    .select({ m: mailMessage, text: entity.body, subject: entity.title })
+    .select({ m: mailMessage, text: entity.body })
     .from(mailMessage)
     .innerJoin(entity, eq(entity.id, mailMessage.entityId))
     .where(eq(mailMessage.threadId, id))
     .orderBy(asc(mailMessage.sentAt), asc(mailMessage.entityId));
-  // The same email in two of your accounts shows once: the first saved, unread if either is.
-  const rows = once(all.map(({ m, text, subject }) => ({ ...m, subject, text }))).map(
-    ({ subject: _s, text, ...m }) => ({ m, text }),
-  );
+  // The same email in two of your accounts shows once (copies.ts).
+  const rows = once(all.map(({ m, text }) => ({ ...m, text }))).map(({ text, ...m }) => ({
+    m,
+    text,
+  }));
   const invites = new Map<string, InviteView>();
   // The newest few: a conversation full of invitations doesn't slow every view.
   for (const { m } of rows.filter((r) => r.m.invite).slice(-10)) {

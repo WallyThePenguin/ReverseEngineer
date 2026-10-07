@@ -129,3 +129,160 @@ describe("an email to two of your accounts", () => {
     expect(byAccount[WORK]).toMatchObject({ messageCount: 3 });
   });
 });
+
+describe("only the identical email is a copy", () => {
+  const EVE = { address: "eve@elsewhere.example" };
+  /** Mallory, who got the email, sends your other account her own with the same Message-ID. */
+  const forged = (headers: Record<string, string>, more: object = {}) => ({
+    ...DINNER,
+    ...more,
+    headers,
+  });
+  const byAccount = async () => Object.fromEntries((await threads()).map((x) => [x.account, x]));
+  const draftTo = async (threadId: string) => {
+    const d = await ok<DraftView>("mail.draft", { threadId, text: "Yes!", replyAll: true });
+    return { account: d.account, to: d.to.map((a) => a.address), cc: d.cc.map((a) => a.address) };
+  };
+
+  it("keeps apart a forgery a moment later or with its own Reply-To, which never steers a reply", async () => {
+    home.deliver(DINNER, IMPORTANT);
+    // The same second, .999 of the way through, with her Reply-To and a Cc of her own.
+    const late = { Date: "2026-10-01T09:30:15.999Z", "Reply-To": MALLORY.address };
+    work.deliver(forged(late, { cc: [EVE] }), IMPORTANT);
+    // The same Date to the millisecond, and only her Reply-To added.
+    work.deliver(forged({ "Reply-To": MALLORY.address }), IMPORTANT);
+    await sync();
+    const all = await byAccount();
+    expect(all[HOME]).toMatchObject({ messageCount: 1 });
+    expect(all[WORK]).toMatchObject({ messageCount: 2 });
+    // The reply to the real one goes to Ana alone, from home: neither you nor anyone she added.
+    expect(await draftTo(all[HOME]!.id)).toEqual({ account: HOME, to: [ANA.address], cc: [] });
+  });
+
+  it("doesn't hide the real email behind a forgery that came first", async () => {
+    work.deliver(forged({ "Reply-To": MALLORY.address }), IMPORTANT);
+    await sync();
+    home.deliver(DINNER, IMPORTANT);
+    work.deliver(DINNER, IMPORTANT);
+    await sync();
+    const all = await byAccount();
+    // The real email shows once, in its own conversation; the forgery stays in its own.
+    expect(all[HOME]).toMatchObject({ messageCount: 1 });
+    expect(all[WORK]).toMatchObject({ messageCount: 1 });
+    expect(await draftTo(all[HOME]!.id)).toMatchObject({ to: [ANA.address] });
+  });
+
+  for (const first of [HOME, WORK])
+    it(`shows your email to your other account as yours, ${first} saved first`, async () => {
+      const BOB = { address: "bob@friends.example" };
+      const mine = {
+        from: { address: HOME },
+        to: [BOB, { address: WORK }],
+        subject: "Plans",
+        text: "Shall we?",
+        messageId: "plans-1@home.example",
+        date: DINNER.date,
+      };
+      home.deliver(mine, ["SENT"]);
+      work.deliver(mine, ["INBOX", "UNREAD", "CATEGORY_PERSONAL", "IMPORTANT"]);
+      await ok("mail.sync", { account: first }, integrationCaller("google"));
+      await sync();
+      const [thread, ...others] = await threads();
+      expect(others).toEqual([]);
+      // Sent, waiting on Bob: not mail to you that needs your reply.
+      expect(thread).toMatchObject({ messageCount: 1, waiting: "them", inInbox: false });
+      const sent = await ok<ThreadSummary[]>("mail.threads", { view: "sent" });
+      expect(sent.map((x) => x.id)).toEqual([thread!.id]);
+      expect(await draftTo(thread!.id)).toEqual({ account: HOME, to: [BOB.address], cc: [] });
+      // Bob's page counts it once.
+      const people = await ok<{ id: string; name: string }[]>("person.list");
+      const bob = people.find((p) => p.name === BOB.address);
+      const page = await ok<{ threads: { messages: number }[] }>("person.view", { id: bob!.id });
+      expect(page.threads).toMatchObject([{ messages: 1 }]);
+    });
+
+  it("takes the shown copy's Gmail tab and importance, and either copy's unread or star", async () => {
+    home.deliver(DINNER, ["INBOX", "CATEGORY_PERSONAL"]);
+    work.deliver(DINNER, ["INBOX", "UNREAD", "STARRED", "CATEGORY_PERSONAL", "IMPORTANT"]);
+    await ok("mail.sync", { account: HOME }, integrationCaller("google"));
+    await sync();
+    // Work's Gmail marks it important; home's, shown, doesn't. Ana's no one you know yet.
+    const [thread] = await threads();
+    expect(thread).toMatchObject({ messageCount: 1, unread: true, starred: true, waiting: null });
+  });
+
+  it("joins an answer that adds your other address to the conversation, whichever saves it", async () => {
+    home.deliver({ ...DINNER, to: [{ address: HOME }] }, IMPORTANT);
+    await sync();
+    const answer = {
+      ...DINNER,
+      subject: "Re: Dinner?",
+      text: "Bringing Sam's colleague too",
+      messageId: "dinner-2@friends.example",
+      inReplyTo: DINNER.messageId,
+      references: [DINNER.messageId],
+    };
+    work.deliver(answer, IMPORTANT);
+    await ok("mail.sync", { account: WORK }, integrationCaller("google"));
+    home.deliver(answer, IMPORTANT);
+    await sync();
+    expect(await threads()).toMatchObject([{ messageCount: 2 }]);
+  });
+
+  it("shows once a copy whose Date is ahead of this PC's clock", async () => {
+    const ahead = { ...DINNER, date: new Date(Date.UTC(2099, 0, 1)) };
+    home.deliver(ahead, IMPORTANT);
+    await ok("mail.sync", { account: HOME }, integrationCaller("google"));
+    t.clock.advance(60_000);
+    work.deliver(ahead, IMPORTANT);
+    await sync();
+    expect(await threads()).toMatchObject([{ messageCount: 1 }]);
+  });
+});
+
+describe("disconnecting one of two accounts", () => {
+  it("keeps the other's copies, its own replies and its queued changes", async () => {
+    home.deliver(DINNER, IMPORTANT);
+    const copy = work.deliver(DINNER, IMPORTANT);
+    await ok("mail.sync", { account: HOME }, integrationCaller("google"));
+    await sync();
+    // Ana answers at work only: it joins the conversation home's copy started.
+    const answer = {
+      ...DINNER,
+      to: [{ address: WORK }],
+      text: "Or 9?",
+      messageId: "dinner-2@x",
+      inReplyTo: DINNER.messageId,
+      references: [DINNER.messageId],
+    };
+    const reply = work.deliver(answer, IMPORTANT);
+    await sync();
+    const [thread] = await threads();
+    expect(thread).toMatchObject({ account: HOME, messageCount: 2 });
+    // Read in Hearth; the change for work's Gmail waits for the next sync.
+    await ok("mail.mark_read", { ids: [thread!.id] });
+
+    await ok("google.disconnect", { email: HOME });
+    expect(await threads()).toMatchObject([{ id: thread!.id, account: WORK, messageCount: 2 }]);
+    expect(await senders(thread!.id)).toEqual([ANA.address, ANA.address]);
+    expect(await t.tdb.db.select().from(mailMessage)).toHaveLength(2);
+    await sync();
+    expect(flags(work, copy)).not.toContain("UNREAD");
+    expect(flags(work, reply)).not.toContain("UNREAD");
+  });
+
+  it("puts the other's copy in its own conversation, when it has that one too", async () => {
+    // Something reusing the Message-ID came to work first, so work has a conversation for it.
+    work.deliver({ ...DINNER, from: MALLORY, text: "Pay here" }, IMPORTANT);
+    home.deliver(DINNER, IMPORTANT);
+    work.deliver(DINNER, IMPORTANT);
+    await ok("mail.sync", { account: HOME }, integrationCaller("google"));
+    await ok("mail.sync", { account: WORK }, integrationCaller("google"));
+    expect(await threads()).toHaveLength(2);
+    await ok("google.disconnect", { email: HOME });
+    const [left, ...others] = await threads();
+    expect(others).toEqual([]);
+    expect(left).toMatchObject({ account: WORK, messageCount: 2 });
+    expect((await senders(left!.id)).sort()).toEqual([ANA.address, MALLORY.address]);
+  });
+});

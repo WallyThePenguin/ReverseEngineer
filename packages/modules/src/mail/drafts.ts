@@ -22,7 +22,9 @@ import {
 import { and, asc, desc, eq, gte, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { body, id } from "../shared.ts";
+import { once } from "./copies.ts";
 import { cleanName, newMessageId } from "./mime.ts";
+import { addressKey, yourAddresses } from "./mine.ts";
 import { checkRecipients } from "./recipients.ts";
 import { loadThread } from "./views.ts";
 import { threadsToDraft } from "./waiting.ts";
@@ -142,26 +144,31 @@ async function replyHeaders(ctx: ActionContext, threadId: string, all: boolean) 
     .select()
     .from(mailMessage)
     .where(eq(mailMessage.threadId, threadId))
-    // Of an email's copies in two of your accounts, the first saved (as the conversation shows).
-    .orderBy(desc(mailMessage.sentAt), asc(mailMessage.entityId));
-  const last = rows.find((m) => !m.outbound) ?? rows[0];
+    .orderBy(asc(mailMessage.sentAt), asc(mailMessage.entityId));
+  // Each email once, as the conversation shows it: a copy that isn't shown has no say.
+  const shown = once(rows);
+  const last = shown.findLast((m) => !m.outbound) ?? shown.at(-1);
   if (!last) throw new ActionError("not_found", "That conversation has no messages.");
   const [account] = await ctx.tx
     .select()
     .from(mailAccount)
     .where(eq(mailAccount.id, last.accountId));
   const self = account!.address;
+  // A reply never goes to you: your own email (cc'd to another of yours, say) answers its people.
+  const mine = await yourAddresses(ctx.tx);
+  const yours = (a: MailAddress) => mine.has(addressKey(a.address));
   const from: MailAddress = {
     address: last.fromAddress,
     ...(last.fromName ? { name: last.fromName } : {}),
   };
-  const to = (
-    last.outbound ? last.toAddresses : [last.replyTo ? { address: last.replyTo } : from]
-  ).map(clean);
+  const fromYou = last.outbound || yours(from);
+  const to = (fromYou ? last.toAddresses : [last.replyTo ? { address: last.replyTo } : from])
+    .map(clean)
+    .filter((a) => !yours(a));
   const taken = new Set([self, ...to.map((a) => a.address)]);
   const cc = all
     ? [...last.toAddresses, ...last.ccAddresses].map(clean).filter((a) => {
-        if (taken.has(a.address)) return false;
+        if (taken.has(a.address) || yours(a)) return false;
         taken.add(a.address);
         return true;
       })

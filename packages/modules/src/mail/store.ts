@@ -3,10 +3,10 @@
 // never by the provider's own thread ids, so every provider threads the same way.
 import { entity, type mailAccount, mailMessage, mailThread } from "@hearth/db";
 import { type ActionContext, createEntity } from "@hearth/kernel";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { cleanDeep } from "../google/clean.ts";
 import { BLOB_SERVICE, type BlobStore } from "./blobs.ts";
-import { copyThread } from "./copies.ts";
+import { copyKey, copyThread, otherAccounts } from "./copies.ts";
 import { recomputeThread } from "./flags.ts";
 import { isCalendar, parseInvite } from "./invites.ts";
 import { type ParsedMail, parseMail, snippetOf } from "./mime.ts";
@@ -21,7 +21,10 @@ export const leftOut = (labels: string[]) => labels.some((l) => LEFT_OUT.include
 /** The most of a message's text kept on its record, for search and for Jarvis. */
 const MAX_TEXT = 50_000;
 
-/** The conversation a message belongs to, if Hearth has it already. */
+/**
+ * The conversation a message belongs to, if Hearth has it already: in this account, or else in
+ * another of yours (a reply that adds this address joins the conversation it answers there).
+ */
 async function findThread(
   ctx: ActionContext,
   accountId: string,
@@ -47,7 +50,19 @@ async function findThread(
       ),
     )
     .limit(1);
-  return byRoot?.id ?? null;
+  if (byRoot || !refs.length) return byRoot?.id ?? null;
+  const [elsewhere] = await ctx.tx
+    .select({ threadId: mailMessage.threadId })
+    .from(mailMessage)
+    .where(
+      and(
+        inArray(mailMessage.accountId, otherAccounts(ctx, accountId)),
+        inArray(mailMessage.messageId, refs),
+      ),
+    )
+    .orderBy(asc(mailMessage.entityId))
+    .limit(1);
+  return elsewhere?.threadId ?? null;
 }
 
 export interface Saved {
@@ -103,10 +118,12 @@ export async function saveMail(
   const subject = p.subject || "(no subject)";
 
   const fromAddress = p.from?.address ?? "";
-  // The same email in another of your accounts joins its conversation there, as a copy.
+  // The same email in another of your accounts joins its conversation there, as a copy: before
+  // anything else, as something reusing its Message-ID may have started one here.
+  const key = copyKey(p, messageId);
   let threadId =
-    (await findThread(ctx, account.id, messageId, refs)) ??
-    (await copyThread(ctx, account.id, { messageId, fromAddress, sentAt, subject }));
+    (await copyThread(ctx, account.id, messageId, key)) ??
+    (await findThread(ctx, account.id, messageId, refs));
   if (!threadId) {
     const thread = await createEntity(ctx, { type: "email_thread", title: subject });
     await ctx.tx.insert(mailThread).values({
@@ -146,6 +163,7 @@ export async function saveMail(
     snippet: snippetOf(p.text),
     invite: cleanDeep(inviteIn(p)),
     bulk: p.bulk,
+    copyKey: key,
   });
   await linkPeople(
     ctx,

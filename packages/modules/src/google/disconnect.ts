@@ -9,14 +9,16 @@ import {
   mailAccount,
   mailDraft,
   mailMessage,
+  mailOp,
   mailThread,
 } from "@hearth/db";
 import { type ActionContext, defineAction } from "@hearth/kernel";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
 import { dropCalendars, handOver } from "../calendar/calendars.ts";
 import { closeCalendarAlerts } from "../calendar/health.ts";
 import { BLOB_SERVICE, type BlobStore } from "../mail/blobs.ts";
+import { recomputeThread } from "../mail/flags.ts";
 import { closeMailAlerts } from "../mail/sync-state.ts";
 import { GOOGLE_SERVICE, type GoogleClient } from "./client.ts";
 
@@ -34,6 +36,73 @@ async function dropMail(
         ctx.tx.select({ id: table.entityId }).from(table).where(eq(table.accountId, accountId)),
       ),
     );
+}
+
+/**
+ * The leaving account's conversations that hold another account's mail (a copy of an email sent
+ * to both, or a reply that came only there) stay, as that account's; only the leaving account's
+ * own messages go. Where that account has the conversation already, its mail joins it there.
+ * Returns the conversations kept, to work out again once the leaving mail is gone.
+ */
+async function rehome(ctx: ActionContext, leaving: string): Promise<string[]> {
+  const shared = await ctx.tx
+    .selectDistinct({
+      id: mailThread.entityId,
+      root: mailThread.rootMessageId,
+      owner: mailMessage.accountId,
+    })
+    .from(mailMessage)
+    .innerJoin(mailThread, eq(mailThread.entityId, mailMessage.threadId))
+    .where(and(eq(mailThread.accountId, leaving), ne(mailMessage.accountId, leaving)));
+  const done = new Set<string>();
+  const kept = new Set<string>();
+  for (const t of shared) {
+    if (done.has(t.id)) continue;
+    done.add(t.id);
+    const [there] = await ctx.tx
+      .select({ id: mailThread.entityId })
+      .from(mailThread)
+      .where(and(eq(mailThread.accountId, t.owner), eq(mailThread.rootMessageId, t.root)));
+    if (!there) {
+      await ctx.tx
+        .update(mailThread)
+        .set({ accountId: t.owner })
+        .where(eq(mailThread.entityId, t.id));
+      kept.add(t.id);
+      continue;
+    }
+    const moved = [
+      ...(await ctx.tx
+        .update(mailMessage)
+        .set({ threadId: there.id })
+        .where(and(eq(mailMessage.threadId, t.id), ne(mailMessage.accountId, leaving)))
+        .returning({ id: mailMessage.entityId })),
+      ...(await ctx.tx
+        .update(mailDraft)
+        .set({ threadId: there.id })
+        .where(eq(mailDraft.threadId, t.id))
+        .returning({ id: mailDraft.entityId })),
+    ];
+    if (moved.length)
+      await ctx.tx
+        .update(entity)
+        .set({ parentId: there.id })
+        .where(
+          and(
+            eq(entity.parentId, t.id),
+            inArray(
+              entity.id,
+              moved.map((m) => m.id),
+            ),
+          ),
+        );
+    await ctx.tx
+      .update(mailOp)
+      .set({ threadId: there.id })
+      .where(and(eq(mailOp.threadId, t.id), ne(mailOp.accountId, leaving)));
+    kept.add(there.id);
+  }
+  return [...kept];
 }
 
 export const disconnectAction = defineAction({
@@ -62,8 +131,11 @@ export const disconnectAction = defineAction({
           .from(mailDraft)
           .where(eq(mailDraft.accountId, mailId))
       : [];
+    const shared = await rehome(ctx, mailId);
     await dropMail(ctx, mailMessage, mailId);
+    await ctx.tx.delete(mailOp).where(eq(mailOp.accountId, mailId));
     await dropMail(ctx, mailThread, mailId);
+    for (const id of shared) await recomputeThread(ctx, id);
     // Kept drafts lose their account with it (the key is set to null) and wait for a new From.
     if (!i.keepDrafts) await dropMail(ctx, mailDraft, mailId);
     await closeMailAlerts(ctx, mailId, false);

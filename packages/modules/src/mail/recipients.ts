@@ -4,19 +4,29 @@
 // in a draft you'd send without looking twice. Enforced here, not left to the prompt.
 import { type DbOrTx, type MailAddress, mailAccount, mailMessage } from "@hearth/db";
 import { type ActionContext, ActionError } from "@hearth/kernel";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
+import { once } from "./copies.ts";
 
-/** Everyone on a conversation, and your own addresses, lowercased. */
+/**
+ * Everyone on a conversation as it shows (a copy of an email in another account that isn't
+ * shown adds no one), and your own addresses, lowercased.
+ */
 async function onConversation(db: DbOrTx, threadId: string): Promise<Set<string>> {
-  const rows = await db
+  const found = await db
     .select({
+      accountId: mailMessage.accountId,
+      copyKey: mailMessage.copyKey,
+      outbound: mailMessage.outbound,
+      labels: mailMessage.labels,
       from: mailMessage.fromAddress,
       replyTo: mailMessage.replyTo,
       to: mailMessage.toAddresses,
       cc: mailMessage.ccAddresses,
     })
     .from(mailMessage)
-    .where(eq(mailMessage.threadId, threadId));
+    .where(eq(mailMessage.threadId, threadId))
+    .orderBy(asc(mailMessage.sentAt), asc(mailMessage.entityId));
+  const rows = once(found);
   const mine = await db.select({ address: mailAccount.address }).from(mailAccount);
   const all = [
     ...rows.flatMap((r) => [r.from, r.replyTo ?? "", ...r.to.map((a) => a.address)]),

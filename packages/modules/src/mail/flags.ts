@@ -95,10 +95,10 @@ export async function recomputeThread(ctx: ActionContext, threadId: string): Pro
     return;
   }
   const live = msgs.filter((m) => !m.labels.includes("TRASH"));
-  // The same email in two of your accounts counts once.
+  // The same email in two of your accounts counts once, and only the copy shown has a say.
   const shown = once(live.length ? live : msgs);
   const last = shown.at(-1)!;
-  const any = (label: string) => live.some((m) => m.labels.includes(label));
+  const any = (label: string) => live.length > 0 && shown.some((m) => m.labels.includes(label));
   const lastOf = (out: boolean) => shown.filter((m) => m.outbound === out).at(-1)?.sentAt ?? null;
   const people = new Map<string, MailAddress>();
   for (const m of shown) {
