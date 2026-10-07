@@ -198,12 +198,13 @@ async function disconnect(i: { email: string; keepDrafts: boolean }, ctx: Action
   if (!i.keepDrafts) await dropMail(ctx, mailDraft, mailId);
   await closeMailAlerts(ctx, mailId, false);
   await ctx.tx.delete(mailAccount).where(eq(mailAccount.id, mailId));
-  // Worked out once the account's gone, as its address is no longer one of yours.
-  for (const id of new Set([...shared, ...joined.map((j) => j.id)])) await recomputeThread(ctx, id);
   const gone = await ctx.tx
     .delete(googleAccount)
     .where(eq(googleAccount.email, email))
     .returning({ email: googleAccount.email, token: googleAccount.refreshToken });
+  // Worked out once the account's gone, mail and Google both (either makes its address one of
+  // yours: mail/mine.ts), so what waits on you is worked out without it.
+  for (const id of new Set([...shared, ...joined.map((j) => j.id)])) await recomputeThread(ctx, id);
   await closeCalendarAlerts(ctx, email);
   let google: GoogleClient | null = null;
   try {
