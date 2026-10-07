@@ -90,6 +90,14 @@ export function Mail(props: { pane: number }) {
   // Kept by id: new mail arriving above doesn't move e or # onto a different conversation.
   const sel = createSelection(list, (t) => t.id);
   const current = sel.current;
+  // A search's top row is next once typing pauses and it goes out, not at each key: until then
+  // the list shown is still the one before.
+  let searched = untrack(term);
+  createEffect(() => {
+    if (term() === searched) return;
+    searched = term();
+    untrack(sel.reset);
+  });
   // Moving down with j: the next page comes before you reach the end.
   createEffect(() => {
     if (paging() && sel.index() >= list().length - 5) listed.more();
@@ -247,10 +255,7 @@ export function Mail(props: { pane: number }) {
           placeholder="Search mail"
           aria-label="Search mail"
           value={query()}
-          onInput={(e) => {
-            setQuery(e.currentTarget.value);
-            sel.reset();
-          }}
+          onInput={(e) => setQuery(e.currentTarget.value)}
         />
       </PaneHeader>
       <MailSyncBanner accounts={accounts.data ?? []} />

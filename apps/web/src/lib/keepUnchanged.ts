@@ -33,11 +33,18 @@ export function keepUnchanged<T>(old: unknown, next: T): T {
   return next;
 }
 
+/** Adds `i` to `key`'s list in `m`. */
+function add<K>(m: Map<K, number[]>, key: K, i: number) {
+  const list = m.get(key);
+  if (list) list.push(i);
+  else m.set(key, [i]);
+}
+
 function keepItems(old: readonly unknown[], next: readonly unknown[]): readonly unknown[] {
   const byJson = new Map<string, number[]>();
   old.forEach((o, i) => {
     const k = json(o);
-    if (k !== null) byJson.set(k, [...(byJson.get(k) ?? []), i]);
+    if (k !== null) add(byJson, k, i);
   });
   const used = new Set<number>();
   // First what's the same as before, wherever it was: each of old's is kept for one of next's.
@@ -51,10 +58,11 @@ function keepItems(old: readonly unknown[], next: readonly unknown[]): readonly 
   // unchanged rows, and a changed row its unchanged parts.
   let byId: Map<unknown, number[]> | null = null;
   const was = (n: unknown, at: number): number | undefined => {
-    if (plain(n) && n.id !== undefined) {
-      // A row with an id was the old row with that id, wherever it was; none, and it's new.
+    if (plain(n) && n.id != null) {
+      // A row with an id was the old row with that id, wherever it was; none, and it's new. Rows
+      // with no id (or a null one) aren't indexed: they go by place, below.
       byId ??= old.reduce<Map<unknown, number[]>>((m, o, i) => {
-        if (plain(o)) m.set(o.id, [...(m.get(o.id) ?? []), i]);
+        if (plain(o) && o.id != null) add(m, o.id, i);
         return m;
       }, new Map());
       return byId.get(n.id)?.find((i) => !used.has(i));

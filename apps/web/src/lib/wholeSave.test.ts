@@ -187,13 +187,16 @@ describe("saving a board whole", () => {
 
   it("reads a newer version it couldn't read again soon, rather than at the next one", async () => {
     const { saver, shown } = await openBoard();
-    // Jarvis saved it, and reading that doesn't reach Hearth.
-    server = { ...server, version: 2, board: { nodes: [card("j", "from Jarvis")], edges: [] } };
-    down = true;
-    await saver.load();
-    down = false;
-    await vi.advanceTimersByTimeAsync(2_000);
-    expect(texts(shown())).toEqual(["from Jarvis"]);
+    // Jarvis saved it, and reading that doesn't reach Hearth, three times over. A read that works
+    // starts the wait over: each is read again within a second, not two, then four.
+    for (const v of [2, 3, 4]) {
+      server = { ...server, version: v, board: { nodes: [card("j", `v${v}`)], edges: [] } };
+      down = true;
+      await saver.load();
+      down = false;
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(texts(shown())).toEqual([`v${v}`]);
+    }
   });
 
   it("says Hearth hit a problem, not that it's out of reach, when it fails a save", async () => {

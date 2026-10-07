@@ -3,7 +3,7 @@
 // unchanged rows as they were (keepUnchanged.ts), so a refresh doesn't draw them again, and
 // nothing else would.
 
-import { createSignal, getListener } from "solid-js";
+import { type Accessor, createMemo, createSignal, getListener } from "solid-js";
 
 const MINUTE = 60_000;
 const [minute, setMinute] = createSignal(0);
@@ -23,4 +23,15 @@ export function timeNow(): Date {
   }
   minute();
   return new Date();
+}
+
+/**
+ * The start of today, as a number that changes when the day does, not each minute. What's grouped
+ * or keyed by day reads this, so the minute moving on draws none of it again.
+ */
+export function createToday(): Accessor<number> {
+  return createMemo(() => {
+    const d = timeNow();
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  });
 }

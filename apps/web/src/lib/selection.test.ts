@@ -1,6 +1,6 @@
 // The keyboard's row is kept by id: new rows above it don't move it to another item, and when
 // its row goes, the row that took its place is selected (and highlighted).
-import { createRoot, createSignal } from "solid-js";
+import { createEffect, createRoot, createSignal, on } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import { createSelection, resolveIndex } from "./selection.ts";
 
@@ -110,6 +110,28 @@ describe("createSelection", () => {
     await Promise.resolve();
     setList(rows("newer", "new", "x", "y"));
     expect(sel.current()?.id).toBe("new");
+    dispose();
+  });
+
+  it("selects a search's own top once it answers, though the old top is among the results", async () => {
+    const { sel, setTerm, setFound, dispose } = createRoot((dispose) => {
+      const [term, setTerm] = createSignal("");
+      const [found, setFound] = createSignal<{ id: string }[]>();
+      const inbox = rows("a", "b", "c");
+      const sel = createSelection(
+        () => (term() ? (found() ?? []) : inbox),
+        (r) => r.id,
+      );
+      // As Mail does: reset when the searched-for words change, once typing pauses.
+      createEffect(on(term, () => sel.reset(), { defer: true }));
+      return { sel, setTerm, setFound, dispose };
+    });
+    expect(sel.current()?.id).toBe("a");
+    // Typing: nothing changes for the pause. Then the search goes out, and answers later.
+    setTerm("lease");
+    await Promise.resolve();
+    setFound(rows("c", "a"));
+    expect(sel.current()?.id).toBe("c");
     dispose();
   });
 });

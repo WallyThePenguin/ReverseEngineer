@@ -84,4 +84,16 @@ describe("keepUnchanged", () => {
     expect(next[1]).toBe(a);
     expect(next[2]).toBe(c);
   });
+
+  it("goes by place for rows whose id is missing or null, many of them at once", () => {
+    const row = (i: number, seen: boolean) => ({ id: null, n: i, at: { i }, seen });
+    const old = Array.from({ length: 5000 }, (_, i) => row(i, false));
+    const started = performance.now();
+    const next = keepUnchanged(
+      old,
+      Array.from({ length: 5000 }, (_, i) => row(i, true)),
+    );
+    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(next[4999]!.at).toBe(old[4999]!.at);
+  });
 });

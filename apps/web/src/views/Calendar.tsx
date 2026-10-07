@@ -10,7 +10,6 @@ import { Icon } from "../components/icons.tsx";
 import { Pill } from "../components/kit/Pill.tsx";
 import { OutsideMark } from "../components/OutsideMark.tsx";
 import { Badge, Button, Empty, PaneHeader } from "../components/ui.tsx";
-import { timeNow } from "../lib/clock.ts";
 import { hours, plural, span, time } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
 import { layout, routeFor } from "../lib/panes.ts";
@@ -18,6 +17,7 @@ import { act, useAction } from "../lib/query.ts";
 import { quickAdd } from "../lib/quickadd.ts";
 import { unanswered } from "../lib/today.ts";
 import type { CalEvent, Entity } from "../lib/types.ts";
+import { byDay, createWeekStart } from "../lib/week.ts";
 import { type EventDraft, readEvent } from "../lib/when.ts";
 import { takeNotes } from "./Meeting.tsx";
 
@@ -79,24 +79,14 @@ function NewEvent() {
 
 export function Calendar(props: { pane: number }) {
   const [offset, setOffset] = createSignal(0);
-  const from = () => {
-    const d = timeNow();
-    d.setHours(0, 0, 0, 0);
-    return new Date(d.getTime() + offset() * 7 * DAY_MS);
-  };
+  // Starts on the day, and a day's section is kept by its date (lib/week.ts): the minute moving
+  // on draws nothing again, so an invite's "This time only" stays chosen.
+  const from = createWeekStart(offset);
   const events = useAction<CalEvent[]>("calendar.events", () => ({
     from: from().toISOString(),
     to: new Date(from().getTime() + 7 * DAY_MS).toISOString(),
   }));
-  const days = () => {
-    const groups = new Map<string, CalEvent[]>();
-    for (const e of events.data ?? []) {
-      const start = new Date(e.startsAt);
-      const key = (start < from() ? from() : start).toDateString();
-      groups.set(key, [...(groups.get(key) ?? []), e]);
-    }
-    return [...groups.entries()];
-  };
+  const week = byDay(() => events.data, from);
   return (
     <div class="flex h-full flex-col">
       <PaneHeader title="Calendar">
@@ -115,21 +105,21 @@ export function Calendar(props: { pane: number }) {
       <NewEvent />
       <div class="flex-1 overflow-auto">
         <Show
-          when={days().length > 0}
+          when={week.days().length > 0}
           fallback={
             <Empty>
               Nothing on your calendar this week, or Google isn't connected yet (Settings).
             </Empty>
           }
         >
-          <For each={days()}>
-            {([day, list]) => (
+          <For each={week.days()}>
+            {(day) => (
               <section>
                 <h2 class="sticky top-0 bg-panel px-4 pt-3 pb-1 text-xs font-semibold text-muted uppercase">
                   {dayLabel(new Date(day))}
                 </h2>
                 <ul>
-                  <For each={list}>
+                  <For each={week.on(day)}>
                     {(e) => (
                       <li
                         class="flex cursor-pointer flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line px-4 py-2"

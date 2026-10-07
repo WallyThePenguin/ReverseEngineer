@@ -84,6 +84,8 @@ export function createSaver<T>(o: SaverOptions<T>) {
   let timer: number | undefined;
   let retry: number | undefined;
   let rereading: number | undefined;
+  /** Reads again in a row that failed, apart from the saves' attempts; one that works resets it. */
+  let rereads = 0;
   let keeping = false;
   let closed = false;
   /** Restores heard: one heard while a request was out makes its "not found" out of date. */
@@ -285,10 +287,11 @@ export function createSaver<T>(o: SaverOptions<T>) {
       // Open already: a newer version it couldn't read is read again soon, not at the next one.
       else if (isTransient(err)) {
         window.clearTimeout(rereading);
-        if (!closed) rereading = window.setTimeout(() => void load(), backoff(attempt++));
+        if (!closed) rereading = window.setTimeout(() => void load(), backoff(rereads++));
       }
       return;
     }
+    rereads = 0;
     if (!loaded()) return open(r);
     if (r.version <= version) return;
     if (!unsaved() && edits === at) {

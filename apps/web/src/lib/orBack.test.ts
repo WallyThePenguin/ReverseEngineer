@@ -30,4 +30,28 @@ describe("orBack", () => {
     await orBack(choice, Promise.resolve(null), () => "normal");
     expect(choice.value).toBe("normal");
   });
+
+  it("leaves a choice made since alone: its own save carries it", async () => {
+    const choice = { value: "urgent" } as HTMLSelectElement;
+    let refuse = (_: null) => {};
+    const saving = new Promise<null>((r) => {
+      refuse = r;
+    });
+    const first = orBack(choice, saving, () => "normal");
+    choice.value = "low";
+    refuse(null);
+    await first;
+    expect(choice.value).toBe("low");
+  });
+
+  it("leaves a field you're typing in, and puts one you've left back", async () => {
+    const field = { tagName: "INPUT", type: "text", value: "Oct 9" } as HTMLInputElement;
+    const doc = { activeElement: field as Element | null };
+    Object.defineProperty(field, "ownerDocument", { value: doc });
+    await orBack(field, Promise.resolve(null), () => "Oct 8");
+    expect(field.value).toBe("Oct 9");
+    doc.activeElement = null;
+    await orBack(field, Promise.resolve(null), () => "Oct 8");
+    expect(field.value).toBe("Oct 8");
+  });
 });
