@@ -1,9 +1,16 @@
 // People from mail, and which lane a sender's mail goes to. Following Macro's rule, someone
 // becomes a person when you write to them; mail from people you know is Signal.
-import { type DbOrTx, type MailAddress, type MailLane, mailSenderRule } from "@hearth/db";
+import {
+  type DbOrTx,
+  type MailAddress,
+  type MailLane,
+  mailAccount,
+  mailSenderRule,
+} from "@hearth/db";
 import type { ActionContext } from "@hearth/kernel";
 import { inArray } from "drizzle-orm";
 import { ensurePerson, linkPerson, personFor } from "../people/store.ts";
+import { addressKey } from "./mine.ts";
 
 /** Gmail's tabs other than Primary. Mail there starts out as Noise. */
 export const NOISE_CATEGORIES = [
@@ -60,7 +67,8 @@ export async function laneFor(
 
 /**
  * Links a message to the people on it. Writing to someone makes them a person; mail from someone
- * is linked only if you already know them.
+ * is linked only if you already know them. You aren't someone you know: none of your connected
+ * accounts' addresses, in any spelling, becomes a person (or a company for its domain).
  */
 export async function linkPeople(
   ctx: ActionContext,
@@ -68,7 +76,9 @@ export async function linkPeople(
   m: { outbound: boolean; from: MailAddress | null; to: MailAddress[]; cc: MailAddress[] },
   self: string,
 ): Promise<void> {
-  const others = (list: MailAddress[]) => list.filter((a) => a.address !== self);
+  const accounts = await ctx.tx.select({ address: mailAccount.address }).from(mailAccount);
+  const mine = new Set([self, ...accounts.map((a) => a.address)].map(addressKey));
+  const others = (list: MailAddress[]) => list.filter((a) => !mine.has(addressKey(a.address)));
   if (m.outbound) {
     for (const who of others([...m.to, ...m.cc]).slice(0, 20)) {
       const personId = await ensurePerson(ctx, who);
