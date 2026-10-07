@@ -7,6 +7,7 @@
 import { createSignal, For, Show } from "solid-js";
 import { ago } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
+import { orBack } from "../lib/orBack.ts";
 import { act, useAction } from "../lib/query.ts";
 
 interface Channel {
@@ -31,9 +32,13 @@ export function OwnerDmSwitch(props: { ownerDmAnswers: "fixed" | "full" }) {
         class="mt-1"
         checked={props.ownerDmAnswers === "full"}
         onChange={(e) =>
-          void act("slack.bot_settings", {
-            ownerDmAnswers: e.currentTarget.checked ? "full" : "fixed",
-          })
+          void orBack(
+            e.currentTarget,
+            act("slack.bot_settings", {
+              ownerDmAnswers: e.currentTarget.checked ? "full" : "fixed",
+            }),
+            () => props.ownerDmAnswers === "full",
+          )
         }
       />
       <span>
@@ -59,6 +64,7 @@ function ChannelRow(props: { c: Channel }) {
     });
     // Asking for more failed the check: the channel is off now, and this says why.
     if (r?.off) toast.show(`Jarvis stopped answering in #${props.c.name}: ${r.off}`);
+    return r;
   };
   return (
     <li class="flex flex-wrap items-center gap-2 border-t border-line py-2">
@@ -72,7 +78,13 @@ function ChannelRow(props: { c: Channel }) {
         class={select}
         aria-label={`Jarvis in #${props.c.name}`}
         value={props.c.jarvisTier}
-        onChange={(e) => void set({ tier: e.currentTarget.value as Channel["jarvisTier"] })}
+        onChange={(e) =>
+          void orBack(
+            e.currentTarget,
+            set({ tier: e.currentTarget.value as Channel["jarvisTier"] }),
+            () => props.c.jarvisTier,
+          )
+        }
       >
         <option value="off">Off</option>
         <option value="relay">Pass messages on</option>
@@ -83,7 +95,13 @@ function ChannelRow(props: { c: Channel }) {
           class={select}
           aria-label={`Replies in #${props.c.name}`}
           value={props.c.jarvisReplies}
-          onChange={(e) => void set({ replies: e.currentTarget.value as Channel["jarvisReplies"] })}
+          onChange={(e) =>
+            void orBack(
+              e.currentTarget,
+              set({ replies: e.currentTarget.value as Channel["jarvisReplies"] }),
+              () => props.c.jarvisReplies,
+            )
+          }
         >
           <option value="review">Replies wait for you</option>
           <option value="auto">Replies go out</option>

@@ -34,6 +34,8 @@ export const googleAccount = pgTable("google_account", {
   calendarFailingSince: ts("calendar_failing_since"),
   calendarSyncedAt: ts("calendar_synced_at"),
   calendarError: text("calendar_error"),
+  /** When its calendars last tried to sync, worked or not (0048). */
+  calendarAttemptedAt: ts("calendar_attempted_at"),
 });
 
 /** Per account and service ("gmail", "calendar"): a pause Google asked for, shared by every process. */
@@ -128,6 +130,8 @@ export const calendarEvent = pgTable(
     recurringEventId: text("recurring_event_id"),
     /** The iCalendar UID, shared with the invitation emails (0009_mail_invites). */
     icalUid: text("ical_uid"),
+    /** Google's eventType: "default", or one it adds itself, like "workingLocation" (0048). */
+    kind: text("kind").notNull().default("default"),
     taskId: uuid("task_id"),
     /** Its guests are linked to people (0010_people). */
     peopleLinked: boolean("people_linked").notNull().default(false),

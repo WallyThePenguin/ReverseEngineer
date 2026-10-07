@@ -6,6 +6,8 @@ import { createSignal } from "solid-js";
 import { decideApproval } from "./api.ts";
 import { affectedByChange } from "./invalidate.ts";
 import { live, type Toast, toast } from "./live.ts";
+import { act } from "./query.ts";
+import type { Approval } from "./types.ts";
 
 /**
  * An approval's state as Hearth names it, or "gone" where all that's known is that it no longer
@@ -102,6 +104,27 @@ export async function decide(
   } else if (d.message)
     toast.show(d.message, d.message.startsWith("This was already") ? "info" : "error");
   return d.outcome;
+}
+
+/** Always allow's words for a waiting request, if it came from a conversation you started (D70). */
+export const alwaysAllowWords = (a: Approval | undefined): string | null =>
+  a?.origin === "owner" && a.requestedBy === "jarvis" ? (a.alwaysAllow?.says ?? null) : null;
+
+/**
+ * Always allow (D70): writes the rule for what the card asks, in its one place or to its one
+ * person, then says yes to it. Without the rule, nothing is approved either.
+ */
+export async function alwaysAllow(approvalId: string, says: string): Promise<Decided> {
+  if (deciding(approvalId) || isDecided(approvalId)) return "changed";
+  // Its buttons are off from the first press, the rule's request included.
+  setInFlight((s) => add(s, approvalId));
+  const rule = await act("standing_rule.always_allow", { approvalId }).finally(() =>
+    setInFlight((s) => drop(s, approvalId)),
+  );
+  if (!rule) return "failed";
+  return decide(approvalId, "approve", {
+    text: `Approved. Jarvis won't ask again before ${says}.`,
+  });
 }
 
 /**

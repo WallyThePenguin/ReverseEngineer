@@ -10,7 +10,7 @@ import {
   getSetting,
   type ReflexDef,
 } from "@hearth/kernel";
-import { and, asc, eq, gt, gte, isNull, lt, ne } from "drizzle-orm";
+import { and, asc, eq, gt, gte, isNull, lt, ne, notInArray } from "drizzle-orm";
 import { z } from "zod";
 import { syncFailedReflex } from "../connector-health.ts";
 import { disconnectAction } from "../google/disconnect.ts";
@@ -31,7 +31,7 @@ import { ownEventActions } from "./own.ts";
 import { prepPublish, prepRoutine, prepsFor } from "./prep.ts";
 import { respondAction } from "./respond.ts";
 import { meetingSoon } from "./soon.ts";
-import { guests, loadEvent, toEventView, whenText } from "./store.ts";
+import { guests, loadEvent, NOT_MEETINGS, NOT_PLANS, toEventView, whenText } from "./store.ts";
 import { syncCalendars } from "./sync.ts";
 import { undoAction } from "./undo.ts";
 
@@ -78,7 +78,8 @@ const conflicts: ReflexDef = {
         });
         continue;
       }
-      if (r.taskId) continue;
+      // Only meetings overlap: not where you work, or time marked out of office.
+      if (r.taskId || NOT_MEETINGS.includes(ev.kind) || NOT_MEETINGS.includes(r.kind)) continue;
       const [a, b] = [ev.id, e.id].sort();
       out.push({
         kind: "tell" as const,
@@ -307,6 +308,7 @@ export const calendarModule = defineModule({
         and(
           eq(calendar.selected, true),
           ne(calendarEvent.status, "cancelled"),
+          notInArray(calendarEvent.kind, NOT_PLANS),
           gte(calendarEvent.endsAt, ctx.now),
           lt(calendarEvent.startsAt, new Date(ctx.now.getTime() + DAY_MS)),
         ),
@@ -315,7 +317,8 @@ export const calendarModule = defineModule({
       .limit(30);
     const items: DigestItem[] = rows
       .map((x) => toEventView(x.e, x.r))
-      .filter((v) => localDate(v.startsAt, rules.timeZone) <= today || v.allDay)
+      // Begun by today: tomorrow's all-day events start at tomorrow's midnight, so they wait.
+      .filter((v) => localDate(v.startsAt, rules.timeZone) <= today)
       .filter((v) => v.selfResponse !== "declined")
       .map((v) => ({
         bucket: "today" as const,

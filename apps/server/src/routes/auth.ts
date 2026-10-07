@@ -17,6 +17,7 @@ import {
   loginOptions,
   passkeysMade,
   registrationOptions,
+  removePasskey,
   verifyLogin,
   verifyRegistration,
 } from "../auth/passkeys.ts";
@@ -155,6 +156,22 @@ export function authRoutes(handoffs: Handoffs = sharedHandoffs) {
     if (c.get("caller")?.kind !== "owner") return c.json({ error: "Sign in first." }, 401);
     const { kernel, config } = c.get("deps");
     return c.json({ passkeys: await listPasskeys(kernel.db), origin: config.origin });
+  });
+
+  // Removing one: it can't sign in after this. Sessions it already started stay signed in.
+  app.delete("/passkeys/:id", async (c) => {
+    if (c.get("caller")?.kind !== "owner") return c.json({ error: "Sign in first." }, 401);
+    const { kernel, config } = c.get("deps");
+    const removed = await removePasskey(kernel.db, c.req.param("id"));
+    if (removed === "missing") return c.json({ error: "That passkey is already gone." }, 404);
+    if (removed === "last")
+      return c.json(
+        {
+          error: `It's your only passkey for ${new URL(config.origin).host}. Add another before you remove it.`,
+        },
+        409,
+      );
+    return c.json({ removed: true });
   });
 
   app.post("/register/options", async (c) => {

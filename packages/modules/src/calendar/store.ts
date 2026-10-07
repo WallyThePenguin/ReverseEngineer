@@ -9,6 +9,14 @@ import { ensurePerson, linkPerson, personFor } from "../people/store.ts";
 
 export type EventRow = typeof calendarEvent.$inferSelect;
 
+/**
+ * Entries Google adds by itself to say where you work that day or whose birthday it is. They
+ * aren't plans, so the brief, the journal and the evening card leave them out.
+ */
+export const NOT_PLANS = ["workingLocation", "birthday"];
+/** Nor are they, or time marked out of office, meetings: no prep, heads-up or overlap notice. */
+export const NOT_MEETINGS = [...NOT_PLANS, "outOfOffice"];
+
 export interface EventView {
   id: string;
   title: string;
@@ -29,6 +37,8 @@ export interface EventView {
   attendees: Attendee[];
   /** The series it's one time of, for a repeating event. */
   recurringEventId: string | null;
+  /** Google's eventType: "default", "workingLocation", "outOfOffice"... */
+  kind: string;
   taskId: string | null;
   /** Its prep packet's record, when calendar.events lists it. */
   prepId?: string;
@@ -59,6 +69,7 @@ export function toEventView(e: EntityRow, r: EventRow): EventView {
     selfResponse: r.selfResponse,
     attendees: r.attendees,
     recurringEventId: r.recurringEventId,
+    kind: r.kind,
     taskId: r.taskId,
   };
 }
@@ -121,6 +132,7 @@ export function mapEvent(calendarId: string, g: GEvent, tz: string): Mapped | nu
     attendees,
     recurringEventId: g.recurringEventId ?? null,
     icalUid: g.iCalUID ?? null,
+    kind: g.eventType ?? "default",
   };
 }
 
@@ -211,8 +223,15 @@ export async function saveEvent(
     return { id: row.id, change: "added" };
   }
   const { e, r } = existing;
-  // Unchanged, unless it's from before Hearth kept UIDs or linked guests to people.
-  if (r.etag && r.etag === m.etag && !e.deletedAt && (r.icalUid || !m.icalUid) && r.peopleLinked)
+  // Unchanged, unless it's from before Hearth kept UIDs, linked guests to people or kept kinds.
+  if (
+    r.etag &&
+    r.etag === m.etag &&
+    !e.deletedAt &&
+    (r.icalUid || !m.icalUid) &&
+    r.peopleLinked &&
+    r.kind === m.kind
+  )
     return { id: e.id, change: null };
   const moved =
     r.startsAt.getTime() !== m.startsAt.getTime() || r.endsAt.getTime() !== m.endsAt.getTime();

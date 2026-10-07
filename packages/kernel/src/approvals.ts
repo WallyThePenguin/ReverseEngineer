@@ -3,7 +3,14 @@
 // the same request waits once, a yes claims the approval before the action runs, and what's
 // approved is checked again against the action before it runs.
 import { isUuid } from "@hearth/core";
-import { type ApprovalStatus, approval, notification, principal, type Tx } from "@hearth/db";
+import {
+  type AlwaysAllow,
+  type ApprovalStatus,
+  approval,
+  notification,
+  principal,
+  type Tx,
+} from "@hearth/db";
 import { and, eq, gt, isNull, ne, or } from "drizzle-orm";
 import { z } from "zod";
 import { approvalTtlMs, expireOverdue, resolvedOrigin, withTitles } from "./approval-life.ts";
@@ -26,6 +33,10 @@ export interface Deferred {
 
 /** A value as JSON stores it, so the hash is of exactly what's kept (a Date becomes its text). */
 const asStored = (value: unknown): unknown => JSON.parse(JSON.stringify(value ?? {}));
+
+/** What an Always allow for this call would cover, if its action offers one (D70). */
+export const alwaysAllowOf = (def: ActionDef, input: unknown): AlwaysAllow | null =>
+  def.alwaysAllow?.(input as never) ?? null;
 
 export async function requestApproval(
   kernel: Kernel,
@@ -60,6 +71,10 @@ export async function requestApproval(
           correlationId: caller.correlationId,
           createdAt: now,
           expiresAt: new Date(now.getTime() + approvalTtlMs(def.risk)),
+          // Only where a rule would answer it: a page's own check (askFirst) asks whatever the
+          // rules say. Whether the card offers it is its origin's call, which can still drop (D70).
+          alwaysAllow:
+            caller.kind === "agent" && !caller.askFirst ? alwaysAllowOf(def, input) : null,
         })
         .onConflictDoNothing()
         .returning();

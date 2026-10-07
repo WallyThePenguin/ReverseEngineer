@@ -97,6 +97,8 @@ export interface InboxRow {
   entityTitle: string | null;
   entityType: string | null;
   approvalStatus: string | null;
+  /** Always allow's words ("posting in #eng"), on a card from a conversation you started (D70). */
+  alwaysAllow?: string | null;
 }
 
 export interface Approval {
@@ -112,6 +114,8 @@ export interface Approval {
   error: string | null;
   conversationId: string | null;
   createdAt: string;
+  /** What Always allow would cover, if the card can offer it (D70). */
+  alwaysAllow?: { target: string; says: string } | null;
 }
 
 export interface ConversationRow {
@@ -240,6 +244,8 @@ export interface StandingRule {
   id: string;
   action: string;
   principal: string;
+  /** The one place or person it covers, or null for any (D70). */
+  target: string | null;
   note: string;
   createdAt: string;
 }

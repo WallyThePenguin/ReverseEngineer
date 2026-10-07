@@ -6,6 +6,7 @@ import { Icon } from "../components/icons.tsx";
 import { Overflow, ROW_MENU } from "../components/Menu.tsx";
 import { Empty } from "../components/ui.tsx";
 import { ago, day, TYPE_LABEL } from "../lib/format.ts";
+import { orBack } from "../lib/orBack.ts";
 import { layout, routeFor } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
 import { moveToTrash } from "../lib/trash.ts";
@@ -173,7 +174,11 @@ export function PersonPanel(props: { id: string }) {
                 value={v().followUpDays ?? 0}
                 onChange={(e) => {
                   const days = Number(e.currentTarget.value);
-                  void act("person.follow_up", { id: v().id, days: days || null });
+                  void orBack(
+                    e.currentTarget,
+                    act("person.follow_up", { id: v().id, days: days || null }),
+                    () => String(v().followUpDays ?? 0),
+                  );
                 }}
               >
                 <Show
