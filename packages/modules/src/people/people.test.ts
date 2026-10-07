@@ -302,3 +302,52 @@ describe("who isn't a person", () => {
     expect(gone.map((r) => r.id).sort()).toEqual([self, desk].sort());
   });
 });
+
+describe("you", () => {
+  const WORK = "sam@work.example";
+  const names = async () => (await people()).map((p) => p.name).sort();
+  const companies = async () =>
+    (await ok<{ name: string }[]>("company.list")).map((c) => c.name).sort();
+
+  it("aren't your account connected for its calendar only, as a guest or written to", async () => {
+    g.addAccount(WORK);
+    g.signingIn = WORK;
+    g.grants = ["openid", "email", ...SCOPES.calendar];
+    const client = g.client();
+    const url = new URL(await client.startSignIn(t.tdb.db, [...SCOPES.calendar]));
+    await client.finishSignIn(t.tdb.db, url.searchParams.get("state")!, "the-code");
+    write([{ address: WORK }, { address: "ana@acme.example", name: "Ana" }]);
+    // Time blocked on your work calendar from your own.
+    g.put(ME, {
+      summary: "Focus",
+      start: { dateTime: "2026-09-29T15:00:00Z" },
+      end: { dateTime: "2026-09-29T16:00:00Z" },
+      attendees: [
+        { email: ME, self: true, responseStatus: "accepted" },
+        { email: WORK },
+        { email: "carol@beta.example", displayName: "Carol" },
+      ],
+    });
+    await sync();
+    expect(await names()).toEqual(["Ana", "Carol"]);
+    expect(await companies()).toEqual(["Acme", "Beta"]);
+  });
+
+  it("aren't an address you've sent mail from", async () => {
+    const ALIAS = "sam@alias.example";
+    g.gmail.deliver(
+      {
+        from: { address: ALIAS },
+        to: [{ address: "ana@acme.example", name: "Ana" }],
+        subject: "From my other address",
+        text: "Hi",
+      },
+      ["SENT"],
+    );
+    await sync();
+    write([{ address: ALIAS }], "Note to self");
+    await ok("mail.sync", {}, integrationCaller("google"));
+    expect(await names()).toEqual(["Ana"]);
+    expect(await companies()).toEqual(["Acme"]);
+  });
+});

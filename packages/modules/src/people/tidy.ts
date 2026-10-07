@@ -4,9 +4,8 @@
 import { entity, person, personEmail } from "@hearth/db";
 import { type ActionContext, trashEntity } from "@hearth/kernel";
 import { and, eq, isNull, like, or } from "drizzle-orm";
-import { addressKey } from "../mail/mine.ts";
+import { accountAddresses, addressKey } from "../mail/mine.ts";
 import { isRoleAddress } from "./domains.ts";
-import { yourAccounts } from "./store.ts";
 
 /** Puts the people Hearth made for your own or a desk's address in the trash; how many. */
 export async function trashNotPeople(ctx: ActionContext): Promise<number> {
@@ -36,7 +35,7 @@ export async function trashNotPeople(ctx: ActionContext): Promise<number> {
       ),
     )
     .limit(2_000);
-  const mine = await yourAccounts(ctx.tx);
+  const mine = await accountAddresses(ctx.tx);
   const notAPerson = (address: string) => mine.has(addressKey(address)) || isRoleAddress(address);
   const people = new Map<string, { body: string; addresses: string[]; yours: boolean }>();
   for (const r of rows) {

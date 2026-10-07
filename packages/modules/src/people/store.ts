@@ -5,7 +5,6 @@ import {
   company,
   type DbOrTx,
   entity,
-  googleAccount,
   link,
   type MailAddress,
   mailMessage,
@@ -15,7 +14,6 @@ import {
 import { type ActionContext, addLink, createEntity, updateEntity } from "@hearth/kernel";
 import { and, asc, eq, inArray, isNotNull, isNull, lte, max, ne, or, sql } from "drizzle-orm";
 import { cleanName } from "../mail/mime.ts";
-import { accountAddresses, addressKey } from "../mail/mine.ts";
 import { companyDomain, companyName, isRoleAddress } from "./domains.ts";
 
 /** Whose an address is, in the trash or not: an address is one person's, so no one else's. */
@@ -32,14 +30,6 @@ async function holderOf(db: DbOrTx, address: string) {
 export async function personFor(db: DbOrTx, address: string): Promise<string | null> {
   const holder = await holderOf(db, address);
   return holder && !holder.gone ? holder.id : null;
-}
-
-/** Your connected accounts' addresses, Gmail's and Calendar's, by addressKey: none is a person. */
-export async function yourAccounts(db: DbOrTx): Promise<Set<string>> {
-  const mine = await accountAddresses(db);
-  const google = await db.select({ email: googleAccount.email }).from(googleAccount);
-  for (const g of google) mine.add(addressKey(g.email));
-  return mine;
 }
 
 /** The person in the trash an address is, if it's one: it can't be given to anyone else. */

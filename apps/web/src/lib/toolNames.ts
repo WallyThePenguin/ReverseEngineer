@@ -68,6 +68,8 @@ const SAID: Record<string, Said> = {
   "routine.create": ["Making a routine", "Made a routine"],
   "slack.messages": ["Reading Slack", "Read Slack"],
   "github.prs": ["Checking pull requests", "Checked pull requests"],
+  "data.documents": ["Reading a table", "Read a table"],
+  "data.query": ["Looking something up in your data", "Looked something up in your data"],
   "sheet.set": ["Editing a sheet", "Edited a sheet"],
   "meeting.get": ["Reading meeting notes", "Read meeting notes"],
 };

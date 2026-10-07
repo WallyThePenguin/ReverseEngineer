@@ -62,7 +62,8 @@ export async function laneFor(
 /**
  * Links a message to the people on it. Writing to someone makes them a person; mail from someone
  * is linked only if you already know them. You aren't someone you know: none of `mine` (your
- * connected accounts' addresses, by addressKey) becomes a person, or a company for its domain.
+ * addresses, by addressKey: your accounts', and for mail you sent, every address you've sent
+ * from) becomes a person, or a company for its domain.
  */
 export async function linkPeople(
   ctx: ActionContext,

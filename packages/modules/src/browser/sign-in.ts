@@ -7,7 +7,7 @@ import { vaultLogin } from "@hearth/db";
 import { type ActionContext, ActionError, defineAction } from "@hearth/kernel";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { assertAllowed, browser, CALLERS } from "./access.ts";
+import { assertAllowed, assertNotHearth, browser, CALLERS } from "./access.ts";
 import type { BrowserClient } from "./client.ts";
 import { insertText, pressKey } from "./input.ts";
 import { pace } from "./pace.ts";
@@ -38,6 +38,7 @@ async function siteLogin(
 ): Promise<{ host: string; row: VaultRow | null }> {
   const tab = await findTab(client, tabId);
   const url = new URL(await assertAllowed(ctx, tab.url));
+  assertNotHearth(ctx, url.href);
   if (url.protocol !== "https:")
     throw new ActionError("forbidden", `${url.host} isn't using HTTPS, so Hearth won't sign in.`);
   const [row] = await loginsFor(ctx.tx, url.hostname, username);
