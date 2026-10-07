@@ -2097,7 +2097,10 @@ Lee's "Standup", Tue 2026-10-13, 10 a.m.", with an Undo that sets your answer ba
 unless you've answered it yourself since. `calendar.respond` is unchanged: it still asks, and an
 untrusted turn's answer is still a card. A meeting Jarvis accepted doesn't make its guests people
 (`calendar_event.jarvis_accepted`, 0041): "someone you know" grows only through your own yes or
-your own mail, so one accept can't vouch for the next.
+your own mail, so one accept can't vouch for the next. An invitation forged to look like it's
+from someone you know (an .ics file in an email, which Gmail can add to your calendar) is
+accepted too, where before it was a card naming that address; the note and its Undo are the
+backstop, and Google Calendar's "only if the sender is known" setting is the defense.
 
 **Alternatives:** Make `calendar.respond` internal for "accepted" (a model could accept anything
 it was told to). Any invitation when you're free (anyone can put one on your calendar). Check
