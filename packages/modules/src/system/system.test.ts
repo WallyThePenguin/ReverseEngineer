@@ -86,6 +86,20 @@ describe("system alerts", () => {
     expect(await alerts()).toHaveLength(2);
   });
 
+  it("closes the alert once the component isn't failing, whatever day it began", async () => {
+    await report("sync.google", "failing", "owner@example.com mail: failing");
+    await report("disk", "failing", "1 GB left");
+    await report("backup", "failing", "No backup since Monday");
+    const states = async () =>
+      Object.fromEntries((await alerts()).map((a) => [a.dedupeKey?.split(":")[1], a.state]));
+    // Past midnight, Google syncs again and the disk has some room: both close.
+    t.clock.advance(20 * 3_600_000);
+    await report("sync.google", "ok");
+    await report("disk", "degraded", "4 GB left");
+    expect(await states()).toEqual({ "sync.google": "done", disk: "done", backup: "unseen" });
+    expect(await t.events("notification.updated")).toHaveLength(2);
+  });
+
   it("keeps an audit row for a check-in only when its status changed", async () => {
     for (const s of ["ok", "ok", "ok", "degraded", "degraded", "ok"]) await report("disk", s);
     const rows = await t.tdb.db.select().from(audit).where(eq(audit.action, "system.report"));

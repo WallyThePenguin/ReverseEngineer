@@ -8,7 +8,7 @@ import { Body } from "../../components/Body.tsx";
 import { Overflow, ROW_MENU } from "../../components/Menu.tsx";
 import { Badge, Button, Kbd } from "../../components/ui.tsx";
 import { ago, due, snoozeOptions, who } from "../../lib/format.ts";
-import { approvalParts, type InboxView, rowMenu } from "../../lib/inbox.ts";
+import { approvalParts, type InboxView, rowMenu, wholeBody } from "../../lib/inbox.ts";
 import type { InboxRow } from "../../lib/types.ts";
 
 export function InboxItem(props: {
@@ -78,7 +78,7 @@ export function InboxItem(props: {
                 </Show>
               </div>
               <Show when={n().body && n().kind !== "brief"}>
-                <div class="mt-0.5 line-clamp-3 text-sm text-muted">
+                <div class={`mt-0.5 text-sm text-muted ${wholeBody(n()) ? "" : "line-clamp-3"}`}>
                   <Body text={n().body} />
                 </div>
               </Show>

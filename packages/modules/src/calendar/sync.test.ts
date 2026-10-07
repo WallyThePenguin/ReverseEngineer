@@ -101,7 +101,7 @@ describe("calendar sync", () => {
     const outage = async () => {
       g.failCalendar(1, 500);
       expect((await sync()).failed).toHaveLength(1);
-      t.clock.advance(15 * 60_000);
+      t.clock.advance(10 * 60_000);
     };
     // A blip or two isn't news.
     await outage();
@@ -122,6 +122,48 @@ describe("calendar sync", () => {
     expect(await sync()).toMatchObject({ failed: [] });
     expect(await stateOf(key)).toBe("done");
     expect(await health()).toMatchObject({ calendarState: "ok", calendarError: null });
+  });
+
+  it("counts half an hour from when the PC woke, not from the sync before it slept", async () => {
+    await sync();
+    const failedRound = async () => {
+      g.failCalendar(1, 500);
+      expect((await sync()).failed).toHaveLength(1);
+    };
+    // Two rounds failed as the PC went to sleep, and the first after it wakes fails too.
+    await failedRound();
+    t.clock.advance(5 * 60_000);
+    await failedRound();
+    t.clock.advance(8 * 3600_000);
+    await failedRound();
+    expect(await t.events("calendar.sync_failed")).toEqual([]);
+    expect(await health()).toMatchObject({ calendarState: "ok", calendarFailures: 1 });
+    // Still failing, a round every five minutes: half an hour after the wake, that's news.
+    for (let m = 5; m < 30; m += 5) {
+      t.clock.advance(5 * 60_000);
+      await failedRound();
+    }
+    expect(await t.events("calendar.sync_failed")).toEqual([]);
+    t.clock.advance(5 * 60_000);
+    await failedRound();
+    expect(await t.events("calendar.sync_failed")).toHaveLength(1);
+  });
+
+  it("isn't failing over one calendar Google says isn't there while the others sync", async () => {
+    g.addCalendar({ id: "holidays", summary: "Holidays", accessRole: "owner" });
+    await sync();
+    g.brokenCalendars.set("holidays", 404);
+    for (let i = 0; i < 4; i++) {
+      expect((await sync()).failed).toEqual([expect.stringContaining("Holidays")]);
+      t.clock.advance(10 * 60_000);
+    }
+    expect(await t.events("calendar.sync_failed")).toEqual([]);
+    // Settings and the doctor still say which calendar and why.
+    expect(await health()).toMatchObject({ calendarState: "ok", calendarError: /Holidays/ });
+    // Alone, with nothing else read, it is the account failing: told at once, as before.
+    await t.tdb.db.update(calendar).set({ selected: false }).where(eq(calendar.googleId, ME));
+    await sync();
+    expect(await health()).toMatchObject({ calendarState: "failing" });
   });
 
   it("tells you at once when Google signs Hearth out, and how to connect again", async () => {

@@ -16,7 +16,7 @@ import {
 } from "@hearth/kernel";
 import { and, asc, count, eq, isNotNull, isNull, like, ne } from "drizzle-orm";
 import { z } from "zod";
-import { alertBackupFailed, alertFailing } from "./alerts.ts";
+import { alertBackupFailed, alertFailing, closeFailing } from "./alerts.ts";
 import { judgeHealth } from "./staleness.ts";
 
 export {
@@ -141,6 +141,7 @@ export const systemModule = defineModule({
             payload: { component: i.component, status: i.status, previous, detail: i.detail },
           });
           if (i.status === "failing") await alertFailing(ctx, i.component, i.detail);
+          else if (previous === "failing") await closeFailing(ctx, i.component);
         }
         return { changed: previous !== i.status };
       },

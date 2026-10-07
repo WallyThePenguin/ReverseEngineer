@@ -1,7 +1,8 @@
 // How each Google account's calendars are syncing, saved after each round the way Slack, GitHub
-// and Notion save theirs (D61). One that won't pass by itself (a calendar Google says isn't there,
-// or won't show Hearth) is told at once; others after 3 rounds in a row and half an hour with
-// nothing read, and Google signing Hearth out at once, with how to connect again. Each account's
+// and Notion save theirs (D61). One that won't pass by itself (a calendar Google won't show Hearth,
+// or says isn't there when none of the account's others could be read either) is told at once;
+// others after 3 rounds in a row and half an hour of them with nothing read, and Google signing
+// Hearth out at once, with how to connect again. Each account's
 // run of failures is told once, and its first good round closes its notice (keyed by account,
 // connector-health.ts). A slowdown Google asks for isn't a failure.
 import { googleAccount } from "@hearth/db";
@@ -40,10 +41,13 @@ export async function recordCalendarHealth(
 ) {
   const trouble = worst(troubles);
   const mine = eq(googleAccount.email, acct.email);
+  const tried = { calendarAttemptedAt: ctx.now };
   // Only a slowdown this round: nothing to judge.
   if (!trouble && paused) {
-    if (progressed)
-      await ctx.tx.update(googleAccount).set({ calendarSyncedAt: ctx.now }).where(mine);
+    await ctx.tx
+      .update(googleAccount)
+      .set(progressed ? { ...tried, calendarSyncedAt: ctx.now } : tried)
+      .where(mine);
     return;
   }
   const next = nextHealth(
@@ -52,6 +56,7 @@ export async function recordCalendarHealth(
       failures: acct.calendarFailures,
       failingSince: acct.calendarFailingSince,
       syncedAt: acct.calendarSyncedAt,
+      attemptedAt: acct.calendarAttemptedAt,
     },
     ctx.now,
     trouble,
@@ -65,6 +70,7 @@ export async function recordCalendarHealth(
       calendarFailures: v.failures,
       calendarFailingSince: v.failingSince,
       calendarError: v.lastError,
+      ...tried,
       ...(v.syncedAt ? { calendarSyncedAt: v.syncedAt } : {}),
     })
     .where(mine);

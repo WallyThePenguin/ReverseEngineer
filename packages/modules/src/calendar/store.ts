@@ -9,6 +9,12 @@ import { ensurePerson, linkPerson, personFor } from "../people/store.ts";
 
 export type EventRow = typeof calendarEvent.$inferSelect;
 
+/**
+ * Entries Google adds by itself to say where you work that day or whose birthday it is. They
+ * aren't plans, so the brief, the journal and the evening card leave them out.
+ */
+export const NOT_PLANS = ["workingLocation", "birthday"];
+
 export interface EventView {
   id: string;
   title: string;
@@ -121,6 +127,7 @@ export function mapEvent(calendarId: string, g: GEvent, tz: string): Mapped | nu
     attendees,
     recurringEventId: g.recurringEventId ?? null,
     icalUid: g.iCalUID ?? null,
+    kind: g.eventType ?? "default",
   };
 }
 
@@ -182,8 +189,15 @@ export async function saveEvent(
     return { id: row.id, change: "added" };
   }
   const { e, r } = existing;
-  // Unchanged, unless it's from before Hearth kept UIDs or linked guests to people.
-  if (r.etag && r.etag === m.etag && !e.deletedAt && (r.icalUid || !m.icalUid) && r.peopleLinked)
+  // Unchanged, unless it's from before Hearth kept UIDs, linked guests to people or kept kinds.
+  if (
+    r.etag &&
+    r.etag === m.etag &&
+    !e.deletedAt &&
+    (r.icalUid || !m.icalUid) &&
+    r.peopleLinked &&
+    r.kind === m.kind
+  )
     return { id: e.id, change: null };
   const moved =
     r.startsAt.getTime() !== m.startsAt.getTime() || r.endsAt.getTime() !== m.endsAt.getTime();
