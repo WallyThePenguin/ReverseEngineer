@@ -14,7 +14,7 @@ import type { EntityRow } from "@hearth/kernel";
 import {
   and,
   asc,
-  count,
+  countDistinct,
   desc,
   eq,
   gt,
@@ -89,7 +89,8 @@ export async function personView(db: DbOrTx, e: EntityRow, now: Date): Promise<P
     .select({
       id: mailMessage.threadId,
       at: max(mailMessage.sentAt),
-      messages: count(),
+      // An email in two of your accounts is one message.
+      messages: countDistinct(mailMessage.messageId),
     })
     .from(link)
     .innerJoin(mailMessage, eq(mailMessage.entityId, link.fromId))
