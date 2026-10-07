@@ -1,6 +1,6 @@
 // Canvas boards (PLAN.md section 8.6): a list, and a board per pane.
 
-import { For, lazy, Show } from "solid-js";
+import { For, Show } from "solid-js";
 import { Overflow, ROW_MENU } from "../components/Menu.tsx";
 import { NoRows } from "../components/QueryView.tsx";
 import { Button, ForRecord, PaneHeader } from "../components/ui.tsx";
@@ -10,9 +10,11 @@ import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
 import { createSelection } from "../lib/selection.ts";
 import { moveToTrash, trashKey } from "../lib/trash.ts";
+import { view } from "../shell/loadView.tsx";
 
-// The board is only needed once one opens.
-const Board = lazy(() => import("../canvas/Board.tsx").then((m) => ({ default: m.CanvasBoard })));
+// The board is only needed once one opens. If its file can't be had, the pane says why and can try
+// again, which Solid's lazy() never could (loadView.tsx).
+const Board = view(() => import("../canvas/Board.tsx").then((m) => m.CanvasBoard));
 
 type Row = { id: string; title: string; updatedAt: string };
 

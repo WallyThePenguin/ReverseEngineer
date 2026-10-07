@@ -1,6 +1,6 @@
 // Spreadsheets (PLAN.md section 8.5): a list, and a spreadsheet per pane.
 
-import { For, lazy, Show } from "solid-js";
+import { For, Show } from "solid-js";
 import { Overflow, ROW_MENU } from "../components/Menu.tsx";
 import { NoRows } from "../components/QueryView.tsx";
 import { Button, ForRecord, PaneHeader } from "../components/ui.tsx";
@@ -10,9 +10,10 @@ import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
 import { createSelection } from "../lib/selection.ts";
 import { moveToTrash, trashKey } from "../lib/trash.ts";
+import { view } from "../shell/loadView.tsx";
 
-// The grid (and its formula engine) is only needed once one opens.
-const Grid = lazy(() => import("../sheets/Grid.tsx").then((m) => ({ default: m.SheetGrid })));
+// The grid (and its formula engine) is only needed once one opens, and loads like a board does.
+const Grid = view(() => import("../sheets/Grid.tsx").then((m) => m.SheetGrid));
 
 type Row = { id: string; title: string; updatedAt: string };
 

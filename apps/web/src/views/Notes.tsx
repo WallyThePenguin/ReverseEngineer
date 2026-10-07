@@ -1,7 +1,7 @@
 // Notes: a list and a page per note. Checklists can become tasks in one click (Jarvis also
 // offers to, a few minutes after you stop editing).
 
-import { createMemo, createSignal, For, lazy, Show, useContext } from "solid-js";
+import { createMemo, createSignal, For, Show, useContext } from "solid-js";
 import { Backlinks } from "../components/Backlinks.tsx";
 import { Comments, JarvisWorking } from "../components/Comments.tsx";
 import { DocHistory } from "../components/DocHistory.tsx";
@@ -16,10 +16,12 @@ import { act, useAction } from "../lib/query.ts";
 import { createSelection } from "../lib/selection.ts";
 import { moveToTrash, trashKey } from "../lib/trash.ts";
 import type { Entity, NoteRow } from "../lib/types.ts";
+import { view } from "../shell/loadView.tsx";
 import { undoImport } from "./ImportSettings.tsx";
 
-// The editor and its CRDT are big, so they load when a note opens.
-const DocEditor = lazy(() => import("../components/DocEditor.tsx"));
+// The editor and its CRDT are big, so they load when a note opens. If the file can't be had, the
+// pane says why and can try again, which Solid's lazy() never could (loadView.tsx).
+const DocEditor = view(() => import("../components/DocEditor.tsx").then((m) => m.default));
 
 /** The note just made here, whose title box takes the cursor when it opens. */
 let justMade: string | null = null;
