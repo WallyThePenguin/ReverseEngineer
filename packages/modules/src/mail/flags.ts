@@ -15,7 +15,7 @@ import { type ActionContext, newId, updateEntity } from "@hearth/kernel";
 import { and, asc, eq, getTableColumns, inArray } from "drizzle-orm";
 import { personFor } from "../people/store.ts";
 import { once } from "./copies.ts";
-import { addressKey, toAnyOf, yourAddresses } from "./mine.ts";
+import { accountAddresses, addressKey, toAnyOf, yourAddresses } from "./mine.ts";
 import { type MailProvider, MailProviderError } from "./provider.ts";
 
 type MessageRow = typeof mailMessage.$inferSelect;
@@ -43,6 +43,8 @@ export function waitingOn(
   known: boolean,
 ): "you" | "them" | null {
   if (last.outbound) return last.labels.includes("SENT") ? "them" : null;
+  // Your own email, as it reached another of yours: it waits on no one there.
+  if (mine.has(addressKey(last.fromAddress))) return null;
   if (lane !== "signal" || AUTOMATED.test(last.fromAddress)) return null;
   // An invitation is answered on the calendar, not by email.
   if (last.invite) return null;
@@ -52,7 +54,11 @@ export function waitingOn(
   return known || last.labels.includes("IMPORTANT") ? "you" : null;
 }
 
-/** waitingOn with the account's own address, and your others only when they'd make a difference. */
+/**
+ * waitingOn with the account's own address, and your others only when they'd make a difference:
+ * mail to one of them, or from one of your accounts (your own email cc'd here, before its copy in
+ * Sent is saved).
+ */
 async function waitingFor(
   db: DbOrTx,
   last: LastMessage,
@@ -62,6 +68,8 @@ async function waitingFor(
 ): Promise<"you" | "them" | null> {
   const own = new Set([addressKey(me)]);
   const waiting = waitingOn(last, own, lane, known);
+  if (waiting === "you")
+    return (await accountAddresses(db)).has(addressKey(last.fromAddress)) ? null : waiting;
   if (waiting || last.outbound) return waiting;
   // Only who it was sent to stands in the way: it may be another of your addresses.
   const ifToYou = waitingOn({ ...last, toAddresses: [{ address: me }] }, own, lane, known);

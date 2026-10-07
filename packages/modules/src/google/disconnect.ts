@@ -19,6 +19,7 @@ import { dropCalendars, handOver } from "../calendar/calendars.ts";
 import { closeCalendarAlerts } from "../calendar/health.ts";
 import { BLOB_SERVICE, type BlobStore } from "../mail/blobs.ts";
 import { recomputeThread } from "../mail/flags.ts";
+import { holdSyncs } from "../mail/sync.ts";
 import { closeMailAlerts } from "../mail/sync-state.ts";
 import { GOOGLE_SERVICE, type GoogleClient } from "./client.ts";
 
@@ -114,6 +115,14 @@ export const disconnectAction = defineAction({
   callers: ["owner"],
   async handler(i, ctx) {
     const email = i.email.toLowerCase();
+    // A sync running now may be filing mail into this account's conversations, which a sync of
+    // another account can join too: wait for it, and hold every account's off until this is done,
+    // so none of its mail goes with them, never to be fetched again.
+    const accounts = await ctx.tx.select({ id: mailAccount.id }).from(mailAccount);
+    await holdSyncs(
+      ctx,
+      accounts.map((a) => a.id),
+    );
     const cals = await ctx.tx.select().from(calendar).where(eq(calendar.account, email));
     await handOver(ctx, cals);
     await dropCalendars(
@@ -132,10 +141,18 @@ export const disconnectAction = defineAction({
           .where(eq(mailDraft.accountId, mailId))
       : [];
     const shared = await rehome(ctx, mailId);
+    // Its mail in the other accounts' conversations (a copy that joined one, an answer that came
+    // only here) goes too; those are worked out again, and go if nothing's left.
+    const joined = await ctx.tx
+      .selectDistinct({ id: mailMessage.threadId })
+      .from(mailMessage)
+      .innerJoin(mailThread, eq(mailThread.entityId, mailMessage.threadId))
+      .where(and(eq(mailMessage.accountId, mailId), ne(mailThread.accountId, mailId)));
     await dropMail(ctx, mailMessage, mailId);
     await ctx.tx.delete(mailOp).where(eq(mailOp.accountId, mailId));
     await dropMail(ctx, mailThread, mailId);
-    for (const id of shared) await recomputeThread(ctx, id);
+    for (const id of new Set([...shared, ...joined.map((j) => j.id)]))
+      await recomputeThread(ctx, id);
     // Kept drafts lose their account with it (the key is set to null) and wait for a new From.
     if (!i.keepDrafts) await dropMail(ctx, mailDraft, mailId);
     await closeMailAlerts(ctx, mailId, false);
