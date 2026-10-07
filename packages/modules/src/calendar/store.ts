@@ -145,12 +145,17 @@ export async function findEvent(db: DbOrTx, calendarId: string, googleId: string
   return row ?? null;
 }
 
-export async function loadEvent(db: DbOrTx, id: string): Promise<EventView | null> {
+async function eventRow(db: DbOrTx, id: string) {
   const [row] = await db
     .select({ e: entity, r: calendarEvent })
     .from(calendarEvent)
     .innerJoin(entity, eq(entity.id, calendarEvent.entityId))
     .where(eq(calendarEvent.entityId, id));
+  return row ?? null;
+}
+
+export async function loadEvent(db: DbOrTx, id: string): Promise<EventView | null> {
+  const row = await eventRow(db, id);
   return row && !row.e.deletedAt ? toEventView(row.e, row.r) : null;
 }
 
@@ -176,13 +181,17 @@ async function linkGuests(ctx: ActionContext, id: string, m: Mapped): Promise<vo
 
 export type Change = "added" | "updated" | "cancelled" | null;
 
-/** Saves Google's version of an event. Returns what changed, for the event log. */
+/**
+ * Saves Google's version of an event. Returns what changed, for the event log. `replaces`: the
+ * row a repeating meeting's occurrence takes over when Google gave it a new id (series.ts).
+ */
 export async function saveEvent(
   ctx: ActionContext,
   m: Mapped,
-  extra: { taskId?: string | null } = {},
+  extra: { taskId?: string | null; replaces?: string } = {},
 ): Promise<{ id: string; change: Change }> {
-  const existing = await findEvent(ctx.tx, m.calendarId, m.googleId);
+  const found = await findEvent(ctx.tx, m.calendarId, m.googleId);
+  const existing = found ?? (extra.replaces ? await eventRow(ctx.tx, extra.replaces) : null);
   const { title, body, ...fields } = m;
   if (!existing) {
     if (m.status === "cancelled") return { id: "", change: null };
@@ -206,14 +215,18 @@ export async function saveEvent(
     return { id: e.id, change: null };
   const moved =
     r.startsAt.getTime() !== m.startsAt.getTime() || r.endsAt.getTime() !== m.endsAt.getTime();
+  // The organizer changed the series and asks you again: new to you, as an invitation is.
+  const askedAgain = !found && r.selfResponse !== "needsAction" && m.selfResponse === "needsAction";
   const change: Change =
     m.status === "cancelled"
       ? r.status === "cancelled"
         ? null
         : "cancelled"
-      : moved || r.status !== m.status || e.title !== title
-        ? "updated"
-        : null;
+      : askedAgain
+        ? "added"
+        : moved || r.status !== m.status || e.title !== title
+          ? "updated"
+          : null;
   if (!e.deletedAt) await updateEntity(ctx, e.id, { title, body });
   await ctx.tx
     .update(calendarEvent)
