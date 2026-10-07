@@ -143,6 +143,8 @@ export const mailMessage = pgTable(
     invite: jsonb("invite").$type<MailInvite>(),
     /** Sent to many at once or by a machine; null until its original was read for it (0032). */
     bulk: boolean("bulk"),
+    /** The email's fingerprint: its copy in another of your accounts has the same (0036). */
+    copyKey: text("copy_key"),
   },
   (t) => [unique().on(t.accountId, t.providerId)],
 );

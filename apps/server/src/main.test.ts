@@ -19,7 +19,9 @@ afterEach(async () => {
 });
 
 /** Runs `code` in a fresh Node; resolves its exit code and output, or "still running" after `ms`. */
-function runNode(code: string, env: NodeJS.ProcessEnv, cwd: string, ms = 30_000) {
+// 90 s: on a busy PC (CI shares the owner's), a fresh Node can take most of a minute just to import
+// the server.
+function runNode(code: string, env: NodeJS.ProcessEnv, cwd: string, ms = 90_000) {
   return new Promise<{ exit: number | "still running"; output: string }>((resolve) => {
     const child = spawn(process.execPath, ["--input-type=module", "-e", code], {
       env,
@@ -63,6 +65,9 @@ it("gives up when its port is taken, leaving nothing running", async () => {
     },
     dir,
   );
+  expect(exit, `still running after 90 s, having said: ${output || "nothing"}`).not.toBe(
+    "still running",
+  );
   expect(output).toContain("refused: EADDRINUSE");
   expect(exit).toBe(3);
-}, 60_000);
+}, 120_000);

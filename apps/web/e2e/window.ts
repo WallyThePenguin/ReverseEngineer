@@ -27,6 +27,7 @@ let hearth: ChildProcess | null = null;
 async function start(devAuth: boolean) {
   hearth = spawn(process.execPath, [join(repo, "apps/cli/src/main.ts"), "serve"], {
     cwd: repo,
+    windowsHide: true,
     env: {
       ...process.env,
       HEARTH_WEB_DIST: join(repo, "apps/web/dist"),

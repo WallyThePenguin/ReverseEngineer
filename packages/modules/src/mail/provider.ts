@@ -45,8 +45,12 @@ export interface MailProvider {
   check(address: string): Promise<void>;
   /** Changes flags on up to 1,000 messages at once. */
   modify(address: string, ids: string[], add: string[], remove: string[]): Promise<void>;
-  /** Sends a raw message (its Bcc header is used for delivery and not shown to others). */
-  send(address: string, raw: Buffer): Promise<{ providerId: string }>;
+  /**
+   * Sends a raw message (its Bcc header is used for delivery and not shown to others).
+   * `answering`: the provider's id for the message it replies to, so the provider files the reply
+   * in that conversation too, where its own threading needs telling.
+   */
+  send(address: string, raw: Buffer, answering?: string): Promise<{ providerId: string }>;
   /**
    * A message Hearth sent, found by its Message-ID, or by its X-Hearth-Id among what was sent
    * since `since` (in case the provider gave it a Message-ID of its own). Null if it isn't there.
