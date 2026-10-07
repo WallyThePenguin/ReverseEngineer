@@ -23,7 +23,8 @@ const split = (s: string) =>
     .map((x) => x.trim())
     .filter(Boolean);
 
-export function Composer(props: { draft: MailDraft; onDone?: () => void }) {
+/** `conversation`: the subject of the conversation a reply is in, to tell if its Subject changed. */
+export function Composer(props: { draft: MailDraft; conversation?: string; onDone?: () => void }) {
   const [to, setTo] = createSignal(show(props.draft.to));
   const [cc, setCc] = createSignal(show(props.draft.cc));
   const [bcc, setBcc] = createSignal(show(props.draft.bcc));
@@ -34,8 +35,8 @@ export function Composer(props: { draft: MailDraft; onDone?: () => void }) {
   const accounts = useAction<MailAccount[]>("mail.accounts");
   const choose = () => (accounts.data ?? []).length > 1 || !from();
   // A reply's recipients and subject come from the conversation: the message is what's left.
-  const [more, setMore] = createSignal(!foldsExtras(props.draft));
-  const ccShown = showsCc(props.draft);
+  const [more, setMore] = createSignal(!foldsExtras(props.draft, props.conversation));
+  const ccShown = showsCc(props.draft, props.conversation);
   let message: HTMLTextAreaElement | undefined;
   let timer: number | undefined;
   let dirty = false;
