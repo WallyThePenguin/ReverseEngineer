@@ -158,6 +158,13 @@ export const unanswered = (e: Pick<CalEvent, "selfResponse" | "selfOrganizer" | 
   e.ownCalendar && e.selfResponse === "needsAction" && !e.selfOrganizer;
 
 /**
+ * Whether an event is something on, not an entry Google adds by itself to say where you work
+ * that day or whose birthday it is (calendar/store.ts NOT_PLANS).
+ */
+export const isPlan = (e: Pick<CalEvent, "kind">) =>
+  e.kind !== "workingLocation" && e.kind !== "birthday";
+
+/**
  * Today's meetings, all-day ones first and then by time (leaving out what you said no to), and the
  * invitations after today still waiting for your answer, soonest first.
  */
@@ -167,7 +174,7 @@ export function dayPlan(
 ): { today: CalEvent[]; invites: CalEvent[] } {
   const start = startOfDay(now).getTime();
   const end = start + DAY;
-  const live = (events ?? []).filter((e) => e.status !== "cancelled");
+  const live = (events ?? []).filter((e) => e.status !== "cancelled" && isPlan(e));
   const at = (e: CalEvent) => Date.parse(e.startsAt);
   const today = live
     .filter((e) => at(e) < end && Date.parse(e.endsAt) > start && e.selfResponse !== "declined")

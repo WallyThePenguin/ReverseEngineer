@@ -19,6 +19,7 @@ import { calendarWriteActions } from "./actions.ts";
 import { blockAction, blockReflex, blockRoutine } from "./blocks.ts";
 import { calendarSetupActions, isOwnCalendar, ownAccount } from "./calendars.ts";
 import { conflicts, overlaps } from "./conflicts.ts";
+import { oneEach } from "./copies.ts";
 import { freeSlots } from "./free.ts";
 import { newInvite } from "./invites.ts";
 import { meetingActions } from "./meetings.ts";
@@ -127,7 +128,7 @@ export const calendarModule = defineModule({
     defineAction({
       name: "calendar.events",
       description:
-        "Events between two times (default: today and tomorrow), earliest first, with guests and ids.",
+        "Events between two times (default: today and tomorrow), earliest first, with guests and ids. A meeting on more than one of your calendars is listed once.",
       input: z.object({
         from: isoDateTime.optional(),
         to: isoDateTime.optional(),
@@ -138,7 +139,7 @@ export const calendarModule = defineModule({
         const from = i.from ? new Date(i.from) : ctx.now;
         const to = i.to ? new Date(i.to) : new Date(from.getTime() + 2 * DAY_MS);
         const rows = await ctx.tx
-          .select({ e: entity, r: calendarEvent, own: googleAccount.email })
+          .select({ e: entity, r: calendarEvent, own: googleAccount.email, color: calendar.color })
           .from(calendarEvent)
           .innerJoin(entity, eq(entity.id, calendarEvent.entityId))
           .innerJoin(calendar, eq(calendar.id, calendarEvent.calendarId))
@@ -159,11 +160,13 @@ export const calendarModule = defineModule({
           ctx.tx,
           rows.map((x) => x.e.id),
         );
-        return rows.map((x) => {
-          const prep = preps.get(x.e.id);
+        return oneEach(rows).map(({ shown: x, copies }) => {
+          // The prep is for whichever copy it was written for.
+          const prep = copies.map((c) => preps.get(c.e.id)).find(Boolean);
           return {
             ...toEventView(x.e, x.r),
             ownCalendar: x.own !== null,
+            calendarColor: x.color,
             ...(prep ? { prepId: prep.id } : {}),
           };
         });

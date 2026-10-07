@@ -129,6 +129,9 @@ describe("Your day", () => {
     event("mine", at(7, 14), at(7, 15), { selfResponse: "needsAction", selfOrganizer: true }),
     // A colleague's invitation, on their calendar shared with you: not yours to answer.
     event("ana's", at(6, 10), at(6, 11), { selfResponse: "needsAction", ownCalendar: false }),
+    // Google's own entries, not plans: where you work today, and a birthday.
+    event("office", at(5, 0), at(6, 0), { allDay: true, kind: "workingLocation" }),
+    event("sam's birthday", at(5, 0), at(6, 0), { allDay: true, kind: "birthday" }),
   ];
 
   it("lists today's meetings in time order, and the invitations after today to answer", () => {

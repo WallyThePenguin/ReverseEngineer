@@ -4,7 +4,7 @@
 import { createRoot, createSignal, mapArray } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CalEvent } from "./types.ts";
-import { byDay, createWeekStart, weeksOn } from "./week.ts";
+import { byDay, createWeekStart, syncedUntil, weeksOn } from "./week.ts";
 
 // Solid's browser build: the server build tests run with by default isn't reactive.
 // @ts-expect-error: the browser build has no types of its own; they're the package's.
@@ -13,6 +13,23 @@ vi.mock("solid-js", () => import("solid-js/dist/solid.js"));
 const event = (id: string, at: Date) => ({ id, startsAt: at.toISOString() }) as CalEvent;
 
 describe("the week, by day", () => {
+  it("leaves out where you work and birthdays, and knows how far ahead Hearth keeps", () => {
+    createRoot((dispose) => {
+      const day = new Date(2026, 9, 7);
+      const week = byDay(
+        () => [
+          { ...event("office", day), kind: "workingLocation" },
+          { ...event("sam", day), kind: "birthday" },
+          { ...event("lunch", day), kind: "default" },
+        ],
+        () => day,
+      );
+      expect(week.on(day.toDateString()).map((e) => e.id)).toEqual(["lunch"]);
+      dispose();
+    });
+    expect(syncedUntil(new Date(2026, 9, 7, 15))).toEqual(new Date(2026, 11, 6));
+  });
+
   afterEach(() => vi.useRealTimers());
 
   // One run: the clock starts ticking once, with the first thing that reads it.
