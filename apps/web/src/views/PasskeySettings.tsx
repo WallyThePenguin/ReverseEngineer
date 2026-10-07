@@ -8,6 +8,7 @@ import { For, Show } from "solid-js";
 import { QueryView } from "../components/QueryView.tsx";
 import { Button } from "../components/ui.tsx";
 import { authPost, request } from "../lib/api.ts";
+import { inDesktopApp } from "../lib/desktop.ts";
 import { ago } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
 import { windowPasskeyHere } from "../lib/wayIn.ts";
@@ -65,7 +66,7 @@ export function PasskeySettings() {
           const where = () =>
             location.origin === data().origin
               ? "own"
-              : windowPasskeyHere(location, data().origin)
+              : windowPasskeyHere(location, data().origin, inDesktopApp())
                 ? "window"
                 : "elsewhere";
           const add = async () => {

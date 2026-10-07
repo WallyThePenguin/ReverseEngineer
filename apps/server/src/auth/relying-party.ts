@@ -31,12 +31,18 @@ export function windowRelyingParty(
   return { origin: local.origin, rpID: "localhost", local: true };
 }
 
+/** The app's window adds "HearthDesktop/<version>" to its user agent (web lib/desktop.ts). */
+const IN_APP = /\bHearthDesktop\//;
+
 /**
  * The address a passkey request is for: the window's only when the request came straight from its
  * page. Its Origin isn't enough, since any program on this PC can send that, so it must also have
  * come to Hearth's address on this PC, from this PC, through no proxy. Tailscale Serve connects
  * from this PC too, but it adds X-Forwarded-Host and X-Forwarded-For and keeps your ts.net name as
- * the Host, so what comes through it is always for Hearth's own address.
+ * the Host, so what comes through it is always for Hearth's own address. And it must come from
+ * the app: Chrome or Edge at the same address shares Windows Hello's passkeys, and signing in
+ * there would sign the real window out. A program could copy the app's user agent; that only
+ * keeps an ordinary browser from taking the window's place by accident.
  */
 export function relyingPartyFor(c: Context<AppEnv>): RelyingParty {
   const { config } = c.get("deps");
@@ -45,6 +51,7 @@ export function relyingPartyFor(c: Context<AppEnv>): RelyingParty {
     local &&
     c.req.header("origin") === local.origin &&
     c.req.header("host")?.toLowerCase() === new URL(local.origin).host &&
+    IN_APP.test(c.req.header("user-agent") ?? "") &&
     directFromThisPc(c)
   )
     return local;

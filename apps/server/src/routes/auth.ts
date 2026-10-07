@@ -7,7 +7,7 @@ import type { Context } from "hono";
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { z } from "zod";
-import { DESKTOP_WINDOW, pairDevice, revokeDesktopWindow } from "../auth/devices.ts";
+import { DESKTOP_WINDOW, desktopPaired, pairDevice, revokeDesktopWindow } from "../auth/devices.ts";
 import { type Handoffs, handoffs as sharedHandoffs } from "../auth/handoff.ts";
 import { SESSION_COOKIE, secureCookies } from "../auth/middleware.ts";
 import {
@@ -70,7 +70,8 @@ async function signIn(c: Context<AppEnv>, principal: string, label?: string) {
 
 /**
  * You may add a passkey if you're signed in, or if none exists yet and you have the setup code.
- * The window's own only once it's signed in: your first passkey is for Hearth's own address.
+ * The window's own only signed in, and never as the first: that one is for Hearth's own address,
+ * even when development login has signed you in without any (D69).
  */
 async function mayRegister(
   c: Context<AppEnv>,
@@ -78,10 +79,14 @@ async function mayRegister(
   local: boolean,
 ): Promise<boolean> {
   const { kernel } = c.get("deps");
-  if (c.get("caller")?.kind === "owner") return true;
-  if (local || (await hasPasskey(kernel.db))) return false;
+  const owner = c.get("caller")?.kind === "owner";
+  if (local) return owner && (await hasPasskey(kernel.db));
+  if (owner) return true;
+  if (await hasPasskey(kernel.db)) return false;
   return !!setupCode && (await checkSetupCode(kernel.db, setupCode));
 }
+
+const NOT_CONNECTED = "This PC's Hearth window isn't connected. Connect it from your browser.";
 
 const redeemBody = z.object({ nonce: z.string().min(16).max(128) });
 
@@ -136,11 +141,12 @@ export function authRoutes(handoffs: Handoffs = sharedHandoffs) {
       signedIn: !!caller,
       principal: caller?.principal ?? null,
       kind: caller?.kind ?? null,
-      needsSetup: !made.any,
-      // Where your passkeys work, and whether the window on this PC has its own (D69). The
-      // address is public anyway: Google's sign-in is sent back to it.
+      needsSetup: !made.own,
+      // Where your passkeys work, and whether the window on this PC can sign in with its own: it
+      // has one and the app is connected (D69). The address is public anyway: Google's sign-in
+      // is sent back to it.
       origin: config.origin,
-      localPasskey: made.window,
+      localPasskey: made.window && (await desktopPaired(kernel.db)),
     });
   });
 
@@ -187,6 +193,7 @@ export function authRoutes(handoffs: Handoffs = sharedHandoffs) {
   app.post("/login/options", async (c) => {
     const { kernel } = c.get("deps");
     const rp = relyingPartyFor(c);
+    if (rp.local && !(await desktopPaired(kernel.db))) return c.json({ error: NOT_CONNECTED }, 409);
     const made = await loginOptions(kernel.db, rp);
     if (!made)
       return c.json(
@@ -207,6 +214,8 @@ export function authRoutes(handoffs: Handoffs = sharedHandoffs) {
     const body = verifyBody.safeParse(await c.req.json().catch(() => null));
     const challengeId = takeChallengeCookie(c);
     if (!body.success || !challengeId) return c.json({ error: "Start again." }, 400);
+    // Disconnected since: the window's passkey has nothing to sign in as until you connect again.
+    if (rp.local && !(await desktopPaired(kernel.db))) return c.json({ error: NOT_CONNECTED }, 409);
     const principal = await verifyLogin(
       kernel.db,
       rp,

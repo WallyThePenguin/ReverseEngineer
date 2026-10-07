@@ -83,10 +83,12 @@ export function DesktopSettings() {
         Hearth for Windows: Hearth in its own window, notifications, dictation into any app, and
         Jarvis a hotkey away. Install it on your PC, then connect it here.
       </p>
-      {/* Its sign-in page sent you here (D69). Connecting is still your click. */}
+      {/* Its sign-in page sends you here (D69), but so could any page: it's an if, and connecting is
+          still your click. */}
       <Show when={windowAsked.get()}>
         <p class="rounded-md bg-accent-soft px-3 py-2 text-sm">
-          Hearth's window on this PC asked to be signed in again. Choose Connect Hearth on this PC.
+          If Hearth's window on this PC asked you to sign in again, choose Connect Hearth on this
+          PC.
         </p>
       </Show>
       <QueryView query={devices} what="the desktop app's connection">

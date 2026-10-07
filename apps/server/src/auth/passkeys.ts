@@ -63,15 +63,23 @@ function madeAt(column: typeof credential.rpId | typeof authChallenge.rpId, rp: 
   return rp.local ? eq(column, "localhost") : isNull(column);
 }
 
+/** Whether Hearth's own address has a passkey: until it does, Hearth still needs setting up. */
 export async function hasPasskey(db: Db): Promise<boolean> {
-  const rows = await db.select({ id: credential.id }).from(credential).limit(1);
+  const rows = await db
+    .select({ id: credential.id })
+    .from(credential)
+    .where(isNull(credential.rpId))
+    .limit(1);
   return rows.length > 0;
 }
 
-/** Whether any passkey exists yet, and whether the window on this PC has its own. */
-export async function passkeysMade(db: Db): Promise<{ any: boolean; window: boolean }> {
+/** Whether Hearth's own address has a passkey yet, and whether the window on this PC has its own. */
+export async function passkeysMade(db: Db): Promise<{ own: boolean; window: boolean }> {
   const rows = await db.selectDistinct({ rpId: credential.rpId }).from(credential);
-  return { any: rows.length > 0, window: rows.some((r) => r.rpId === "localhost") };
+  return {
+    own: rows.some((r) => r.rpId === null),
+    window: rows.some((r) => r.rpId === "localhost"),
+  };
 }
 
 /** Your passkeys, with the address each one works at, for Settings. */
@@ -208,7 +216,14 @@ async function checkRegistration(
     if (result) authFailed("registration", "the authenticator's response didn't verify");
     return false;
   }
-  const c = result.registrationInfo.credential;
+  // The window's must stay on this PC: not a passkey synced to other devices, which could then
+  // sign in as the window from elsewhere through anything forwarded to this PC's port.
+  const info = result.registrationInfo;
+  if (rp.local && (info.credentialDeviceType !== "singleDevice" || info.credentialBackedUp)) {
+    authFailed("registration", "the window's passkey must be this PC's own, not a synced one");
+    return false;
+  }
+  const c = info.credential;
   await db.insert(credential).values({
     id: c.id,
     principal: "owner",

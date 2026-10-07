@@ -1,7 +1,7 @@
 // Sign in with a passkey (Windows Hello, Touch ID, your phone). The first time, enter the code
-// `hearth setup` printed to add your first passkey. The desktop app's window on this PC signs in
-// with a Windows Hello passkey of its own once you've added one there, or else from your browser
-// (D53, D69): it never shows a passkey button that can't work where it is.
+// `hearth setup` printed to add your first passkey, at Hearth's own address. The desktop app's
+// window on this PC signs in with a Windows Hello passkey of its own once you've added one there,
+// or else from your browser (D53, D69): no page shows a passkey button that can't work where it is.
 
 import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
 import { createSignal, Match, Show, Switch } from "solid-js";
@@ -23,7 +23,8 @@ export function Login(props: {
   // Windows Hello didn't work in the window: the browser is offered too.
   const [helloFailed, setHelloFailed] = createSignal(false);
   const [sent, setSent] = createSignal(false);
-  const way = () => wayIn(location, props);
+  const app = inDesktopApp();
+  const way = () => wayIn(location, props, app);
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -78,11 +79,12 @@ export function Login(props: {
       await authPost("login/verify", { response });
     });
 
-  // In the app, Windows opens your browser at Settings, Desktop app; elsewhere, this page goes there.
+  // In the app, Windows opens your browser (at Settings, Desktop app, once Hearth is set up);
+  // elsewhere, this page goes to Hearth's address.
   const toBrowser = () => {
     if (!props.origin) return;
     setSent(true);
-    location.href = inDesktopApp() ? connectLink(props.origin) : props.origin;
+    location.href = app && !props.needsSetup ? connectLink(props.origin) : props.origin;
   };
   const browserButton = (primary: boolean) => (
     <button
@@ -94,7 +96,11 @@ export function Login(props: {
       }
       onClick={toBrowser}
     >
-      {inDesktopApp() ? "Connect in your browser" : "Go to Hearth's address"}
+      {!app
+        ? "Go to Hearth's address"
+        : props.needsSetup
+          ? "Set up Hearth in your browser"
+          : "Connect in your browser"}
     </button>
   );
 
@@ -110,7 +116,7 @@ export function Login(props: {
           </p>
         </div>
         <Switch>
-          <Match when={props.needsSetup}>
+          <Match when={way() === "setup"}>
             <form
               class="space-y-3"
               onSubmit={(e) => {
@@ -151,9 +157,13 @@ export function Login(props: {
           <Match when={way() === "browser"}>
             <div class="space-y-3">
               <p class="text-sm text-muted">
-                {inDesktopApp()
-                  ? "This window was signed out. Your passkeys work at Hearth's own address, so sign it in from your browser: Settings, Desktop app, Connect Hearth on this PC. After that you can add Windows Hello here, in Settings, Passkeys."
-                  : "Your passkeys work at Hearth's own address, not this one."}
+                {props.needsSetup
+                  ? app
+                    ? `Set up Hearth in your browser first, at ${props.origin}, with the code \`hearth setup\` printed. Then connect this window from there: Settings, Desktop app.`
+                    : `Hearth's address for browsers is ${props.origin}. Set it up there, with the code \`hearth setup\` printed.`
+                  : app
+                    ? "This window was signed out. Your passkeys work at Hearth's own address, so sign it in from your browser: Settings, Desktop app, Connect Hearth on this PC. After that you can add Windows Hello here, in Settings, Passkeys."
+                    : `Hearth's address for browsers is ${props.origin}. Your passkeys work there, not here.`}
               </p>
               {browserButton(true)}
             </div>
@@ -162,7 +172,7 @@ export function Login(props: {
         <Show when={error()}>
           <p class="text-sm text-bad">{error()}</p>
         </Show>
-        <Show when={sent() && inDesktopApp()}>
+        <Show when={sent() && app && !props.needsSetup}>
           <p class="text-sm text-muted">
             Your browser opens Hearth's Settings. Choose Connect Hearth on this PC there.
           </p>
