@@ -11,6 +11,7 @@ import {
   pageBuild,
   reloadedFor,
   reloadInto,
+  reloadPage,
   type ServerBuild,
   tryAgainBy,
   wouldLoseWork,
@@ -51,7 +52,7 @@ export async function loadCode<T>(get: () => Promise<T>): Promise<T> {
 
 /** "Try again" on a screen the PC didn't send: reloads once it answers (tryAgainBy). */
 export async function tryAgain(reset: () => void): Promise<void> {
-  if (tryAgainBy(await runningBuild(), wouldLoseWork) === "reload") location.reload();
+  if (tryAgainBy(await runningBuild(), wouldLoseWork) === "reload") reloadPage();
   else reset();
 }
 

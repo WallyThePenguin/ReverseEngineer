@@ -26,6 +26,13 @@ export function noticeFor(mine: string | null, server: ServerBuild | null): Noti
 /** How often an open page asks which build is running. */
 export const CHECK_EVERY_MS = 5 * 60_000;
 
+/**
+ * The address the page opened at, before anything on it tidied the address (App.tsx drops
+ * ?connect=desktop once it's read): reloading on opening goes back there. Read as the page's code
+ * loads, before anything is drawn.
+ */
+export const openedAt = typeof location === "undefined" ? undefined : location.href;
+
 /** What counts as you doing something on the page: a key, a tap or click, a paste, a drop. */
 const TOUCHES = ["keydown", "pointerdown", "input", "paste", "drop"] as const;
 
@@ -36,10 +43,11 @@ const TOUCHES = ["keydown", "pointerdown", "input", "paste", "drop"] as const;
  * shouldn't keep your sign-in alive (D56). When it's for the page opening (it opens from the last
  * page seen, which may be from before an update: sw.js) or coming back, `check` is given `idle`,
  * which says, when asked, whether you've done nothing on the page since: a tap on Done or a paste
- * then mustn't be lost to a reload. Returns the cleanup.
+ * then mustn't be lost to a reload. The first check is also told it's the opening. Returns the
+ * cleanup.
  */
 export function watchBuild(
-  check: (idle?: () => boolean) => void,
+  check: (idle?: () => boolean, opening?: boolean) => void,
   win: EventTarget = window,
   doc: EventTarget & { visibilityState: DocumentVisibilityState } = document,
 ): () => void {
@@ -55,7 +63,7 @@ export function watchBuild(
     const at = touches;
     check(() => touches === at);
   };
-  check(() => touches === 0);
+  check(() => touches === 0, true);
   const timer = setInterval(again, CHECK_EVERY_MS);
   doc.addEventListener("visibilitychange", back);
   win.addEventListener("online", again);
@@ -159,15 +167,16 @@ export function reloadedFor(store?: Pick<Storage, "getItem">): string | null {
 }
 
 /**
- * Reloads the page into `build`, noting it first. The page takes nothing more meanwhile: what
- * you'd type or click in it until the new one is there would go with it.
+ * Reloads the page into `build` (at `href`, if given), noting it first. The page takes nothing
+ * more meanwhile: what you'd type or click in it until the new one is there would go with it.
  */
 export function reloadInto(
   build: string,
+  href?: string,
   store?: Pick<Storage, "setItem">,
   reload: () => void = () => {
     freeze();
-    location.reload();
+    reloadPage(href);
   },
 ): void {
   try {
@@ -184,4 +193,44 @@ export function freeze(
 ): void {
   (doc.activeElement as HTMLElement | null)?.blur?.();
   if (doc.body) doc.body.inert = true;
+}
+
+// Where the service worker keeps the last page seen, and notes the last build seen to start here
+// (sw.js: SHELL, STARTED). Only that build opens before the PC answers.
+const SHELL = "hearth-shell-v2";
+const STARTED = "/.started";
+
+let marks: Promise<void> = Promise.resolve();
+/** One at a time, in order: forgetting the build for a reload mustn't land before noting it. */
+function inTurn(change: (shell: Cache) => Promise<unknown>): Promise<void> {
+  marks = marks
+    .then(async () => {
+      if (typeof caches !== "undefined") await change(await caches.open(SHELL));
+    })
+    .catch(() => {});
+  return marks;
+}
+
+/**
+ * Notes that this build has started here: next time it opens before the PC answers (sw.js). Only
+ * for a page the service worker gave, which keeps the files that came with it.
+ */
+export function markStarted(build = pageBuild()): void {
+  if (!build || !navigator.serviceWorker?.controller) return;
+  void inTurn((shell) => shell.put(STARTED, new Response(build)));
+}
+
+/** The next page opened comes from the PC rather than from what's kept, when it answers in time. */
+export const forgetStarted = (): Promise<void> => inTurn((shell) => shell.delete(STARTED));
+
+/**
+ * Reloads the page from the PC (at `href`, if given): a reload is for a new build, or for files
+ * that didn't load, so it mustn't open the page kept from before.
+ */
+export function reloadPage(href?: string): void {
+  void forgetStarted().then(() => {
+    const here = (url: string) => url.split("#")[0];
+    if (href && here(href) !== here(location.href)) location.replace(href);
+    else location.reload();
+  });
 }

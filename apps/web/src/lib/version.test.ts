@@ -82,6 +82,19 @@ describe("asking which build is running", () => {
   });
 });
 
+describe("the check on opening", () => {
+  it("is told it's the opening, and coming back isn't", () => {
+    const doc = Object.assign(new EventTarget(), {
+      visibilityState: "visible" as DocumentVisibilityState,
+    });
+    const openings: (boolean | undefined)[] = [];
+    const stop = watchBuild((_idle, opening) => openings.push(opening), new EventTarget(), doc);
+    doc.dispatchEvent(new Event("visibilitychange"));
+    stop();
+    expect(openings).toEqual([true, undefined]);
+  });
+});
+
 describe("whether you've done anything since the page came back", () => {
   it("knows of a key, a tap, a paste or a drop after it came back, for that return", () => {
     const win = new EventTarget();
@@ -178,7 +191,7 @@ describe("coming back to a page from before an update", () => {
     };
     let reloaded = 0;
     expect(reloadedFor(store)).toBeNull();
-    reloadInto("def", store, () => {
+    reloadInto("def", undefined, store, () => {
       reloaded += 1;
     });
     expect(reloaded).toBe(1);
@@ -192,7 +205,7 @@ describe("coming back to a page from before an update", () => {
         throw new Error("blocked");
       },
     };
-    reloadInto("def", blocked, () => {
+    reloadInto("def", undefined, blocked, () => {
       reloaded += 1;
     });
     expect(reloaded).toBe(2);
