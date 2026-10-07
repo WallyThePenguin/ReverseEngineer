@@ -33,9 +33,10 @@ const TOUCHES = ["keydown", "pointerdown", "input", "paste", "drop"] as const;
  * Runs `check` now, then every few minutes while the page is in view, when it comes back into
  * view, and when the network is back while it's in view. A hidden page doesn't ask (not even when
  * a laptop wakes and its network comes back): it asks as soon as it's back, and an open tab alone
- * shouldn't keep your sign-in alive (D56). When it's for the page coming back, `check` is given
- * `idle`, which says, when asked, whether you've done nothing on the page since it came back: a
- * tap on Done or a paste then mustn't be lost to a reload. Returns the cleanup.
+ * shouldn't keep your sign-in alive (D56). When it's for the page opening (it opens from the last
+ * page seen, which may be from before an update: sw.js) or coming back, `check` is given `idle`,
+ * which says, when asked, whether you've done nothing on the page since: a tap on Done or a paste
+ * then mustn't be lost to a reload. Returns the cleanup.
  */
 export function watchBuild(
   check: (idle?: () => boolean) => void,
@@ -54,7 +55,7 @@ export function watchBuild(
     const at = touches;
     check(() => touches === at);
   };
-  check();
+  check(() => touches === 0);
   const timer = setInterval(again, CHECK_EVERY_MS);
   doc.addEventListener("visibilitychange", back);
   win.addEventListener("online", again);

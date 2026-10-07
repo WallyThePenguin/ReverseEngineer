@@ -123,6 +123,43 @@ try {
     if (!String(kept).startsWith("text/html")) throw new Error(`the kept page is now ${kept}`);
   });
 
+  await step(
+    "a page kept from before an update opens, then reloads into Hearth's build",
+    async () => {
+      type Doc = { document: { querySelector(q: string): { content: string } | null } };
+      const running = await page.evaluate(
+        `document.querySelector('meta[name="hearth-build"]').content`,
+      );
+      // The kept page says it's from an older build (its files are this one's, so it still runs).
+      await page.evaluate(`(async () => {
+      const shell = await caches.open("hearth-shell-v2");
+      const kept = await shell.match("/");
+      const html = (await kept.text()).replace(/(name="hearth-build" content=")[^"]*/, "$1older");
+      await shell.put("/", new Response(html, { headers: kept.headers }));
+    })()`);
+      let loads = 0;
+      const count = (f: unknown) => {
+        if (f === page.mainFrame()) loads++;
+      };
+      page.on("framenavigated", count);
+      await page.goto(`${base}/tasks`);
+      // It opens at once from the kept page, hears Hearth runs another build and, as nothing's been
+      // done on it yet, reloads into it, once: the reload opens the page fetched meanwhile.
+      await page.waitForFunction(
+        (want) =>
+          (globalThis as unknown as Doc).document.querySelector('meta[name="hearth-build"]')
+            ?.content === want,
+        running,
+        { timeout: 20_000 },
+      );
+      await page.waitForTimeout(1_000);
+      page.off("framenavigated", count);
+      if (loads !== 2) throw new Error(`the page loaded ${loads} times`);
+      if (await page.getByText("Hearth was updated.").isVisible())
+        throw new Error("it said so instead of reloading");
+    },
+  );
+
   await step("Hearth stopped: the last page opens and says so", async () => {
     await stop();
     await page.goto(base, { timeout: 10_000 });

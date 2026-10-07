@@ -1,8 +1,9 @@
 // A notice when Hearth changed under the open page: it was updated (reload to get the new
 // version), or an update on the PC didn't finish, so its database doesn't fit its code. Checks
-// every few minutes while the page is in view, and when you come back to it. Coming back to a page
-// from before an update, you get the new version at once, unless that would lose something or
-// you've already started doing something on it.
+// every few minutes while the page is in view, and when you come back to it. Opening or coming back
+// to a page from before an update (it opens from the last page seen: sw.js), you get the new
+// version at once, unless that would lose something or you've already started doing something
+// on it.
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import {
   type Notice as BuildNotice,

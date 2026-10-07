@@ -1,5 +1,6 @@
-// Hearth's service worker: opens the app when the PC can't be reached, and shows notifications.
-// The API is never cached; everything you see comes live from your PC.
+// Hearth's service worker: opens the app at once from the last page seen (and when the PC can't be
+// reached), and shows notifications. The API is never cached; everything you see comes live from
+// your PC.
 
 // The page itself, and the built files of the build it comes from. When a new build's page
 // arrives, the old build's files are dropped, so the cache holds one build, not every one since.
@@ -31,6 +32,9 @@ const buildOf = (html) => html.match(/\/assets\/index-[\w-]+\.js/)?.[0] ?? null;
 /** Hearth's page, as opposed to one of its files opened as a page (/version.json, an icon). */
 const isPage = (res) => (res.headers.get("content-type") ?? "").startsWith("text/html");
 
+/** A place in the app (/today, /mail+thread/…), as opposed to one of its files (/version.json). */
+const inApp = (url) => !url.pathname.split("/").pop().includes(".");
+
 /**
  * Saves the newest page. If it's from a new build, the old build's files go, unless the old
  * page is the one open right now (it opened from the cache) and may still ask for them; those
@@ -50,10 +54,37 @@ async function rememberPage(res, oldPageOpen) {
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** The newest page on its way from the PC after one opened from the cache, until it's kept. */
+let refreshing = null;
+
 /**
- * The newest page from the PC. If it's out of reach, answers with an error (Hearth restarting
- * behind a proxy) or takes more than a few seconds, the last page seen opens instead, and the
- * app inside it waits for Hearth to come back.
+ * A place in the app opens at once from the last page seen, so the app starts while the PC is
+ * still being reached; the newest page is fetched meanwhile and kept for next time. A new build
+ * reaches the open page through its update check, which reloads into it when that loses nothing
+ * (UpdateNotice). A page asked for while the newest is still on its way, as that reload is, waits
+ * for it to be kept (a few seconds at most), so it opens the new build.
+ */
+async function openSaved(e) {
+  await Promise.race([refreshing, wait(NAVIGATE_TIMEOUT_MS)]);
+  const saved = await caches.match("/");
+  if (!saved) return navigate(e);
+  const fresh = fetch(e.request)
+    .then((res) => (res.ok && isPage(res) ? rememberPage(res, true) : undefined))
+    .catch(() => {});
+  refreshing = fresh;
+  e.waitUntil(
+    fresh.finally(() => {
+      if (refreshing === fresh) refreshing = null;
+    }),
+  );
+  return saved;
+}
+
+/**
+ * The newest page from the PC: the first time, before any is kept, and for its files opened as
+ * pages. If it's out of reach, answers with an error (Hearth restarting behind a proxy) or takes
+ * more than a few seconds, the last page seen opens instead, and the app inside it waits for
+ * Hearth to come back.
  */
 function navigate(e) {
   const network = fetch(e.request);
@@ -106,7 +137,7 @@ self.addEventListener("fetch", (e) => {
     );
     return;
   }
-  if (e.request.mode === "navigate") e.respondWith(navigate(e));
+  if (e.request.mode === "navigate") e.respondWith(inApp(url) ? openSaved(e) : navigate(e));
 });
 
 self.addEventListener("push", (e) => {
