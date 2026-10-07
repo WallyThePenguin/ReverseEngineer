@@ -44,14 +44,37 @@ describe("orBack", () => {
     expect(choice.value).toBe("low");
   });
 
-  it("leaves a field you're typing in, and puts one you've left back", async () => {
-    const field = { tagName: "INPUT", type: "text", value: "Oct 9" } as HTMLInputElement;
-    const doc = { activeElement: field as Element | null };
+  it("leaves a field you're in until you leave it, and puts one you've left back", async () => {
+    // A Due box after its date picker, or a field sent with Enter: the focus is still in it.
+    const field = Object.assign(new EventTarget(), {
+      tagName: "INPUT",
+      type: "text",
+      value: "Oct 9",
+    });
+    const doc = { activeElement: field as unknown as Element | null };
     Object.defineProperty(field, "ownerDocument", { value: doc });
-    await orBack(field, Promise.resolve(null), () => "Oct 8");
+    const el = field as unknown as HTMLInputElement;
+    await orBack(el, Promise.resolve(null), () => "Oct 8");
     expect(field.value).toBe("Oct 9");
     doc.activeElement = null;
-    await orBack(field, Promise.resolve(null), () => "Oct 8");
+    field.dispatchEvent(new Event("blur"));
     expect(field.value).toBe("Oct 8");
+    // Left already when the answer comes: back at once.
+    field.value = "Oct 9";
+    await orBack(el, Promise.resolve(null), () => "Oct 8");
+    expect(field.value).toBe("Oct 8");
+  });
+
+  it("leaves a field changed before you leave it: its own save carries it", async () => {
+    const field = Object.assign(new EventTarget(), {
+      tagName: "INPUT",
+      type: "text",
+      value: "Oct 9",
+    });
+    Object.defineProperty(field, "ownerDocument", { value: { activeElement: field } });
+    await orBack(field as unknown as HTMLInputElement, Promise.resolve(null), () => "Oct 8");
+    field.value = "Oct 10";
+    field.dispatchEvent(new Event("blur"));
+    expect(field.value).toBe("Oct 10");
   });
 });

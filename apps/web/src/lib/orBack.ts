@@ -13,8 +13,8 @@ const shows = (el: Control) => (ticks(el) ? (el as HTMLInputElement).checked : e
 /**
  * Waits for `saving` (an `act`, which is null when it didn't go through, or a save that says
  * false), and if it didn't go through, puts `el` back to `saved()`: ticked or not, or the choice.
- * Not when it has changed since (a second choice, more typed: the next save carries that), or
- * while you're typing in it.
+ * Not when it has changed since (a second choice, more typed: the next save carries that). While
+ * you're in it, once you leave it: a date picker leaves you in its box, and Enter in the field.
  */
 export async function orBack<T>(
   el: Control,
@@ -23,11 +23,15 @@ export async function orBack<T>(
 ): Promise<T> {
   const sent = shows(el);
   const r = await saving;
-  const typing = el.tagName === "INPUT" && !ticks(el) && el.ownerDocument?.activeElement === el;
-  if ((r === null || r === false) && shows(el) === sent && !typing) {
+  if (r !== null && r !== false) return r;
+  const back = () => {
+    if (shows(el) !== sent) return;
     const was = saved();
     if (typeof was === "boolean") (el as HTMLInputElement).checked = was;
     else el.value = was;
-  }
+  };
+  const typing = el.tagName === "INPUT" && !ticks(el) && el.ownerDocument?.activeElement === el;
+  if (typing) el.addEventListener("blur", back, { once: true });
+  else back();
   return r;
 }
