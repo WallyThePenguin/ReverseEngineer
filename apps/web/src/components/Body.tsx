@@ -1,7 +1,8 @@
 // Renders a stored body (markdown plus <m-ref> mentions) as safe DOM, never as HTML.
 
-import { For, type JSX, Match, Switch } from "solid-js";
+import { createMemo, For, type JSX, Match, Switch } from "solid-js";
 import { blocks, inline } from "../lib/markdown.ts";
+import { orBack } from "../lib/orBack.ts";
 import { layout, routeFor } from "../lib/panes.ts";
 import { splitInline } from "../lib/text.ts";
 
@@ -74,11 +75,15 @@ const HEADING = ["", "text-[1.2em]", "text-[1.1em]", "text-[1.05em]"];
 export function Body(props: {
   text: string | null;
   class?: string;
-  onToggle?: (line: number) => void;
+  /** Ticks a checklist line; a save that says false puts the box back. */
+  onToggle?: (line: number) => unknown;
 }): JSX.Element {
+  // Read again only when the words change: a list that's read again hands rows their text anew,
+  // and parsing it afresh would draw every paragraph of every body again.
+  const text = createMemo(() => props.text ?? "");
   return (
     <div class={`space-y-1 leading-relaxed ${props.class ?? ""}`}>
-      <For each={blocks(props.text ?? "")}>
+      <For each={blocks(text())}>
         {(b) => (
           <Switch>
             <Match when={b.kind === "line" && b}>
@@ -104,7 +109,13 @@ export function Body(props: {
                     aria-label={c().text.replace(/<[^>]+>/g, "")}
                     checked={c().done}
                     disabled={!props.onToggle}
-                    onChange={() => props.onToggle?.(c().line)}
+                    onChange={(e) =>
+                      void orBack(
+                        e.currentTarget,
+                        Promise.resolve(props.onToggle?.(c().line)),
+                        () => c().done,
+                      )
+                    }
                   />
                   <span class={c().done ? "text-muted line-through" : ""}>
                     <Line text={c().text} />

@@ -7,6 +7,7 @@ import { EditableBody, toggleLine } from "../components/EditableBody.tsx";
 import { Button, PaneHeader, Placeholder } from "../components/ui.tsx";
 import { ago, PRIORITY_LABEL, STATUS_LABEL, who } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
+import { orBack } from "../lib/orBack.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
 import { quickAdd } from "../lib/quickadd.ts";
@@ -95,7 +96,13 @@ export function TaskView(props: { id: string; pane: number }) {
               <select
                 class={select}
                 value={t().status}
-                onChange={(e) => void update({ status: e.currentTarget.value })}
+                onChange={(e) =>
+                  void orBack(
+                    e.currentTarget,
+                    update({ status: e.currentTarget.value }),
+                    () => t().status,
+                  )
+                }
               >
                 <For each={Object.entries(STATUS_LABEL)}>
                   {([v, l]) => <option value={v}>{l}</option>}
@@ -104,7 +111,13 @@ export function TaskView(props: { id: string; pane: number }) {
               <select
                 class={select}
                 value={t().priority}
-                onChange={(e) => void update({ priority: e.currentTarget.value })}
+                onChange={(e) =>
+                  void orBack(
+                    e.currentTarget,
+                    update({ priority: e.currentTarget.value }),
+                    () => t().priority,
+                  )
+                }
               >
                 <For each={Object.entries(PRIORITY_LABEL)}>
                   {([v, l]) => <option value={v}>{l}</option>}
@@ -113,7 +126,13 @@ export function TaskView(props: { id: string; pane: number }) {
               <select
                 class={select}
                 value={t().assignee ?? ""}
-                onChange={(e) => void update({ assignee: e.currentTarget.value || null })}
+                onChange={(e) =>
+                  void orBack(
+                    e.currentTarget,
+                    update({ assignee: e.currentTarget.value || null }),
+                    () => t().assignee ?? "",
+                  )
+                }
               >
                 <option value="">Nobody</option>
                 <option value="owner">Me</option>
@@ -127,7 +146,11 @@ export function TaskView(props: { id: string; pane: number }) {
                   value={toLocalInput(t().dueAt)}
                   onChange={(e) => {
                     const v = e.currentTarget.value;
-                    void update({ dueAt: v ? new Date(v).toISOString() : null, dueIsDate: false });
+                    void orBack(
+                      e.currentTarget,
+                      update({ dueAt: v ? new Date(v).toISOString() : null, dueIsDate: false }),
+                      () => toLocalInput(t().dueAt),
+                    );
                   }}
                 />
               </label>
@@ -137,7 +160,7 @@ export function TaskView(props: { id: string; pane: number }) {
               body={t().body}
               placeholder="Add details…"
               save={(body) => update({ body }, true)}
-              onToggleLine={(line) => void update({ body: toggleLine(t().body, line) }, true)}
+              onToggleLine={(line) => update({ body: toggleLine(t().body, line) }, true)}
             />
             <section class="space-y-1">
               <h3 class="text-xs font-medium uppercase tracking-wide text-faint">Subtasks</h3>

@@ -7,6 +7,7 @@ import { Icon, type IconName } from "../components/icons.tsx";
 import { Button } from "../components/ui.tsx";
 import { ago } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
+import { orBack } from "../lib/orBack.ts";
 import { act, useAction } from "../lib/query.ts";
 import { ReplaceToken } from "./ReplaceToken.tsx";
 import {
@@ -145,10 +146,14 @@ export function SlackSettings() {
                           type="checkbox"
                           checked={c.ingest}
                           onChange={(e) =>
-                            void act("slack.set_channel", {
-                              id: c.id,
-                              ingest: e.currentTarget.checked,
-                            })
+                            void orBack(
+                              e.currentTarget,
+                              act("slack.set_channel", {
+                                id: c.id,
+                                ingest: e.currentTarget.checked,
+                              }),
+                              () => c.ingest,
+                            )
                           }
                         />
                         <span class="flex min-w-0 items-center gap-1.5">

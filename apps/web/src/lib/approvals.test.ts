@@ -1,14 +1,19 @@
 // Deciding from the app: a double tap sends one decision, a decided approval's buttons stay
-// gone, and only Hearth being out of reach leaves it to decide again (D58).
+// gone, and only Hearth being out of reach leaves it to decide again (D58). Always allow writes
+// its rule before the yes, and approves nothing if the rule wasn't written (D70).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const shown: { text: string; tone: string }[] = [];
 vi.mock("./live.ts", () => ({
   live: { refresh: () => {}, connected: () => false },
   toast: { show: (text: string, tone = "info") => shown.push({ text, tone }) },
+  queryClient: {},
+  reportError: (err: Error) => shown.push({ text: err.message, tone: "error" }),
 }));
 
 const {
+  alwaysAllow,
+  alwaysAllowWords,
   approvalStateText,
   decide,
   decideQuietly,
@@ -20,9 +25,11 @@ const {
 } = await import("./approvals.ts");
 
 let calls = 0;
+const paths: string[] = [];
 function reply(status: number, body: unknown, wait = 0) {
-  vi.stubGlobal("fetch", async () => {
+  vi.stubGlobal("fetch", async (path: string) => {
     calls++;
+    paths.push(path);
     await new Promise((r) => setTimeout(r, wait));
     return new Response(JSON.stringify(body), { status });
   });
@@ -30,6 +37,7 @@ function reply(status: number, body: unknown, wait = 0) {
 
 beforeEach(() => {
   calls = 0;
+  paths.length = 0;
   shown.length = 0;
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -124,6 +132,41 @@ describe("deciding an approval", () => {
       "failed",
     );
     expect(settledAs("deny", { code: "not_found", message: "Approval not found" })).toBe("gone");
+  });
+
+  it("Always allow writes the rule, then says yes, once however often it's pressed", async () => {
+    reply(200, { status: "ok", result: {} }, 10);
+    const first = alwaysAllow("c1", "posting in #eng");
+    expect(deciding("c1")).toBe(true);
+    await Promise.all([first, alwaysAllow("c1", "posting in #eng"), decide("c1", "deny")]);
+    expect(paths).toEqual(["/api/actions/standing_rule.always_allow", "/api/approvals/c1"]);
+    expect(decidedAs("c1")).toBe("executed");
+    expect(shown).toEqual([
+      { text: "Approved. Jarvis won't ask again before posting in #eng.", tone: "ok" },
+    ]);
+  });
+
+  it("Always allow approves nothing when the rule can't be written", async () => {
+    const no = "Always allow is only for what Jarvis asks in a conversation you started.";
+    reply(403, { status: "error", code: "forbidden", message: no });
+    expect(await alwaysAllow("c2", "posting in #eng")).toBe("failed");
+    expect(calls).toBe(1);
+    expect(isDecided("c2")).toBe(false);
+    expect(shown).toEqual([{ text: no, tone: "error" }]);
+  });
+
+  it("offers Always allow only on what Jarvis asked in a conversation you started", () => {
+    const asked = {
+      id: "d1",
+      origin: "owner",
+      requestedBy: "jarvis",
+      alwaysAllow: { target: "C1", says: "posting in #eng" },
+    } as Parameters<typeof alwaysAllowWords>[0];
+    expect(alwaysAllowWords(asked)).toBe("posting in #eng");
+    expect(alwaysAllowWords({ ...asked!, origin: "untrusted" })).toBeNull();
+    expect(alwaysAllowWords({ ...asked!, origin: "system" })).toBeNull();
+    expect(alwaysAllowWords({ ...asked!, requestedBy: "mcp:claude" })).toBeNull();
+    expect(alwaysAllowWords({ ...asked!, alwaysAllow: null })).toBeNull();
   });
 
   it("names each state in a few words", () => {
