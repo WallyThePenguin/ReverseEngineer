@@ -2075,3 +2075,25 @@ after connecting (your open work wouldn't be there on day one).
 
 **Why:** The owner wants Jarvis to pick up their work without being told, and their tickets live
 on Otopair's Notion board.
+
+## D70. "Always allow" on a card Jarvis showed in a conversation you started (2026-10-07)
+
+*This adds a way to write D25's standing rules. It doesn't change when one applies.*
+
+**Decision:** A card for something Jarvis asked in a conversation you started (origin `owner`)
+can offer "Always allow …" beside Approve. Pressing it approves the card and writes a standing
+rule as narrow as the card: the action, and the one place or person it reaches (`target`):
+"Always allow posting in #eng", "Always allow messaging Eve on Slack". An action offers it only
+if it says what its target is (`alwaysAllow`); today that's `slack.post_in_channel` (the channel,
+its threads too) and `slack.dm` (the person). `mail.send` never offers it, and Always allow
+refuses it whatever the card says: an email waits for your yes, card after card. The rule shows
+in Settings, where Remove takes it back. A card from a turn that read outside content (an email,
+a page, a Slack message) never offers it, and no rule applies to such a turn (policy.ts,
+unchanged), so nothing from outside can make or use one. Rules written before (the whole action) keep working.
+
+**Alternatives:** A rule for the whole action (one yes for #eng would allow every channel).
+Offering it on every card (an injected email could put "Always allow" in front of you). A rule
+for `mail.send` from a card (one tap would let every later email go unread by you).
+
+**Why:** The owner chose it on 2026-10-07: "Yes, add Always allow". The same yes for the same
+channel or person, card after card, is part of why Jarvis "feels very manual".

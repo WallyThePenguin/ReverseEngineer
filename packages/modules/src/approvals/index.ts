@@ -1,11 +1,27 @@
 // Approvals and standing rules. Deciding an approval is owner-only and goes through the
 // kernel directly (POST /api/approvals/:id), so it's not an action any agent can call.
-import { asUntrusted } from "@hearth/core";
-import { approval, standingRule } from "@hearth/db";
-import { type DigestItem, defineAction, defineModule, newId } from "@hearth/kernel";
+import { asUntrusted, PRINCIPAL } from "@hearth/core";
+import { approval, standingRule, type Tx } from "@hearth/db";
+import { ActionError, type DigestItem, defineAction, defineModule, newId } from "@hearth/kernel";
 import { asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { id, writtenOutside } from "../shared.ts";
+
+/** Never from a card's Always allow: email waits for your yes, card after card (D70). */
+const NEVER_ALWAYS = ["mail.send"];
+
+/** Writes Jarvis's rule for an action, or for its one place or person, and returns it. */
+async function writeRule(tx: Tx, rule: { action: string; target: string; note: string }, at: Date) {
+  const [row] = await tx
+    .insert(standingRule)
+    .values({ id: newId(), principal: PRINCIPAL.jarvis, createdAt: at, ...rule })
+    .onConflictDoUpdate({
+      target: [standingRule.action, standingRule.principal, standingRule.target],
+      set: { note: rule.note },
+    })
+    .returning();
+  return row!;
+}
 
 export const approvalsModule = defineModule({
   name: "approvals",
@@ -48,22 +64,33 @@ export const approvalsModule = defineModule({
       input: z.object({ action: z.string().min(3), note: z.string().max(500).default("") }),
       risk: "internal",
       callers: ["owner"],
+      handler: (i, ctx) =>
+        writeRule(ctx.tx, { action: i.action, target: "", note: i.note }, ctx.now),
+    }),
+    defineAction({
+      name: "standing_rule.always_allow",
+      description:
+        "Always allow, from an approval card: Jarvis may do what it asked, in that one place or to that one person, without asking again (D70). Only for a request from a conversation you started.",
+      input: z.object({ approvalId: id }),
+      risk: "internal",
+      callers: ["owner"],
       async handler(i, ctx) {
-        const [row] = await ctx.tx
-          .insert(standingRule)
-          .values({
-            id: newId(),
-            action: i.action,
-            principal: "jarvis",
-            note: i.note,
-            createdAt: ctx.now,
-          })
-          .onConflictDoUpdate({
-            target: [standingRule.action, standingRule.principal],
-            set: { note: i.note },
-          })
-          .returning();
-        return row;
+        const [a] = await ctx.tx.select().from(approval).where(eq(approval.id, i.approvalId));
+        if (!a) throw new ActionError("not_found", "That request is gone.");
+        // Only a card from a turn you started: nothing an email or a message set off makes one.
+        if (
+          !a.alwaysAllow ||
+          a.origin !== "owner" ||
+          a.requestedBy !== PRINCIPAL.jarvis ||
+          NEVER_ALWAYS.includes(a.action)
+        )
+          throw new ActionError(
+            "forbidden",
+            "Always allow is only for what Jarvis asks in a conversation you started.",
+          );
+        if (a.status !== "pending") throw new ActionError("conflict", "This was already decided.");
+        const { target, says } = a.alwaysAllow;
+        return writeRule(ctx.tx, { action: a.action, target, note: says }, ctx.now);
       },
     }),
     defineAction({

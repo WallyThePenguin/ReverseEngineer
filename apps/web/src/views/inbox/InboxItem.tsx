@@ -109,6 +109,7 @@ export function InboxItem(props: {
                 why={parts().why}
                 text={parts().text}
                 status={props.row.approvalStatus}
+                always={props.row.alwaysAllow}
                 byJarvis={n().createdBy === "jarvis"}
                 unseen={n().state === "unseen"}
                 menu={menu()}

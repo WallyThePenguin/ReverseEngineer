@@ -70,6 +70,9 @@ export const inboxModule = defineModule({
             entityTitle: entity.title,
             entityType: entity.type,
             approvalStatus: approval.status,
+            // Always allow's words, on a card from a conversation you started (D70).
+            alwaysAllow: sql<string | null>`CASE WHEN ${approval.origin} = 'owner'
+              AND ${approval.requestedBy} = 'jarvis' THEN ${approval.alwaysAllow}->>'says' END`,
           })
           .from(notification)
           .leftJoin(entity, eq(entity.id, notification.entityId))

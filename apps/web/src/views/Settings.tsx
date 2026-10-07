@@ -103,9 +103,10 @@ export function Settings() {
           <section class="space-y-2">
             <h2 class="font-semibold">Jarvis may do without asking</h2>
             <p class="text-sm text-muted">
-              Things other people would see, or that are hard to undo, wait for your yes unless you
-              add them here. Rules never apply when outside content (an email, a web page) started
-              the request.
+              Things other people would see, or that are hard to undo, wait for your yes. Always
+              allow on a card from a conversation you started adds it here, for that one channel or
+              person. Rules never apply when outside content (an email, a web page, a Slack message)
+              started the request.
             </p>
             <Show
               when={(rules.data ?? []).length > 0}
@@ -116,7 +117,9 @@ export function Settings() {
                   {(r) => (
                     <li class="flex items-center gap-3 rounded-md bg-sunk px-3 py-2">
                       <code class="font-mono text-sm">{r.action}</code>
-                      <span class="flex-1 text-sm text-muted">{r.note}</span>
+                      <span class="flex-1 text-sm text-muted">
+                        {r.target ? `Always allow ${r.note}` : r.note}
+                      </span>
                       <Button
                         small
                         kind="danger"

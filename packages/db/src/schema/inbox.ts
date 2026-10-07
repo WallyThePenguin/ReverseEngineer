@@ -26,12 +26,22 @@ export const approval = pgTable("approval", {
   correlationId: uuid("correlation_id"),
   createdAt: ts("created_at").notNull().defaultNow(),
   expiresAt: ts("expires_at"),
+  /** What Always allow would cover, set when it's asked; null when it can't offer one (D70). */
+  alwaysAllow: jsonb("always_allow").$type<AlwaysAllow>(),
 });
+
+/** An Always allow: the one place or person a rule reaches, and its words ("posting in #eng"). */
+export interface AlwaysAllow {
+  target: string;
+  says: string;
+}
 
 export const standingRule = pgTable("standing_rule", {
   id: uuid("id").primaryKey(),
   action: text("action").notNull(),
   principal: text("principal").notNull(),
+  /** The one place or person it covers (a channel, a person), or '' for the whole action (D70). */
+  target: text("target").notNull().default(""),
   note: text("note").notNull().default(""),
   createdAt: ts("created_at").notNull().defaultNow(),
 });

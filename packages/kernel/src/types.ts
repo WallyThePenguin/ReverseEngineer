@@ -105,6 +105,12 @@ export interface ActionDef<S extends z.ZodType = z.ZodType, R = unknown> {
   /** One line for an approval card: "Send email to Ana: Friday's agenda". */
   summarize?(input: z.output<S>): string;
   /**
+   * What "Always allow" on its approval card covers (D70): the one place or person the call
+   * reaches, as the rule's target, and the button's words for it ("posting in #eng"). Given the
+   * input with its snapshot. An action without it offers no Always allow.
+   */
+  alwaysAllow?(input: z.output<S>): { target: string; says: string } | null;
+  /**
    * Whether a call that worked gets its audit row, judged by its result. For a check-in that
    * mostly changes nothing (system.report, every minute per component), only the calls that
    * changed something are kept. Failures, refusals and approved calls are always kept.
