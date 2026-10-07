@@ -12,14 +12,15 @@ import { OutsideMark } from "../components/OutsideMark.tsx";
 import { QueryView } from "../components/QueryView.tsx";
 import { Badge, Button, Empty, PaneHeader } from "../components/ui.tsx";
 import { createToday } from "../lib/clock.ts";
-import { date, hours, plural, span, time } from "../lib/format.ts";
+import { emptyWeek, pastKept } from "../lib/emptyWeek.ts";
+import { hours, plural, span, time } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
 import { layout, routeFor } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
 import { quickAdd } from "../lib/quickadd.ts";
 import { isPlan, unanswered } from "../lib/today.ts";
-import type { CalEvent, Entity } from "../lib/types.ts";
-import { byDay, createWeekStart, SYNCED_DAYS_AHEAD, syncedUntil, weeksOn } from "../lib/week.ts";
+import type { CalEvent, CalendarSetup, Entity } from "../lib/types.ts";
+import { byDay, createWeekStart, syncedUntil, weeksOn } from "../lib/week.ts";
 import { type EventDraft, readEvent } from "../lib/when.ts";
 import { takeNotes } from "./Meeting.tsx";
 
@@ -41,23 +42,13 @@ const planned = (ev: EventDraft) =>
 /** A calendar's colour as Google gives it, or none if it isn't one ("#9fe1e7"). */
 const colour = (c: string | null | undefined) => (c && /^#[0-9a-f]{3,8}$/i.test(c) ? c : undefined);
 
-/** Past the last day Hearth keeps: where to look instead. */
-const pastKept = (until: Date) =>
-  `Hearth keeps your calendar ${SYNCED_DAYS_AHEAD} days ahead, to ${date(new Date(until.getTime() - 1))}. For later, open Google Calendar.`;
-
-/** A week with nothing on: past what Hearth keeps, Google not connected yet, or a free week. */
+/** A week with nothing on, in words that don't call it free when Hearth wouldn't know. */
 function NoEvents(props: { from: Date; until: Date }) {
-  const setup = useAction<{ accounts: unknown[] }>("calendar.calendars");
+  const setup = useAction<CalendarSetup>("calendar.calendars");
   return (
     <Show when={props.from < props.until} fallback={<Empty>{pastKept(props.until)}</Empty>}>
       <Show when={setup.data}>
-        {(s) => (
-          <Empty>
-            {s().accounts.length > 0
-              ? "Nothing on your calendar this week."
-              : "Google isn't connected yet. Connect it in Settings."}
-          </Empty>
-        )}
+        {(s) => <Empty>{emptyWeek(props.from, props.until, s())}</Empty>}
       </Show>
     </Show>
   );
