@@ -179,7 +179,6 @@ describe("saving a board whole", () => {
     edit((b) => b.nodes.push(card("b", "two")));
     await vi.advanceTimersByTimeAsync(700);
     expect(saver.problem()).toMatch(/can't reach Hearth/);
-    // Saving at once (a draft's Send): no version until Hearth has it.
     expect(await saver.flush()).toBeNull();
     down = false;
     await vi.advanceTimersByTimeAsync(2_000);

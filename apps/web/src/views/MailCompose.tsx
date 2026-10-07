@@ -146,13 +146,12 @@ export function Composer(props: { draft: MailDraft; conversation?: string; onDon
           "error",
         );
       const sent = await act<{ alreadySent?: boolean }>("mail.send", { id, version });
-      if (sent) {
-        // An earlier Send went out though Gmail didn't say so: that one stands, as it was then.
-        toast.show(
-          sent.alreadySent ? "It had already gone out, so it wasn't sent again." : "Sent.",
-        );
-        props.onDone?.();
-      }
+      // Not sent. If that's because it changed after the version you saw (Jarvis, another
+      // screen), the newer one shows now, to check before sending again.
+      if (!sent) return void saver.load();
+      // An earlier Send went out though Gmail didn't say so: that one stands, as it was then.
+      toast.show(sent.alreadySent ? "It had already gone out, so it wasn't sent again." : "Sent.");
+      props.onDone?.();
     } finally {
       setBusy(false);
     }

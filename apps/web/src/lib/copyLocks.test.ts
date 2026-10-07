@@ -78,6 +78,8 @@ let trashed = false;
 let forbid: string | null = null;
 /** While set, Hearth's answers to reads wait for it. */
 let late: Promise<void> | null = null;
+/** The page is closing: a request without keepalive (over 64 KB, say) is dropped, then the tab. */
+let closing = false;
 const reply = (body: unknown, status = 200) => Response.json(body, { status });
 
 beforeEach(() => {
@@ -88,6 +90,7 @@ beforeEach(() => {
   forbid = null;
   late = null;
   slow = null;
+  closing = false;
   feed.clear();
   kept.clear();
   held.clear();
@@ -100,6 +103,7 @@ beforeEach(() => {
   vi.stubGlobal("navigator", { locks });
   vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
     if (url.endsWith(".get") && late) await late;
+    if (closing && !init.keepalive) return new Promise<Response>(() => {});
     if (down) throw new TypeError("Failed to fetch");
     if (trashed) return reply({ status: "error", code: "not_found", message: "No such" }, 404);
     const input = JSON.parse(String(init.body));
@@ -216,6 +220,22 @@ describe("copies kept by other screens", () => {
     for (const fn of feed) fn(restore);
     await vi.advanceTimersByTimeAsync(0);
     expect(texts(server.data)).toEqual(["one", "P card"]);
+    expect(kept.size).toBe(0);
+  });
+
+  it("keeps what's too long to send as the page closes, and sends it at the next open", async () => {
+    const p = await board();
+    const long = "x".repeat(70_000);
+    p.edit(add(card("p", long)));
+    await vi.advanceTimersByTimeAsync(0);
+    closing = true;
+    window.dispatchEvent(new Event("pagehide"));
+    await vi.advanceTimersByTimeAsync(0);
+    held.clear();
+    closing = false;
+    await board();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(texts(server.data)).toEqual(["one", long]);
     expect(kept.size).toBe(0);
   });
 
