@@ -18,18 +18,17 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: ci-${{ github.ref }}
-  # A new push to a PR replaces its old run. A merge to the deploy branch waits for the run before
-  # it instead: cancelling a running Windows job can flash console windows on the owner's desktop,
-  # and runs still waiting are dropped anyway, so a batch of merges ends in one run on the tip.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 jobs:
   check:
     # Never a fork's code on the owner's PC.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, Linux, hearth-ci]
+    # Each job queues on its own, so a merge's Linux check never waits for the Windows job before it
+    # (which a busy PC can hold for an hour). A new push to a PR replaces its running check; a merge
+    # to the deploy branch waits for the one before it. Checks still waiting are dropped for newer.
+    concurrency:
+      group: ci-check-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     timeout-minutes: 30
     env:
       HEARTH_CI_DB: hearth_ci_${{ github.run_id }}_${{ github.run_attempt }}
@@ -193,6 +192,12 @@ jobs:
   windows:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, Windows, hearth-ci]
+    # A running Windows job is never cancelled by a newer push, on a PR or a merge: on the owner's
+    # desktop that can flash console windows. The newer one waits, and waiting ones are dropped
+    # for the newest, so a lane can push at any time.
+    concurrency:
+      group: ci-windows-${{ github.ref }}
+      cancel-in-progress: false
     # A busy PC took 33 min for the tests alone, and over 80 for the whole job (2026-10-07). Running
     # out of time cancels the job, and a cancelled job on the owner's desktop can flash console
     # windows, so leave plenty of room.

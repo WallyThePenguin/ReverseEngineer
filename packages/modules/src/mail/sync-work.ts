@@ -84,8 +84,13 @@ export async function bringIn(
     .filter(([, p]) => p.at <= now)
     .sort(([, a], [, b]) => a.at - b.at)
     .map(([id]) => id);
+  // Your accounts' addresses, read once for the batch (and again if that read fails).
   let mine: Promise<Set<string>> | undefined;
-  const yours = () => (mine ??= accountAddresses(ctx.tx));
+  const yours = () =>
+    (mine ??= accountAddresses(ctx.tx).catch((err: unknown) => {
+      mine = undefined;
+      throw err;
+    }));
   const one: One = { ctx, provider, account, c, work, doubts: [], yours };
   try {
     if (c.pending.length + c.relabel.length === 0) {
@@ -206,7 +211,7 @@ async function bringOne(one: One, id: string, quiet: boolean, done: () => void, 
     const mail = raw;
     try {
       // A message that won't save is undone on its own; the rest carry on (6.2).
-      saved = await savepoint(ctx, (sp) => saveMail(sp, account, mail));
+      saved = await savepoint(ctx, (sp) => saveMail(sp, account, mail, one.yours));
     } catch (err) {
       await park(one, id, quiet, err, false, again);
       return;

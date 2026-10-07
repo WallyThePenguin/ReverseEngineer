@@ -7,6 +7,7 @@ import { UpdateNotice } from "../components/UpdateNotice.tsx";
 import { Button } from "../components/ui.tsx";
 import { degraded } from "../lib/degraded.ts";
 import { backoff, live } from "../lib/live.ts";
+import { reloadPage } from "../lib/version.ts";
 import { tryAgain, ViewLoadError } from "./loadView.tsx";
 
 /**
@@ -80,7 +81,7 @@ export function Crashed(props: { error: unknown; reset: () => void }) {
       <Button kind="primary" onClick={props.reset}>
         Try again
       </Button>
-      <Button onClick={() => location.reload()}>Reload</Button>
+      <Button onClick={() => reloadPage()}>Reload</Button>
     </Centered>
   );
 }
@@ -119,7 +120,7 @@ export function PaneCrashed(props: { error: unknown; reset: () => void }) {
           <Button
             small
             kind={why() === "updated" ? "primary" : "plain"}
-            onClick={() => location.reload()}
+            onClick={() => reloadPage()}
           >
             Reload
           </Button>
