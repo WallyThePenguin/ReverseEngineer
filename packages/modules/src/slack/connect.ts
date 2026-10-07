@@ -2,12 +2,12 @@
 // keeps everything read in so far (D61): only disconnecting removes it.
 import { entity, slackBot, slackMessage, slackUser, slackWorkspace } from "@hearth/db";
 import { type ActionContext, ActionError, defineAction } from "@hearth/kernel";
-import { and, eq, inArray, ne, not, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, not } from "drizzle-orm";
 import { z } from "zod";
 import { closeAlerts } from "../connector-health.ts";
 import { SlackError } from "./api.ts";
 import { slackManifest, USER_SCOPES } from "./bot/manifest.ts";
-import { settleUnsent } from "./bot/not-sent.ts";
+import { settleUnsent, waitForTakeRounds } from "./bot/not-sent.ts";
 import { decidedAbout } from "./member/people.ts";
 import { sealToken, slackApi, type WorkspaceRow } from "./save.ts";
 
@@ -149,10 +149,7 @@ export const connectActions = [
     risk: "internal",
     callers: ["owner"],
     async handler(_i, ctx) {
-      // Not while a take round runs: it holds people's rows and then queues on the bot's, the
-      // other way round from here, so one of the two would fail.
-      await ctx.tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('slack_take'))`);
-      await ctx.tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('slack_take_owner'))`);
+      await waitForTakeRounds(ctx);
       const ws = await current(ctx);
       // Jarvis's bot goes too: what it hadn't sent is settled first, and you're told about each,
       // before its outbox goes with the workspace (D62).

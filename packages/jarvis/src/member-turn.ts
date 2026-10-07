@@ -298,11 +298,15 @@ export async function runMemberTurn(
         context: sql`${jarvisTurn.context} || ${JSON.stringify({ answeredAs: m.tier })}::jsonb`,
       })
       .where(eq(jarvisTurn.id, turnId));
-    const res = await kernel.execute(
-      REPLY_ACTION,
-      { text, to: user, channelId: thread.channelId, ...(threadTs ? { threadTs } : {}) },
-      caller(review),
-    );
+    const reply = () =>
+      kernel.execute(
+        REPLY_ACTION,
+        { text, to: user, channelId: thread.channelId, ...(threadTs ? { threadTs } : {}) },
+        caller(review),
+      );
+    let res = await reply();
+    // Picked as a deadlock's victim (a take round on the same rows): tried once more, not lost.
+    if (res.status === "error" && res.message.endsWith("(40P01)")) res = await reply();
     if (res.status === "ok") outcome = "act";
     else if (res.status === "pending_approval") {
       outcome = "ask";
@@ -324,7 +328,7 @@ export async function runMemberTurn(
   }
   if (!channel) {
     if (forget) await forgetSession(env, cid);
-    else if (result.sessionId) await keepIfUnchanged(env, cid, result.sessionId, had);
+    else if (result.sessionId) await keepIfUnchanged(env, cid, result.sessionId, had, now);
   }
   end.durationMs = Math.round(performance.now() - started);
   await recordEnd(env, end, {

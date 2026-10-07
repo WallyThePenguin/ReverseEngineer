@@ -137,8 +137,6 @@ export const replyAction = defineAction({
       conversationId: turn.conversationId,
       turnId: turn.id,
     });
-    // An older reply still waiting for your yes would go out after this one: it expires.
-    await expireHeldReplies(ctx.tx, thread.conversationId, ctx.caller.principal, ctx.now);
     // What it answers is settled: the take loop leaves it be.
     await ctx.tx
       .update(slackInbound)
@@ -146,6 +144,9 @@ export const replyAction = defineAction({
       .where(
         and(eq(slackInbound.turnId, turn.id), inArray(slackInbound.outcome, ["claimed", "held"])),
       );
+    // An older reply still waiting for your yes would go out after this one: it expires. Last,
+    // since that takes the event log's lock, which comes after every other.
+    await expireHeldReplies(ctx.tx, thread.conversationId, ctx.caller.principal, ctx.now);
     return { queued: true, id: row.id, ...(created ? {} : { alreadyQueued: true }) };
   },
 });
