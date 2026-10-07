@@ -38,6 +38,7 @@ const BY_MODULE: Record<string, Rule> = {
   slack: ["slack."],
   github: ["github."],
   notion: ["notion."],
+  data: ["data."],
   voice: ["dictation.", "dictionary.", "voice.", "snippet."],
   meeting: ["meeting."],
   // A schedule firing moves a routine's "last ran".

@@ -10,6 +10,7 @@ import { setPaused } from "../lib/pause.ts";
 import { act, useAction } from "../lib/query.ts";
 import type { StandingRule, SystemStatus } from "../lib/types.ts";
 import { ChromeSettings } from "./ChromeSettings.tsx";
+import { DataSettings } from "./DataSettings.tsx";
 import { DesktopSettings } from "./DesktopSettings.tsx";
 import { GithubSettings } from "./GithubSettings.tsx";
 import { GoogleSettings } from "./GoogleSettings.tsx";
@@ -137,6 +138,9 @@ export function Settings() {
         </Anchor>
         <Anchor id="notion">
           <NotionSettings />
+        </Anchor>
+        <Anchor id="data">
+          <DataSettings />
         </Anchor>
         <Anchor id="import">
           <ImportSettings />
