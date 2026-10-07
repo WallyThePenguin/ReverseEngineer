@@ -2,7 +2,7 @@
 // calendar directly and asking before anything guests would see, prep packets each morning,
 // conflict warnings, and time blocks for big tasks (PLAN.md sections 6.1, 6.2 and 8.2).
 import { formatTime, localDate } from "@hearth/core";
-import { calendar, calendarEvent, entity, googleAccount } from "@hearth/db";
+import { calendar, calendarEvent, entity, googleAccount, link } from "@hearth/db";
 import {
   type DigestItem,
   defineAction,
@@ -333,8 +333,16 @@ export const calendarModule = defineModule({
         outside: entity.outside,
       })
       .from(entity)
+      .innerJoin(link, eq(link.fromId, entity.id))
+      .innerJoin(calendarEvent, eq(calendarEvent.entityId, link.toId))
       .where(
-        and(eq(entity.type, "prep"), isNull(entity.deletedAt), gte(entity.createdAt, ctx.since)),
+        and(
+          eq(entity.type, "prep"),
+          isNull(entity.deletedAt),
+          gte(entity.createdAt, ctx.since),
+          // A meeting cancelled since has nothing to get ready for.
+          ne(calendarEvent.status, "cancelled"),
+        ),
       )
       .limit(20);
     for (const p of preps)
