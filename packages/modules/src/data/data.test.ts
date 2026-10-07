@@ -68,7 +68,7 @@ describe("connecting a Convex deployment", () => {
     const [logged] = await t.tdb.db.select().from(audit).where(eq(audit.action, "data.connect"));
     expect(JSON.stringify(logged?.input)).not.toContain("eyJ0");
     expect(await ok("data.sources", {}, jarvis)).toEqual([
-      { id, label: "Shop", kind: "convex", address: convex.address },
+      { id, label: "Shop", kind: "convex", address: convex.address, mode: "read" },
     ]);
     const [status] = await ok<Record<string, unknown>[]>("data.status", {});
     expect(status).not.toHaveProperty("secret");
@@ -220,8 +220,9 @@ describe("reading a Convex deployment", () => {
     const { id } = await connect();
     const fns = await ok<{ functions: unknown[] }>("data.functions", { source: id }, jarvis);
     expect(fns.functions).toEqual([
-      { path: "orders:byCustomer", visibility: "public", args: { type: "object" } },
-      { path: "admin/stats:totals", visibility: "internal", args: undefined },
+      // The mutation isn't listed: this source is read-only.
+      { path: "orders:byCustomer", type: "query", visibility: "public", args: { type: "object" } },
+      { path: "admin/stats:totals", type: "query", visibility: "internal", args: undefined },
     ]);
     const r = await ok<{ value: unknown }>(
       "data.query",
