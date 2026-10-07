@@ -1,8 +1,9 @@
 // Removing a passkey: it stops signing in, wherever it worked, and Hearth's own address always
 // keeps one.
 import { credential } from "@hearth/db";
-import { isNull, sql } from "drizzle-orm";
+import { eq, isNull, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { SESSION_COOKIE } from "./auth/middleware.ts";
 import { SoftAuthenticator } from "./testing/authenticator.ts";
 import { passkeyRig, TS_NET } from "./testing/passkeys.ts";
 import { createTestServer, type TestServer } from "./testing/server.ts";
@@ -13,17 +14,8 @@ beforeEach(async () => {
 });
 afterEach(() => t.destroy());
 
-const {
-  browser,
-  window,
-  options,
-  me,
-  windowSessions,
-  connect,
-  firstPasskey,
-  windowPasskey,
-  signInWindow,
-} = passkeyRig(() => t);
+const { browser, window, options, me, windowSessions, connect, firstPasskey, windowPasskey } =
+  passkeyRig(() => t);
 
 /** Until this many of the test database's queries wait on a lock. */
 async function waitingOnLocks(n: number) {
@@ -78,9 +70,9 @@ describe("removing a passkey", () => {
     expect(((await last.json()) as { error: string }).error).toContain("pc.example.ts.net");
     expect((await list()).map((p) => p.label)).toEqual(["Laptop"]);
 
-    t.cookies.clear();
+    t.cookies.delete(SESSION_COOKIE);
     expect((await remove(ofPhone!.id)).status).toBe(401);
-    expect((await signIn(phone)).status).not.toBe(200);
+    expect((await signIn(phone)).status).toBe(401);
     expect((await signIn(laptop)).status).toBe(200);
   });
 
@@ -106,8 +98,31 @@ describe("removing a passkey", () => {
     expect(both.map((r) => r.status).sort()).toEqual([200, 409]);
     const left = await list();
     expect(left).toHaveLength(1);
-    t.cookies.clear();
+    t.cookies.delete(SESSION_COOKIE);
     expect((await signIn(left[0]!.label === "Laptop" ? laptop : phone)).status).toBe(200);
+  });
+
+  it("stops a sign-in that was under way when it was removed", async () => {
+    await firstPasskey();
+    const phone = new SoftAuthenticator(TS_NET);
+    const opts = await options(browser("/api/auth/register/options", { method: "POST", json: {} }));
+    await browser("/api/auth/register/verify", {
+      method: "POST",
+      json: { response: phone.register(opts), label: "Phone" },
+    });
+    const [, ofPhone] = await list();
+    t.cookies.delete(SESSION_COOKIE);
+
+    // The phone's sign-in has checked the passkey when Remove (from another device) deletes it.
+    let signingIn!: Promise<Response>;
+    await t.kernel.db.transaction(async (tx) => {
+      await tx.select().from(credential).where(eq(credential.id, ofPhone!.id)).for("update");
+      signingIn = signIn(phone);
+      await waitingOnLocks(1);
+      await tx.delete(credential).where(eq(credential.id, ofPhone!.id));
+    });
+    expect((await signingIn).status).toBe(401);
+    expect(await me(browser)).toMatchObject({ signedIn: false });
   });
 
   it("stops the window signing in with Windows Hello, even with a challenge asked before", async () => {
@@ -119,13 +134,16 @@ describe("removing a passkey", () => {
     const asked = await options(window("/api/auth/login/options", { method: "POST" }));
     expect((await remove(ofWindow!.id)).status).toBe(200);
 
-    t.cookies.clear();
+    t.cookies.delete(SESSION_COOKIE);
     const late = await window("/api/auth/login/verify", {
       method: "POST",
       json: { response: hello.login(asked) },
     });
-    expect(late.status).not.toBe(200);
-    expect((await signInWindow(hello)).status).not.toBe(200);
+    expect(late.status).toBe(401);
+    // Nor can it start again: the window has no passkey to ask for.
+    const again = await window("/api/auth/login/options", { method: "POST" });
+    expect(again.status).toBe(409);
+    expect(((await again.json()) as { error: string }).error).toContain("no passkey yet");
     expect(await windowSessions()).toHaveLength(0);
     expect(await me()).toMatchObject({ signedIn: false });
   });

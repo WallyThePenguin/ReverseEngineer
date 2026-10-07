@@ -120,7 +120,7 @@ export function PasskeySettings() {
                         <Button
                           small
                           kind="danger"
-                          label={`Remove ${named(p)}`}
+                          label={`Remove ${named(p)}, added ${date(new Date(p.createdAt))}`}
                           onClick={() => void remove(p)}
                         >
                           Remove
