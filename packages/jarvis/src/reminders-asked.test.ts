@@ -6,7 +6,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JARVIS_ENTITY_ID, renderMention } from "@hearth/core";
-import { jarvisTurn, schedule } from "@hearth/db";
+import { approval, jarvisTurn, notification, schedule } from "@hearth/db";
 import { type Caller, integrationCaller, ownerCaller } from "@hearth/kernel";
 import {
   BLOB_SERVICE,
@@ -131,6 +131,19 @@ describe("a reminder set in a turn you started", () => {
     expect((await made()).filter((r) => r.asked === false)).toHaveLength(OUTSIDE_REMINDERS.each);
   });
 
+  it("says, when it rings, that you said it aloud, not that an email was read", async () => {
+    await chat("remind me at 3 to pay the bill", SET_ALL.slice(0, 1), { heard: true });
+    h.clock.set("2026-10-01T19:00:30Z");
+    await h.settle();
+    const rang = await h.tdb.db
+      .select()
+      .from(notification)
+      .where(eq(notification.kind, "reminder"));
+    expect(rang.map((n) => n.body)).toEqual([
+      "You asked for this aloud rather than typed it, so it can't wake you.",
+    ]);
+  });
+
   it("is capped when a paired device sent the words on its own", async () => {
     await chat("remind me at 3", SET_ALL, {
       heard: true,
@@ -146,6 +159,52 @@ describe("a reminder set in a turn you started", () => {
     await h.settle();
     h.clock.advance(MENTION_SETTLE_MS);
     await h.settle();
+    expect(await made()).toEqual(Array(OUTSIDE_REMINDERS.each).fill(capped));
+  });
+});
+
+describe("a reminder set by a routine", () => {
+  it("is capped on a later run, once an earlier one read an email", async () => {
+    await ok("routine.create", {
+      title: "Mail",
+      instructions: "Go through my email.",
+      when: { every: "day", at: "10:30" },
+    });
+    h.brain.next([read(), { say: "Read it." }]);
+    h.clock.set("2026-10-01T14:30:30Z");
+    await h.settle();
+    expect(h.brain.requests.at(-1)?.prompt).toContain("Go through my email.");
+    // The next morning's own runs (the brief) go first.
+    h.clock.set("2026-10-02T13:00:00Z");
+    await h.settle();
+    // The next run resumes that session, the email still in it, and sets them before reading.
+    h.brain.next([...(SET_ALL as never[]), { say: "Done." }]);
+    h.clock.set("2026-10-02T14:30:30Z");
+    await h.settle();
+    expect(h.brain.requests.at(-1)?.prompt).toContain("Go through my email.");
+    expect(await made()).toEqual(Array(OUTSIDE_REMINDERS.each).fill(capped));
+  });
+});
+
+describe("a reminder set after you say yes to something", () => {
+  it("is capped when the conversation read an email after asking you", async () => {
+    const note = await ok<{ id: string }>("note.create", { title: "Old draft" });
+    // It asks first, while still yours, then reads the email.
+    await chat("trash the old draft, then go through my email", [
+      { call: "entity_trash", input: { id: note.id } },
+      read(),
+    ]);
+    const [pending] = await h.tdb.db.select().from(approval).where(eq(approval.status, "pending"));
+    expect(pending).toMatchObject({ action: "entity.trash", origin: "owner" });
+    // Your yes picks the conversation up again, the email still in it.
+    h.brain.next([...(SET_ALL as never[]), { say: "Done." }]);
+    await h.kernel.decideApproval(pending!.id, "approve", ownerCaller());
+    await h.settle();
+    const [resumed] = await h.tdb.db
+      .select()
+      .from(jarvisTurn)
+      .where(eq(jarvisTurn.trigger, "approval"));
+    expect(resumed).toMatchObject({ status: "done", origin: "owner" });
     expect(await made()).toEqual(Array(OUTSIDE_REMINDERS.each).fill(capped));
   });
 });

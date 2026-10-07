@@ -29,7 +29,8 @@ const BY_MODULE: Record<string, Rule> = {
   // A Slack member's conversation growing shows on the Slack screens too (D62).
   conversation: ["conversation.", "jarvis.activity", "slack.conversation", "slack.conversations"],
   chat: ["conversation.", "jarvis.activity"],
-  jarvis: ["jarvis.", "observation.list", "system.status", "conversation."],
+  // A turn that ended may have set or cancelled a reminder, which says nothing of its own.
+  jarvis: ["jarvis.", "observation.list", "system.status", "conversation.", "reminder.list"],
   system: ["system.status"],
   memory: ["memory."],
   page_watch: ["page_watch."],

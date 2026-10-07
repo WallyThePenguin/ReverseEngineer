@@ -23,8 +23,6 @@ import { SignInSettings } from "./SignInSettings.tsx";
 import { SlackSettings } from "./SlackSettings.tsx";
 
 const TONE = { ok: "ok", degraded: "warn", failing: "bad" } as const;
-/** A reminder's schedule: Coming up lists those apart, every one of them (ReminderSettings). */
-const isReminder = (s: { id: string }) => s.id.startsWith("reminder:");
 /** Health components by a name you'd use; any other goes by its own. */
 const PART: Record<string, string> = {
   "sync.google": "Google",
@@ -181,7 +179,7 @@ export function Settings() {
           <section class="space-y-2">
             <h2 class="font-semibold">Coming up</h2>
             <ul class="space-y-1 text-sm">
-              <For each={(status.data?.schedules ?? []).filter((s) => !isReminder(s))}>
+              <For each={status.data?.schedules ?? []}>
                 {(s) => (
                   <li class="flex gap-3">
                     <Show

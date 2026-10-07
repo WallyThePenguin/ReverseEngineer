@@ -14,7 +14,7 @@ import {
   getSetting,
   setSetting,
 } from "@hearth/kernel";
-import { and, asc, count, eq, isNotNull, isNull, like, ne, sql } from "drizzle-orm";
+import { and, asc, count, eq, isNotNull, isNull, like, ne } from "drizzle-orm";
 import { z } from "zod";
 import { alertBackupFailed, alertFailing } from "./alerts.ts";
 import { judgeHealth } from "./staleness.ts";
@@ -86,23 +86,13 @@ export const systemModule = defineModule({
         const schedules = await ctx.tx
           .select({
             id: schedule.id,
-            // A reminder says what it's for, not its id. One set after reading outside content
-            // says only who it was for, and still marks the result as holding outside content.
-            label: sql<string | null>`CASE WHEN ${schedule.kind} <> 'reminder' THEN NULL
-              WHEN ${schedule.payload}->>'vouched' = 'false'
-                AND ${schedule.payload}->>'asked' = 'true'
-              THEN 'Reminder you asked for'
-              WHEN ${schedule.payload}->>'vouched' = 'false'
-              THEN 'Reminder (set from an email or a message)'
-              ELSE 'Reminder: ' || (${schedule.payload}->>'text') END`,
-            outside: sql<boolean>`${schedule.kind} = 'reminder'
-              AND ${schedule.payload}->>'vouched' = 'false'`,
             nextRunAt: schedule.nextRunAt,
             lastRunAt: schedule.lastRunAt,
             lastOutcome: schedule.lastOutcome,
           })
           .from(schedule)
-          .where(isNotNull(schedule.nextRunAt))
+          // Reminders have their own list; 20 near ones would crowd out the routines.
+          .where(and(isNotNull(schedule.nextRunAt), ne(schedule.kind, "reminder")))
           .orderBy(asc(schedule.nextRunAt))
           .limit(20);
         return {

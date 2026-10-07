@@ -219,13 +219,14 @@ describe("a reminder, otherwise", () => {
     const fromMail = jarvisCaller("untrusted", { conversationId: newId() });
     const mine = await remind({ text: "Call Sam", at: "15:00" });
     const planted = await remind({ text: "Pay the invoice", at: "16:00" }, fromMail);
-    const status = await h.kernel.execute<{ schedules: { label?: string | null }[] }>(
+    // Hearth's status leaves them to their own list.
+    const status = await h.kernel.execute<{ schedules: { id: string }[] }>(
       "system.status",
       {},
       ownerCaller(),
     );
-    expect(status.status === "ok" && status.result.schedules.map((s) => s.label)).toContain(
-      "Reminder: Call Sam",
+    expect(status.status === "ok" && status.result.schedules.map((s) => s.id)).not.toContain(
+      `reminder:${mine.id}`,
     );
     const list = await h.kernel.execute<{ id: string }[]>("reminder.list", {}, ownerCaller());
     expect(list).toMatchObject({

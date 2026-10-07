@@ -48,19 +48,18 @@ describe("a reminder outside content set, read back", () => {
     expect(await taintedBy("reminder_list")).toBe(true);
   });
 
-  it("makes your turn untrusted when it reads Hearth's status, which doesn't repeat it", async () => {
+  it("isn't in Hearth's status, so reading that leaves your turn as it was", async () => {
     await remind({ text: "Call Sam", at: "15:00" });
     await plant();
-    const status = await h.kernel.execute<{
-      schedules: { label?: string | null; outside?: boolean }[];
-    }>("system.status", {}, ownerCaller());
+    const status = await h.kernel.execute<{ schedules: { id: string }[] }>(
+      "system.status",
+      {},
+      ownerCaller(),
+    );
     if (status.status !== "ok") throw new Error(JSON.stringify(status));
-    expect(status.result.schedules.filter((s) => s.label)).toMatchObject([
-      { label: "Reminder: Call Sam", outside: false },
-      { label: "Reminder (set from an email or a message)", outside: true },
-    ]);
+    expect(status.result.schedules.filter((s) => s.id.startsWith("reminder:"))).toEqual([]);
     expect(JSON.stringify(status.result)).not.toContain("pay.example");
-    expect(await taintedBy("system_status")).toBe(true);
+    expect(await taintedBy("system_status")).toBe(false);
   });
 
   it("leaves your turn trusted when every reminder is yours", async () => {
@@ -136,17 +135,8 @@ describe("the cap on what outside content sets", () => {
 });
 
 describe("one you asked for in a conversation that read an email", () => {
-  it("says so, and still doesn't show its words, which Jarvis wrote after reading it", async () => {
+  it("is listed as yours, and still as set after reading outside content", async () => {
     await remind({ text: "Pay https://pay.example", at: "15:00" }, asking());
-    const status = await h.kernel.execute<{ schedules: { label?: string | null }[] }>(
-      "system.status",
-      {},
-      ownerCaller(),
-    );
-    if (status.status !== "ok") throw new Error(JSON.stringify(status));
-    expect(status.result.schedules.filter((s) => s.label)).toMatchObject([
-      { label: "Reminder you asked for" },
-    ]);
     const list = await h.kernel.execute("reminder.list", {}, ownerCaller());
     expect(list).toMatchObject({ result: [{ asked: true, setAfterOutsideContent: true }] });
   });

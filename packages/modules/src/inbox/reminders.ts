@@ -207,6 +207,7 @@ export const reminderActions = [
       const vouched = vouchesForDeadline(ctx.caller);
       const from = ctx.caller.conversationId ?? ctx.caller.turnId ?? null;
       const asked = !vouched && ownerAsked(ctx);
+      const heard = asked && ctx.caller.heard === true;
       if (!vouched && !asked) await roomOutside(ctx, from);
       const id = newId();
       const { principal: by, origin } = ctx.caller;
@@ -217,7 +218,16 @@ export const reminderActions = [
           kind: "reminder",
           runAt: at,
           timeZone,
-          payload: { reminder: id, text, vouched, by, origin, from, asked },
+          payload: {
+            reminder: id,
+            text,
+            vouched,
+            by,
+            origin,
+            from,
+            asked,
+            ...(heard ? { heard } : {}),
+          },
         },
         ctx.now,
       );
@@ -225,7 +235,9 @@ export const reminderActions = [
       if (vouched) return { id, at: at.toISOString(), when };
       // Said in the chat line, so you know why it won't ring when you asked.
       const morning = formatTime(nextLocalTime(at, rules.quietEnd, timeZone), timeZone);
-      const why = "this conversation read an email or a message, so it can't wake you";
+      const why = heard
+        ? "you said it aloud rather than typed it, so it can't wake you"
+        : "this conversation read an email or a message, so it can't wake you";
       return {
         id,
         at: at.toISOString(),
@@ -319,9 +331,11 @@ export const ringReminder: ReflexDef = {
         : []),
       ...(p.vouched !== true
         ? [
-            p.asked === true
-              ? "You asked for this in a conversation that had read an email or a message, so it can't wake you."
-              : "Jarvis set this after reading an email or a message, so it can't wake you.",
+            p.asked !== true
+              ? "Jarvis set this after reading an email or a message, so it can't wake you."
+              : p.heard === true
+                ? "You asked for this aloud rather than typed it, so it can't wake you."
+                : "You asked for this in a conversation that had read an email or a message, so it can't wake you.",
           ]
         : p.by === PRINCIPAL.jarvis && p.origin !== "owner"
           ? ["Jarvis set this."]
