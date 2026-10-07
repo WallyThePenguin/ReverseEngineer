@@ -1,6 +1,7 @@
 // Data connectors (D73): outside data Jarvis may read, connected in Settings with a key you give
 // Hearth, a Convex deployment first. What comes back is outside content, as an email is: it makes
-// the rest of Jarvis's turn untrusted, so anything outward after it asks you first.
+// the rest of Jarvis's turn untrusted, so anything outward after it asks you first. A source you
+// allow it can also be changed, each change on your yes (change.ts).
 import { dataSource } from "@hearth/db";
 import {
   type ActionContext,
@@ -11,48 +12,30 @@ import {
 } from "@hearth/kernel";
 import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
-import { VAULT_SERVICE, type Vault } from "../browser/vault.ts";
 import { capValue } from "./cap.ts";
+import { changeActions } from "./change.ts";
+import { ConvexError, deploymentAddress, deploymentName, describeKey } from "./convex.ts";
 import {
-  CONVEX_SERVICE,
-  type ConvexApi,
-  ConvexError,
-  deploymentAddress,
-  deploymentName,
-  describeKey,
-  LIMITS,
-  type Limits,
-} from "./convex.ts";
+  convex,
+  functionArgs,
+  functionPath,
+  keyOf,
+  limits,
+  type Raw,
+  type Source,
+  said,
+  seal,
+  source,
+  sourceId,
+} from "./shared.ts";
 
 export { CONVEX_SERVICE, type ConvexApi, FakeConvex, httpConvex } from "./convex.ts";
+export { limits } from "./shared.ts";
 
-type Source = typeof dataSource.$inferSelect;
-type Raw = Record<string, unknown>;
-
-/** How much comes back from a source: smaller in tests. */
-export const limits: Limits = { ...LIMITS };
 /** The most documents one call reads. */
 const PAGE = 100;
 /** The most tables listed. */
 const TABLES = 500;
-
-const convex = (ctx: Pick<ActionContext, "service">) => ctx.service<ConvexApi>(CONVEX_SERVICE);
-const seal = (ctx: Pick<ActionContext, "service">, id: string, key: string) =>
-  ctx.service<Vault>(VAULT_SERVICE).seal("data", id, key);
-const keyOf = (ctx: Pick<ActionContext, "service">, s: Source) =>
-  ctx.service<Vault>(VAULT_SERVICE).open("data", s.id, s.secret);
-
-async function source(ctx: ActionContext, id: string): Promise<Source> {
-  const [s] = await ctx.tx.select().from(dataSource).where(eq(dataSource.id, id));
-  if (!s) throw new ActionError("not_found", "There's no data source with that id (data.sources).");
-  return s;
-}
-
-/** Convex's words as an error you can act on. */
-const said = (err: unknown): never => {
-  if (!(err instanceof ConvexError)) throw err;
-  throw new ActionError(err.kind === "unreachable" ? "unavailable" : "failed", err.message);
-};
 
 /** Runs one of the source's queries with its key. */
 async function ask(ctx: ActionContext, s: Source, path: string, args: Raw): Promise<unknown> {
@@ -132,28 +115,16 @@ async function listTables(ctx: ActionContext, s: Source) {
   return names.map((name) => ({ name, shape: declared.get(name) ?? null }));
 }
 
-const sourceId = z.string().uuid();
-/** A function of the deployment's own: "messages:list", "admin/users:byEmail". */
-const functionPath = z
-  .string()
-  .trim()
-  .min(1)
-  .max(200)
-  .regex(
-    /^[A-Za-z0-9][\w\-./]*(:[A-Za-z_$][\w$]*)?$/,
-    "A function's path is its file and name, like messages:list.",
-  )
-  .refine((p) => !p.includes(".."), "A function's path is its file and name, like messages:list.");
-
 export const dataModule: HearthModule = {
   name: "data",
-  description: "Outside data Jarvis can read when asked: a Convex deployment, with its key.",
+  description:
+    "Outside data Jarvis can read when asked, and change with your yes where you allow it: a Convex deployment, with its key.",
   entityTypes: [],
   events: [
     {
       kind: "data.source_changed",
       description:
-        "A data source was connected, checked or removed. Payload: sourceId, label, change.",
+        "A data source was connected, checked, removed, or allowed changes or not. Payload: sourceId, label, change (connected, checked, removed, read, approve_writes).",
     },
   ],
   knowledge: {},
@@ -268,7 +239,7 @@ export const dataModule: HearthModule = {
     defineAction({
       name: "data.sources",
       description:
-        "The outside data you can read: id, your name for each, its kind and address. Read one with data.tables, data.documents, data.functions and data.query.",
+        "The outside data you can read: id, your name for each, its kind and address, and its mode (read, or approve_writes where data.change may ask you to change it). Read one with data.tables, data.documents, data.functions and data.query.",
       input: z.object({}),
       risk: "read",
       async handler(_i, ctx) {
@@ -278,6 +249,7 @@ export const dataModule: HearthModule = {
             label: dataSource.label,
             kind: dataSource.kind,
             address: dataSource.address,
+            mode: dataSource.mode,
           })
           .from(dataSource)
           .orderBy(asc(dataSource.label));
@@ -351,7 +323,7 @@ export const dataModule: HearthModule = {
     defineAction({
       name: "data.functions",
       description:
-        "A data source's query functions, which data.query runs: each one's path and the args it takes.",
+        "A data source's functions: its queries, which data.query runs, and on a source that allows changes its mutations and actions, which data.change runs with your yes. Each with its path, type and the args it takes.",
       input: z.object({ source: sourceId }),
       risk: "read",
       external: true,
@@ -359,11 +331,12 @@ export const dataModule: HearthModule = {
       async handler(i, ctx) {
         const s = await source(ctx, i.source);
         const spec = await ask(ctx, s, "_system/cli/modules:apiSpec", {});
-        const queries = (Array.isArray(spec) ? spec : [])
+        // A read-only source's changes aren't Jarvis's to know of.
+        const kinds = s.mode === "approve_writes" ? ["query", "mutation", "action"] : ["query"];
+        const fns = (Array.isArray(spec) ? spec : [])
           .map(readSpec)
-          .filter((f) => f.type === "query" && f.path)
-          .map(({ type: _type, ...f }) => f);
-        const out = capValue(queries, limits);
+          .filter((f) => kinds.includes(f.type) && f.path);
+        const out = capValue(fns, limits);
         return { source: s.label, functions: out.value, truncated: out.truncated, outside: true };
       },
     }),
@@ -374,10 +347,7 @@ export const dataModule: HearthModule = {
       input: z.object({
         source: sourceId,
         path: functionPath,
-        args: z
-          .record(z.string(), z.unknown())
-          .default({})
-          .refine((a) => JSON.stringify(a).length <= 20_000, "The args are too long."),
+        args: functionArgs,
       }),
       risk: "read",
       external: true,
@@ -388,5 +358,6 @@ export const dataModule: HearthModule = {
         return { source: s.label, value: out.value, truncated: out.truncated, outside: true };
       },
     }),
+    ...changeActions,
   ],
 };

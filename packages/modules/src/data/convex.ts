@@ -1,14 +1,26 @@
 // Convex for data connectors (D73): a deployment's HTTP API, with plain fetch and the deploy key
-// you give Hearth. Only reads go through here: queries, which Convex runs read-only whatever
-// they're written to do (/api/query won't run a mutation or an action), and the tables' shapes.
+// you give Hearth. Reads are queries, which Convex runs read-only whatever they're written to do
+// (/api/query won't run a mutation or an action), and the tables' shapes. Changes are mutations
+// and actions, which only data.change makes, each with your yes.
 
 export const CONVEX_SERVICE = "convex";
+
+/** What changes a deployment: a mutation (its own data) or an action (which can reach anywhere). */
+export type ChangeKind = "mutation" | "action";
 
 export interface ConvexApi {
   /** Runs one of the deployment's query functions with its args, and gives back its value. */
   query(
     address: string,
     key: string,
+    path: string,
+    args: Record<string, unknown>,
+  ): Promise<unknown>;
+  /** Runs one of its mutations or actions with its args, and gives back its value. */
+  change(
+    address: string,
+    key: string,
+    kind: ChangeKind,
     path: string,
     args: Record<string, unknown>,
   ): Promise<unknown>;
@@ -167,25 +179,28 @@ export function httpConvex(limits: Limits = LIMITS): ConvexApi {
         return null;
       }
     },
-    async query(address, key, path, args) {
-      const { res, text } = await send(`${address}/api/query`, key, { path, args, format: "json" });
-      let body: Raw | null = null;
-      try {
-        body = JSON.parse(text) as Raw;
-      } catch {}
-      if (body?.status === "success") return body.value ?? null;
-      if (body?.status === "error")
-        throw new ConvexError("failed", String(body.errorMessage ?? "The function failed."));
-      if (res.status === 401 || res.status === 403)
-        throw new ConvexError("refused", "Convex doesn't accept this key for that deployment.");
-      if (res.status === 404)
-        throw new ConvexError("failed", "There's no Convex deployment at that URL.");
-      if (res.status >= 500 || res.status === 429)
-        throw new ConvexError("unreachable", `Convex answered ${res.status}. Try again soon.`);
-      const said = typeof body?.message === "string" ? `: ${body.message}` : ".";
-      throw new ConvexError("failed", `Convex answered ${res.status}${said}`);
-    },
+    query: (address, key, path, args) => call(`${address}/api/query`, key, path, args),
+    change: (address, key, kind, path, args) => call(`${address}/api/${kind}`, key, path, args),
   };
+  /** Runs a function at one of Convex's endpoints, with its answer in Hearth's words. */
+  async function call(url: string, key: string, path: string, args: Record<string, unknown>) {
+    const { res, text } = await send(url, key, { path, args, format: "json" });
+    let body: Raw | null = null;
+    try {
+      body = JSON.parse(text) as Raw;
+    } catch {}
+    if (body?.status === "success") return body.value ?? null;
+    if (body?.status === "error")
+      throw new ConvexError("failed", String(body.errorMessage ?? "The function failed."));
+    if (res.status === 401 || res.status === 403)
+      throw new ConvexError("refused", "Convex doesn't accept this key for that deployment.");
+    if (res.status === 404)
+      throw new ConvexError("failed", "There's no Convex deployment at that URL.");
+    if (res.status >= 500 || res.status === 429)
+      throw new ConvexError("unreachable", `Convex answered ${res.status}. Try again soon.`);
+    const said = typeof body?.message === "string" ? `: ${body.message}` : ".";
+    throw new ConvexError("failed", `Convex answered ${res.status}${said}`);
+  }
 }
 
 /** One table in a FakeConvex: its documents, oldest first, and its declared shape, if any. */
@@ -203,23 +218,41 @@ export class FakeConvex {
   functions: Raw[] = [];
   /** The deployment's own queries, by path. */
   queries = new Map<string, (args: Record<string, unknown>) => unknown>();
+  /** Its mutations and actions, by path. */
+  changes = new Map<
+    string,
+    { kind: ChangeKind; run: (args: Record<string, unknown>) => unknown }
+  >();
   /** What the streaming export sends back, on a deployment that has one. */
   exported: Record<string, unknown> | null = null;
   /** Set to have every call fail with it (Convex unreachable, say). */
   failWith: ConvexError | null = null;
-  calls: { path: string; args: Record<string, unknown> }[] = [];
+  calls: { path: string; args: Record<string, unknown>; kind?: ChangeKind }[] = [];
 
   api(): ConvexApi {
+    const reach = (address: string, key: string) => {
+      if (this.failWith) throw this.failWith;
+      if (address !== this.address)
+        throw new ConvexError("failed", "There's no Convex deployment at that URL.");
+      if (key !== this.key)
+        throw new ConvexError("refused", "Convex doesn't accept this key for that deployment.");
+    };
+    // JSON there and back, as the wire would.
+    const wire = (v: unknown) => JSON.parse(JSON.stringify(v ?? null)) as unknown;
     return {
       query: async (address, key, path, args) => {
         this.calls.push({ path, args });
-        if (this.failWith) throw this.failWith;
-        if (address !== this.address)
-          throw new ConvexError("failed", "There's no Convex deployment at that URL.");
-        if (key !== this.key)
-          throw new ConvexError("refused", "Convex doesn't accept this key for that deployment.");
-        // JSON there and back, as the wire would.
-        return JSON.parse(JSON.stringify(this.run(path, args) ?? null)) as unknown;
+        reach(address, key);
+        return wire(this.run(path, args));
+      },
+      change: async (address, key, kind, path, args) => {
+        this.calls.push({ path, args, kind });
+        reach(address, key);
+        const fn = this.changes.get(path);
+        // Convex's own words for a function called at the wrong endpoint.
+        if (!fn || fn.kind !== kind)
+          throw new ConvexError("failed", `Could not find public function for '${path}'.`);
+        return wire(fn.run(args));
       },
       shapes: async (address, key) =>
         address === this.address && key === this.key && !this.failWith ? this.exported : null,

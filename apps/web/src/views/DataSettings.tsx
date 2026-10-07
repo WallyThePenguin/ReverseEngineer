@@ -1,11 +1,13 @@
 // Settings for data connectors (D73): a Convex deployment Jarvis may read when asked, with a deploy
 // key you give Hearth, sealed. A deploy key is an admin key there, so a dev or preview one is the
-// better choice; what Jarvis reads counts as outside content.
+// better choice; what Jarvis reads counts as outside content. A source you allow it Jarvis may
+// also ask to change, each change on your yes.
 
 import { createSignal, For, Show } from "solid-js";
 import { Button } from "../components/ui.tsx";
 import { ago } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
+import { orBack } from "../lib/orBack.ts";
 import { act, useAction } from "../lib/query.ts";
 
 interface Source {
@@ -14,6 +16,8 @@ interface Source {
   address: string;
   /** "production deploy key", "development deploy key"… */
   keyKind: string;
+  /** Whether Jarvis may ask to change it, each change on your yes. */
+  mode: "read" | "approve_writes";
   checkedAt: string | null;
   /** What keeps Hearth from reading it, in Convex's words or Hearth's. */
   lastError: string | null;
@@ -48,6 +52,23 @@ export function DataSettings() {
     const r = await act<{ ok: boolean; problem: string | null }>("data.check", { source: s.id });
     if (r) toast.show(r.ok ? `${s.label}'s key works.` : `${s.label}: ${r.problem}`);
   };
+  const allow = (box: HTMLInputElement, s: Source) => {
+    const on = box.checked;
+    if (on && s.keyKind.startsWith("production")) {
+      const sure = confirm(
+        `${s.label} is a production deployment. Jarvis will still ask before each change, showing exactly what it would run. Allow it to ask?`,
+      );
+      if (!sure) {
+        box.checked = false;
+        return;
+      }
+    }
+    void orBack(
+      box,
+      act("data.set_mode", { source: s.id, mode: on ? "approve_writes" : "read" }),
+      () => s.mode === "approve_writes",
+    );
+  };
   const forget = async (s: Source) => {
     if (!confirm(`Forget ${s.label}? Jarvis stops reading it; nothing changes in Convex.`)) return;
     if (await act("data.disconnect", { source: s.id })) toast.show(`${s.label} is forgotten.`);
@@ -59,7 +80,9 @@ export function DataSettings() {
       <p class="text-sm text-muted">
         Jarvis can read a Convex deployment when you ask: its tables, their documents, and its own
         query functions, which only read. What Jarvis reads is treated like mail from outside, so
-        anything it would send after reading it asks you first.
+        anything it would send after reading it asks you first. Where you allow it, Jarvis can also
+        ask to run one of the deployment's mutations or actions, and shows you exactly which one,
+        with what, before it does.
       </p>
       <Show when={sources.data?.length}>
         <ul class="space-y-2">
@@ -73,8 +96,17 @@ export function DataSettings() {
                   </p>
                   <p class={`text-sm ${s.lastError ? "text-bad" : "text-muted"}`}>
                     {s.lastError ??
-                      `Reads only, with a ${s.keyKind}${s.checkedAt ? ` · checked ${ago(s.checkedAt)}` : ""}`}
+                      `${s.mode === "approve_writes" ? "Reads, and asks before each change" : "Reads only"}, with a ${s.keyKind}${s.checkedAt ? ` · checked ${ago(s.checkedAt)}` : ""}`}
                   </p>
+                  <label class="mt-1 flex items-start gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      class="mt-1"
+                      checked={s.mode === "approve_writes"}
+                      onChange={(e) => allow(e.currentTarget, s)}
+                    />
+                    <span>Jarvis may ask to make changes here, each one on my yes</span>
+                  </label>
                 </div>
                 <Button onClick={() => void check(s)}>Check</Button>
                 <Button kind="danger" onClick={() => void forget(s)}>
@@ -118,9 +150,10 @@ export function DataSettings() {
           />
         </label>
         <p class="text-muted">
-          A deploy key is an admin key: it could change anything in that deployment. Hearth only
-          reads with it and keeps it sealed, but give it a development or preview deployment's key
-          where you can. Make one in the Convex dashboard, under the deployment's Settings.
+          A deploy key is an admin key: it could change anything in that deployment. Hearth keeps it
+          sealed and only reads with it, unless you let Jarvis ask to make changes, but give it a
+          development or preview deployment's key where you can. Make one in the Convex dashboard,
+          under the deployment's Settings.
         </p>
         <Button
           kind="primary"
