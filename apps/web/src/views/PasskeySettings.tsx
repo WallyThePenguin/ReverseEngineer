@@ -10,7 +10,7 @@ import { QueryView } from "../components/QueryView.tsx";
 import { Button } from "../components/ui.tsx";
 import { authPost, request } from "../lib/api.ts";
 import { inDesktopApp } from "../lib/desktop.ts";
-import { ago } from "../lib/format.ts";
+import { ago, date } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
 import { windowPasskeyHere } from "../lib/wayIn.ts";
 
@@ -54,11 +54,17 @@ async function addPasskey(forWindow: boolean): Promise<void> {
   }
 }
 
+/** Which passkey, said so it can't be taken for another: the Remove button and its question. */
+function named(p: Passkey): string {
+  return p.window
+    ? "the Windows Hello passkey for this PC's Hearth window"
+    : `the passkey "${p.label || "Passkey"}"`;
+}
+
 /** Removes a passkey once you've said yes. Hearth refuses the last one for its own address. */
 async function removePasskey(p: Passkey): Promise<void> {
-  const what = p.window ? "Windows Hello for this PC's Hearth window" : `"${p.label || "Passkey"}"`;
   const sure = confirm(
-    `Remove ${what}? It can't sign in to Hearth after this. Anywhere it's signed in already stays signed in.`,
+    `Remove ${named(p)}, added ${date(new Date(p.createdAt))}? It can't sign in to Hearth after this. Anywhere it's signed in already stays signed in.`,
   );
   if (!sure) return;
   try {
@@ -111,7 +117,12 @@ export function PasskeySettings() {
                         {p.lastUsedAt ? `Used ${ago(p.lastUsedAt)}` : `Added ${ago(p.createdAt)}`}
                       </span>
                       <Show when={removable(p)}>
-                        <Button small kind="danger" onClick={() => void remove(p)}>
+                        <Button
+                          small
+                          kind="danger"
+                          label={`Remove ${named(p)}`}
+                          onClick={() => void remove(p)}
+                        >
                           Remove
                         </Button>
                       </Show>
