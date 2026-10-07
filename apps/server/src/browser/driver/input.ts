@@ -7,6 +7,9 @@ import type { Cdp } from "./transport.ts";
 
 export type Button = "left" | "right" | "middle";
 
+/** Asked before each press, move or key: throws once the tab has gone to another page. */
+export type Still = () => void;
+
 /**
  * Sends input that may open a dialog (an alert after a click): the input happened, and the dialog
  * shows in the step's result. Says whether a dialog stopped it.
@@ -47,12 +50,13 @@ export async function click(
   cdp: Cdp,
   x: number,
   y: number,
-  opts: { button?: Button; clickCount?: number; modifiers?: number } = {},
+  opts: { button?: Button; clickCount?: number; modifiers?: number; still?: Still } = {},
 ) {
   const button = opts.button ?? "left";
   const modifiers = opts.modifiers ?? 0;
   await move(cdp, x, y, modifiers);
   for (let n = 1; n <= (opts.clickCount ?? 1); n++) {
+    opts.still?.();
     const at = { x, y, button, clickCount: n, modifiers };
     const stop = await guarded(async () => {
       await cdp.send("Input.dispatchMouseEvent", {
@@ -67,8 +71,14 @@ export async function click(
 }
 
 /** Presses at one point, moves in steps, and lets go at another. */
-export async function drag(cdp: Cdp, from: { x: number; y: number }, to: { x: number; y: number }) {
+export async function drag(
+  cdp: Cdp,
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  still?: Still,
+) {
   await move(cdp, from.x, from.y);
+  still?.();
   await cdp.send("Input.dispatchMouseEvent", {
     type: "mousePressed",
     x: from.x,
@@ -81,6 +91,8 @@ export async function drag(cdp: Cdp, from: { x: number; y: number }, to: { x: nu
   for (let n = 1; n <= steps; n++) {
     const x = from.x + ((to.x - from.x) * n) / steps;
     const y = from.y + ((to.y - from.y) * n) / steps;
+    // Gone to another page: it's let go of nowhere, since a press there began on the old one.
+    still?.();
     await cdp.send("Input.dispatchMouseEvent", {
       type: "mouseMoved",
       x,
@@ -130,13 +142,15 @@ export function pressCombo(cdp: Cdp, combo: Combo): Promise<boolean> {
  * that listen to keys see typing; new lines and tabs go in as text, never as Enter or Tab, so
  * typing can't send a message or leave the field.
  */
-export async function typeText(cdp: Cdp, text: string): Promise<void> {
+export async function typeText(cdp: Cdp, text: string, still?: Still): Promise<void> {
+  still?.();
   if (text.length > KEYSTROKE_LIMIT) {
     await guarded(() => cdp.send("Input.insertText", { text }));
     return;
   }
   let pending = "";
   const flush = async () => {
+    if (pending) still?.();
     const stop = pending
       ? await guarded(() => cdp.send("Input.insertText", { text: pending }))
       : false;
@@ -149,7 +163,9 @@ export async function typeText(cdp: Cdp, text: string): Promise<void> {
       pending += ch;
       continue;
     }
-    if ((await flush()) || (await pressCombo(cdp, combo))) return;
+    if (await flush()) return;
+    still?.();
+    if (await pressCombo(cdp, combo)) return;
   }
   await flush();
 }
