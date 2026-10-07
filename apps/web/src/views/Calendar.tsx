@@ -10,6 +10,7 @@ import { Icon } from "../components/icons.tsx";
 import { Pill } from "../components/kit/Pill.tsx";
 import { OutsideMark } from "../components/OutsideMark.tsx";
 import { Badge, Button, Empty, PaneHeader } from "../components/ui.tsx";
+import { timeNow } from "../lib/clock.ts";
 import { hours, plural, span, time } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
 import { layout, routeFor } from "../lib/panes.ts";
@@ -79,7 +80,7 @@ function NewEvent() {
 export function Calendar(props: { pane: number }) {
   const [offset, setOffset] = createSignal(0);
   const from = () => {
-    const d = new Date();
+    const d = timeNow();
     d.setHours(0, 0, 0, 0);
     return new Date(d.getTime() + offset() * 7 * DAY_MS);
   };

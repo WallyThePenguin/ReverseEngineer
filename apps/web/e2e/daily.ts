@@ -251,6 +251,32 @@ try {
     },
   );
 
+  await step("a checklist box whose save fails goes back, so the next tick ticks it", async (p) => {
+    const t = await run<{ id: string }>(p, "task.create", {
+      title: `Pack ${tag}`,
+      body: "- [ ] Passports",
+    });
+    await p.goto(`${base}/task/${t.id}`);
+    const box = p.getByRole("checkbox", { name: "Passports" });
+    const save = "**/api/actions/task.update";
+    await p.route(save, (r) =>
+      r.fulfill({ status: 500, json: { error: "Hearth hit a problem." } }),
+    );
+    const failed = p.waitForResponse((r) => r.url().endsWith("/api/actions/task.update"));
+    await box.click();
+    await failed;
+    await p.waitForTimeout(300);
+    if (await box.isChecked()) throw new Error("a box whose save failed still shows ticked");
+    await p.unroute(save);
+    await box.click();
+    for (let i = 0; ; i++) {
+      const { body } = await run<{ body: string | null }>(p, "entity.get", { id: t.id });
+      if (body === "- [x] Passports") break;
+      if (i === 50) throw new Error(`the next tick saved ${JSON.stringify(body)}`);
+      await p.waitForTimeout(200);
+    }
+  });
+
   // A phone: 375 px wide, touch only.
   const phone = await browser.newContext({
     viewport: { width: 375, height: 812 },

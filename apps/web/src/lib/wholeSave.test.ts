@@ -185,6 +185,17 @@ describe("saving a board whole", () => {
     expect(saver.problem()).toBeNull();
   });
 
+  it("reads a newer version it couldn't read again soon, rather than at the next one", async () => {
+    const { saver, shown } = await openBoard();
+    // Jarvis saved it, and reading that doesn't reach Hearth.
+    server = { ...server, version: 2, board: { nodes: [card("j", "from Jarvis")], edges: [] } };
+    down = true;
+    await saver.load();
+    down = false;
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(texts(shown())).toEqual(["from Jarvis"]);
+  });
+
   it("says Hearth hit a problem, not that it's out of reach, when it fails a save", async () => {
     const { saver, edit } = await openBoard();
     failing = true;

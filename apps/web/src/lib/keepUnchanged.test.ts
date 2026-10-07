@@ -51,5 +51,37 @@ describe("keepUnchanged", () => {
     expect(keepUnchanged(undefined, next)).toBe(next);
     expect(keepUnchanged({ a: 1 }, next)).toBe(next);
     expect(keepUnchanged([1, 2], "two")).toBe("two");
+    // An old empty place isn't taken for what's there now.
+    expect(keepUnchanged([undefined], [{ a: 1 }])).toEqual([{ a: 1 }]);
+    // What JSON can't hold is never taken as unchanged, and doesn't stop the read.
+    expect(keepUnchanged([{ n: 1n }], [{ n: 2n }])).toEqual([{ n: 2n }]);
+  });
+
+  it("keeps a page's unchanged rows when one row on it changed (Mail, read a page at a time)", () => {
+    const thread = (id: string, unread = true) => ({ id, subject: `About ${id}`, unread });
+    const old = {
+      pages: [[thread("1"), thread("2"), thread("3")], [thread("4")]],
+      pageParams: [0, 3],
+    };
+    const next = keepUnchanged(old, {
+      pages: [[thread("1"), thread("2", false), thread("3")], [thread("4")]],
+      pageParams: [0, 3],
+    });
+    expect(next.pages[0]![0]).toBe(old.pages[0]![0]);
+    expect(next.pages[0]![1]).toEqual(thread("2", false));
+    expect(next.pages[0]![2]).toBe(old.pages[0]![2]);
+    expect(next.pages[1]).toBe(old.pages[1]);
+    expect(next.pageParams).toBe(old.pageParams);
+  });
+
+  it("finds a changed row by its id wherever it moved, and keeps its unchanged parts", () => {
+    const t = (id: string, subject = id) => ({ id, subject, from: { name: `Sender ${id}` } });
+    const [a, b, c] = [t("a"), t("b"), t("c")];
+    // b has a new message: it comes back on top, with a new subject.
+    const next = keepUnchanged([a, b, c], [t("b", "Re: b"), t("a"), t("c")]);
+    expect(next[0]).not.toBe(b);
+    expect(next[0]!.from).toBe(b.from);
+    expect(next[1]).toBe(a);
+    expect(next[2]).toBe(c);
   });
 });

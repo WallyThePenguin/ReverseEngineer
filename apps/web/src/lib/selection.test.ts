@@ -95,4 +95,21 @@ describe("createSelection", () => {
     expect(sel.current()?.id).toBe("x");
     dispose();
   });
+
+  it("pins the top of a list that showed before the reset, so a new row above doesn't take it", async () => {
+    const { sel, setList, dispose } = setup("a", "b", "c");
+    sel.select(2);
+    // Another filter's rows, read before, come at once: before the reset.
+    setList(rows("x", "y"));
+    sel.reset();
+    await Promise.resolve();
+    setList(rows("new", "x", "y"));
+    expect(sel.current()?.id).toBe("x");
+    // Reset onto a list read again just as it was (the very same list): its top row stays.
+    sel.reset();
+    await Promise.resolve();
+    setList(rows("newer", "new", "x", "y"));
+    expect(sel.current()?.id).toBe("new");
+    dispose();
+  });
 });

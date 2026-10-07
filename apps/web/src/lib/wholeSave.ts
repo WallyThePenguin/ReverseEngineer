@@ -83,6 +83,7 @@ export function createSaver<T>(o: SaverOptions<T>) {
   let attempt = 0;
   let timer: number | undefined;
   let retry: number | undefined;
+  let rereading: number | undefined;
   let keeping = false;
   let closed = false;
   /** Restores heard: one heard while a request was out makes its "not found" out of date. */
@@ -281,6 +282,11 @@ export function createSaver<T>(o: SaverOptions<T>) {
         setProblem(
           `Hearth didn't open this ${o.noun}, so it can't be changed here: ${reason(err)}`,
         );
+      // Open already: a newer version it couldn't read is read again soon, not at the next one.
+      else if (isTransient(err)) {
+        window.clearTimeout(rereading);
+        if (!closed) rereading = window.setTimeout(() => void load(), backoff(attempt++));
+      }
       return;
     }
     if (!loaded()) return open(r);
@@ -375,6 +381,7 @@ export function createSaver<T>(o: SaverOptions<T>) {
       window.removeEventListener("beforeunload", guard);
       window.removeEventListener("online", online);
       window.clearTimeout(retry);
+      window.clearTimeout(rereading);
       // Its copy's lock goes once this save is done: until then no other screen takes the copy.
       return save().finally(lock.release);
     },
