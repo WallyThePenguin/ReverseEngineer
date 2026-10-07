@@ -9,7 +9,12 @@ import { ago } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
 import { act, useAction } from "../lib/query.ts";
 import { ReplaceToken } from "./ReplaceToken.tsx";
-import { SlackBotSettings, SlackManifest } from "./SlackBotSettings.tsx";
+import {
+  type LeftBehind,
+  leftBehind,
+  SlackBotSettings,
+  SlackManifest,
+} from "./SlackBotSettings.tsx";
 
 interface Status {
   connected: boolean;
@@ -58,7 +63,8 @@ export function SlackSettings() {
 
   const disconnect = async () => {
     if (!confirm("Disconnect Slack? Its messages leave Hearth.")) return;
-    if (await act("slack.disconnect")) toast.show("Slack is disconnected.");
+    const r = await act<LeftBehind>("slack.disconnect");
+    if (r) toast.show(`Slack is disconnected.${leftBehind(r)}`);
   };
 
   return (

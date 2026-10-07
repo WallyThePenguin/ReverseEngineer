@@ -18,6 +18,17 @@ type Known = typeof notionTask.$inferSelect & { title: string; deletedAt: Date |
 
 /** Pages of a hundred tickets one round may read. */
 export const MAX_PAGES = 20;
+/** What a round that failed short of Notion says, in Settings and the inbox. */
+export const ROUND_FAILED =
+  "Hearth couldn't save what it read from Notion. It tries again in a few minutes.";
+
+/** Why a round failed short of Notion, for the log: Postgres's reason, never a query's values. */
+const reasonOf = (err: unknown) => {
+  const e = ((err as { cause?: unknown })?.cause ?? err) as { message?: unknown };
+  return String(e?.message ?? err)
+    .split("\n")[0]!
+    .slice(0, 300);
+};
 
 export const notionApi = (ctx: Pick<ActionContext, "service">) =>
   ctx.service<NotionApi>(NOTION_SERVICE);
@@ -225,7 +236,10 @@ export async function syncNotion(ctx: ActionContext): Promise<NotionSyncResult> 
     const kind = err instanceof NotionError ? err.kind : "transient";
     // Slowing down when asked is normal; the next round tries again.
     if (kind === "slow") return result;
-    const message = err instanceof Error ? err.message : String(err);
+    // Notion's errors are Hearth's own words. Anything else (a database error can quote what the
+    // round was saving, titles included) is kept as fixed text, and its reason goes to the log.
+    const message = err instanceof NotionError ? err.message : ROUND_FAILED;
+    if (!(err instanceof NotionError)) console.warn(`[notion] a round failed: ${reasonOf(err)}`);
     trouble = { kind, message };
     result.failed.push(message);
   }

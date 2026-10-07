@@ -33,7 +33,7 @@ const syncFailed = syncFailedReflex("notion", "Notion", async (ctx) => {
   return a?.since;
 });
 
-/** Tickets that became yours since the last brief, still open. */
+/** Tickets that became yours since the last brief, still open and not in your trash. */
 async function digest(ctx: ReadContext & { since: Date }): Promise<DigestItem[]> {
   const rows = await ctx.db
     .select({ id: notionTask.entityId, title: entity.title })
@@ -44,6 +44,7 @@ async function digest(ctx: ReadContext & { since: Date }): Promise<DigestItem[]>
         gte(entity.createdAt, ctx.since),
         eq(notionTask.assigned, true),
         eq(notionTask.done, false),
+        isNull(entity.deletedAt),
         // The first read brought these in quietly (D68): not news.
         eq(notionTask.backfill, false),
       ),

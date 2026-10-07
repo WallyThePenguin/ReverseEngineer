@@ -158,22 +158,37 @@ export async function replaceHeldReplies(
   keepId: string,
   now: Date,
 ): Promise<number> {
+  const [kept] = await db
+    .select({ by: approval.requestedBy })
+    .from(approval)
+    .where(eq(approval.id, keepId));
+  if (!kept) return 0;
+  return expireHeldReplies(db, conversationId, kept.by, now, "A newer reply replaced it.", keepId);
+}
+
+/**
+ * Expires the replies to `by` still waiting for your yes in a conversation, with their cards: a
+ * newer one replaced them, or went out on its own, so approving one now would post it after.
+ */
+export async function expireHeldReplies(
+  db: Db,
+  conversationId: string,
+  by: string,
+  now: Date,
+  why = "A newer reply went out instead.",
+  keepId?: string,
+): Promise<number> {
   return db.transaction(async (tx) => {
-    const [kept] = await tx
-      .select({ by: approval.requestedBy })
-      .from(approval)
-      .where(eq(approval.id, keepId));
-    if (!kept) return 0;
     const replaced = await tx
       .update(approval)
-      .set({ status: "expired", decidedAt: now, error: "A newer reply replaced it." })
+      .set({ status: "expired", decidedAt: now, error: why })
       .where(
         and(
           eq(approval.action, REPLY_ACTION),
           eq(approval.conversationId, conversationId),
-          eq(approval.requestedBy, kept.by),
+          eq(approval.requestedBy, by),
           eq(approval.status, "pending"),
-          ne(approval.id, keepId),
+          keepId ? ne(approval.id, keepId) : undefined,
         ),
       )
       .returning();

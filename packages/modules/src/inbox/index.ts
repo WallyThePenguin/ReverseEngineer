@@ -11,6 +11,7 @@ import {
 import { and, count, desc, eq, inArray, isNull, lte, ne, notExists, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { id, isoDateTime } from "../shared.ts";
+import { remindAction, ringReminder } from "./reminders.ts";
 
 const live = (now: Date) =>
   and(
@@ -236,8 +237,10 @@ export const inboxModule = defineModule({
         return { delivered: true };
       },
     }),
+    remindAction,
   ],
   reflexes: [
+    ringReminder,
     {
       name: "inbox.wake_snoozed",
       description: "Brings snoozed items back when their time comes.",
