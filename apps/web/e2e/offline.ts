@@ -1,7 +1,7 @@
 // End-to-end check of the service worker (apps/web/public/sw.js): with Hearth stopped, or taking
 // connections and never answering, the app still opens from the last page seen, says Hearth can't
-// be reached, and comes back by itself once Hearth does, in the same page; and an open page moves
-// on to a new build. resilience.ts fakes failures with page.route, which needs the service worker
+// be reached, and comes back by itself once Hearth does, in the same page; an open page moves on
+// to a new build; and quick capture always comes from Hearth. resilience.ts fakes failures with page.route, which needs the service worker
 // out of the way; this one starts and stops a real server instead, so it runs its own (development
 // login, on HEARTH_E2E_PORT), on copies of the build stamped as newer ones.
 //
@@ -118,7 +118,7 @@ const shows = (build: string, timeout = 20_000) =>
 /** The build of the page the service worker keeps, and whether one is noted as started. */
 const kept = async () =>
   (await page.evaluate(`(async () => {
-    const shell = await caches.open("hearth-shell-v2");
+    const shell = await caches.open("hearth-shell-v3");
     const page = await shell.match("/");
     const html = page ? await page.text() : "";
     const started = await shell.match("/.started");
@@ -127,6 +127,30 @@ const kept = async () =>
       started: started ? await started.text() : null,
     };
   })()`)) as { build: string | null; started: string | null };
+/** The kept page, seen to start before, says it's `build`'s (its files are this one's, so it runs). */
+const keepAs = (build: string) =>
+  page.evaluate(`(async () => {
+    const shell = await caches.open("hearth-shell-v3");
+    const kept = await shell.match("/");
+    const html = (await kept.text()).replace(/(name="hearth-build" content=")[^"]*/, "$1${build}");
+    await shell.put("/", new Response(html, { headers: kept.headers }));
+    await shell.put("/.started", new Response("${build}"));
+  })()`);
+/** Counts the page's loads while `fn` runs, and a moment after. */
+async function loadsDuring(fn: () => Promise<unknown>) {
+  let loads = 0;
+  const count = (f: unknown) => {
+    if (f === page.mainFrame()) loads++;
+  };
+  page.on("framenavigated", count);
+  try {
+    await fn();
+    await page.waitForTimeout(1_500);
+  } finally {
+    page.off("framenavigated", count);
+  }
+  return loads;
+}
 async function step(name: string, fn: () => Promise<void>) {
   await fn();
   console.log(`✓ ${name}`);
@@ -156,7 +180,7 @@ try {
         out[k] = (await (await caches.open(k)).keys()).map((r) => new URL(r.url).pathname);
       return out;
     })()`)) as Record<string, string[]>;
-    if (!cached["hearth-shell-v2"]?.includes("/")) throw new Error("the page isn't kept");
+    if (!cached["hearth-shell-v3"]?.includes("/")) throw new Error("the page isn't kept");
     const files = Object.entries(cached).find(([k]) => k.startsWith("hearth-assets:"))?.[1];
     if (!files?.some((p) => p.startsWith("/assets/index-")))
       throw new Error("the build's files aren't kept");
@@ -167,7 +191,7 @@ try {
     // Saving happens after the file shows; give it the time it would take.
     await page.waitForTimeout(1_000);
     const kept = await page.evaluate(`(async () => {
-      const hit = await (await caches.open("hearth-shell-v2")).match("/");
+      const hit = await (await caches.open("hearth-shell-v3")).match("/");
       return hit ? hit.headers.get("content-type") : null;
     })()`);
     if (!String(kept).startsWith("text/html")) throw new Error(`the kept page is now ${kept}`);
@@ -181,26 +205,13 @@ try {
       await page.goto(base);
       await home(page).waitFor();
       running = (await page.evaluate(buildShown)) as string;
-      // The kept page, seen to start before, says it's from an older build (its files are this
-      // one's, so it still runs).
-      await page.evaluate(`(async () => {
-      const shell = await caches.open("hearth-shell-v2");
-      const kept = await shell.match("/");
-      const html = (await kept.text()).replace(/(name="hearth-build" content=")[^"]*/, "$1older");
-      await shell.put("/", new Response(html, { headers: kept.headers }));
-      await shell.put("/.started", new Response("older"));
-    })()`);
-      let loads = 0;
-      const count = (f: unknown) => {
-        if (f === page.mainFrame()) loads++;
-      };
-      page.on("framenavigated", count);
-      await page.goto(`${base}/tasks`);
+      await keepAs("older");
       // It opens at once from the kept page, hears Hearth runs another build and, as nothing's been
       // done on it yet, reloads into it, once, from Hearth.
-      await shows(running);
-      await page.waitForTimeout(1_000);
-      page.off("framenavigated", count);
+      const loads = await loadsDuring(async () => {
+        await page.goto(`${base}/tasks`);
+        await shows(running);
+      });
       if (loads !== 2) throw new Error(`the page loaded ${loads} times`);
       if (await page.getByText("Hearth was updated.").isVisible())
         throw new Error("it said so instead of reloading");
@@ -214,7 +225,7 @@ try {
       // on, so Hearth's own page opens instead. And files are kept for a build long gone.
       await page.evaluate(`(async () => {
       const main = document.querySelector('script[src^="/assets/index-"]').getAttribute("src");
-      const shell = await caches.open("hearth-shell-v2");
+      const shell = await caches.open("hearth-shell-v3");
       const kept = await shell.match("/");
       const html = (await kept.text())
         .replace(main, "/assets/index-broken.js")
@@ -244,6 +255,17 @@ try {
     await home(page).waitFor();
     if (await page.getByText("Hearth was updated.").isVisible())
       throw new Error("it said so instead of moving on");
+  });
+
+  await step("quick capture opens from Hearth, never from a page kept from before", async () => {
+    // The desktop app's small windows are typed into as they open: one opened from an older
+    // build's kept page would reload into the new one under your first keys.
+    await keepAs("older");
+    const loads = await loadsDuring(() => page.goto(`${base}/capture`));
+    if ((await page.evaluate(buildShown)) !== "newer") throw new Error("the kept page opened");
+    if (loads !== 1) throw new Error(`the page loaded ${loads} times`);
+    await page.goto(base);
+    await home(page).waitFor();
   });
 
   await step("an update whose files couldn't all be fetched isn't kept", async () => {
@@ -283,7 +305,7 @@ try {
 
   await step("Hearth not answering: the last page opens within a few seconds", async () => {
     // Not as the page that started, which opens at once anyway: as when it has to ask Hearth first.
-    await page.evaluate(`caches.open("hearth-shell-v2").then((c) => c.delete("/.started"))`);
+    await page.evaluate(`caches.open("hearth-shell-v3").then((c) => c.delete("/.started"))`);
     await goSilent();
     const t0 = Date.now();
     await page.reload({ timeout: 15_000 });
