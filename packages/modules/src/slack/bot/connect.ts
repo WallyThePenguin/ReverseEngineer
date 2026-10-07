@@ -17,6 +17,7 @@ import {
   KEPT_USER_SCOPES,
   USER_SCOPES,
 } from "./manifest.ts";
+import { tellNotSent } from "./outbox.ts";
 import {
   answersOnOwn,
   botSettingsAction,
@@ -220,12 +221,28 @@ export const botActions = [
     async handler(_i, ctx) {
       const ws = await workspace(ctx);
       await ctx.tx.delete(slackBot).where(eq(slackBot.teamId, ws.teamId));
-      // Nothing it hadn't sent yet goes out later, after a reconnect you may not expect it from.
-      await ctx.tx
+      // Nothing it hadn't sent yet goes out later, after a reconnect you may not expect it from,
+      // and a post it was sending isn't looked for and posted again then either: each is settled
+      // now, and you're told which (D62).
+      const team = eq(slackOutbox.teamId, ws.teamId);
+      const unsent = await ctx.tx
         .update(slackOutbox)
         .set({ state: "failed", error: "Jarvis's bot was disconnected.", finishedAt: ctx.now })
-        .where(and(eq(slackOutbox.teamId, ws.teamId), eq(slackOutbox.state, "queued")));
-      return { disconnected: true };
+        .where(and(team, eq(slackOutbox.state, "queued")))
+        .returning();
+      const unsure = await ctx.tx
+        .update(slackOutbox)
+        .set({
+          state: "unknown",
+          error: "Jarvis's bot was disconnected before Slack said whether it went out.",
+          finishedAt: ctx.now,
+        })
+        .where(and(team, eq(slackOutbox.state, "sending")))
+        .returning();
+      for (const row of unsent) await tellNotSent(ctx, row, "didn't go out", row.error ?? "");
+      for (const row of unsure)
+        await tellNotSent(ctx, row, "may not have gone out", row.error ?? "");
+      return { disconnected: true, unsent: unsent.length, unsure: unsure.length };
     },
   }),
   defineAction({

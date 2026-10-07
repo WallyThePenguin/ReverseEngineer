@@ -2,7 +2,7 @@
 // the task board and who you are on it. The token is only ever yours to give, and stays sealed.
 import { entity, googleAccount, notionAccount, notionTask } from "@hearth/db";
 import { type ActionContext, ActionError, defineAction } from "@hearth/kernel";
-import { and, count, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { closeAlerts } from "../connector-health.ts";
 import { NotionError } from "./api.ts";
@@ -34,6 +34,16 @@ async function account(ctx: ActionContext) {
 }
 
 const healthy = { syncState: "ok", failures: 0, failingSince: null, lastError: null } as const;
+
+/**
+ * Still yours and not done, as of the last reading. A ticket you moved to the trash in Hearth
+ * isn't read again (sync.ts), so it would stay open for good: it's left out instead.
+ */
+const openTicket = and(
+  eq(notionTask.assigned, true),
+  eq(notionTask.done, false),
+  isNull(entity.deletedAt),
+);
 
 export const connectActions = [
   defineAction({
@@ -155,13 +165,18 @@ export const connectActions = [
       "Whether Notion is connected, the task board read, who you are on it, how many open tickets are yours and how syncing is going.",
     input: z.object({}),
     risk: "read",
+    // Settings is its reader. The board's title, its column and status names and the workspace's
+    // name are written by anyone who can edit the board, and nothing here marks them as outside
+    // words, so Jarvis doesn't get them (D58), as with slack.status.
+    callers: ["owner"],
     async handler(_i, ctx) {
       const [a] = await ctx.tx.select().from(notionAccount).limit(1);
       if (!a) return { connected: false };
       const [open] = await ctx.tx
         .select({ n: count() })
         .from(notionTask)
-        .where(and(eq(notionTask.assigned, true), eq(notionTask.done, false)));
+        .innerJoin(entity, eq(entity.id, notionTask.entityId))
+        .where(openTicket);
       return {
         connected: true,
         workspace: a.workspace,
@@ -211,7 +226,7 @@ export const connectActions = [
         })
         .from(notionTask)
         .innerJoin(entity, eq(entity.id, notionTask.entityId))
-        .where(and(eq(notionTask.assigned, true), i.open ? eq(notionTask.done, false) : undefined))
+        .where(i.open ? openTicket : and(eq(notionTask.assigned, true), isNull(entity.deletedAt)))
         .orderBy(desc(notionTask.editedAt))
         .limit(i.limit);
       return rows.map((r) => ({ ...r, type: "notion_task" }));

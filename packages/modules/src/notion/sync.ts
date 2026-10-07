@@ -126,7 +126,9 @@ async function readBoard(ctx: ActionContext, account: AccountRow, token: string,
   if (assignee && !schema.columns.some((c) => c.name === assignee && c.type === "people"))
     throw new NotionError(
       400,
-      `${schema.title} has no "${assignee}" column any more, which said who a ticket is for. Pick the board again in Settings > Notion.`,
+      // Not naming the board or the column: anyone who can edit the board chose those words, and
+      // this message reaches the doctor and the inbox (D58).
+      "Your Notion board no longer has the column that said who a ticket is for. Pick the board again in Settings > Notion.",
     );
   if (assignee && !account.ownerUserId)
     throw new NotionError(400, "Pick who you are on the board in Settings > Notion.");

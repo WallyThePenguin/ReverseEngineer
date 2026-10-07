@@ -8,13 +8,16 @@
 // folds in the messages waiting in its conversation; with none, it's skipped without a model
 // call. It has 8 steps and 2 minutes. Its answer goes out through slack.reply, which the runner
 // fills in from the conversation's place in Slack, never from the model: on its own, or waiting
-// for your yes when the member or the channel is on review. A turn that ends without one is
-// passed on to you with an apology, by the worker (modules slack/member/sweep.ts).
+// for your yes when the member or the channel is on review. Whether it may go is checked once
+// more just before: paused meanwhile, it waits for your yes too, and blocked, it doesn't go. A
+// turn that ends without one is passed on to you with an apology, by the worker (modules
+// slack/member/sweep.ts).
 //
-// A DM's agent session carries on for 12 idle hours. A channel thread's turns never carry one:
+// A DM's agent session carries on for 12 idle hours, unless its last reply never went (you
+// declined it, it lapsed, or it was refused) or you changed the member's tier or review since. A channel thread's turns never carry one:
 // each member there is answered at their own tier, so each turn starts from the thread alone.
 import { asUntrusted } from "@hearth/core";
-import { conversation, jarvisTurn } from "@hearth/db";
+import { approval, conversation, jarvisTurn } from "@hearth/db";
 import { getSetting, isVisibleTo, memberCaller, newId } from "@hearth/kernel";
 import {
   claimMessages,
@@ -31,7 +34,7 @@ import {
   type ThreadLine,
   writtenAt,
 } from "@hearth/modules";
-import { and, desc, eq, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
 import type { BrainEvents, BrainRequest, BrainResult, BrainTool } from "./brain.ts";
 import { buildMemberPrompt, memberMessage } from "./prompts/member.ts";
@@ -73,10 +76,15 @@ const cut = (text: string, max: number) => {
   return chars.length <= max ? text : `${chars.slice(0, max - 1).join("")}…`;
 };
 
-/** Whether the conversation's last answered turn was long enough ago to start afresh. */
-async function idle(env: EndEnv, cid: string, turnId: string, now: Date): Promise<boolean> {
-  const [last] = await env.kernel.db
-    .select({ at: jarvisTurn.finishedAt })
+/**
+ * Whether a DM starts afresh rather than carry on its session: its last answered turn was long
+ * enough ago, or that turn's reply never went, because you declined it or it lapsed. The session
+ * has those words as if they'd been sent (D62).
+ */
+async function afreshDue(env: EndEnv, cid: string, turnId: string, now: Date): Promise<boolean> {
+  const { db } = env.kernel;
+  const [last] = await db
+    .select({ id: jarvisTurn.id, at: jarvisTurn.finishedAt })
     .from(jarvisTurn)
     .where(
       and(
@@ -87,8 +95,27 @@ async function idle(env: EndEnv, cid: string, turnId: string, now: Date): Promis
     )
     .orderBy(desc(jarvisTurn.finishedAt))
     .limit(1);
-  return !last?.at || now.getTime() - last.at.getTime() > MEMBER_IDLE_MS;
+  if (!last?.at || now.getTime() - last.at.getTime() > MEMBER_IDLE_MS) return true;
+  const [unsent] = await db
+    .select({ id: approval.id })
+    .from(approval)
+    .where(
+      and(
+        eq(approval.action, REPLY_ACTION),
+        eq(approval.turnId, last.id),
+        inArray(approval.status, ["denied", "expired"]),
+      ),
+    )
+    .limit(1);
+  return Boolean(unsent);
 }
+
+/** Its DM's next turn starts afresh, from what Hearth kept, instead of this session. */
+const forgetSession = (env: EndEnv, cid: string) =>
+  env.kernel.db
+    .update(conversation)
+    .set({ agentSessionId: null })
+    .where(eq(conversation.entityId, cid));
 
 export async function runMemberTurn(
   env: MemberTurnEnv,
@@ -173,15 +200,14 @@ export async function runMemberTurn(
   };
   let prompt = message;
   let sessionId: string | null = null;
-  if (!channel && (await idle(env, cid, turnId, now))) {
-    await db
-      .update(conversation)
-      .set({ agentSessionId: null })
-      .where(eq(conversation.entityId, cid));
-    prompt = await afresh();
-  } else if (!channel) {
-    const [c] = await db.select().from(conversation).where(eq(conversation.entityId, cid));
-    sessionId = c?.agentSessionId ?? null;
+  if (!channel) {
+    if (await afreshDue(env, cid, turnId, now)) await forgetSession(env, cid);
+    else {
+      const [c] = await db.select().from(conversation).where(eq(conversation.entityId, cid));
+      sessionId = c?.agentSessionId ?? null;
+    }
+    // With none to carry on (and after a tier change there's none), it starts from the recap.
+    if (!sessionId) prompt = await afresh();
   }
 
   const caller = (extra: { askFirst?: string } = {}) =>
@@ -262,12 +288,25 @@ export async function runMemberTurn(
   if (text && slow && !SLOW_START.test(text)) text = `Sorry for the slow reply. ${text}`;
   text = cut(text, POST_MAX);
   let outcome = classifyOutcome(end.calls as ToolCallRecord[]);
-  if (text) {
+  // What's true as it answers decides, not what was when it started: paused or put on review
+  // meanwhile, the answer waits for your yes; blocked or members off, it doesn't go (D62).
+  const again = text ? await memberGate(db, turn, kernel.clock.now()) : null;
+  const stopped = again && !again.ok && again.why !== "paused" ? again.why : null;
+  if (stopped) {
+    env.log(`turn ${turnId}: the reply to ${user} wasn't sent: ${stopped}`);
+    await log([{ kind: "notice", payload: { text: `The reply wasn't sent: ${stopped}` }, turnId }]);
+    if (!channel) await forgetSession(env, cid);
+  }
+  if (text && !stopped) {
     // Where it goes is the conversation's, never the model's: their DM (in the thread they wrote
     // in, if they did) or the channel thread they asked in.
     const threadTs = thread.audience === "member" ? heard.at(-1)!.threadTs : thread.threadTs;
     const review =
-      m.replies === "review" ? { askFirst: `Replies to ${m.name} wait for your yes.` } : {};
+      again && !again.ok
+        ? { askFirst: "Jarvis was paused while it answered, so this waits for your yes." }
+        : (again?.ok ? again.member : m).replies === "review"
+          ? { askFirst: `Replies to ${m.name} wait for your yes.` }
+          : {};
     const res = await kernel.execute(
       REPLY_ACTION,
       { text, to: user, channelId: thread.channelId, ...(threadTs ? { threadTs } : {}) },
@@ -289,6 +328,7 @@ export async function runMemberTurn(
       const why = res.status === "denied" ? res.reason : res.message;
       env.log(`turn ${turnId}: the reply to ${user} wasn't sent: ${why}`);
       await log([{ kind: "notice", payload: { text: `The reply wasn't sent: ${why}` }, turnId }]);
+      if (!channel) await forgetSession(env, cid);
     }
   }
   end.durationMs = Math.round(performance.now() - started);

@@ -293,6 +293,11 @@ export interface CalEvent {
   selfResponse: string | null;
   /** You made it, so there's nothing to answer. */
   selfOrganizer: boolean;
+  /**
+   * On a calendar of your own. On one someone shared with you, Google's "you" is its owner: its
+   * selfResponse is theirs, and answering it would answer as them.
+   */
+  ownCalendar: boolean;
   /** One time of a repeating meeting: answering it asks whether for this time or every time. */
   recurringEventId: string | null;
   attendees: { email: string; name?: string; response?: string; self?: boolean }[];

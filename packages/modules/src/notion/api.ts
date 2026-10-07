@@ -146,11 +146,16 @@ export function httpNotion(base = "https://api.notion.com/v1"): NotionApi {
         "Notion won't show Hearth that database. Add the Hearth integration to it in Notion (••• → Connections).",
       );
     const json = (await res.json().catch(() => null)) as Raw | null;
-    if (!res.ok)
+    // Notion's own message can quote the board's column names, which anyone who can edit it
+    // chose: only its error code is kept, so a stored error holds none of their words (D58).
+    if (!res.ok) {
+      const code =
+        typeof json?.code === "string" && /^[a-z_]{1,40}$/.test(json.code) ? json.code : null;
       throw new NotionError(
         res.status,
-        `Notion answered ${res.status}: ${String(json?.message ?? "")}`.trim(),
+        `Notion answered ${res.status}${code ? ` (${code})` : ""}.`,
       );
+    }
     if (!json) throw new NotionError(502, "Notion sent back something Hearth can't read.");
     return json;
   }

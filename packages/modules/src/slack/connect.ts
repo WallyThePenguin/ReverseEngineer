@@ -2,11 +2,12 @@
 // keeps everything read in so far (D61): only disconnecting removes it.
 import { entity, slackMessage, slackUser, slackWorkspace } from "@hearth/db";
 import { type ActionContext, ActionError, defineAction } from "@hearth/kernel";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, not } from "drizzle-orm";
 import { z } from "zod";
 import { closeAlerts } from "../connector-health.ts";
 import { SlackError } from "./api.ts";
 import { slackManifest, USER_SCOPES } from "./bot/manifest.ts";
+import { decidedAbout } from "./member/people.ts";
 import { sealToken, slackApi, type WorkspaceRow } from "./save.ts";
 
 /** What a Slack app for Hearth needs (user token scopes), shown in Settings. */
@@ -132,14 +133,16 @@ export const connectActions = [
   defineAction({
     name: "slack.disconnect",
     description:
-      "Forget the Slack workspace: its token, channels and messages leave Hearth, and so does Jarvis's bot.",
+      "Forget the Slack workspace: its token, channels and messages leave Hearth, and so does Jarvis's bot. What you decided for each person stays for when you connect again.",
     input: z.object({}),
     risk: "internal",
     callers: ["owner"],
     async handler(_i, ctx) {
       const ids = ctx.tx.select({ id: slackMessage.entityId }).from(slackMessage);
       await ctx.tx.delete(entity).where(inArray(entity.id, ids));
-      await ctx.tx.delete(slackUser);
+      // Not the people you've decided about: connecting again mustn't put someone you set to
+      // review back on answers that go out on their own (D62).
+      await ctx.tx.delete(slackUser).where(not(decidedAbout()));
       await ctx.tx.delete(slackWorkspace);
       await closeAlerts(ctx, "slack");
       return { disconnected: true };

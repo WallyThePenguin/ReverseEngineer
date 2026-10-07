@@ -6,6 +6,7 @@
 
 import { createSignal, For, Show } from "solid-js";
 import { ago } from "../lib/format.ts";
+import { toast } from "../lib/live.ts";
 import { act, useAction } from "../lib/query.ts";
 
 interface Channel {
@@ -47,12 +48,18 @@ export function OwnerDmSwitch(props: { ownerDmAnswers: "fixed" | "full" }) {
 }
 
 function ChannelRow(props: { c: Channel }) {
-  const set = (patch: { tier?: Channel["jarvisTier"]; replies?: Channel["jarvisReplies"] }) =>
-    void act("slack.channel_set", {
+  const set = async (patch: {
+    tier?: Channel["jarvisTier"];
+    replies?: Channel["jarvisReplies"];
+  }) => {
+    const r = await act<{ off?: string }>("slack.channel_set", {
       channel: props.c.id,
       tier: patch.tier ?? props.c.jarvisTier,
       ...(patch.replies ? { replies: patch.replies } : {}),
     });
+    // Asking for more failed the check: the channel is off now, and this says why.
+    if (r?.off) toast.show(`Jarvis stopped answering in #${props.c.name}: ${r.off}`);
+  };
   return (
     <li class="flex flex-wrap items-center gap-2 border-t border-line py-2">
       <div class="min-w-40 flex-1">
@@ -65,7 +72,7 @@ function ChannelRow(props: { c: Channel }) {
         class={select}
         aria-label={`Jarvis in #${props.c.name}`}
         value={props.c.jarvisTier}
-        onChange={(e) => set({ tier: e.currentTarget.value as Channel["jarvisTier"] })}
+        onChange={(e) => void set({ tier: e.currentTarget.value as Channel["jarvisTier"] })}
       >
         <option value="off">Off</option>
         <option value="relay">Pass messages on</option>
@@ -76,7 +83,7 @@ function ChannelRow(props: { c: Channel }) {
           class={select}
           aria-label={`Replies in #${props.c.name}`}
           value={props.c.jarvisReplies}
-          onChange={(e) => set({ replies: e.currentTarget.value as Channel["jarvisReplies"] })}
+          onChange={(e) => void set({ replies: e.currentTarget.value as Channel["jarvisReplies"] })}
         >
           <option value="review">Replies wait for you</option>
           <option value="auto">Replies go out</option>

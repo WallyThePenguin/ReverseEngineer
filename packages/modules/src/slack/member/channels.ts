@@ -129,6 +129,7 @@ function dueChannels(db: DbOrTx, teamId: string, now: Date) {
 }
 
 const tier = z.enum(["off", "relay", "schedule"]);
+const TIER_RANK: Record<z.infer<typeof tier>, number> = { off: 0, relay: 1, schedule: 2 };
 
 export const channelActions = [
   defineAction({
@@ -147,12 +148,17 @@ export const channelActions = [
       const { ws, bot, ch } = await botAndChannel(ctx, i.channel);
       const patch: Partial<ChannelRow> = { jarvisTier: i.tier };
       if (i.replies) patch.jarvisReplies = i.replies;
-      if (i.tier !== "off") {
-        if (ch.kind !== "channel" && ch.kind !== "private")
-          throw new ActionError(
-            "invalid_input",
-            "Jarvis answers @mentions only in channels, never in a group DM or a DM.",
-          );
+      if (i.tier !== "off" && ch.kind !== "channel" && ch.kind !== "private")
+        throw new ActionError(
+          "invalid_input",
+          "Jarvis answers @mentions only in channels, never in a group DM or a DM.",
+        );
+      // Only more (a higher tier, or replies going out on their own) waits on the check: making
+      // a channel safer never does, whatever Slack says (D62).
+      const more =
+        TIER_RANK[i.tier] > TIER_RANK[ch.jarvisTier] ||
+        (i.replies === "auto" && ch.jarvisReplies !== "auto");
+      if (i.tier !== "off" && more) {
         const api = slackApi(ctx);
         const token = openToken(ctx, ws);
         let why: string | null;
@@ -164,11 +170,23 @@ export const channelActions = [
           const code = err instanceof SlackError ? err.code : "unreachable";
           throw new ActionError("unavailable", `Slack said ${code}. Try again in a minute.`);
         }
-        if (why)
+        if (why && ch.jarvisTier === "off")
           throw new ActionError(
             "invalid_input",
             `Jarvis can't answer in #${named(ch.name)}: ${why}`,
           );
+        // It's on, and shouldn't be: off it goes, as the hourly check would turn it.
+        if (why) {
+          await turnOff(ctx, ch, why);
+          return {
+            id: ch.id,
+            name: ch.name,
+            tier: "off" as const,
+            replies: ch.jarvisReplies,
+            checkedAt: ctx.now,
+            off: why,
+          };
+        }
         patch.jarvisCheckedAt = ctx.now;
       }
       const [row] = await ctx.tx

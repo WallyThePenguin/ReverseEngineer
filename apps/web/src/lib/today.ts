@@ -90,9 +90,12 @@ export function draftSnapshot(d: MailDraft) {
 
 // --- Your day ---
 
-/** An invitation you haven't answered (one you organized needs no answer). */
-export const unanswered = (e: Pick<CalEvent, "selfResponse" | "selfOrganizer">) =>
-  e.selfResponse === "needsAction" && !e.selfOrganizer;
+/**
+ * An invitation you haven't answered (one you organized needs no answer). Only on a calendar of
+ * your own: on a colleague's calendar shared with you, the one not answering is them.
+ */
+export const unanswered = (e: Pick<CalEvent, "selfResponse" | "selfOrganizer" | "ownCalendar">) =>
+  e.ownCalendar && e.selfResponse === "needsAction" && !e.selfOrganizer;
 
 /**
  * Today's meetings, all-day ones first and then by time (leaving out what you said no to), and the

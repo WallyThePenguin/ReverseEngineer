@@ -1,11 +1,12 @@
 // Step 7 end to end: a heads-up ten minutes before a real meeting with its prep and join link
 // (even while paused, and following a moved meeting), the evening's Your day card, calendar
 // rows that say their prep is ready, and what Jarvis did, read from what it made.
-import { entity, notification, schedule, setting } from "@hearth/db";
+import { calendar, entity, notification, schedule, setting } from "@hearth/db";
 import {
   type Caller,
   integrationCaller,
   jarvisCaller,
+  newId,
   ownerCaller,
   systemCaller,
 } from "@hearth/kernel";
@@ -102,6 +103,44 @@ describe("the heads-up before a meeting", () => {
     ]);
   });
 
+  it("rings only for meetings you set up or said yes or maybe to", async () => {
+    const invite = (id: string, summary: string, responseStatus: "needsAction" | "tentative") => ({
+      ...review("2026-10-01T15:00:00Z", "2026-10-01T15:30:00Z"),
+      id,
+      summary,
+      organizer: { email: "stranger@spam.example" },
+      attendees: [{ email: ME, self: true, responseStatus }, { email: "stranger@spam.example" }],
+    });
+    g.put(ME, invite("webinar", "Free webinar", "needsAction"));
+    g.put(ME, invite("maybe", "Budget sync", "tentative"));
+    await sync();
+    h.clock.set("2026-10-01T14:50:10Z");
+    await h.settle();
+    expect((await inbox("calendar.meeting_soon")).map((n) => n.title)).toEqual([
+      '"Budget sync" in 10 min',
+    ]);
+  });
+
+  it("rings for the calendar new events go to, though it isn't an account's own", async () => {
+    const personal = "personal@group.calendar.google.com";
+    g.addCalendar({ id: personal, summary: "Personal", accessRole: "owner" });
+    g.put(personal, {
+      id: "dentist",
+      summary: "Dentist",
+      organizer: { email: personal, self: true },
+      start: at("2026-10-01T15:00:00Z"),
+      end: at("2026-10-01T16:00:00Z"),
+    });
+    await sync();
+    const [cal] = await h.tdb.db.select().from(calendar).where(eq(calendar.googleId, personal));
+    await ok("calendar.set_default", { id: cal!.id });
+    h.clock.set("2026-10-01T14:50:10Z");
+    await h.settle();
+    expect((await inbox("calendar.meeting_soon")).map((n) => n.title)).toEqual([
+      '"Dentist" in 10 min',
+    ]);
+  });
+
   it("is set up for meetings already on the calendar when the heartbeat looks ahead", async () => {
     g.put(ME, review("2026-10-01T15:00:00Z", "2026-10-01T15:30:00Z"));
     await sync();
@@ -142,6 +181,37 @@ describe("the evening and what Jarvis did", () => {
     expect(alert.delivered).toBe(true);
   });
 
+  it("still counts other timed reminders, and heads-ups Hearth didn't send", async () => {
+    await h.kernel.db.insert(setting).values({ key: "owner.maxInterruptsPerDay", value: 2 });
+    const sent = {
+      urgency: "interrupt" as const,
+      deliveredAt: h.clock.now(),
+      deadline: new Date("2026-10-01T20:00:00Z"),
+    };
+    await h.tdb.db.insert(notification).values([
+      {
+        id: newId(),
+        kind: "calendar.meeting_soon",
+        title: "Looks like one",
+        createdBy: "jarvis",
+        ...sent,
+      },
+      {
+        id: newId(),
+        kind: "tasks.due_soon",
+        title: "The deck is due",
+        createdBy: "system",
+        ...sent,
+      },
+    ]);
+    const alert = await ok<{ delivered: boolean }>(
+      "inbox.notify",
+      { title: "Backup failed", urgency: "interrupt" },
+      systemCaller(),
+    );
+    expect(alert.delivered).toBe(false);
+  });
+
   it("starts a plain prep with what it says, not its facts", () => {
     const facts = [
       "## Design review",
@@ -153,6 +223,21 @@ describe("the evening and what Jarvis did", () => {
     ].join("\n");
     expect(gist(facts)).toBe("Bring the Q3 numbers.");
     expect(gist("## Only facts\n- When: now")).toBe("");
+    expect(gist("## Design review\n- Ask Sam about the budget.")).toBe("Ask Sam about the budget.");
+    // The plain facts written when Jarvis couldn't write the prep: nothing reads as a gist.
+    const id = "6f1d2c3b-1111-4222-8333-444455556666";
+    const plainFacts = [
+      "## Design review",
+      "- When: Thu 11 a.m.",
+      `- Event id: ${id}`,
+      "- Open task T-4: Send the deck",
+      `- Last time: Thu Sep 24, 11 a.m. (event ${id})`,
+      `- Linked note "Budget" (${id}): the numbers`,
+      "- Has a description: read the event to see it.",
+      `- Last meeting with them: "Sync", Mon (meeting ${id})`,
+      "  Summary: they agreed on Q3",
+    ].join("\n");
+    expect(gist(plainFacts)).toBe("");
   });
 
   it("waits for the evening to send Your day", async () => {

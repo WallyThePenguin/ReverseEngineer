@@ -1,7 +1,7 @@
 // Writing to the inbox. Interrupts go through the interrupt budget; everything else just lands.
 import { decideInterrupt, type InterruptDecision, PRINCIPAL, startOfLocalDay } from "@hearth/core";
 import { notification } from "@hearth/db";
-import { and, count, gte, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
+import { and, count, eq, gte, inArray, isNotNull, not, sql } from "drizzle-orm";
 import { newId } from "./ids.ts";
 import { getSetting } from "./settings.ts";
 import type { ActionContext, Caller, NewNotification } from "./types.ts";
@@ -9,6 +9,13 @@ import type { ActionContext, Caller, NewNotification } from "./types.ts";
 export type NotificationRow = typeof notification.$inferSelect;
 
 type WriteContext = Pick<ActionContext, "tx" | "now" | "caller" | "emit">;
+
+/**
+ * Interrupts that don't use up the day's count when Hearth itself sends them: a meeting's
+ * heads-up (modules/src/calendar/soon.ts), which breaks through anyway because the meeting is
+ * about to start.
+ */
+const BUDGET_EXEMPT = ["calendar.meeting_soon"];
 
 /**
  * Whether an interrupt may go out now. Hearth's processes count and deliver one at a time,
@@ -23,8 +30,9 @@ export async function interruptDecision(
   const rules = await getSetting(ctx.tx, "owner.dayRules");
   const maxPerDay = await getSetting(ctx.tx, "owner.maxInterruptsPerDay");
   const since = startOfLocalDay(ctx.now, rules.timeZone);
-  // Hearth's own reminders for a set time (a meeting's heads-up) go out whatever the count, so
-  // they don't use it up either: a day of meetings mustn't hold back "backup failed".
+  // A meeting's heads-up goes out whatever the count, so it doesn't use it up either: a day of
+  // meetings mustn't hold back "backup failed". Only Hearth's own, by kind: other timed reminders
+  // (a task due soon, whose date may have come from an email) still count.
   const [row] = await ctx.tx
     .select({ n: count() })
     .from(notification)
@@ -32,7 +40,12 @@ export async function interruptDecision(
       and(
         isNotNull(notification.deliveredAt),
         gte(notification.deliveredAt, since),
-        or(isNull(notification.deadline), ne(notification.createdBy, PRINCIPAL.system)),
+        not(
+          and(
+            inArray(notification.kind, BUDGET_EXEMPT),
+            eq(notification.createdBy, PRINCIPAL.system),
+          )!,
+        ),
       ),
     );
   return decideInterrupt(

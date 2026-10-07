@@ -3,7 +3,15 @@
 // the switch that lets members' DM replies go out on their own starts on, once.
 import { randomBytes } from "node:crypto";
 import { memberPrincipal, PRINCIPAL } from "@hearth/core";
-import { audit, event, principal, slackBot, slackOutbox, standingRule } from "@hearth/db";
+import {
+  audit,
+  event,
+  notification,
+  principal,
+  slackBot,
+  slackOutbox,
+  standingRule,
+} from "@hearth/db";
 import { type Caller, jarvisCaller, memberCaller, newId, ownerCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { eq } from "drizzle-orm";
@@ -231,7 +239,7 @@ describe("the bot afterwards", () => {
 
   it("forgets the bot on disconnect, and what it hadn't sent doesn't go out later", async () => {
     await connect();
-    const row = (id: string, state: "queued" | "sent") => ({
+    const row = (id: string, state: "queued" | "sending" | "sent") => ({
       id,
       dedupeKey: `send:${id}`,
       teamId: "T1",
@@ -242,15 +250,32 @@ describe("the bot afterwards", () => {
       state,
       expiresAt: new Date(t.clock.now().getTime() + 86_400_000),
     });
-    const [waiting, sent] = [newId(), newId()];
-    await t.tdb.db.insert(slackOutbox).values([row(waiting, "queued"), row(sent, "sent")]);
-    expect(await ok("slack.bot_disconnect")).toEqual({ disconnected: true });
+    const [waiting, sending, sent] = [newId(), newId(), newId()];
+    await t.tdb.db
+      .insert(slackOutbox)
+      .values([
+        row(waiting, "queued"),
+        { ...row(sending, "sending"), sendingAt: t.clock.now() },
+        row(sent, "sent"),
+      ]);
+    expect(await ok("slack.bot_disconnect")).toEqual({ disconnected: true, unsent: 1, unsure: 1 });
     expect(await t.tdb.db.select().from(slackBot)).toEqual([]);
     const states = await t.tdb.db.select().from(slackOutbox);
+    // One it was sending isn't looked for, and maybe posted again, after a reconnect.
     expect(Object.fromEntries(states.map((o) => [o.id, o.state]))).toEqual({
       [waiting]: "failed",
+      [sending]: "unknown",
       [sent]: "sent",
     });
+    // You're told of both, each on its own card.
+    const cards = await t.tdb.db
+      .select()
+      .from(notification)
+      .where(eq(notification.kind, "slack.not_sent"));
+    expect(cards.map((c) => c.title).sort()).toEqual([
+      "Jarvis's Slack message to a direct message didn't go out",
+      "Jarvis's Slack message to a direct message may not have gone out",
+    ]);
     expect(await ok("slack.bot_status")).toMatchObject({ connected: false });
   });
 });

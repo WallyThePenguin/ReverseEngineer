@@ -15,6 +15,7 @@
 import { PRINCIPAL } from "@hearth/core";
 import {
   type Db,
+  type DbOrTx,
   slackAnswer,
   slackBot,
   slackChannel,
@@ -23,6 +24,7 @@ import {
   slackWorkspace,
 } from "@hearth/db";
 import {
+  type ActionContext,
   appendEvents,
   createNotification,
   type EmitEvent,
@@ -340,7 +342,7 @@ async function sharedLinks(db: Db, teamId: string): Promise<Set<string>> {
 }
 
 /** Where a post was going, in words: a member's name, or a channel's. */
-async function placeName(db: Db, row: OutboxRow): Promise<string> {
+async function placeName(db: DbOrTx, row: OutboxRow): Promise<string> {
   const id = row.channelId;
   let user: string | null = isUser(id) ? id : null;
   if (id.startsWith("D")) {
@@ -374,17 +376,22 @@ async function placeName(db: Db, row: OutboxRow): Promise<string> {
 /** Tells you about a post that didn't go out, or may not have: one card per post. */
 async function tell(kernel: Kernel, row: OutboxRow, what: string, why: string) {
   const now = kernel.clock.now();
-  const where = await placeName(kernel.db, row);
   await kernel.db.transaction(async (tx) => {
     const buffered: EmitEvent[] = [];
     const ctx = kernel.context(tx, { ...systemCaller(), correlationId: newId() }, now, buffered);
-    await createNotification(ctx, {
-      kind: "slack.not_sent",
-      title: `Jarvis's Slack message to ${where} ${what}`,
-      body: `${why}\n\n${preview(row.text, 300)}`,
-      urgency: "normal",
-      dedupeKey: `slack.outbox:${row.id}`,
-    });
+    await tellNotSent(ctx, row, what, why);
     await appendEvents(tx, buffered, { actor: PRINCIPAL.system, origin: "system", at: now });
+  });
+}
+
+/** The card for one post, in a transaction of the caller's (disconnecting the bot uses it too). */
+export async function tellNotSent(ctx: ActionContext, row: OutboxRow, what: string, why: string) {
+  const where = await placeName(ctx.tx, row);
+  await createNotification(ctx, {
+    kind: "slack.not_sent",
+    title: `Jarvis's Slack message to ${where} ${what}`,
+    body: `${why}\n\n${preview(row.text, 300)}`,
+    urgency: "normal",
+    dedupeKey: `slack.outbox:${row.id}`,
   });
 }

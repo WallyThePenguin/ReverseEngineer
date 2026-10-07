@@ -101,6 +101,31 @@ describe("turning a channel on", () => {
     expect(await t.turns()).toEqual([]);
   });
 
+  it("is made safer whatever Slack says, and turned off when asking for more fails the check", async () => {
+    await turnOn("CLAUNCH", "schedule", "auto");
+    // Slack can't be reached: lowering it doesn't need Slack.
+    t.s.failWith = "service_unavailable";
+    expect(await turnOn("CLAUNCH", "relay", "review")).toMatchObject({
+      status: "ok",
+      result: { tier: "relay", replies: "review" },
+    });
+    expect((await turnOn("CLAUNCH", "relay", "auto")).status).toBe("error");
+    t.s.failWith = null;
+    // A guest joined since: asking for more finds them, and the channel goes off.
+    t.s.channelFacts.get("CLAUNCH")!.members.push("UGUEST");
+    expect(await turnOn("CLAUNCH", "schedule")).toMatchObject({
+      status: "ok",
+      result: { tier: "off", off: "A guest is in it." },
+    });
+    const [ch] = await t.h.tdb.db.select().from(slackChannel).where(eq(slackChannel.id, "CLAUNCH"));
+    expect(ch!.jarvisTier).toBe("off");
+    expect((await t.cards("slack.channel_off")).map((c) => c.title)).toEqual([
+      "Jarvis stopped answering in #launch",
+    ]);
+    // Off already, it's refused as before, with nothing turned.
+    expect((await turnOn("CLAUNCH")).status).toBe("error");
+  });
+
   it("waits for its hourly check before a turn in a channel checked over an hour ago", async () => {
     await turnOn("CLAUNCH");
     t.h.clock.advance(61 * 60_000);

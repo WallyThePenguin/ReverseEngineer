@@ -18,18 +18,18 @@ import {
   whenText,
 } from "./store.ts";
 
-const when = z.union([
+export const when = z.union([
   z.string().datetime({ offset: true }),
   z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date like 2026-10-02 for all-day events"),
 ]);
-const fields = {
+export const fields = {
   title: z.string().trim().min(1).max(500),
   start: when.describe("ISO date-time with offset, or a date for an all-day event"),
   end: when.describe("ISO date-time with offset, or the day after the last day for all-day"),
   description: z.string().max(20_000).optional(),
   location: z.string().max(500).optional(),
 };
-const emails = z.array(z.string().email()).min(1).max(50);
+export const emails = z.array(z.string().email()).min(1).max(50);
 
 export function api(ctx: ActionContext) {
   return new CalendarApi(ctx.service<GoogleClient>(GOOGLE_SERVICE), ctx.tx);
@@ -157,18 +157,21 @@ export async function removeEvent(ctx: ActionContext, eventId: string, shared = 
   return { cancelled: ev.id };
 }
 
-const describeTimes = (i: { title: string; start: string; end: string }) =>
-  `"${i.title}" ${i.start} to ${i.end}`;
+/** A title on one line, quoted: it can't pass for anything else on an approval. */
+export const plainTitle = (title: string) =>
+  `"${title
+    .replace(/[\p{Cc}\p{Cf}"]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120)}"`;
+
+export const describeTimes = (i: { title: string; start: string; end: string }) =>
+  `${plainTitle(i.title)} ${i.start} to ${i.end}`;
 
 /** A meeting on one line, as an approval shows it: its title can't pass for anything else. */
 export async function meetingText(db: DbOrTx, ev: EventView): Promise<string> {
   const { timeZone } = await getSetting(db, "owner.dayRules");
-  const title = ev.title
-    .replace(/[\p{Cc}\p{Cf}"]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 120);
-  return `"${title}", ${whenText(ev, timeZone)}`;
+  return `${plainTitle(ev.title)}, ${whenText(ev, timeZone)}`;
 }
 
 export const calendarWriteActions = [
@@ -207,37 +210,5 @@ export const calendarWriteActions = [
     input: z.object({ id }),
     risk: "self_external",
     handler: (i, ctx) => removeEvent(ctx, i.id),
-  }),
-  defineAction({
-    name: "calendar.schedule_meeting",
-    description: "Create a meeting and send invitations to guests by email.",
-    input: z.object({ ...fields, attendees: emails, calendarId: z.string().optional() }),
-    risk: "outward",
-    summarize: (i) => `Invite ${i.attendees.join(", ")} to ${describeTimes(i)}`,
-    handler: (i, ctx) => insertEvent(ctx, i),
-  }),
-  defineAction({
-    name: "calendar.update_meeting",
-    description: "Change a meeting the owner organizes; guests get an update.",
-    input: z.object({
-      id,
-      title: fields.title.optional(),
-      start: when.optional(),
-      end: when.optional(),
-      description: fields.description,
-      location: fields.location,
-    }),
-    risk: "outward",
-    summarize: (i) =>
-      `Update a meeting${i.start ? ` to start ${i.start}` : ""}${i.title ? ` as "${i.title}"` : ""}, telling its guests`,
-    handler: ({ id: eid, ...patch }, ctx) => patchEvent(ctx, eid, patch, true),
-  }),
-  defineAction({
-    name: "calendar.cancel_meeting",
-    description: "Cancel a meeting the owner organizes; guests are told.",
-    input: z.object({ id }),
-    risk: "outward",
-    summarize: () => "Cancel a meeting and tell its guests",
-    handler: (i, ctx) => removeEvent(ctx, i.id, true),
   }),
 ];

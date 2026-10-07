@@ -1,7 +1,7 @@
 // What Jarvis remembers: the list of memory notes, and on each note, when it's used, its text,
 // and every earlier version with a way to go back.
 
-import { createSignal, For, lazy, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import { Overflow, ROW_MENU } from "../components/Menu.tsx";
 import { NoRows } from "../components/QueryView.tsx";
 import { Badge, Button, PaneHeader } from "../components/ui.tsx";
@@ -14,9 +14,10 @@ import { quickAdd } from "../lib/quickadd.ts";
 import { createSelection } from "../lib/selection.ts";
 import { moveToTrash, trashKey } from "../lib/trash.ts";
 import type { MemoryNote, MemoryRevision } from "../lib/types.ts";
+import { view } from "../shell/loadView.tsx";
 
 // The live editor loads when a memory note opens, like a note's.
-const DocEditor = lazy(() => import("../components/DocEditor.tsx"));
+const DocEditor = view(() => import("../components/DocEditor.tsx").then((m) => m.default));
 
 function ScopeBadge(props: { scope: MemoryNote["scope"] }) {
   return props.scope === "always" ? <Badge tone="jarvis">always</Badge> : <Badge>by topic</Badge>;

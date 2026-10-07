@@ -1,5 +1,6 @@
-// What goes with what you ask Jarvis (step 10): the record in the pane you were last in, never a
-// list or the conversation itself, and not once you've taken it off, until you open another.
+// What goes with what you ask Jarvis (step 10): the record in the pane you were last in, or the one
+// picked from the list you're in; never a list or the conversation itself, and not once you've
+// taken it off, until you're on another.
 // Runs against a fake browser (no DOM here), as panes.test.ts does.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -10,6 +11,8 @@ vi.mock("solid-js", () => import("solid-js/dist/solid.js"));
 // Records are named by UUID in an address.
 const T1 = "00000000-0000-4000-8000-0000000000a1";
 const N1 = "00000000-0000-4000-8000-0000000000b1";
+const M1 = "00000000-0000-4000-8000-0000000000c1";
+const C1 = "00000000-0000-4000-8000-0000000000d1";
 
 let path = "/";
 beforeEach(() => {
@@ -54,20 +57,40 @@ describe("what's on screen as you ask", () => {
   });
 
   it("follows the pane you're in", async () => {
-    const s = await at(`/today+task/${T1}`);
-    expect(s.looking()).toBeNull();
-    s.panes.focus(1);
+    const s = await at(`/task/${T1}+tasks`);
     expect(s.looking()).toEqual({ id: T1, view: "task" });
+    // A list with nothing picked beside it: nothing.
+    s.panes.focus(1);
+    expect(s.looking()).toBeNull();
     s.panes.open({ view: "note", id: N1 });
     expect(s.looking()).toEqual({ id: N1, view: "note" });
   });
 
-  it("stays off once taken off, until you open something else", async () => {
+  it("is the record picked from the list you're in, shown beside it", async () => {
+    // Clicking an email in Inbox opens it to the right and leaves you in Inbox (layout.show).
+    const s = await at("/inbox");
+    s.panes.show({ view: "thread", id: M1 }, 0);
+    expect(s.panes.focused()).toBe(0);
+    expect(s.looking()).toEqual({ id: M1, view: "thread" });
+    // The same from its address, with you in the list.
+    const addressed = await at(`/inbox+thread/${M1}`);
+    expect(addressed.panes.focused()).toBe(0);
+    expect(addressed.looking()).toEqual({ id: M1, view: "thread" });
+    // Not a conversation opened beside a list, nor a record two panes over.
+    const c = await at(`/today+chat/${C1}`);
+    expect(c.looking()).toBeNull();
+    const far = await at(`/today+tasks+task/${T1}`);
+    expect(far.looking()).toBeNull();
+  });
+
+  it("stays off once taken off, until you're on something else, then comes back", async () => {
     const s = await at(`/task/${T1}`);
     s.takeOff();
     expect(s.looking()).toBeNull();
     s.panes.open({ view: "note", id: N1 });
     expect(s.looking()).toEqual({ id: N1, view: "note" });
+    s.panes.open({ view: "task", id: T1 });
+    expect(s.looking()).toEqual({ id: T1, view: "task" });
   });
 
   it("offers asks that fit the kind of record, and the usual ones otherwise", async () => {

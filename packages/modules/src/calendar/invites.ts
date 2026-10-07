@@ -1,31 +1,17 @@
 // A new invitation becomes one card: accept it with one tap. Whether you're free is plain
 // calendar arithmetic, so no model turn is spent; the answer goes out only once you say yes.
 import { PRINCIPAL, startOfLocalDay } from "@hearth/core";
-import { approval, calendar, calendarEvent, type DbOrTx, entity, googleAccount } from "@hearth/db";
+import { approval, calendar, calendarEvent, type DbOrTx, entity } from "@hearth/db";
 import { getSetting, type ReflexDef } from "@hearth/kernel";
 import { and, asc, count, eq, gt, gte, isNull, lt, ne, or } from "drizzle-orm";
 import { personFor } from "../people/store.ts";
-import { inSelectedCalendar } from "./calendars.ts";
+import { inSelectedCalendar, isOwnCalendar } from "./calendars.ts";
 import { type EventView, loadEvent } from "./store.ts";
 
 /** Invitation cards in one day: a newly connected calendar can hold dozens of old ones. */
 export const INVITE_CARDS = 15;
 /** Times of a repeating meeting checked for clashes: accepting answers them all. */
 const SERIES_CHECKED = 5;
-
-/**
- * The primary calendar of any account of yours, even when another of yours syncs it. On a calendar
- * someone else shared with you, Google's "you" is its owner: accepting there would answer as them.
- */
-async function onOwnCalendar(db: DbOrTx, ev: EventView): Promise<boolean> {
-  const [own] = await db
-    .select({ id: calendar.id })
-    .from(calendar)
-    .innerJoin(googleAccount, eq(googleAccount.email, calendar.googleId))
-    .where(eq(calendar.id, ev.calendarId))
-    .limit(1);
-  return Boolean(own);
-}
 
 /** A title as one plain line, so it can't pass for anything else on the card. */
 const plain = (title: string) =>
@@ -120,7 +106,7 @@ export const newInvite: ReflexDef = {
     const ev = await loadEvent(ctx.db, event.entityId);
     if (!ev || ev.selfOrganizer || ev.selfResponse !== "needsAction" || !ev.organizer) return [];
     if (ev.status === "cancelled" || ev.startsAt <= ctx.now) return [];
-    if (!(await onOwnCalendar(ctx.db, ev))) return [];
+    if (!(await isOwnCalendar(ctx.db, ev.calendarId))) return [];
     // Someone you've written to or met with: anyone can put an invitation on your calendar.
     if (!(await personFor(ctx.db, ev.organizer))) return [];
     const times = await timesAnswered(ctx.db, ev, ctx.now);

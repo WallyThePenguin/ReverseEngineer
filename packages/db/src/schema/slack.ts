@@ -57,6 +57,7 @@ export type SlackReplies = "auto" | "review";
 
 export const slackUser = pgTable("slack_user", {
   id: text("id").primaryKey(),
+  /** Not tied to slack_workspace since 0047: who you decided about stays through a disconnect. */
   teamId: text("team_id").notNull(),
   name: text("name").notNull(),
   email: text("email"),

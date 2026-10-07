@@ -3,20 +3,34 @@
 // (a DM, or a thread), so "hey / got a sec? / can you review X / thanks!" is one, not four; the
 // heartbeat sees its latest messages. Watching is free; only the heartbeat spends a turn. Hearth
 // never posts to Slack.
-import { localDate, startOfLocalDay } from "@hearth/core";
+import { localDate, PRINCIPAL, startOfLocalDay } from "@hearth/core";
 import {
   type DbOrTx,
   entity,
-  event,
   heartbeatItem,
   link,
   slackChannel,
   slackMessage,
   slackUser,
   slackWorkspace,
+  task,
 } from "@hearth/db";
 import { getSetting, type ReflexDef } from "@hearth/kernel";
-import { and, count, desc, eq, gte, inArray, isNull, max, ne, or, type SQL } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  exists,
+  gte,
+  inArray,
+  isNull,
+  lte,
+  max,
+  ne,
+  or,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import { liveEntity, preview } from "../shared.ts";
 
 /** Slack conversations set aside in one day, so a busy workspace can't flood the heartbeat. */
@@ -26,6 +40,12 @@ export const SLACK_FOR_YOU = "Slack message for you";
 /** The conversation's latest messages the heartbeat sees, and how much of each. */
 const LATELY = 6;
 const AFTER_CHARS = 200;
+/** Tasks made from the conversation the heartbeat sees, newest first. */
+const EARLIER = 3;
+
+/** A conversation as one key, as conversationOf draws it: a DM is its channel, else its thread. */
+const conversationKey = sql`CASE WHEN ${slackChannel.kind} = 'dm' THEN ${slackMessage.channelId}
+  ELSE ${slackMessage.channelId} || ':' || coalesce(${slackMessage.threadTs}, ${slackMessage.ts}) END`;
 
 /**
  * A task that links to this record (an m-ref in its body, say), if one is still around; with
@@ -95,18 +115,19 @@ export const slackForYou: ReflexDef = {
       .where(and(isNull(heartbeatItem.takenAt), convo.where))
       .limit(1);
     if (waiting) return [];
+    // Today's conversations, not items: one the heartbeat already took comes back with each
+    // window its sender writes in, and is still one conversation.
     const { timeZone } = await getSetting(ctx.db, "owner.dayRules");
     const [today] = await ctx.db
-      .select({ n: count() })
+      .select({
+        n: sql<number>`count(DISTINCT ${conversationKey})::int`,
+        here: sql<boolean | null>`bool_or(${convo.where})`,
+      })
       .from(heartbeatItem)
-      .innerJoin(event, eq(event.seq, heartbeatItem.sourceEventSeq))
-      .where(
-        and(
-          eq(event.kind, "slack.mentioned"),
-          gte(heartbeatItem.createdAt, startOfLocalDay(ctx.now, timeZone)),
-        ),
-      );
-    if ((today?.n ?? 0) >= SLACK_ASKS)
+      .innerJoin(slackMessage, eq(slackMessage.entityId, heartbeatItem.aboutId))
+      .innerJoin(slackChannel, eq(slackChannel.id, slackMessage.channelId))
+      .where(gte(heartbeatItem.createdAt, startOfLocalDay(ctx.now, timeZone)));
+    if (!today?.here && (today?.n ?? 0) >= SLACK_ASKS)
       return [
         {
           kind: "tell",
@@ -139,54 +160,76 @@ export async function slackContext(db: DbOrTx, messageId: string): Promise<strin
     .where(and(convo.where, isNull(entity.deletedAt)))
     .orderBy(desc(slackMessage.ts))
     .limit(LATELY);
-  const [earlier] = await db
-    .select({ title: entity.title })
+  // The newest, so a ping about the last ask meets that ask's task, not one from months ago.
+  const earlier = await db
+    .selectDistinct({
+      id: entity.id,
+      title: entity.title,
+      status: task.status,
+      at: entity.createdAt,
+    })
     .from(link)
     .innerJoin(entity, eq(entity.id, link.fromId))
-    .where(and(inArray(link.toId, inConvo), eq(entity.type, "task"), isNull(entity.deletedAt)))
-    .limit(1);
+    .innerJoin(task, eq(task.entityId, entity.id))
+    .where(and(inArray(link.toId, inConvo), isNull(entity.deletedAt)))
+    .orderBy(desc(entity.createdAt))
+    .limit(EARLIER);
   const said = lately
     .reverse()
     .map(
       (m) =>
         `${m.userId === convo.me ? "the owner" : (m.name ?? "someone")}: "${preview(m.body, AFTER_CHARS)}"`,
     );
+  const state = (s: string) =>
+    s === "completed" ? "done" : s === "canceled" ? "canceled" : "open";
+  const tasks = earlier.map((t) => `"${preview(t.title, 120)}" (${state(t.status)})`);
   return [
     said.length ? ` Lately in the conversation, oldest first: ${said.join("; ")}.` : "",
-    earlier
-      ? ` A task was made from this conversation before: "${preview(earlier.title, 120)}".`
-      : "",
+    tasks.length ? ` Tasks made from this conversation, newest first: ${tasks.join("; ")}.` : "",
   ].join("");
 }
 
 /**
  * Whether a task made from the conversation covers all that others said there, so the heartbeat
- * needn't look: none was said since. A ping after the task ("any update?") isn't covered.
+ * needn't look. Covered means the task was made after the last of it was seen: by you, or by a
+ * heartbeat turn that took the conversation after it was said. A turn sees the conversation as it
+ * was when it took it, so what came while that turn ran isn't covered by its task, and a ping
+ * after the task ("any update?") isn't either.
  */
 export async function slackCovered(db: DbOrTx, messageId: string): Promise<boolean> {
   const convo = await conversationOf(db, messageId);
   if (!convo) return true;
+  const inConvo = db.select({ id: slackMessage.entityId }).from(slackMessage).where(convo.where);
   const [last] = await db
     .select({ at: max(entity.createdAt) })
     .from(slackMessage)
     .innerJoin(entity, eq(entity.id, slackMessage.entityId))
     .where(and(convo.where, or(isNull(slackMessage.userId), ne(slackMessage.userId, convo.me))));
   if (!last?.at) return true;
-  const [task] = await db
+  // A heartbeat that took the conversation after it was all said, before the task was made.
+  const seenFirst = db
+    .select({ id: heartbeatItem.id })
+    .from(heartbeatItem)
+    .where(
+      and(
+        inArray(heartbeatItem.aboutId, inConvo),
+        gte(heartbeatItem.takenAt, last.at),
+        lte(heartbeatItem.takenAt, entity.createdAt),
+      ),
+    );
+  const [covering] = await db
     .select({ id: entity.id })
     .from(link)
     .innerJoin(entity, eq(entity.id, link.fromId))
     .where(
       and(
-        inArray(
-          link.toId,
-          db.select({ id: slackMessage.entityId }).from(slackMessage).where(convo.where),
-        ),
+        inArray(link.toId, inConvo),
         eq(entity.type, "task"),
         isNull(entity.deletedAt),
         gte(entity.createdAt, last.at),
+        or(eq(entity.createdBy, PRINCIPAL.owner), exists(seenFirst)),
       ),
     )
     .limit(1);
-  return Boolean(task);
+  return Boolean(covering);
 }
