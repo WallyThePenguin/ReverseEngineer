@@ -82,6 +82,20 @@ try {
       throw new Error("the selection didn't move to the row that took the completed one's place");
   });
 
+  await step("a task added elsewhere leaves the rows on screen as they were", async (p) => {
+    // The list is read again, all of it: only the new row is drawn, so nothing else blinks or
+    // loses what's open on it.
+    const rows = pane(p, "Tasks").locator("li");
+    const shown = await rows.evaluateAll((els) => {
+      for (const el of els) el.setAttribute("data-shown", "");
+      return els.length;
+    });
+    await run(p, "task.create", { title: `Daily added ${tag}` });
+    await pane(p, "Tasks").getByText(`Daily added ${tag}`).waitFor();
+    const kept = await pane(p, "Tasks").locator("li[data-shown]").count();
+    if (kept !== shown) throw new Error(`${shown - kept} of ${shown} rows were drawn again`);
+  });
+
   await step(
     "a task trashed from its row's menu leaves at once, and Undo puts it back",
     async (p) => {
@@ -236,6 +250,32 @@ try {
       await p.getByRole("heading", { name: real.key }).waitFor();
     },
   );
+
+  await step("a checklist box whose save fails goes back, so the next tick ticks it", async (p) => {
+    const t = await run<{ id: string }>(p, "task.create", {
+      title: `Pack ${tag}`,
+      body: "- [ ] Passports",
+    });
+    await p.goto(`${base}/task/${t.id}`);
+    const box = p.getByRole("checkbox", { name: "Passports" });
+    const save = "**/api/actions/task.update";
+    await p.route(save, (r) =>
+      r.fulfill({ status: 500, json: { error: "Hearth hit a problem." } }),
+    );
+    const failed = p.waitForResponse((r) => r.url().endsWith("/api/actions/task.update"));
+    await box.click();
+    await failed;
+    await p.waitForTimeout(300);
+    if (await box.isChecked()) throw new Error("a box whose save failed still shows ticked");
+    await p.unroute(save);
+    await box.click();
+    for (let i = 0; ; i++) {
+      const { body } = await run<{ body: string | null }>(p, "entity.get", { id: t.id });
+      if (body === "- [x] Passports") break;
+      if (i === 50) throw new Error(`the next tick saved ${JSON.stringify(body)}`);
+      await p.waitForTimeout(200);
+    }
+  });
 
   // A phone: 375 px wide, touch only.
   const phone = await browser.newContext({

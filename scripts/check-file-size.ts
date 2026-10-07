@@ -13,6 +13,7 @@ const SOURCE = /\.(ts|tsx|js|rs|css)$/;
 
 const files = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
   encoding: "utf8",
+  windowsHide: true,
 })
   .split("\n")
   .filter((f) => SOURCE.test(f) && !EXEMPT.has(f))

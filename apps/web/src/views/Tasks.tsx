@@ -11,6 +11,7 @@ import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
 import { toast } from "../lib/live.ts";
 import { narrow } from "../lib/narrow.ts";
 import { newTaskTaken, newTaskWanted } from "../lib/newTask.ts";
+import { orBack } from "../lib/orBack.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
 import { quickAdd } from "../lib/quickadd.ts";
@@ -55,10 +56,14 @@ export function TaskRow(props: { task: Task; active: boolean; onOpen: (beside: b
           aria-label={closed() ? `Reopen ${t().key}` : `Complete ${t().key}`}
           checked={t().status === "completed"}
           onChange={(e) =>
-            void act("task.update", {
-              id: t().id,
-              status: e.currentTarget.checked ? "completed" : "not_started",
-            })
+            void orBack(
+              e.currentTarget,
+              act("task.update", {
+                id: t().id,
+                status: e.currentTarget.checked ? "completed" : "not_started",
+              }),
+              () => t().status === "completed",
+            )
           }
         />
       </label>

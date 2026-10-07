@@ -3,6 +3,8 @@
 // goes into one, where a reply as Jarvis goes, and how "Ask Jarvis about this" asks without
 // putting your turn in their conversation.
 
+import { timeNow } from "./clock.ts";
+
 /** Who Jarvis goes how far for: a member's tier, or a channel's. */
 export type SlackTier = "blocked" | "off" | "relay" | "schedule";
 
@@ -54,7 +56,7 @@ export function placeOf(c: SlackConversation): string {
 }
 
 /** Whether it's paused now. */
-export const pausedNow = (c: Pick<SlackConversation, "pausedUntil">, now = Date.now()) =>
+export const pausedNow = (c: Pick<SlackConversation, "pausedUntil">, now = timeNow().getTime()) =>
   Boolean(c.pausedUntil && Date.parse(c.pausedUntil) > now);
 
 /**
