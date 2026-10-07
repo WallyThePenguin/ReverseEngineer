@@ -231,6 +231,8 @@ function pageSnapshot(opts, h) {
     .join("\n");
   return {
     url: location.href,
+    // Which page this is: its references are good on it alone.
+    doc: performance.timeOrigin,
     title: clean(document.title).trim(),
     text,
     links,

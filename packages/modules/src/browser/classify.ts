@@ -163,6 +163,16 @@ export function isHearthPage(url: string, env: NodeJS.ProcessEnv = process.env):
   return [env.HEARTH_ORIGIN, env.HEARTH_LOCAL_ORIGIN].some((o) => o && hostOf(o)?.host === at.host);
 }
 
+/**
+ * Whether an address is one of Hearth's own requests rather than a page (/api/...): one opened in
+ * your Chrome goes with your sign-in, so it could start something only you should, such as
+ * connecting a Google account. Chrome's test page is the exception, as above.
+ */
+export function isHearthApi(url: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  const at = hostOf(url);
+  return Boolean(at?.path.startsWith("/api/")) && isHearthPage(url, env);
+}
+
 /** Hearth's own page says so in its head, whatever address reached it (a proxy, an alias). */
 export const HEARTH_MARK = 'meta[name="hearth-build"]';
 

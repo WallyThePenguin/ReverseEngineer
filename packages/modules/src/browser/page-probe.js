@@ -8,7 +8,7 @@
 
 /**
  * @param {{ op: "active" | "hit" | "form" | "consent", ref?: string, x?: number, y?: number,
- *   reject?: string }} opts
+ *   reject?: string, doc?: number, mark?: string }} opts
  * @param {PageElements} h
  */
 // biome-ignore lint/correctness/noUnusedVariables: sent to the page as source text.
@@ -53,6 +53,10 @@ function pageProbe(opts, h) {
   }
 
   if (opts.op === "hit") {
+    // As pageAct: the page the reference was read from, and not Hearth's own.
+    if (opts.mark && document.querySelector(opts.mark)) return { ok: false, hearth: true };
+    if (opts.doc !== undefined && opts.doc !== performance.timeOrigin)
+      return { ok: false, moved: true };
     const el = marked();
     const top = topAt(opts.x ?? 0, opts.y ?? 0);
     const labelFor = top instanceof HTMLLabelElement && top.control === el;

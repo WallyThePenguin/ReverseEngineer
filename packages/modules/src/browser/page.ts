@@ -27,6 +27,8 @@ export interface PageElement {
 
 export interface PageSnapshot {
   url: string;
+  /** Which page it is (performance.timeOrigin): its E-references are good on it alone. */
+  doc?: number;
   title: string;
   text: string;
   /** Link addresses; "L1" is links[0]. */
@@ -157,6 +159,20 @@ export function rememberLinks(
   if (pageLinks.size > MAX_PAGES && oldest !== undefined) pageLinks.delete(oldest);
 }
 
+// The page each tab's E-references were numbered on, by browser_read. Kept apart from the links,
+// which browser_read_page also keeps; going to another page forgets both.
+const readDocs = new Map<number, number>();
+
+export function rememberDoc(tabId: number, doc: number | undefined): void {
+  readDocs.delete(tabId);
+  if (doc !== undefined) readDocs.set(tabId, doc);
+  const oldest = readDocs.keys().next().value;
+  if (readDocs.size > MAX_PAGES && oldest !== undefined) readDocs.delete(oldest);
+}
+
+/** The page a tab's E-references belong to, if this process read it. */
+export const readDoc = (tabId: number): number | undefined => readDocs.get(tabId);
+
 /** The address behind "L4" on the page last read in a tab, or null. */
 export function linkUrl(tabId: number, ref: string): string | null {
   const n = /^L(\d+)$/i.exec(ref.trim());
@@ -176,4 +192,5 @@ export function elementSeen(
 
 export function forgetLinks(tabId: number): void {
   pageLinks.delete(tabId);
+  readDocs.delete(tabId);
 }
