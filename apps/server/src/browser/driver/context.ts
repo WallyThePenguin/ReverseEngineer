@@ -1,7 +1,14 @@
 // What one driver step works with (B1): the tab, its protocol commands and isolated worlds, and
 // the policy the kernel sent along (blocked and trusted sites, pacing, an approved step's site).
 import { onSiteList } from "@hearth/core";
-import { type DriverPolicy, judge, type Verdict } from "@hearth/modules/driver-kit";
+import {
+  type DriverPolicy,
+  HEARTH_MARK,
+  HEARTH_PAGE,
+  isHearthPage,
+  judge,
+  type Verdict,
+} from "@hearth/modules/driver-kit";
 import { fail } from "./errors.ts";
 import type { TabState } from "./tab.ts";
 import type { Cdp, CdpTransport } from "./transport.ts";
@@ -66,6 +73,53 @@ export class DriverContext {
     const host = hostOf(url);
     if (host && onSiteList(host, this.policy.blocked))
       throw fail("blocked", `${host} is on the owner's list of sites Jarvis never opens.`);
+  }
+
+  /** How many times the tab had gone, or asked to go, to another page when this step began. */
+  private began = -1;
+  private asked = 0;
+
+  /**
+   * Hearth's own pages are the owner's to work, known by address or by the mark in their head:
+   * Jarvis never presses, types or uses keys there, nor on a page on its way there. Checked as a
+   * step that acts begins; a page that can't be asked isn't acted on either.
+   */
+  async assertNotHearth(): Promise<void> {
+    if (this.policy.owner) return;
+    const heading = this.tab.heading;
+    if (isHearthPage(this.url()) || (heading && isHearthPage(heading)))
+      throw fail("refused", HEARTH_PAGE);
+    const marked = await this.worlds
+      .evaluate<boolean>(
+        undefined,
+        this.tab.mainFrame ?? "",
+        `document.querySelector(${JSON.stringify(HEARTH_MARK)}) !== null`,
+      )
+      .catch(() => null);
+    if (marked === null)
+      throw fail(
+        "changed",
+        `Jarvis couldn't tell what page tab ${this.tab.tabId} is on, so it didn't go ahead. Try again once the page has loaded.`,
+      );
+    if (marked) throw fail("refused", HEARTH_PAGE);
+    this.began = this.tab.navigations;
+    this.asked = this.tab.asked;
+  }
+
+  /**
+   * Asked before each press, key or typed character in a step: refuses once the page has asked to
+   * go to another one since the step began (or gone), so a page that sends itself to Hearth mid-step
+   * stops it before the new page can take a key.
+   */
+  assertStill(done: string[] = []): void {
+    if (this.policy.owner || this.began < 0) return;
+    const t = this.tab;
+    if (t.navigations === this.began && t.asked === this.asked && !isHearthPage(this.url())) return;
+    const pressed = done.length ? ` (Already pressed: ${done.join(", ")}.)` : "";
+    throw fail(
+      "changed",
+      `The tab started going to another page partway through, so Jarvis stopped there.${pressed}`,
+    );
   }
 
   /** An approved step runs only on the site it was approved for (a batch, on its own). */

@@ -106,16 +106,17 @@ async function rehome(ctx: ActionContext, leaving: string): Promise<string[]> {
   return [...kept];
 }
 
-/**
- * Postgres stopped waiting (on a lock, or for the statement) or picked this to undo in a deadlock
- * (a calendar sync noting the account's health just then), wherever the driver wrapped it.
- */
-const WAITED = new Set(["57014", "55P03", "40P01"]);
-function gaveUpWaiting(err: unknown): boolean {
+/** Whether Postgres said one of `codes`, wherever the driver wrapped it. */
+function saidAny(err: unknown, codes: ReadonlySet<string>): boolean {
   for (let e = err; e instanceof Error; e = e.cause)
-    if ("code" in e && WAITED.has(String(e.code))) return true;
+    if ("code" in e && codes.has(String(e.code))) return true;
   return false;
 }
+/** Postgres stopped waiting, on a lock or for the statement. */
+const STOPPED_WAITING = new Set(["57014", "55P03"]);
+/** Postgres picked this to undo in a deadlock (a calendar sync noting the account's health). */
+const DEADLOCK = new Set(["40P01"]);
+const syncing = () => new ActionError("conflict", "Google is syncing; try again in a moment.");
 
 /**
  * Waits for any sync that's running to finish, and holds every account's off until this is done.
@@ -145,8 +146,7 @@ export const disconnectAction = defineAction({
     try {
       return await disconnect(i, ctx);
     } catch (err) {
-      if (gaveUpWaiting(err))
-        throw new ActionError("conflict", "Google is syncing; try again in a moment.");
+      if (saidAny(err, DEADLOCK)) throw syncing();
       throw err;
     }
   },
@@ -154,11 +154,18 @@ export const disconnectAction = defineAction({
 
 async function disconnect(i: { email: string; keepDrafts: boolean }, ctx: ActionContext) {
   const email = i.email.toLowerCase();
-  // A sync running now may be filing mail into this account's conversations, which a sync of
-  // another account can join too: none of its mail may go with them, never to be fetched again.
-  await holdAll(ctx);
-  // And a sync starting now waits until it's gone, rather than make its mail account again.
-  await ctx.tx.select().from(googleAccount).where(eq(googleAccount.email, email)).for("update");
+  try {
+    // A sync running now may be filing mail into this account's conversations, which a sync of
+    // another account can join too: none of its mail may go with them, never to be fetched again.
+    await holdAll(ctx);
+    // And a sync starting now waits until it's gone, rather than make its mail account again.
+    await ctx.tx.select().from(googleAccount).where(eq(googleAccount.email, email)).for("update");
+  } catch (err) {
+    // Only here is waiting too long a sync's doing. Later on (removing a very large account's
+    // mail, say) it's itself, and logged as a failure.
+    if (saidAny(err, STOPPED_WAITING)) throw syncing();
+    throw err;
+  }
   const cals = await ctx.tx.select().from(calendar).where(eq(calendar.account, email));
   await handOver(ctx, cals);
   await dropCalendars(
@@ -191,12 +198,13 @@ async function disconnect(i: { email: string; keepDrafts: boolean }, ctx: Action
   if (!i.keepDrafts) await dropMail(ctx, mailDraft, mailId);
   await closeMailAlerts(ctx, mailId, false);
   await ctx.tx.delete(mailAccount).where(eq(mailAccount.id, mailId));
-  // Worked out once the account's gone, as its address is no longer one of yours.
-  for (const id of new Set([...shared, ...joined.map((j) => j.id)])) await recomputeThread(ctx, id);
   const gone = await ctx.tx
     .delete(googleAccount)
     .where(eq(googleAccount.email, email))
     .returning({ email: googleAccount.email, token: googleAccount.refreshToken });
+  // Worked out once the account's gone, mail and Google both (either makes its address one of
+  // yours: mail/mine.ts), so what waits on you is worked out without it.
+  for (const id of new Set([...shared, ...joined.map((j) => j.id)])) await recomputeThread(ctx, id);
   await closeCalendarAlerts(ctx, email);
   let google: GoogleClient | null = null;
   try {

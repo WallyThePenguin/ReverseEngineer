@@ -19,6 +19,7 @@ import {
   reloadPage,
   type ServerBuild,
   watchBuild,
+  whenHidden,
   wouldLoseWork,
 } from "../lib/version.ts";
 import { Notice } from "./kit/Notice.tsx";

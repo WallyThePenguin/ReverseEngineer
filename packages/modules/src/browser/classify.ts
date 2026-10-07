@@ -3,8 +3,11 @@
 // sends to another site. Only then come a few words in a control's name. Whether Jarvis may go
 // ahead is decided here: what doesn't send is free, what does is free on a site you trust, and
 // the floor (payments, passwords and security, moving money, deleting an account) always asks.
+import { networkInterfaces } from "node:os";
 import { onSiteList } from "@hearth/core";
 import { type ActionContext, getSetting } from "@hearth/kernel";
+import { isLoopbackHost } from "./pace.ts";
+import { TEST_PAGE_PATH } from "./self-test.ts";
 
 /** Words in a control's name that mean pressing it sends something. */
 export const VERBS =
@@ -94,6 +97,74 @@ export function askWhy(what: string, v: Verdict, trusted: boolean, instead: stri
   const tail = trusted ? "" : " On a site the owner trusts, it wouldn't need to ask.";
   return `${what} would ${v.why || "send something"}. ${instead}${tail}`;
 }
+
+/** Why Jarvis's hands stay off Hearth's own pages. */
+export const HEARTH_PAGE =
+  "That's Hearth's own page. Jarvis does what's there with its own actions (approvals, tasks, mail, chat, settings), never by working the page; reading, scrolling and closing a dialog are fine. Anything to press there is the owner's to press.";
+
+/** A host as compared: no brackets or trailing dot, and an IPv4 address written as IPv6
+ * (::ffff:7f00:1) as itself. */
+function bare(host: string): string {
+  const h = host
+    .replace(/^\[|\]$/g, "")
+    .replace(/\.$/, "")
+    .toLowerCase();
+  const v4 = /^::ffff:(?:(\d+\.\d+\.\d+\.\d+)|([0-9a-f]{1,4}):([0-9a-f]{1,4}))$/.exec(h);
+  if (!v4) return h;
+  if (v4[1]) return v4[1];
+  const [hi, lo] = [Number.parseInt(v4[2]!, 16), Number.parseInt(v4[3]!, 16)];
+  return [hi >> 8, hi & 255, lo >> 8, lo & 255].join(".");
+}
+
+/** An address's host, port and path; a blob: address is its page's. Null if it isn't one. */
+function hostOf(raw: string | undefined) {
+  try {
+    let u = new URL(raw ?? "");
+    if (u.protocol === "blob:") u = new URL(u.pathname);
+    const port = u.port || (u.protocol === "https:" ? "443" : "80");
+    return { host: bare(u.hostname), port, path: u.pathname };
+  } catch {
+    return null;
+  }
+}
+
+/** This PC by any of its names. */
+function thisPc(host: string, env: NodeJS.ProcessEnv): boolean {
+  if (isLoopbackHost(host) || host === "0.0.0.0" || host === "::") return true;
+  // Bound to every address (0.0.0.0), Hearth answers on each of this PC's.
+  const bound = bare(env.HEARTH_HOST ?? "");
+  const here =
+    bound === "0.0.0.0" || bound === "::"
+      ? Object.values(networkInterfaces()).flatMap((l) => (l ?? []).map((a) => bare(a.address)))
+      : [bound];
+  return here.includes(host);
+}
+
+/** The ports Hearth answers on here: its own, and those of its addresses on this PC. */
+function hearthPorts(env: NodeJS.ProcessEnv): string[] {
+  const own = [env.HEARTH_ORIGIN, env.HEARTH_LOCAL_ORIGIN, env.HEARTH_SERVER_URL]
+    .map((o) => hostOf(o))
+    .filter((o) => o && thisPc(o.host, env));
+  return [env.HEARTH_PORT || "4400", ...own.map((o) => o!.port)];
+}
+
+/**
+ * Whether an address is one of Hearth's own pages: where you open it from elsewhere
+ * (HEARTH_ORIGIN, on any port), or Hearth's own ports on this PC, where other apps answer on the
+ * rest (a dev server on :3000). Jarvis has its own actions for all of it, so a press, a key or
+ * typing there is never its own to do. Hearth's dev server, a proxy or an alias is told by the
+ * mark in its head (HEARTH_MARK) instead. Chrome's test page is Hearth's too, but has nothing
+ * behind it.
+ */
+export function isHearthPage(url: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  const at = hostOf(url);
+  if (!at?.host || at.path === TEST_PAGE_PATH) return false;
+  if (thisPc(at.host, env)) return hearthPorts(env).includes(at.port);
+  return [env.HEARTH_ORIGIN, env.HEARTH_LOCAL_ORIGIN].some((o) => o && hostOf(o)?.host === at.host);
+}
+
+/** Hearth's own page says so in its head, whatever address reached it (a proxy, an alias). */
+export const HEARTH_MARK = 'meta[name="hearth-build"]';
 
 /** The floor a piece of text (a button's name, a dialog's message) hits, if any. */
 export function floorOfText(text: string): Floor | null {

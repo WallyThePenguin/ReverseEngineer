@@ -18,6 +18,8 @@ export interface FakePage {
   links?: string[];
   /** Chrome couldn't load it: the reason Page.navigate gives, like net::ERR_NAME_NOT_RESOLVED. */
   error?: string;
+  /** Hearth's own page, by the mark in its head, whatever its address. */
+  mark?: boolean;
 }
 
 /** Pages load at once in tests, and Jarvis doesn't pause between steps. */
@@ -38,6 +40,9 @@ export class FakeBrowser implements BrowserClient {
   private nextId = 1;
   /** Each tab's history: the addresses it went to, and where it is in them. */
   private readonly history = new Map<number, { urls: string[]; at: number }>();
+  /** Pages loaded so far, each tab's page numbered by it (its performance.timeOrigin). */
+  private loads = 0;
+  private readonly docs = new Map<number, number>();
 
   constructor(pages: Record<string, FakePage> = {}) {
     this.pages = pages;
@@ -81,6 +86,7 @@ export class FakeBrowser implements BrowserClient {
     };
     this.tabs.push(tab);
     this.history.set(tab.tabId, { urls: [url], at: 0 });
+    this.docs.set(tab.tabId, ++this.loads);
     return tab;
   }
 
@@ -115,6 +121,7 @@ export class FakeBrowser implements BrowserClient {
   private go(tab: TabInfo, url: string): void {
     tab.url = url;
     tab.title = this.pages[url]?.title ?? "";
+    this.docs.set(tab.tabId, ++this.loads);
   }
 
   private cdp(tab: TabInfo, method: string, params: Record<string, unknown> = {}): unknown {
@@ -160,6 +167,11 @@ export class FakeBrowser implements BrowserClient {
         return { executionContextId: 7 };
       case "Runtime.evaluate": {
         const page = this.pages[tab.url] ?? { title: "", text: "" };
+        // Where the page is, asked before Jarvis's hands do anything there.
+        if (String(params.expression).includes("performance.timeOrigin")) {
+          const here = { href: tab.url, doc: this.docs.get(tab.tabId), mark: Boolean(page.mark) };
+          return { result: { type: "object", value: here } };
+        }
         const max = Number(/"maxChars":(\d+)/.exec(String(params.expression))?.[1] ?? 1e9);
         const value: PageSnapshot = {
           url: tab.url,

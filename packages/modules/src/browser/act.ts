@@ -7,7 +7,7 @@
 // Passwords are typed only by browser.sign_in, from the vault, and card details never.
 import { type ActionContext, ActionError, defineAction } from "@hearth/kernel";
 import { z } from "zod";
-import { assertAllowed, browser, CALLERS } from "./access.ts";
+import { assertAllowed, assertNotHearth, browser, CALLERS } from "./access.ts";
 import { askWhy, isTrusted, judge, type Verdict } from "./classify.ts";
 import type { BrowserClient, TabInfo } from "./client.ts";
 import { DRIVER_REF, point } from "./drive.ts";
@@ -15,7 +15,16 @@ import { driverClick, driverPress, driverProbe, driverType } from "./drive-act.t
 import { clickAt, insertText, pressKey } from "./input.ts";
 import { pace } from "./pace.ts";
 import { elementSeen, evaluate, pageCall, pageFunction } from "./page.ts";
-import { afterStep, assertSite, beforeStep, ref, SITE_CHECK, tabId, tabPin } from "./step.ts";
+import {
+  afterStep,
+  assertHere,
+  assertSite,
+  beforeStep,
+  handsPin,
+  ref,
+  SITE_CHECK,
+  tabId,
+} from "./step.ts";
 
 export { afterStep } from "./step.ts";
 
@@ -74,7 +83,13 @@ export async function locate(
   const client = browser(ctx);
   const { tab, known } = await beforeStep(client, i.tabId);
   const url = await assertAllowed(ctx, tab.url);
-  if (paced) await pace(ctx, url);
+  // Hearth's own page is refused before any wait, by its address or the mark in its head. A page
+  // that goes elsewhere while Jarvis waits takes its references with it.
+  if (paced) {
+    assertNotHearth(ctx, url);
+    await assertHere(ctx, client, i.tabId);
+    await pace(ctx, url);
+  }
   const el = await evaluate<ElementState>(
     client,
     i.tabId,
@@ -172,7 +187,7 @@ export const actActions = [
     io: true,
     // Results carry the page's own words (a button's name), so they're outside content.
     external: true,
-    pin: tabPin,
+    pin: handsPin,
     summarize: (i) => `Click ${described(i)}`,
     async handler(i, ctx) {
       if (toDriver(i.ref)) return driverClick(ctx, i);
@@ -181,6 +196,7 @@ export const actActions = [
       const ref = i.ref as string;
       const { client, tab, known, el } = await locate(ctx, { tabId: i.tabId, ref }, "inspect");
       assertSite(tab, i.site);
+      assertNotHearth(ctx, tab.url);
       if (el.isLink)
         throw new ActionError(
           "invalid_input",
@@ -209,7 +225,7 @@ export const actActions = [
     callers: CALLERS,
     io: true,
     external: true,
-    pin: tabPin,
+    pin: handsPin,
     summarize: (i) => `Type into ${described(i)}: "${i.text.slice(0, 120)}"`,
     async handler(i, ctx) {
       if (toDriver(i.ref)) return driverType(ctx, i);
@@ -219,6 +235,7 @@ export const actActions = [
         "inspect",
       );
       assertSite(tab, i.site);
+      assertNotHearth(ctx, tab.url);
       if (el.kind === "password field")
         throw new ActionError(
           "forbidden",
@@ -237,6 +254,9 @@ export const actActions = [
       );
       if (!ready.el.focused)
         throw new ActionError("failed", `Couldn't put the cursor in "${el.label}".`);
+      // Still the page it checked: one that sent itself to Hearth's own meanwhile gets nothing.
+      if (ready.tab.url !== tab.url)
+        throw new ActionError("conflict", "The tab went to another page, so nothing was typed.");
       if (i.text) await insertText(client, i.tabId, i.text);
       return { tabId: i.tabId, typedInto: el.label, characters: i.text.length };
     },
@@ -250,11 +270,12 @@ export const actActions = [
     callers: CALLERS,
     io: true,
     external: true,
-    pin: tabPin,
+    pin: handsPin,
     summarize: (i) => `Set ${described(i)} to "${i.value}"`,
     async handler(i, ctx) {
       const peek = await locate(ctx, i, "inspect");
       assertSite(peek.tab, i.site);
+      assertNotHearth(ctx, peek.tab.url);
       await assertMayPress(ctx, peek.tab, peek.el, `Changing "${peek.el.label}"`);
       const { client, tab, el } = await locate(ctx, i, "choose", { value: i.value }, false);
       if (el.error) throw new ActionError("invalid_input", el.error);
@@ -293,11 +314,15 @@ export const actActions = [
         // The tab's address, even for a form in a frame from another site: the approved press
         // then runs only while the tab is still on that site.
         const [tab, sends] = await Promise.all([
-          tabPin(i, services),
+          handsPin(i, services),
           driverProbe(client, i.tabId, i.ref),
         ]);
+        if (tab?.refused) return tab;
         return tab && sends ? { url: tab.url, extra: { sends } } : null;
       }
+      // Hearth's own page: what a card would press there can't be told from another approval's.
+      const tab = await handsPin(i, services);
+      if (tab?.refused) return tab;
       const sends = await probeForm(client, i.tabId, i.ref);
       return sends ? { url: sends.url, extra: { sends } } : null;
     },
@@ -309,6 +334,7 @@ export const actActions = [
       if (DRIVER_REF.test(i.ref)) return driverPress(ctx, i);
       const { client, tab, known, el } = await locate(ctx, i, "inspect");
       assertSite(tab, i.site);
+      assertNotHearth(ctx, tab.url);
       if (!same(el.label, i.label))
         throw new ActionError(
           "conflict",
