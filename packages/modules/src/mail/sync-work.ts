@@ -21,6 +21,8 @@ export const CALLS_PER_SYNC = 50;
 export const TIMEOUT_STRIKE_MS = 10 * 60_000;
 /** Server errors in one sync, with nothing yet to tell an outage by, before it's taken for one. */
 const DOUBTS = 3;
+/** The newest messages Hearth has, of which the smallest is downloaded to tell an outage by. */
+const PROBE_AMONG = 20;
 
 type Stuck = "refused" | "timeout" | "server";
 
@@ -234,20 +236,29 @@ async function itsOwn(one: One, d: Doubt): Promise<boolean> {
   return up === true;
 }
 
-/** Whether Gmail's servers hand out mail: they look up a message Hearth already has, or not. */
+/**
+ * Whether Gmail's servers hand out mail: they download one Hearth already has, whole, as the
+ * failed download asked (a look-up of its flags can work while downloads fail). The smallest of
+ * the newest, so its size can't make it time out. With none to try, or it gone from Gmail, it
+ * can't tell (null).
+ */
 async function serving(one: One): Promise<boolean | null> {
   if (one.serving !== undefined) return one.serving;
   one.serving = null;
-  const [known] = await one.ctx.tx
-    .select({ id: mailMessage.providerId })
+  const recent = await one.ctx.tx
+    .select({ id: mailMessage.providerId, attachments: mailMessage.attachments })
     .from(mailMessage)
     .where(eq(mailMessage.accountId, one.account.id))
     .orderBy(desc(mailMessage.entityId))
-    .limit(1);
+    .limit(PROBE_AMONG);
+  const size = (m: (typeof recent)[number]) => m.attachments.reduce((n, a) => n + a.size, 0);
+  const known = recent.reduce<(typeof recent)[number] | undefined>(
+    (least, m) => (least && size(least) <= size(m) ? least : m),
+    undefined,
+  );
   if (!known) return null;
   try {
-    await one.provider.labels(one.account.address, known.id);
-    one.serving = true;
+    if (await one.provider.fetch(one.account.address, known.id)) one.serving = true;
   } catch (err) {
     // A slowdown, the network or the account itself stops the sync, as anywhere else.
     const stuck = stuckOn(err);
