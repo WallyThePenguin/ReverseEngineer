@@ -3,6 +3,7 @@
 
 import { For, onMount, Show } from "solid-js";
 import { Badge, Button } from "../components/ui.tsx";
+import { request } from "../lib/api.ts";
 import { ago } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
 import { orBack } from "../lib/orBack.ts";
@@ -23,6 +24,15 @@ export function GoogleSettings() {
     }
   });
   const onPc = () => ["localhost", "127.0.0.1"].includes(location.hostname);
+  // Hearth gives Google's consent screen only to its own page asking (a POST), then it goes there.
+  const connect = async (features: string) => {
+    try {
+      const { url } = await request<{ url: string }>(`/api/google/connect?for=${features}`, "POST");
+      location.assign(url);
+    } catch (err) {
+      toast.show((err as Error).message, "error");
+    }
+  };
   return (
     <section class="space-y-2">
       <h2 class="font-semibold">Google</h2>
@@ -60,15 +70,10 @@ export function GoogleSettings() {
               ? "Connect a Google account so Jarvis can see and plan your calendar."
               : "Connecting finishes on this PC's own browser (Google sends you back to localhost), so open Hearth on the PC to connect."}
           </p>
-          <Button
-            kind="primary"
-            onClick={() => location.assign("/api/google/connect?for=calendar")}
-          >
+          <Button kind="primary" onClick={() => void connect("calendar")}>
             Connect Google Calendar
           </Button>
-          <Button onClick={() => location.assign("/api/google/connect?for=calendar,gmail")}>
-            Connect Gmail too
-          </Button>
+          <Button onClick={() => void connect("calendar,gmail")}>Connect Gmail too</Button>
         </div>
         <Show when={(mail.data ?? []).length > 0}>
           <ul class="space-y-1 text-sm">

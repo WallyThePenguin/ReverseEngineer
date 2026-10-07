@@ -1,6 +1,8 @@
-// Connecting a Google account. /connect sends you to Google's consent screen; Google sends you
-// back to /callback on this PC (a loopback address, as Desktop-app clients require), which saves
-// the account, pulls your calendars and returns you to Settings.
+// Connecting a Google account. Settings asks /connect for Google's consent screen and goes there;
+// Google sends you back to /callback on this PC (a loopback address, as Desktop-app clients
+// require), which saves the account, pulls your calendars and returns you to Settings. /connect
+// starts only on a POST, which only Hearth's own page can make (sameOriginWrites): a link to it,
+// on any page or in a tab Jarvis was steered to open, starts nothing.
 import { integrationCaller } from "@hearth/kernel";
 import { GOOGLE_SERVICE, type GoogleClient, SCOPES } from "@hearth/modules";
 import { Hono } from "hono";
@@ -14,20 +16,30 @@ const FEATURES: Record<string, readonly string[]> = {
 export function googleRoutes() {
   const r = new Hono<AppEnv>();
 
-  r.get("/connect", async (c) => {
+  r.get("/connect", (c) => {
+    c.header("Allow", "POST");
+    return c.text("Connect Google from Hearth's Settings page.", 405);
+  });
+
+  /** Google's consent screen for what's asked `for` ("calendar", "calendar,gmail"), to go to. */
+  r.post("/connect", async (c) => {
     const caller = c.get("caller");
-    if (caller?.kind !== "owner") return c.text("Sign in to Hearth first.", 401);
+    if (caller?.kind !== "owner") return c.json({ error: "Sign in to Hearth first." }, 401);
     const { kernel } = c.get("deps");
     const google = kernel.services[GOOGLE_SERVICE] as GoogleClient | undefined;
     if (!google?.configured)
-      return c.text(
-        "Google isn't set up yet: add HEARTH_GOOGLE_CLIENT_ID and HEARTH_GOOGLE_CLIENT_SECRET to .env and restart Hearth.",
+      return c.json(
+        {
+          error:
+            "Google isn't set up yet: add HEARTH_GOOGLE_CLIENT_ID and HEARTH_GOOGLE_CLIENT_SECRET to .env and restart Hearth.",
+        },
         503,
       );
     const wanted = (c.req.query("for") ?? "calendar").split(",");
     const scopes = wanted.flatMap((w) => FEATURES[w] ?? []);
-    if (scopes.length === 0) return c.text("Nothing to connect.", 400);
-    return c.redirect(await google.startSignIn(kernel.db, scopes, kernel.clock.now()));
+    if (scopes.length === 0) return c.json({ error: "Nothing to connect." }, 400);
+    c.header("Cache-Control", "no-store");
+    return c.json({ url: await google.startSignIn(kernel.db, scopes, kernel.clock.now()) });
   });
 
   r.get("/callback", async (c) => {
