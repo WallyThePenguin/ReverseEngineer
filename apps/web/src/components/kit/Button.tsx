@@ -15,6 +15,8 @@ export function Button(props: {
   title?: string;
   /** What a screen reader says, when the button shows only a symbol. */
   label?: string;
+  /** It folds what it's in, which is open: a screen reader says "expanded". */
+  expanded?: boolean;
   /** Drawn before its text. */
   icon?: IconName;
   small?: boolean;
@@ -35,6 +37,7 @@ export function Button(props: {
       disabled={props.disabled}
       title={props.title}
       aria-label={props.label}
+      aria-expanded={props.expanded}
       onClick={(e) => props.onClick?.(e)}
     >
       <Show when={props.icon}>{(name) => <Icon name={name()} size={props.small ? 14 : 16} />}</Show>

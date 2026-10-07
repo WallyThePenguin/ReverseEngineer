@@ -20,7 +20,10 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # A new push to a PR replaces its old run. A merge to the deploy branch waits for the run before
+  # it instead: cancelling a running Windows job can flash console windows on the owner's desktop,
+  # and runs still waiting are dropped anyway, so a batch of merges ends in one run on the tip.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
@@ -190,7 +193,10 @@ jobs:
   windows:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, Windows, hearth-ci]
-    timeout-minutes: 45
+    # A busy PC took 33 min for the tests alone, and over 80 for the whole job (2026-10-07). Running
+    # out of time cancels the job, and a cancelled job on the owner's desktop can flash console
+    # windows, so leave plenty of room.
+    timeout-minutes: 150
     env:
       HEARTH_CI_DB: hearth_ci_${{ github.run_id }}_${{ github.run_attempt }}
       HEARTH_DATABASE_URL: postgres://hearth@127.0.0.1:5499/hearth_ci_${{ github.run_id }}_${{ github.run_attempt }}
@@ -297,7 +303,10 @@ jobs:
         # Four test files at a time (as many as GitHub's runner had cores): the rest of the PC is
         # the live Hearth's. `pnpm test -- --maxWorkers=4` would pass the -- on, and vitest would
         # ignore what follows it.
-        run: pnpm test --maxWorkers=4
+        # This runner shares the owner's busy PC at BelowNormal priority, so a test that only ran
+        # slow gets three times the time and one more try. Linux keeps the strict defaults and
+        # still catches a test that is really flaky.
+        run: pnpm test --maxWorkers=4 --testTimeout=60000 --hookTimeout=120000 --retry=1
       - name: Build the web app
         run: pnpm build:web
       # The doctor judges only the CI server here: HEARTH_PORT points its probe at 4480, and the

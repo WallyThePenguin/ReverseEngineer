@@ -1,15 +1,23 @@
-// Cmd+K's "New task" with nothing typed: Tasks opens, its add box ready to type in.
+// "New task" from Cmd+K, or from Today's box: Tasks opens, its add box ready to type in, starting
+// from what you'd typed on Today.
 
 import { createSignal } from "solid-js";
 import { layout } from "./panes.ts";
 
-const [wanted, setWanted] = createSignal(false);
+/** What the add box starts with ("" for nothing), or null when nothing's asked. */
+const [wanted, setWanted] = createSignal<string | null>(null);
 
-/** Whether Tasks should put the cursor in its add box (and say it has, with newTaskTaken). */
-export const newTaskWanted = wanted;
-export const newTaskTaken = () => setWanted(false);
+/** Whether Tasks should put the cursor in its add box (and take it, with newTaskTaken). */
+export const newTaskWanted = () => wanted() !== null;
 
-export function askNewTask(beside = false) {
+/** Says Tasks has it, and gives what was typed for it ("" for nothing). */
+export function newTaskTaken(): string {
+  const typed = wanted() ?? "";
+  setWanted(null);
+  return typed;
+}
+
+export function askNewTask(beside = false, typed = "") {
   layout.open({ view: "tasks" }, { beside });
-  setWanted(true);
+  setWanted(typed);
 }

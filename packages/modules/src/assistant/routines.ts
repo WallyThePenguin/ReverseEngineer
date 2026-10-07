@@ -60,7 +60,8 @@ export const journalRoutine: RoutineDef = {
     // Its day starts 14 hours before it was due, so running late doesn't lose the morning.
     const since = new Date(firing.scheduledFor.getTime() - 14 * 3600_000);
     // The journal feeds the nightly memory update, so it's written from Hearth's own facts only.
-    const facts = renderDigest(withoutOutside(await firing.digest(since)));
+    // Read as of when it was due: one run after midnight still tells that day, not the next.
+    const facts = renderDigest(withoutOutside(await firing.digest(since, firing.scheduledFor)));
     return [
       {
         kind: "turn",

@@ -17,6 +17,11 @@ export interface Allowance {
 export const WINDOW_MS = 60_000;
 /** The shortest pause after Google says slow down: its limits are per minute. */
 export const MIN_PAUSE_MS = 60_000;
+/**
+ * The pause for Gmail's sending limit, which it shares with Gmail on the phone and can hold for
+ * hours: only a send waits for it, so the rest of Gmail goes on.
+ */
+export const SEND_PAUSE = "gmail-send";
 
 export const ALLOWANCES: Record<GoogleService, Allowance> = {
   // Gmail turned Hearth away at about 510-600 units a minute (2026-10-04), far under the
@@ -44,6 +49,8 @@ export interface QuotaStore {
   take(account: string, service: string, units: number, limit: number, now: number): Promise<Take>;
   /** Holds every call for this account and service until `until`; `reason` is what Google said. */
   pause(account: string, service: string, until: number, reason?: string): Promise<void>;
+  /** When the account and service's pause ends; 0 if there's none. */
+  pausedUntil(account: string, service: string): Promise<number>;
 }
 
 /** When enough of the spending has aged out of the minute for `need` more units to fit. */
@@ -109,6 +116,14 @@ export class DbQuotaStore implements QuotaStore {
         },
       });
   }
+
+  async pausedUntil(account: string, service: string) {
+    const [row] = await this.db
+      .select({ until: googleQuota.pausedUntil })
+      .from(googleQuota)
+      .where(and(eq(googleQuota.account, account), eq(googleQuota.service, service)));
+    return row?.until?.getTime() ?? 0;
+  }
 }
 
 /** For a client with no database (some tests): pacing within this process only. */
@@ -131,6 +146,10 @@ export class MemoryQuotaStore implements QuotaStore {
   async pause(account: string, service: string, until: number) {
     const key = `${account} ${service}`;
     this.paused.set(key, Math.max(until, this.paused.get(key) ?? 0));
+  }
+
+  async pausedUntil(account: string, service: string) {
+    return this.paused.get(`${account} ${service}`) ?? 0;
   }
 }
 
@@ -178,7 +197,23 @@ export class GoogleBudget {
     });
   }
 
-  pause(account: string, service: GoogleService, until: number, reason?: string): Promise<void> {
+  /** Throws "rate_limited" while Gmail's sending limit holds the account (SEND_PAUSE). */
+  async maySend(account: string, now: number): Promise<void> {
+    const until = await this.store.pausedUntil(account, SEND_PAUSE);
+    if (until > now)
+      throw new GoogleApiError(0, `Gmail won't take mail from ${account} for now.`, {
+        kind: "rate_limited",
+        reason: "paused",
+        retryAfterMs: until - now,
+      });
+  }
+
+  pause(
+    account: string,
+    service: GoogleService | typeof SEND_PAUSE,
+    until: number,
+    reason?: string,
+  ): Promise<void> {
     return this.store.pause(account, service, until, reason);
   }
 }
