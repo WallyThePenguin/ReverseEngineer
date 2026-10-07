@@ -29,7 +29,8 @@ const BY_MODULE: Record<string, Rule> = {
   // A Slack member's conversation growing shows on the Slack screens too (D62).
   conversation: ["conversation.", "jarvis.activity", "slack.conversation", "slack.conversations"],
   chat: ["conversation.", "jarvis.activity"],
-  jarvis: ["jarvis.", "observation.list", "system.status", "conversation."],
+  // A turn that ended may have set or cancelled a reminder, which says nothing of its own.
+  jarvis: ["jarvis.", "observation.list", "system.status", "conversation.", "reminder.list"],
   system: ["system.status"],
   memory: ["memory."],
   page_watch: ["page_watch."],
@@ -40,8 +41,8 @@ const BY_MODULE: Record<string, Rule> = {
   notion: ["notion."],
   voice: ["dictation.", "dictionary.", "voice.", "snippet."],
   meeting: ["meeting."],
-  // A schedule firing moves a routine's "last ran".
-  clock: ["routine.list", "system.status"],
+  // A schedule firing moves a routine's "last ran", and a reminder that rang leaves the list.
+  clock: ["routine.list", "system.status", "reminder.list"],
 };
 
 /**
@@ -95,6 +96,8 @@ const AFTER_CHANGE: Record<string, Rule> = {
   company: ["person."],
   doc: ["note.list", "entity."],
   routine: ["system.status"],
+  // Settings → Coming up lists them.
+  reminder: ["system.status"],
   approval: ["inbox.list", "conversation."],
   standing_rule: ["approval.list"],
   // Jarvis's Slack bot holds the standing rule that lets its replies to members go out (D62).

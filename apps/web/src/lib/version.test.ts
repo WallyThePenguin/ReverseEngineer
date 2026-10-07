@@ -57,27 +57,41 @@ describe("asking which build is running", () => {
     // Each ask, and whether it was for the page coming back into view.
     const asked: boolean[] = [];
     const stop = watchBuild((idle) => asked.push(idle !== undefined), win, doc);
-    expect(asked).toEqual([false]);
+    // Opening counts as coming back: it may have opened from a page kept from before an update.
+    expect(asked).toEqual([true]);
     vi.advanceTimersByTime(CHECK_EVERY_MS);
-    expect(asked).toEqual([false, false]);
+    expect(asked).toEqual([true, false]);
     // A tab left in the background doesn't ask, not even when the network comes back (a laptop
     // waking up).
     doc.visibilityState = "hidden";
     doc.dispatchEvent(new Event("visibilitychange"));
     vi.advanceTimersByTime(6 * CHECK_EVERY_MS);
     win.dispatchEvent(new Event("online"));
-    expect(asked).toEqual([false, false]);
+    expect(asked).toEqual([true, false]);
     // Back in view, or back online: it asks at once. Only coming back counts as coming back.
     doc.visibilityState = "visible";
     doc.dispatchEvent(new Event("visibilitychange"));
-    expect(asked).toEqual([false, false, true]);
+    expect(asked).toEqual([true, false, true]);
     win.dispatchEvent(new Event("online"));
-    expect(asked).toEqual([false, false, true, false]);
+    expect(asked).toEqual([true, false, true, false]);
     stop();
     vi.advanceTimersByTime(CHECK_EVERY_MS);
     win.dispatchEvent(new Event("online"));
     doc.dispatchEvent(new Event("visibilitychange"));
     expect(asked).toHaveLength(4);
+  });
+});
+
+describe("the check on opening", () => {
+  it("is told it's the opening, and coming back isn't", () => {
+    const doc = Object.assign(new EventTarget(), {
+      visibilityState: "visible" as DocumentVisibilityState,
+    });
+    const openings: (boolean | undefined)[] = [];
+    const stop = watchBuild((_idle, opening) => openings.push(opening), new EventTarget(), doc);
+    doc.dispatchEvent(new Event("visibilitychange"));
+    stop();
+    expect(openings).toEqual([true, undefined]);
   });
 });
 
@@ -95,6 +109,11 @@ describe("whether you've done anything since the page came back", () => {
       win,
       doc,
     );
+    // Opening: nothing done yet, until something is.
+    const opening = returns[0]!;
+    expect(opening()).toBe(true);
+    win.dispatchEvent(new Event("pointerdown"));
+    expect(opening()).toBe(false);
     const away = () => {
       doc.visibilityState = "hidden";
       doc.dispatchEvent(new Event("visibilitychange"));
@@ -172,7 +191,7 @@ describe("coming back to a page from before an update", () => {
     };
     let reloaded = 0;
     expect(reloadedFor(store)).toBeNull();
-    reloadInto("def", store, () => {
+    reloadInto("def", undefined, store, () => {
       reloaded += 1;
     });
     expect(reloaded).toBe(1);
@@ -186,7 +205,7 @@ describe("coming back to a page from before an update", () => {
         throw new Error("blocked");
       },
     };
-    reloadInto("def", blocked, () => {
+    reloadInto("def", undefined, blocked, () => {
       reloaded += 1;
     });
     expect(reloaded).toBe(2);

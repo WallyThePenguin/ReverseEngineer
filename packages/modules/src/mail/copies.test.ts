@@ -4,7 +4,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mailMessage } from "@hearth/db";
+import { company, mailMessage } from "@hearth/db";
 import { integrationCaller, ownerCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -253,6 +253,10 @@ describe("only the identical email is a copy", () => {
       const bob = people.find((p) => p.name === BOB.address);
       const page = await ok<{ threads: { messages: number }[] }>("person.view", { id: bob!.id });
       expect(page.threads).toMatchObject([{ messages: 1 }]);
+      // Your other account isn't someone you know: no person, nor a company for its domain.
+      expect(people.map((p) => p.name)).not.toContain(WORK);
+      const domains = await t.tdb.db.select({ domain: company.domain }).from(company);
+      expect(domains.map((c) => c.domain)).not.toContain("work.example");
     });
 
   it("takes the shown copy's Gmail tab and importance, and either copy's unread or star", async () => {
