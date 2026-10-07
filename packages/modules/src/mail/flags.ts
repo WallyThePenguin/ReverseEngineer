@@ -14,6 +14,7 @@ import {
 import { type ActionContext, newId, updateEntity } from "@hearth/kernel";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { personFor } from "../people/store.ts";
+import { addressKey, toAnyOf, yourAddresses } from "./mine.ts";
 import { type MailProvider, MailProviderError } from "./provider.ts";
 
 type MessageRow = typeof mailMessage.$inferSelect;
@@ -22,15 +23,21 @@ type MessageRow = typeof mailMessage.$inferSelect;
 const AUTOMATED =
   /^(no-?reply|do-?not-?reply|notifications?|notify|mailer-daemon|postmaster|bounces?|alerts?|news(letter)?|updates?|info|hello|support|billing|receipts?|orders?|team|marketing)([+._-][^@]*)?@/i;
 
+type LastMessage = Pick<
+  MessageRow,
+  "outbound" | "fromAddress" | "labels" | "toAddresses" | "invite" | "bulk"
+>;
+
 /**
  * Who the conversation waits on, from its last message: "them" if you sent it (Gmail says so; a
- * From line naming you can be forged); "you" if a person wrote to you directly (not a cc, a list,
- * a newsletter, a notification or a Gmail tab) in Signal, and they're someone you know (`known`:
- * a person in Hearth, as anyone you write to becomes) or Gmail marks it important (D61).
+ * From line naming you can be forged); "you" if a person wrote to you directly (to one of `mine`,
+ * your addresses by addressKey: not a cc, a list, a newsletter, a notification or a Gmail tab) in
+ * Signal, and they're someone you know (`known`: a person in Hearth, as anyone you write to
+ * becomes) or Gmail marks it important (D61).
  */
 export function waitingOn(
-  last: Pick<MessageRow, "outbound" | "fromAddress" | "labels" | "toAddresses" | "invite" | "bulk">,
-  me: string,
+  last: LastMessage,
+  mine: ReadonlySet<string>,
   lane: MailLane,
   known: boolean,
 ): "you" | "them" | null {
@@ -40,8 +47,24 @@ export function waitingOn(
   if (last.invite) return null;
   if (last.bulk) return null;
   if (last.labels.some((l) => l.startsWith("CATEGORY_") && l !== "CATEGORY_PERSONAL")) return null;
-  if (!last.toAddresses.some((a) => a.address.toLowerCase() === me.toLowerCase())) return null;
+  if (!toAnyOf(last.toAddresses, mine)) return null;
   return known || last.labels.includes("IMPORTANT") ? "you" : null;
+}
+
+/** waitingOn with the account's own address, and your others only when they'd make a difference. */
+async function waitingFor(
+  db: DbOrTx,
+  last: LastMessage,
+  me: string,
+  lane: MailLane,
+  known: boolean,
+): Promise<"you" | "them" | null> {
+  const own = new Set([addressKey(me)]);
+  const waiting = waitingOn(last, own, lane, known);
+  if (waiting || last.outbound) return waiting;
+  // Only who it was sent to stands in the way: it may be another of your addresses.
+  const ifToYou = waitingOn({ ...last, toAddresses: [{ address: me }] }, own, lane, known);
+  return ifToYou ? waitingOn(last, await yourAddresses(db), lane, known) : null;
 }
 
 /** Works the conversation's state out again from its messages. Removes it if none are left. */
@@ -112,7 +135,7 @@ export async function recomputeThread(ctx: ActionContext, threadId: string): Pro
       inInbox: any("INBOX"),
       trashed: live.length === 0,
       lane,
-      waiting: said || !row ? null : waitingOn(last, row.me, lane, known),
+      waiting: said || !row ? null : await waitingFor(ctx.tx, last, row.me, lane, known),
       waitingSince: last.sentAt,
     })
     .where(eq(mailThread.entityId, threadId));
