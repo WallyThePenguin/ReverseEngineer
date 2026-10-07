@@ -1,12 +1,13 @@
 // Writing your calendar. Your own events (no guests) change directly; anything guests would see
 // is a separate action that waits for your yes (PLAN.md section 5.5).
 import type { DbOrTx } from "@hearth/db";
-import { type ActionContext, ActionError, defineAction, getSetting } from "@hearth/kernel";
+import { type ActionContext, ActionError, addLink, defineAction, getSetting } from "@hearth/kernel";
 import { z } from "zod";
 import { CalendarApi, type GEvent, type SendUpdates } from "../google/calendar-api.ts";
 import { cleanDeep } from "../google/clean.ts";
 import { GOOGLE_SERVICE, type GoogleClient } from "../google/client.ts";
 import { id } from "../shared.ts";
+import { turnSubjects } from "./about.ts";
 import { writableCalendar } from "./calendars.ts";
 import {
   type EventView,
@@ -178,21 +179,41 @@ export const calendarWriteActions = [
   defineAction({
     name: "calendar.create_event",
     description:
-      "Put an event on the owner's own calendar, with no guests (a reminder, a block of time, a personal appointment).",
-    input: z.object({ ...fields, calendarId: z.string().optional() }),
+      "Put an event on the owner's own calendar, with no guests (a reminder, a block of time, a personal appointment). When it comes from an email or a conversation you're working on, give its record id as threadId: then you can move or remove it later without asking.",
+    input: z.object({
+      ...fields,
+      calendarId: z.string().optional(),
+      threadId: id
+        .optional()
+        .describe(
+          "The email thread or conversation (record id) this turn is about that it came from.",
+        ),
+    }),
     // With no guests nobody else sees it, so Jarvis adds one without asking, even from an email
-    // (the owner, 2026-10-05). Moving and removing events still ask.
+    // (the owner, 2026-10-05, D67). Moving and removing events ask, except D72's.
     risk: "internal",
     summarize: (i) => `Add ${describeTimes(i)} to your calendar`,
-    async handler(i, ctx) {
+    async handler({ threadId, ...i }, ctx) {
       if (i.calendarId && ctx.caller.kind !== "owner") await ownCalendar(ctx, i.calendarId);
-      return insertEvent(ctx, i);
+      // Only what this turn is about: the tie is what lets Jarvis move it later (D72).
+      if (
+        threadId &&
+        ctx.caller.kind !== "owner" &&
+        !(await turnSubjects(ctx.tx, ctx.caller)).includes(threadId)
+      )
+        throw new ActionError(
+          "invalid_input",
+          "threadId has to be the email or conversation this turn is about. Leave it out otherwise.",
+        );
+      const ev = await insertEvent(ctx, i);
+      if (threadId) await addLink(ctx, { fromId: ev.id, toId: threadId, kind: "derived_from" });
+      return ev;
     },
   }),
   defineAction({
     name: "calendar.update_event",
     description:
-      "Move or change one of the owner's own events (no guests). For meetings with guests use calendar_update_meeting.",
+      "Move or change one of the owner's own events (no guests); it asks the owner first when the conversation read outside content. For an event you added yourself from this conversation, calendar_move_own_event moves it without asking. For meetings with guests use calendar_update_meeting.",
     input: z.object({
       id,
       title: fields.title.optional(),
@@ -206,7 +227,8 @@ export const calendarWriteActions = [
   }),
   defineAction({
     name: "calendar.delete_event",
-    description: "Remove one of the owner's own events (no guests) from their calendar.",
+    description:
+      "Remove one of the owner's own events (no guests) from their calendar; it asks the owner first when the conversation read outside content. For an event you added yourself from this conversation, calendar_remove_own_event removes it without asking.",
     input: z.object({ id }),
     risk: "self_external",
     handler: (i, ctx) => removeEvent(ctx, i.id),

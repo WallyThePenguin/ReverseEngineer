@@ -82,7 +82,15 @@ export interface Notification {
   snoozedUntil: string | null;
   createdBy: string;
   createdAt: string;
+  /** What Jarvis did on its own, and how its Undo puts it back (D71, D72). */
+  undo?: NotificationUndo | null;
 }
+
+/** The server maps each kind to one exact change; the button's words come from the same shape. */
+export type NotificationUndo =
+  | { kind: "unaccept"; eventId: string; before: { scope: "this" | "all" } }
+  | { kind: "unmove"; eventId: string; before: { start: string; end: string; when: string } }
+  | { kind: "unremove"; eventId: string; before: { title: string; when: string } };
 
 export interface InboxRow {
   notification: Notification;

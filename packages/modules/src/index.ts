@@ -77,6 +77,7 @@ export {
   TEST_PAGE_PATH,
 } from "./browser/self-test.ts";
 export { VAULT_SERVICE, Vault, vaultFromEnv } from "./browser/vault.ts";
+export { AUTO_ACCEPTS } from "./calendar/invites.ts";
 export { gist } from "./calendar/soon.ts";
 export type { EventView } from "./calendar/store.ts";
 export { appendLog, type LogEntry, type LogKind, routeLane } from "./chat/index.ts";

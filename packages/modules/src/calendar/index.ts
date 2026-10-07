@@ -15,6 +15,7 @@ import { z } from "zod";
 import { syncFailedReflex } from "../connector-health.ts";
 import { disconnectAction } from "../google/disconnect.ts";
 import { describeRow, id, isOutside, isoDateTime, liveEntity } from "../shared.ts";
+import { acceptInviteAction } from "./accept.ts";
 import { calendarWriteActions } from "./actions.ts";
 import { blockAction, blockReflex, blockRoutine } from "./blocks.ts";
 import {
@@ -26,11 +27,13 @@ import {
 import { freeSlots } from "./free.ts";
 import { newInvite } from "./invites.ts";
 import { meetingActions } from "./meetings.ts";
+import { ownEventActions } from "./own.ts";
 import { prepPublish, prepRoutine, prepsFor } from "./prep.ts";
 import { respondAction } from "./respond.ts";
 import { meetingSoon } from "./soon.ts";
 import { guests, loadEvent, toEventView, whenText } from "./store.ts";
 import { syncCalendars } from "./sync.ts";
+import { undoAction } from "./undo.ts";
 
 const DAY_MS = 24 * 3600_000;
 
@@ -283,8 +286,11 @@ export const calendarModule = defineModule({
     }),
     disconnectAction,
     ...calendarWriteActions,
+    ...ownEventActions,
     ...meetingActions,
     respondAction,
+    acceptInviteAction,
+    undoAction,
     blockAction,
     prepPublish,
   ],

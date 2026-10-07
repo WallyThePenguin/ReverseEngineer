@@ -78,7 +78,7 @@ export function guests(v: Pick<EventView, "attendees">): Attendee[] {
   return v.attendees.filter((a) => !a.self);
 }
 
-export type Mapped = Omit<EventRow, "entityId" | "taskId" | "peopleLinked"> & {
+export type Mapped = Omit<EventRow, "entityId" | "taskId" | "peopleLinked" | "jarvisAccepted"> & {
   title: string;
   body: string;
 };
@@ -147,13 +147,20 @@ const MAX_GUESTS = 20;
 
 /**
  * Links an event to the people on it. A meeting you organized or accepted makes its guests
- * people (like mail you send); any other only links the people you already know.
+ * people (like mail you send); any other only links the people you already know. One Jarvis
+ * accepted for you is any other (D71): someone known can't make their guests known through it.
  */
-async function linkGuests(ctx: ActionContext, id: string, m: Mapped): Promise<void> {
+async function linkGuests(
+  ctx: ActionContext,
+  id: string,
+  m: Mapped,
+  byJarvis: boolean,
+): Promise<void> {
   if (m.status === "cancelled") return;
   const list = m.attendees.filter((a) => !a.self).slice(0, MAX_GUESTS);
   const yours =
-    m.attendees.length <= MAX_GUESTS + 1 && (m.selfOrganizer || m.selfResponse === "accepted");
+    m.attendees.length <= MAX_GUESTS + 1 &&
+    (m.selfOrganizer || (m.selfResponse === "accepted" && !byJarvis));
   for (const g of list) {
     const personId = yours
       ? await ensurePerson(ctx, { address: g.email, ...(g.name ? { name: g.name } : {}) })
@@ -163,6 +170,23 @@ async function linkGuests(ctx: ActionContext, id: string, m: Mapped): Promise<vo
 }
 
 export type Change = "added" | "updated" | "cancelled" | null;
+
+/** A new time of a series Jarvis accepted is Jarvis's yes too: the yes was for every time. */
+async function seriesByJarvis(db: DbOrTx, m: Mapped): Promise<boolean> {
+  if (!m.recurringEventId) return false;
+  const [row] = await db
+    .select({ id: calendarEvent.entityId })
+    .from(calendarEvent)
+    .where(
+      and(
+        eq(calendarEvent.calendarId, m.calendarId),
+        eq(calendarEvent.recurringEventId, m.recurringEventId),
+        eq(calendarEvent.jarvisAccepted, true),
+      ),
+    )
+    .limit(1);
+  return Boolean(row);
+}
 
 /** Saves Google's version of an event. Returns what changed, for the event log. */
 export async function saveEvent(
@@ -175,10 +199,15 @@ export async function saveEvent(
   if (!existing) {
     if (m.status === "cancelled") return { id: "", change: null };
     const row = await createEntity(ctx, { type: "event", title, body });
-    await ctx.tx
-      .insert(calendarEvent)
-      .values({ entityId: row.id, ...fields, taskId: extra.taskId ?? null, peopleLinked: true });
-    await linkGuests(ctx, row.id, m);
+    const jarvisAccepted = await seriesByJarvis(ctx.tx, m);
+    await ctx.tx.insert(calendarEvent).values({
+      entityId: row.id,
+      ...fields,
+      taskId: extra.taskId ?? null,
+      peopleLinked: true,
+      jarvisAccepted,
+    });
+    await linkGuests(ctx, row.id, m, jarvisAccepted);
     return { id: row.id, change: "added" };
   }
   const { e, r } = existing;
@@ -204,7 +233,7 @@ export async function saveEvent(
       ...(extra.taskId !== undefined ? { taskId: extra.taskId } : {}),
     })
     .where(eq(calendarEvent.entityId, e.id));
-  if (!e.deletedAt) await linkGuests(ctx, e.id, m);
+  if (!e.deletedAt) await linkGuests(ctx, e.id, m, r.jarvisAccepted);
   return { id: e.id, change };
 }
 
