@@ -3,16 +3,18 @@
 // sync after sign-in and the worker's can't overlap; a backlog comes in batches, `more` says to
 // call again at once, and a slowdown Gmail asks for pauses the account instead of failing (D55).
 import { googleAccount, mailAccount, mailQuarantine } from "@hearth/db";
-import { type ActionContext, savepoint } from "@hearth/kernel";
-import { and, arrayContains, count, eq, gte, inArray, ne, sql } from "drizzle-orm";
+import { type ActionContext, ActionError, savepoint } from "@hearth/kernel";
+import { and, arrayContains, eq, gte, inArray, ne, sql } from "drizzle-orm";
 import { SCOPES } from "../google/client.ts";
 import { pushFlags } from "./flags.ts";
 import type { MailProvider } from "./provider.ts";
 import { providerFor } from "./providers.ts";
 import { repairSome } from "./repair.ts";
 import type { AccountRow } from "./store.ts";
+import { QUARANTINE_AFTER, release } from "./sync-aside.ts";
+import { readCursor, writeCursor } from "./sync-cursor.ts";
 import { type AccountOutcome, recordOutcome } from "./sync-state.ts";
-import { bringIn, QUARANTINE_AFTER, readCursor, type Work } from "./sync-work.ts";
+import { bringIn, type Work } from "./sync-work.ts";
 
 export interface MailSyncResult {
   accounts: number;
@@ -152,8 +154,8 @@ export async function syncMail(ctx: ActionContext, address?: string): Promise<Ma
 /** How far along an account is, for Settings and the Mail page. */
 export async function syncProgress(ctx: Pick<ActionContext, "tx">, account: AccountRow) {
   const c = readCursor(account.cursor ?? null);
-  const [set] = await ctx.tx
-    .select({ n: count() })
+  const aside = await ctx.tx
+    .select({ id: mailQuarantine.providerId })
     .from(mailQuarantine)
     .where(
       and(eq(mailQuarantine.accountId, account.id), gte(mailQuarantine.attempts, QUARANTINE_AFTER)),
@@ -172,7 +174,30 @@ export async function syncProgress(ctx: Pick<ActionContext, "tx">, account: Acco
     backfill: c.backfill
       ? { fetched: Math.max(0, c.backfill.listed - c.pending.length), target: c.backfill.target }
       : null,
-    waiting: c.pending.length + c.relabel.length,
-    setAside: set?.n ?? 0,
+    waiting: c.pending.length + c.relabel.length + Object.keys(c.parked).length,
+    // What's been put back to try again is waiting, no longer set aside.
+    setAside: aside.filter((q) => !(q.id in c.parked)).length,
   };
+}
+
+/**
+ * Puts an account's set-aside mail back, to be tried again by the next sync (Settings → Google's
+ * "Try again"). Waits for a sync of the account to finish first, so neither undoes the other.
+ */
+export async function retrySetAside(ctx: ActionContext, address: string): Promise<number> {
+  const [account] = await ctx.tx
+    .select({ id: mailAccount.id })
+    .from(mailAccount)
+    .where(eq(mailAccount.address, address.toLowerCase()));
+  if (!account) throw new ActionError("not_found", `No mail account ${address}`);
+  await ctx.tx.execute(sql`SELECT pg_advisory_xact_lock(${LOCK}, hashtext(${account.id}))`);
+  const [fresh] = await ctx.tx.select().from(mailAccount).where(eq(mailAccount.id, account.id));
+  const c = readCursor(fresh?.cursor ?? null);
+  const back = await release(ctx, account.id, c, true);
+  if (back)
+    await ctx.tx
+      .update(mailAccount)
+      .set({ cursor: writeCursor(c) })
+      .where(eq(mailAccount.id, account.id));
+  return back;
 }

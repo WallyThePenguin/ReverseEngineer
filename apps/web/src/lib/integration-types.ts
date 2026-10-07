@@ -102,9 +102,9 @@ export interface MailAccount {
   firstSyncDone: boolean;
   /** A first sync's progress: messages brought in, of about how many. */
   backfill: { fetched: number; target: number } | null;
-  /** Messages still to bring in or look up. */
+  /** Messages still to bring in or look up, and ones that failed, waiting to be tried again. */
   waiting: number;
-  /** Messages that wouldn't save, set aside. */
+  /** Messages that failed to come in a few times, set aside: tried again once a day. */
   setAside: number;
   pendingChanges: number;
 }
