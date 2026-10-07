@@ -14,9 +14,12 @@ import { askNewTask } from "../../lib/newTask.ts";
 import { act, useAction } from "../../lib/query.ts";
 import { quickAdd } from "../../lib/quickadd.ts";
 import { blankDraft, offerAsTask } from "../../lib/today.ts";
-import type { MailDraft } from "../../lib/types.ts";
+import type { MailAccount, MailDraft } from "../../lib/types.ts";
 import type { When } from "../../lib/when.ts";
 import type { Go } from "./parts.tsx";
+
+/** What a chip starts, each kept from starting twice on its own. */
+type Chore = "plan" | "task" | "email";
 
 /** A chip under the box. A double-click's second click (detail 2) isn't a second tap. */
 function Chip(props: {
@@ -52,16 +55,18 @@ export function AskBar(props: { go: Go; now: Date; class?: string }) {
   const [adding, setAdding] = createSignal<When | null>(null);
   const task = () => adding() ?? offered();
   const drafts = useAction<MailDraft[]>("mail.drafts");
+  const accounts = useAction<MailAccount[]>("mail.accounts");
 
-  // What's on its way; until it's back, the chips do nothing more.
-  const [busy, setBusy] = createSignal<"plan" | "task" | "email" | null>(null);
-  const once = async (what: "plan" | "task" | "email", run: () => Promise<unknown>) => {
-    if (busy()) return;
-    setBusy(what);
+  // What's on its way, chip by chip: until it's back, that chip does nothing more. The others
+  // still work, so a task can be added while Jarvis plans the day.
+  const [busy, setBusy] = createSignal<ReadonlySet<Chore>>(new Set());
+  const once = async (what: Chore, run: () => Promise<unknown>) => {
+    if (busy().has(what)) return;
+    setBusy((was) => new Set(was).add(what));
     try {
       await run();
     } finally {
-      setBusy(null);
+      setBusy((was) => new Set([...was].filter((w) => w !== what)));
     }
   };
 
@@ -95,10 +100,12 @@ export function AskBar(props: { go: Go; now: Date; class?: string }) {
         });
     });
 
-  // A new message is written at the top of Mail; one already started and still empty is used.
+  // A new message is written at the top of Mail; one already started from the same account, and
+  // still empty, is used.
   const writeEmail = () =>
     once("email", async () => {
-      if (blankDraft(drafts.data) || (await act("mail.draft", { text: "" })))
+      const from = accounts.data?.[0]?.address;
+      if (blankDraft(drafts.data, from) || (await act("mail.draft", { text: "" })))
         props.go({ view: "mail" });
     });
 
@@ -151,7 +158,7 @@ export function AskBar(props: { go: Go; now: Date; class?: string }) {
             <>
               <Chip
                 icon="today"
-                busy={busy() === "plan"}
+                busy={busy().has("plan")}
                 onClick={() => void once("plan", () => ask("Plan my day"))}
               >
                 Plan my day
@@ -159,7 +166,7 @@ export function AskBar(props: { go: Go; now: Date; class?: string }) {
               <Chip icon="plus" onClick={newTask}>
                 New task
               </Chip>
-              <Chip icon="mail" busy={busy() === "email"} onClick={() => void writeEmail()}>
+              <Chip icon="mail" busy={busy().has("email")} onClick={() => void writeEmail()}>
                 Write email
               </Chip>
             </>
@@ -168,7 +175,7 @@ export function AskBar(props: { go: Go; now: Date; class?: string }) {
           {(w) => (
             <Chip
               icon="plus"
-              busy={busy() === "task"}
+              busy={busy().has("task")}
               class="min-w-0 bg-accent-soft text-accent hover:underline"
               onClick={(e) => void addTask(w(), e)}
             >

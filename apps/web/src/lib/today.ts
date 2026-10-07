@@ -39,11 +39,17 @@ export function offerAsTask(text: string, now = new Date()): When | null {
   return q && !q.endsWith("?") && !FOR_JARVIS.test(q) ? readWhen(q, now) : null;
 }
 
-/** A new email of yours with nothing in it yet: Write email opens it, rather than start another. */
-export const blankDraft = (drafts: readonly MailDraft[] | undefined) =>
+/**
+ * A new email of yours with nothing in it yet, from `from`: Write email opens it, rather than start
+ * another. `from` is the account a new one starts from (the first, as mail.accounts lists them), so
+ * an empty one from another account isn't sent from the wrong address. None while it's not known.
+ */
+export const blankDraft = (drafts: readonly MailDraft[] | undefined, from: string | undefined) =>
   drafts?.find(
     (d) =>
       d.by === "owner" &&
+      !!from &&
+      d.account === from &&
       !d.threadId &&
       d.to.length + d.cc.length + d.bcc.length === 0 &&
       !d.subject.trim() &&
