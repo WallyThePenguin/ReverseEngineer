@@ -2152,7 +2152,7 @@ that doesn't qualify, it's the card as before. Each one leaves a line in the inb
 Lee's "Standup", Tue 2026-10-13, 10 a.m.", with an Undo that sets your answer back to unanswered,
 unless you've answered it yourself since. `calendar.respond` is unchanged: it still asks, and an
 untrusted turn's answer is still a card. A meeting Jarvis accepted doesn't make its guests people
-(`calendar_event.jarvis_accepted`, 0041): "someone you know" grows only through your own yes or
+(`calendar_event.jarvis_accepted`, 0042): "someone you know" grows only through your own yes or
 your own mail, so one accept can't vouch for the next. An invitation forged to look like it's
 from someone you know (an .ics file in an email, which Gmail can add to your calendar) is
 accepted too, where before it was a card naming that address; the note and its Undo are the
@@ -2182,7 +2182,7 @@ email in one of them can move an event tied to another; it's still only Jarvis's
 event, and the line says so.
 
 The Undo is stored as a closed shape, `notification.undo = {kind, eventId, before}` with kind
-"unaccept", "unmove" or "unremove" (0041). The server maps each kind to one change, made as you
+"unaccept", "unmove" or "unremove" (0042). The server maps each kind to one change, made as you
 by `calendar.undo`, which only you can press. Only the calendar's own code writes it: neither
 `inbox.notify` nor any other action's input can set it.
 

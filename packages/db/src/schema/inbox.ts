@@ -58,7 +58,7 @@ export const notification = pgTable("notification", {
   createdBy: text("created_by").notNull(),
   createdAt: ts("created_at").notNull().defaultNow(),
   updatedAt: ts("updated_at").notNull().defaultNow(),
-  /** What Jarvis did on its own, and how to put it back (0041_jarvis_undo). */
+  /** What Jarvis did on its own, and how to put it back (0042_jarvis_undo). */
   undo: jsonb("undo").$type<NotificationUndo>(),
 });
 

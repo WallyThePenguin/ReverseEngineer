@@ -131,7 +131,7 @@ export const calendarEvent = pgTable(
     taskId: uuid("task_id"),
     /** Its guests are linked to people (0010_people). */
     peopleLinked: boolean("people_linked").notNull().default(false),
-    /** Jarvis said yes to it, not you (D71): its guests don't become people (0041). */
+    /** Jarvis said yes to it, not you (D71): its guests don't become people (0042). */
     jarvisAccepted: boolean("jarvis_accepted").notNull().default(false),
   },
   (t) => [unique().on(t.calendarId, t.googleId)],
