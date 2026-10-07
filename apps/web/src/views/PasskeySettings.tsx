@@ -1,6 +1,7 @@
 // Settings, Passkeys: yours, and where each works. Hearth's own address takes any passkey. The
 // desktop app's window on this PC, at localhost, takes a Windows Hello passkey of its own, so it
-// can sign itself in again without your browser (D69).
+// can sign itself in again without your browser (D69). Any can be removed but the last one for
+// Hearth's own address.
 
 import { startRegistration } from "@simplewebauthn/browser";
 import { createQuery } from "@tanstack/solid-query";
@@ -14,6 +15,7 @@ import { toast } from "../lib/live.ts";
 import { windowPasskeyHere } from "../lib/wayIn.ts";
 
 interface Passkey {
+  id: string;
   label: string;
   /** Made in the window on this PC, and works only there. */
   window: boolean;
@@ -52,6 +54,21 @@ async function addPasskey(forWindow: boolean): Promise<void> {
   }
 }
 
+/** Removes a passkey once you've said yes. Hearth refuses the last one for its own address. */
+async function removePasskey(p: Passkey): Promise<void> {
+  const what = p.window ? "Windows Hello for this PC's Hearth window" : `"${p.label || "Passkey"}"`;
+  const sure = confirm(
+    `Remove ${what}? It can't sign in to Hearth after this. Anywhere it's signed in already stays signed in.`,
+  );
+  if (!sure) return;
+  try {
+    await request(`/api/auth/passkeys/${encodeURIComponent(p.id)}`, "DELETE");
+    toast.show("Passkey removed.");
+  } catch (err) {
+    toast.show((err as Error).message, "error");
+  }
+}
+
 export function PasskeySettings() {
   const keys = createQuery(() => ({
     queryKey: ["passkeys"],
@@ -73,6 +90,13 @@ export function PasskeySettings() {
             await addPasskey(where() === "window");
             void keys.refetch();
           };
+          const remove = async (p: Passkey) => {
+            await removePasskey(p);
+            void keys.refetch();
+          };
+          // The last passkey for Hearth's own address stays: it's how you get in.
+          const removable = (p: Passkey) =>
+            p.window || data().passkeys.filter((k) => !k.window).length > 1;
           return (
             <>
               <ul class="space-y-1">
@@ -86,6 +110,11 @@ export function PasskeySettings() {
                       <span class="text-xs text-faint">
                         {p.lastUsedAt ? `Used ${ago(p.lastUsedAt)}` : `Added ${ago(p.createdAt)}`}
                       </span>
+                      <Show when={removable(p)}>
+                        <Button small kind="danger" onClick={() => void remove(p)}>
+                          Remove
+                        </Button>
+                      </Show>
                     </li>
                   )}
                 </For>
