@@ -6,6 +6,7 @@
 import { createSignal, For, Show } from "solid-js";
 import { Badge, Button } from "../components/ui.tsx";
 import { toast } from "../lib/live.ts";
+import { orBack } from "../lib/orBack.ts";
 import { act, useAction } from "../lib/query.ts";
 import {
   askAbout,
@@ -100,7 +101,11 @@ export function SlackBar(props: {
                   aria-label={`What Jarvis does for ${p.name}`}
                   value={p.tier}
                   onChange={(e) =>
-                    void act("slack.member_set", { user: p.id, tier: e.currentTarget.value })
+                    void orBack(
+                      e.currentTarget,
+                      act("slack.member_set", { user: p.id, tier: e.currentTarget.value }),
+                      () => p.tier,
+                    )
                   }
                 >
                   <option value="relay">{TIER_LABEL.relay}</option>

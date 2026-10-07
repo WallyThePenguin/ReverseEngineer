@@ -6,13 +6,22 @@ import { createRoot, createSignal } from "solid-js";
 import { getMe, signedOut } from "./api.ts";
 import { degraded } from "./degraded.ts";
 import { affectedBy, type Rule, touches, union } from "./invalidate.ts";
+import { keepUnchanged } from "./keepUnchanged.ts";
 import { retryRead } from "./readState.ts";
 
 export const queryClient = new QueryClient({
   // Every read says whether Hearth is well (the degraded banner).
   queryCache: new QueryCache({ onError: degraded.failed, onSuccess: degraded.worked }),
-  // One more try for a failure that might pass; none for "not found" and the like.
-  defaultOptions: { queries: { staleTime: 30_000, retry: retryRead, refetchOnWindowFocus: true } },
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      // One more try for a failure that might pass; none for "not found" and the like.
+      retry: retryRead,
+      refetchOnWindowFocus: true,
+      // A read again keeps the rows that didn't change, so a list draws only the ones that did.
+      reconcile: keepUnchanged,
+    },
+  },
 });
 
 export interface LiveEvent {
