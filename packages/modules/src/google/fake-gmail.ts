@@ -9,6 +9,8 @@ interface FakeMessage {
   raw: Buffer;
   /** When it arrived or was sent, for "after:" searches. */
   at: number;
+  /** Gmail's conversation: its own id unless it was sent into another's. */
+  threadId?: string;
 }
 
 /** One header of a raw message, unfolded. */
@@ -42,8 +44,22 @@ const json = (status: number, data: unknown, headers: Record<string, string> = {
     headers: { "content-type": "application/json", ...headers },
   });
 
-/** Google's error replies, as Gmail sends them. */
-export function errorReply(status: number, limit?: number): Response {
+/**
+ * Google's error replies, as Gmail sends them. `until`: Gmail shuts the account out until then,
+ * saying so only in the message, with no Retry-After header, and which limit (`which`) if not all.
+ */
+export function errorReply(status: number, limit?: number, until?: Date, which?: string): Response {
+  if (status === 429 && until) {
+    const message = `User-rate limit exceeded.  Retry after ${until.toISOString()}${which ? ` (${which})` : ""}`;
+    return json(429, {
+      error: {
+        code: 429,
+        message,
+        errors: [{ message, domain: "usageLimits", reason: "rateLimitExceeded" }],
+        status: "RESOURCE_EXHAUSTED",
+      },
+    });
+  }
   if (status === 429 || status === 403) {
     const message =
       "Quota exceeded for quota metric 'Queries' and limit 'Queries per minute per user' of service 'gmail.googleapis.com' for consumer 'project_number:1'.";
@@ -101,6 +117,10 @@ export class FakeGmail {
   readonly refuseIds = new Set<string>();
   /** Messages that can't be fetched: each get answers with this status. */
   readonly brokenIds = new Map<string, number>();
+  /** While set, every message's get answers with this status, though history still works. */
+  getsFail: number | null = null;
+  /** With getsFail, only gets in this format fail ("raw", a whole download); the rest work. */
+  getsFailFormat: string | null = null;
   /** Messages whose fetch never answers (FakeGoogle waits until the client gives up). */
   readonly hangIds = new Set<string>();
   /** Fetches of those that were left hanging. */
@@ -126,7 +146,7 @@ export class FakeGmail {
   /** Every call: "GET /history", "POST /messages/batchModify"... */
   readonly requests: string[] = [];
   private spent: { at: number; units: number }[] = [];
-  private failures: { status: number; after: number }[] = [];
+  private failures: { status: number; after: number; until?: Date }[] = [];
   private historyId = 1000;
   /** History older than this is "expired", as Gmail's is after a week or so. */
   private oldestHistory = 1000;
@@ -188,6 +208,14 @@ export class FakeGmail {
     for (let i = 0; i < n; i++) this.failures.push({ status, after });
   }
 
+  /** The next call is turned away until `until`, as Gmail's per-user shut-out says it. */
+  shutOut(until: Date) {
+    this.failures.push({ status: 429, after: 0, until });
+  }
+
+  /** Gmail's sending limit, which Gmail on the phone counts too: sends turned away until then. */
+  sendingLimitUntil: Date | null = null;
+
   /** Calls made to one path, e.g. "POST /messages/batchModify". */
   count(request: string): number {
     return this.requests.filter((r) => r === request).length;
@@ -202,7 +230,7 @@ export class FakeGmail {
       if (failing.after > 0) failing.after--;
       else {
         this.failures.shift();
-        return errorReply(failing.status);
+        return errorReply(failing.status, undefined, failing.until);
       }
     }
     const cost = costOf(path);
@@ -234,7 +262,7 @@ export class FakeGmail {
       const from = Number(u.searchParams.get("pageToken") ?? 0);
       const page = all.reverse().slice(from, from + size);
       return json(200, {
-        messages: page.map((m) => ({ id: m.id, threadId: m.id })),
+        messages: page.map((m) => ({ id: m.id, threadId: m.threadId ?? m.id })),
         resultSizeEstimate: all.length,
         ...(from + size < all.length ? { nextPageToken: String(from + size) } : {}),
       });
@@ -254,6 +282,8 @@ export class FakeGmail {
       return json(204, null);
     }
     if (path === "/messages/send" && method === "POST") {
+      if (this.sendingLimitUntil && this.now() < this.sendingLimitUntil.getTime())
+        return errorReply(429, undefined, this.sendingLimitUntil, "Mail sending");
       let raw = Buffer.from(String(body?.raw ?? ""), "base64url");
       const id = `m${++this.seq}`;
       if (this.rewriteMessageIds)
@@ -261,29 +291,35 @@ export class FakeGmail {
           raw.toString("utf8").replace(/^Message-ID:.*$/im, `Message-ID: <${id}@mail.gmail.com>`),
         );
       this.sent.push(raw);
-      this.messages.set(id, { id, labelIds: ["SENT"], raw, at: this.now() });
+      // Into the conversation it names, if there's one; else one of its own.
+      const into = [...this.messages.values()].find(
+        (m) => body?.threadId && (m.threadId ?? m.id) === body.threadId,
+      );
+      const threadId = into ? String(body!.threadId) : id;
+      this.messages.set(id, { id, labelIds: ["SENT"], raw, at: this.now(), threadId });
       this.record({ kind: "added", id, labels: ["SENT"] });
       if (this.loseSendReplies > 0) {
         this.loseSendReplies--;
         return errorReply(503);
       }
-      return json(200, { id, threadId: id, labelIds: ["SENT"] });
+      return json(200, { id, threadId, labelIds: ["SENT"] });
     }
     if (one && method === "GET") {
       const id = decodeURIComponent(one[1]!);
       this.gets.set(id, (this.gets.get(id) ?? 0) + 1);
-      const broken = this.brokenIds.get(id);
+      const format = u.searchParams.get("format");
+      const failing = this.getsFailFormat === null || this.getsFailFormat === format;
+      const broken = (failing ? this.getsFail : null) ?? this.brokenIds.get(id);
       if (broken) return json(broken, { error: { code: broken, message: "Invalid id value" } });
       const m = this.messages.get(id);
       if (!m) return json(404, { error: { message: "Requested entity was not found." } });
-      const format = u.searchParams.get("format");
       const headers = u.searchParams.getAll("metadataHeaders").flatMap((name) => {
         const value = headerOf(m.raw, name);
         return value === null ? [] : [{ name, value }];
       });
       return json(200, {
         id: m.id,
-        threadId: m.id,
+        threadId: m.threadId ?? m.id,
         labelIds: m.labelIds,
         ...(format === "raw" ? { raw: m.raw.toString("base64url") } : {}),
         ...(format === "metadata" ? { payload: { headers } } : {}),

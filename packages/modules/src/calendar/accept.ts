@@ -66,6 +66,8 @@ export const acceptInviteAction = defineAction({
             : "You were free then."
         }`,
         entityId: ev.id,
+        // The meeting's title and the organizer's name are whatever the sender typed.
+        outside: true,
       },
       { kind: "unaccept", eventId: ev.id, before: { scope } },
     );

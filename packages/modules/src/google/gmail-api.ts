@@ -226,9 +226,28 @@ export class GmailProvider implements MailProvider {
       });
   }
 
-  async send(address: string, raw: Buffer): Promise<{ providerId: string }> {
+  /**
+   * Gmail files a reply in your conversation only when told the conversation's thread (its
+   * Subject and References agreeing too); without it, the reply starts a conversation of its own
+   * in your Gmail. The thread is asked for just before: if that fails, the reply still goes.
+   */
+  async send(address: string, raw: Buffer, answering?: string): Promise<{ providerId: string }> {
+    const threadId = answering
+      ? await this.call<GMessage>(
+          address,
+          "GET",
+          `/messages/${encodeURIComponent(answering)}?format=minimal`,
+          GMAIL_COST.get,
+          undefined,
+          true,
+        ).then(
+          (m) => m.threadId ?? null,
+          () => null,
+        )
+      : null;
     const sent = await this.call<GMessage>(address, "POST", "/messages/send", GMAIL_COST.send, {
       raw: raw.toString("base64url"),
+      ...(threadId ? { threadId } : {}),
     });
     return { providerId: sent.id };
   }

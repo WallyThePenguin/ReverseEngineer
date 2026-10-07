@@ -29,7 +29,7 @@ export function timesOf(ev: EventView, timeZone: string) {
 /** The FYI for something Jarvis did on its own, with the one way to put it back. */
 export async function tellDone(
   ctx: ActionContext,
-  n: { kind: string; title: string; body: string; entityId: string },
+  n: { kind: string; title: string; body: string; entityId: string; outside?: boolean },
   undo: NotificationUndo,
 ): Promise<void> {
   const created = await createNotification(ctx, { ...n, urgency: "normal" });

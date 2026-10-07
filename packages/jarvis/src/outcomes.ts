@@ -152,6 +152,9 @@ export async function applyOutcomes(
             urgency: n.urgency ?? "normal",
             ...(n.deadline ? { deadline: n.deadline.toISOString() } : {}),
             ...(n.dedupeKey ? { dedupeKey: n.dedupeKey } : {}),
+            // Told because of outside content (or saying its words): reading it back is too,
+            // unless it's only Hearth's own words. A turn's untrusted caller marks it anyway.
+            ...((n.outside ?? src.event.origin === "untrusted") ? { outside: true } : {}),
           },
           callerFor(src),
         );

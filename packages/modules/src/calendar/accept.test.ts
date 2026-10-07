@@ -103,6 +103,7 @@ describe("accepting an invitation without asking", () => {
         entityId: id,
         createdBy: "jarvis",
         urgency: "normal",
+        outside: true,
         undo: { kind: "unaccept", eventId: id, before: { scope: "this" } },
       },
     ]);

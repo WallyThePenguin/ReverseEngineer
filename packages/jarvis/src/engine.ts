@@ -118,17 +118,24 @@ export class ReflexEngine {
     if (!routine) return;
     const scheduledFor = new Date(String(p.scheduledFor));
     await this.runReflex({ name, mode: "proactive" }, event, () =>
-      routine.run({ scheduledFor, event, digest: (since) => this.digest(since) }, this.ctx()),
+      routine.run(
+        { scheduledFor, event, digest: (since, at) => this.digest(since, at) },
+        this.ctx(),
+      ),
     );
   }
 
-  /** Every module's digest since a time: the raw material of the brief and the journal. */
-  async digest(since: Date): Promise<DigestSection[]> {
+  /**
+   * Every module's digest since a time, as of `at` (now if not given): the raw material of the
+   * brief and the journal.
+   */
+  async digest(since: Date, at?: Date): Promise<DigestSection[]> {
+    const ctx = at ? { ...this.ctx(), now: at } : this.ctx();
     const out: DigestSection[] = [];
     for (const m of this.kernel.registry.modules) {
       if (!m.digest) continue;
       try {
-        const items = await m.digest({ ...this.ctx(), since });
+        const items = await m.digest({ ...ctx, since });
         if (items.length) out.push({ module: m.name, items });
       } catch (err) {
         this.log(`digest for ${m.name} failed`, err);

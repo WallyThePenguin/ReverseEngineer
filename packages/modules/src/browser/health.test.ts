@@ -6,7 +6,7 @@ const base: BrowserStatus = { connected: false, version: null, since: null, tabs
 
 describe("Chrome's health", () => {
   it.each([
-    [{ paired: false }, "degraded", "No Chrome extension is paired"],
+    [{ paired: false }, "ok", "No Chrome extension is paired"],
     [{ connected: true, version: "0.3.0" }, "ok", "Connected (extension 0.3.0)"],
     [{ connected: true, problem: "out of date" }, "degraded", "out of date"],
     [{ openError: "Chrome isn't installed." }, "failing", "Chrome isn't installed."],

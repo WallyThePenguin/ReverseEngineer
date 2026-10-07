@@ -1,39 +1,74 @@
 // Today's box under the greeting: ask Jarvis anything, or add a task with its date. Enter asks
 // Jarvis, whose answer opens beside Today; a line that names a time ("dentist fri 3pm") also offers
 // itself as a task due then, one tap away, without waiting for Jarvis. Under it, what you start
-// most: planning the day, a task, an email.
+// most: planning the day, a task, an email. Each does what it says once: a tap while it's on its
+// way, or a double-click's second click, does nothing more.
 
-import { createMemo, createSignal, Show } from "solid-js";
+import { createMemo, createSignal, type JSX, Show } from "solid-js";
 import { Icon, type IconName } from "../../components/icons.tsx";
 import { JarvisMark } from "../../components/Mark.tsx";
 import { jarvis } from "../../jarvis/JarvisPane.tsx";
 import { due } from "../../lib/format.ts";
 import { toast } from "../../lib/live.ts";
 import { askNewTask } from "../../lib/newTask.ts";
-import { act } from "../../lib/query.ts";
+import { act, useAction } from "../../lib/query.ts";
 import { quickAdd } from "../../lib/quickadd.ts";
-import { offerAsTask } from "../../lib/today.ts";
-import { readWhen } from "../../lib/when.ts";
+import { blankDraft, offerAsTask } from "../../lib/today.ts";
+import type { MailAccount, MailDraft } from "../../lib/types.ts";
+import type { When } from "../../lib/when.ts";
 import type { Go } from "./parts.tsx";
 
-/** A chip under the box. */
-function Chip(props: { icon: IconName; onClick: () => void; children: string }) {
+/** What a chip starts, each kept from starting twice on its own. */
+type Chore = "plan" | "task" | "email";
+
+/** A chip under the box. A double-click's second click (detail 2) isn't a second tap. */
+function Chip(props: {
+  icon: IconName;
+  onClick: (e: MouseEvent) => void;
+  busy?: boolean;
+  class?: string;
+  children: JSX.Element;
+}) {
   return (
     <button
       type="button"
-      class="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border border-line bg-panel px-3 text-sm text-muted hover:bg-sunk hover:text-ink md:min-h-8"
-      onClick={props.onClick}
+      class={`inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 text-sm aria-busy:opacity-60 md:min-h-8 ${props.class ?? "shrink-0 border border-line bg-panel text-muted hover:bg-sunk hover:text-ink"}`}
+      aria-busy={props.busy || undefined}
+      data-chip
+      onClick={(e) => e.detail < 2 && props.onClick(e)}
     >
-      <Icon name={props.icon} size={15} class="text-faint" />
+      <Icon name={props.icon} size={15} class={props.class ? "" : "text-faint"} />
       {props.children}
     </button>
   );
 }
 
-export function AskBar(props: { go: Go; class?: string }) {
+export function AskBar(props: { go: Go; now: Date; class?: string }) {
   const [text, setText] = createSignal("");
   const box = { get: text, set: setText };
-  const task = createMemo(() => offerAsTask(text()));
+  let input!: HTMLInputElement;
+  let chips!: HTMLDivElement;
+  // Read on Today's clock, so "in 20 min" moves on with it. The task made is the one the chip
+  // shows, and the toast says the same.
+  const offered = createMemo(() => offerAsTask(text(), props.now));
+  // Kept on show while it's added, so a second click doesn't land on a chip sliding under it.
+  const [adding, setAdding] = createSignal<When | null>(null);
+  const task = () => adding() ?? offered();
+  const drafts = useAction<MailDraft[]>("mail.drafts");
+  const accounts = useAction<MailAccount[]>("mail.accounts");
+
+  // What's on its way, chip by chip: until it's back, that chip does nothing more. The others
+  // still work, so a task can be added while Jarvis plans the day.
+  const [busy, setBusy] = createSignal<ReadonlySet<Chore>>(new Set());
+  const once = async (what: Chore, run: () => Promise<unknown>) => {
+    if (busy().has(what)) return;
+    setBusy((was) => new Set(was).add(what));
+    try {
+      await run();
+    } finally {
+      setBusy((was) => new Set([...was].filter((w) => w !== what)));
+    }
+  };
 
   /** Starts a new conversation with what's typed (or a chip's words), and shows it. */
   const ask = async (words?: string) => {
@@ -44,23 +79,40 @@ export function AskBar(props: { go: Go; class?: string }) {
     jarvis.toggle(true);
   };
 
-  const addTask = async () => {
-    const w = task();
-    if (!w) return;
-    // Read again as it's added, so "in 20 min" counts from now.
-    const made = await quickAdd(box, (q) =>
-      act<{ id: string }>("task.create", readWhen(q) ?? { title: q }),
-    );
-    if (made)
-      toast.show(`Added “${w.title}”, due ${due(w.dueAt, w.dueIsDate)?.text ?? "then"}.`, "ok", {
-        label: "Open",
-        run: () => props.go({ view: "task", id: made.id }),
-      });
-  };
+  const addTask = (w: When, e: MouseEvent) =>
+    once("task", async () => {
+      setAdding(w);
+      // The next line is typed in the box, so the focus goes back there: not to a chip, where a
+      // key would start a conversation. Not on a touch screen, where it brings the keyboard up.
+      const had =
+        chips.contains(document.activeElement) && (e as PointerEvent).pointerType !== "touch";
+      const made = await quickAdd(box, () => act<{ id: string }>("task.create", w)).finally(() =>
+        setAdding(null),
+      );
+      // Only if it's still in the chips, or went with the chip: not if you've moved it meanwhile.
+      const at = document.activeElement;
+      if (had && (!at || at === document.body || chips.contains(at)))
+        input.focus({ preventScroll: true });
+      if (made)
+        toast.show(`Added “${w.title}”, due ${due(w.dueAt, w.dueIsDate)?.text ?? "then"}.`, "ok", {
+          label: "Open",
+          run: () => props.go({ view: "task", id: made.id }),
+        });
+    });
 
-  const writeEmail = async () => {
-    // A new message is written at the top of Mail.
-    if (await act("mail.draft", { text: "" })) props.go({ view: "mail" });
+  // A new message is written at the top of Mail; one already started from the same account, and
+  // still empty, is used.
+  const writeEmail = () =>
+    once("email", async () => {
+      const from = accounts.data?.[0]?.address;
+      if (blankDraft(drafts.data, from) || (await act("mail.draft", { text: "" })))
+        props.go({ view: "mail" });
+    });
+
+  // What's typed goes with it, to the top of the new task.
+  const newTask = () => {
+    askNewTask(true, text().trim());
+    setText("");
   };
 
   return (
@@ -74,6 +126,7 @@ export function AskBar(props: { go: Go; class?: string }) {
       >
         <JarvisMark size={18} />
         <input
+          ref={input}
           class="min-h-9 min-w-0 flex-1 bg-transparent outline-none placeholder:text-faint"
           aria-label="Ask Jarvis or add a task"
           placeholder="Ask Jarvis or add a task…"
@@ -95,34 +148,41 @@ export function AskBar(props: { go: Go; class?: string }) {
         </Show>
       </form>
       {/* One line, even on a phone: it scrolls sideways rather than taking two. */}
-      <div class="-mx-4 mt-2.5 flex items-center gap-2 overflow-x-auto px-4 md:mx-0 md:px-0">
+      <div
+        ref={chips}
+        class="-mx-4 mt-2.5 flex items-center gap-2 overflow-x-auto px-4 md:mx-0 md:px-0"
+      >
         <Show
           when={task()}
           fallback={
             <>
-              <Chip icon="today" onClick={() => void ask("Plan my day")}>
+              <Chip
+                icon="today"
+                busy={busy().has("plan")}
+                onClick={() => void once("plan", () => ask("Plan my day"))}
+              >
                 Plan my day
               </Chip>
-              <Chip icon="plus" onClick={() => askNewTask(true)}>
+              <Chip icon="plus" onClick={newTask}>
                 New task
               </Chip>
-              <Chip icon="mail" onClick={() => void writeEmail()}>
+              <Chip icon="mail" busy={busy().has("email")} onClick={() => void writeEmail()}>
                 Write email
               </Chip>
             </>
           }
         >
           {(w) => (
-            <button
-              type="button"
-              class="inline-flex min-h-11 min-w-0 items-center gap-1.5 rounded-full bg-accent-soft px-3 text-sm text-accent hover:underline md:min-h-8"
-              onClick={() => void addTask()}
+            <Chip
+              icon="plus"
+              busy={busy().has("task")}
+              class="min-w-0 bg-accent-soft text-accent hover:underline"
+              onClick={(e) => void addTask(w(), e)}
             >
-              <Icon name="plus" size={15} />
               <span class="truncate">
                 Add task “{w().title}” · due {due(w().dueAt, w().dueIsDate)?.text}
               </span>
-            </button>
+            </Chip>
           )}
         </Show>
       </div>

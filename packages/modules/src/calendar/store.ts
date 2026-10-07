@@ -1,9 +1,22 @@
 // Calendar events as Hearth keeps them: Google's event mapped onto an entity plus its row, and
 // the shape the app and Jarvis read.
 import { atLocal, formatDateTime, formatTime, localDate } from "@hearth/core";
-import { type Attendee, calendarEvent, type DbOrTx, type EventStatus, entity } from "@hearth/db";
-import { type ActionContext, createEntity, type EntityRow, updateEntity } from "@hearth/kernel";
-import { and, eq } from "drizzle-orm";
+import {
+  type Attendee,
+  calendarEvent,
+  type DbOrTx,
+  type EventStatus,
+  entity,
+  link,
+} from "@hearth/db";
+import {
+  type ActionContext,
+  createEntity,
+  type EntityRow,
+  getSetting,
+  updateEntity,
+} from "@hearth/kernel";
+import { and, eq, isNull } from "drizzle-orm";
 import type { GEvent } from "../google/calendar-api.ts";
 import { ensurePerson, linkPerson, personFor } from "../people/store.ts";
 
@@ -145,12 +158,17 @@ export async function findEvent(db: DbOrTx, calendarId: string, googleId: string
   return row ?? null;
 }
 
-export async function loadEvent(db: DbOrTx, id: string): Promise<EventView | null> {
+async function eventRow(db: DbOrTx, id: string) {
   const [row] = await db
     .select({ e: entity, r: calendarEvent })
     .from(calendarEvent)
     .innerJoin(entity, eq(entity.id, calendarEvent.entityId))
     .where(eq(calendarEvent.entityId, id));
+  return row ?? null;
+}
+
+export async function loadEvent(db: DbOrTx, id: string): Promise<EventView | null> {
+  const row = await eventRow(db, id);
   return row && !row.e.deletedAt ? toEventView(row.e, row.r) : null;
 }
 
@@ -181,6 +199,30 @@ async function linkGuests(
   }
 }
 
+/** A prep packet's name: the meeting and its day. */
+export const prepTitle = (title: string, startsAt: Date, timeZone: string) =>
+  `Prep: ${title} (${localDate(startsAt, timeZone)})`;
+
+/**
+ * A meeting moved or renamed: its prep packet's name says the new day, and a "When" line in it
+ * the new time. What it says about the people and last time still holds.
+ */
+async function followPrep(ctx: ActionContext, eventId: string, m: Mapped): Promise<void> {
+  const preps = await ctx.tx
+    .select({ id: entity.id, title: entity.title, body: entity.body })
+    .from(link)
+    .innerJoin(entity, eq(entity.id, link.fromId))
+    .where(and(eq(link.toId, eventId), eq(entity.type, "prep"), isNull(entity.deletedAt)));
+  if (!preps.length) return;
+  const { timeZone } = await getSetting(ctx.tx, "owner.dayRules");
+  for (const p of preps) {
+    const title = prepTitle(m.title, m.startsAt, timeZone);
+    const was = p.body ?? "";
+    const body = was.replace(/^- When: .*$/m, `- When: ${whenText(m, timeZone)}`);
+    if (title !== p.title || body !== was) await updateEntity(ctx, p.id, { title, body });
+  }
+}
+
 export type Change = "added" | "updated" | "cancelled" | null;
 
 /** A new time of a series Jarvis accepted is Jarvis's yes too: the yes was for every time. */
@@ -200,13 +242,17 @@ async function seriesByJarvis(db: DbOrTx, m: Mapped): Promise<boolean> {
   return Boolean(row);
 }
 
-/** Saves Google's version of an event. Returns what changed, for the event log. */
+/**
+ * Saves Google's version of an event. Returns what changed, for the event log. `replaces`: the
+ * row a repeating meeting's occurrence takes over when Google gave it a new id (series.ts).
+ */
 export async function saveEvent(
   ctx: ActionContext,
   m: Mapped,
-  extra: { taskId?: string | null } = {},
+  extra: { taskId?: string | null; replaces?: string } = {},
 ): Promise<{ id: string; change: Change }> {
-  const existing = await findEvent(ctx.tx, m.calendarId, m.googleId);
+  const found = await findEvent(ctx.tx, m.calendarId, m.googleId);
+  const existing = found ?? (extra.replaces ? await eventRow(ctx.tx, extra.replaces) : null);
   const { title, body, ...fields } = m;
   if (!existing) {
     if (m.status === "cancelled") return { id: "", change: null };
@@ -235,14 +281,18 @@ export async function saveEvent(
     return { id: e.id, change: null };
   const moved =
     r.startsAt.getTime() !== m.startsAt.getTime() || r.endsAt.getTime() !== m.endsAt.getTime();
+  // The organizer changed the series and asks you again: new to you, as an invitation is.
+  const askedAgain = !found && r.selfResponse !== "needsAction" && m.selfResponse === "needsAction";
   const change: Change =
     m.status === "cancelled"
       ? r.status === "cancelled"
         ? null
         : "cancelled"
-      : moved || r.status !== m.status || e.title !== title
-        ? "updated"
-        : null;
+      : askedAgain
+        ? "added"
+        : moved || r.status !== m.status || e.title !== title
+          ? "updated"
+          : null;
   if (!e.deletedAt) await updateEntity(ctx, e.id, { title, body });
   await ctx.tx
     .update(calendarEvent)
@@ -253,6 +303,7 @@ export async function saveEvent(
     })
     .where(eq(calendarEvent.entityId, e.id));
   if (!e.deletedAt) await linkGuests(ctx, e.id, m, r.jarvisAccepted);
+  if (!e.deletedAt && change === "updated") await followPrep(ctx, e.id, m);
   return { id: e.id, change };
 }
 
