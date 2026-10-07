@@ -12,6 +12,8 @@ type ConversationRow = typeof conversation.$inferSelect;
 /** The turn read outside content (see readOutsideContent): remembers what, for the badge. */
 export function readFrom(state: TurnState, source: string, text: string, value?: unknown): void {
   state.taintedBy ??= source;
+  // What it does from here may be what it read asking, not the owner.
+  state.asked = false;
   readOutsideContent(state, text, value);
 }
 
