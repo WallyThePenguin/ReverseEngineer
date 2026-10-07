@@ -1,9 +1,11 @@
 // The Windows app's two small windows (D53): quick capture (Ctrl+Alt+N) turns a line into a task,
 // and Ask Jarvis (Ctrl+Alt+K) is a conversation without the rest of Hearth around it. Esc tucks
-// either one away. They share the main window's sign-in.
+// either one away. They share the main window's sign-in. Quick capture comes from the PC each time
+// it opens (sw.js); the Ask window keeps its page, and moves on to a new Hearth as it's put away.
 
 import { QueryClientProvider } from "@tanstack/solid-query";
 import {
+  createEffect,
   createResource,
   createSignal,
   For,
@@ -13,7 +15,7 @@ import {
   Show,
   Switch,
 } from "solid-js";
-import { watchUpdates } from "../components/UpdateNotice.tsx";
+import { updateWhenHidden } from "../components/UpdateNotice.tsx";
 import { Button } from "../components/ui.tsx";
 import { useWhen, WhenChip } from "../components/WhenChip.tsx";
 import { Conversation } from "../jarvis/Conversation.tsx";
@@ -109,8 +111,31 @@ function Capture() {
   );
 }
 
+/** Where the Ask window keeps its conversation, so moving on to a new Hearth doesn't end it. */
+const ASKING = "hearth-ask-conversation";
+
+/** This window's own storage, which a reload keeps. Blocked, it keeps nothing. */
+function stored(key: string): string | null {
+  try {
+    return sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function store(key: string, value: string | null) {
+  try {
+    if (value) sessionStorage.setItem(key, value);
+    else sessionStorage.removeItem(key);
+  } catch {
+    // Blocked: the next page starts a new conversation.
+  }
+}
+
 function Ask() {
-  const [id, setId] = createSignal<string | null>(null);
+  const [id, setId] = createSignal<string | null>(stored(ASKING));
+  createEffect(() => store(ASKING, id()));
+  // A new Hearth replaces this window's page as it's put away, when that loses nothing.
+  onMount(() => onCleanup(updateWhenHidden()));
   onMount(() => live.start());
   onCleanup(() => live.stop());
   onCleanup(sendPagesToMain());
@@ -144,8 +169,6 @@ export function MiniApp(props: { page: MiniPage }) {
   // Kept between uses: shown again after you've signed in (or Hearth is back), it looks again.
   const stale = () => me.state === "errored" || (me.state === "ready" && !me()!.signedIn);
   onMount(() => onCleanup(whenShownAgain(stale, () => void refetch())));
-  // A new Hearth replaces this window's page when that loses nothing, as it does the main one's.
-  onMount(() => onCleanup(watchUpdates().stop));
 
   const onKey = (e: KeyboardEvent) => {
     // Esc closes the window, unless something on the page (a menu, say) used it first.
