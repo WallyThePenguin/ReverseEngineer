@@ -16,7 +16,8 @@ import {
   createEntity,
   type EntityRow,
 } from "@hearth/kernel";
-import { and, asc, desc, eq, gt, gte, inArray, isNull, lte, ne } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNull, lte, ne, notInArray } from "drizzle-orm";
+import { NOT_MEETINGS } from "../calendar/store.ts";
 
 export interface MeetingView {
   id: string;
@@ -137,8 +138,9 @@ export async function recordMeeting(
         isNull(entity.deletedAt),
         eq(calendarEvent.allDay, false),
         ne(calendarEvent.status, "cancelled"),
-        // A time block for a task isn't a meeting.
+        // A time block for a task isn't a meeting, nor is where you work or time out of office.
         isNull(calendarEvent.taskId),
+        notInArray(calendarEvent.kind, NOT_MEETINGS),
         lte(calendarEvent.startsAt, new Date(ctx.now.getTime() + EARLY_MS)),
         gt(calendarEvent.endsAt, ctx.now),
       ),

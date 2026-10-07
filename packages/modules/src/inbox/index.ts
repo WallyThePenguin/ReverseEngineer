@@ -263,7 +263,8 @@ export const inboxModule = defineModule({
       name: "inbox.deliver_held",
       description: "Sends an interrupt held overnight when quiet hours end (D54).",
       mode: "always",
-      on: ["notification.created"],
+      // Updated too: a failing alert opened again that never went out (system/alerts.ts).
+      on: ["notification.created", "notification.updated"],
       includeJarvisEvents: true,
       run(event) {
         const at = event.payload.retryAt;
