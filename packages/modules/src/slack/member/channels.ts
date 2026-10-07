@@ -83,10 +83,12 @@ async function botAndChannel(ctx: ActionContext, id: string) {
   const [bot] = await ctx.tx.select().from(slackBot).where(eq(slackBot.teamId, ws.teamId));
   if (!bot)
     throw new ActionError("unavailable", "Connect Jarvis's bot first, in Settings → Slack.");
+  // Locked, so the hourly check turning it off meanwhile is waited for, and decided on after.
   const [ch] = await ctx.tx
     .select()
     .from(slackChannel)
-    .where(and(eq(slackChannel.id, id), eq(slackChannel.teamId, ws.teamId)));
+    .where(and(eq(slackChannel.id, id), eq(slackChannel.teamId, ws.teamId)))
+    .for("update");
   if (!ch)
     throw new ActionError(
       "not_found",

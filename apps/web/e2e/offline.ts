@@ -143,7 +143,9 @@ try {
   await step("Hearth back: the app comes back by itself, without a reload", async () => {
     await page.evaluate("window.sameLoad = true");
     await start();
-    await home(page).waitFor({ timeout: 40_000 });
+    // Signed in here, so Hearth is drawn under the notice: it's back once that's gone.
+    await page.getByRole("heading", unreachable).waitFor({ state: "detached", timeout: 40_000 });
+    await home(page).waitFor();
     if (!(await page.evaluate("window.sameLoad === true"))) throw new Error("the page reloaded");
   });
   console.log("Offline checks passed.");

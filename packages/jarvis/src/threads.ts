@@ -105,14 +105,17 @@ export function authorOf(kind: string, payload: Record<string, unknown>, you = "
  * The conversation so far, written by Hearth from its own log: what a turn starts from when
  * Claude no longer has the session it would have resumed (D54), or when a member's conversation
  * starts a new one after 12 idle hours (D62). `skip` leaves out lines the turn sends as
- * themselves.
+ * themselves, and in a member's conversation, answers that never went out.
  */
 export async function recapConversation(
   kernel: Kernel,
   conversationId: string,
   turn: { id: string; prompt: string },
   limit = 20,
-  skip: (payload: Record<string, unknown>) => boolean = () => false,
+  skip: (
+    payload: Record<string, unknown>,
+    row: { kind: string; turnId: string | null },
+  ) => boolean = () => false,
 ): Promise<string | null> {
   const rows = await kernel.db
     .select()
@@ -129,7 +132,7 @@ export async function recapConversation(
   const [newest] = rows;
   if (newest?.kind === "user_message" && newest.payload.text === turn.prompt) rows.shift();
   const lines = rows
-    .filter((r) => r.turnId !== turn.id && !skip(r.payload))
+    .filter((r) => r.turnId !== turn.id && !skip(r.payload, r))
     .slice(0, limit)
     .reverse()
     .map((r) => {

@@ -11,6 +11,9 @@
                    trigger, say) and holds its log: Start-Hearth must refuse before anything starts
     service-fails  hearth-worker won't start on the new code, after hearth-server has
     jarvis-throws  the new code isn't healthy, and stopping Jarvis then fails outright
+    stuck-first    a Jarvis from before D63 is running when the update stops Hearth, so the stop
+                   fails before the services: nothing is down, and nothing must be waited for
+    worker-stop-fails  hearth-worker won't stop, after hearth-server has: only what's down starts
   force-leftover and force-service-fails are the first two with -Force on the commit Hearth is
   already on: nothing to roll back, but Hearth must start again (hearth-worker never will there).
 
@@ -20,7 +23,8 @@
 param(
   [Parameter(Mandatory = $true)][string]$Work,
   [Parameter(Mandatory = $true)]
-  [ValidateSet("leftover", "service-fails", "jarvis-throws", "force-leftover", "force-service-fails")][string]$Case
+  [ValidateSet("leftover", "service-fails", "jarvis-throws", "stuck-first", "worker-stop-fails", "force-leftover",
+    "force-service-fails")][string]$Case
 )
 $ErrorActionPreference = "Stop"
 if (-not (Test-Path "$Work\fake-update")) { throw "Only test-control-update.ps1 runs this." }
@@ -33,6 +37,8 @@ $global:old = "1111111111111111111111111111111111111111"
 $global:new = $(if ($force) { $global:old } else { "2222222222222222222222222222222222222222" })
 $global:head = $global:old
 $global:running = @{}
+# When each service last started, as the server's health says for itself.
+$global:started = @{}
 $global:jarvis = @{}
 $global:taskOn = $false
 $global:held = $null
@@ -103,7 +109,10 @@ function global:Stop-ScheduledTask {
   Write-Event "end task"
   foreach ($j in @($global:jarvis.Values | Where-Object { $_.SinceD63 -and $_.FromTask })) {
     $global:jarvis.Remove($j.Id)
-    Remove-Item "$global:dir\hearth-jarvis.pid" -ErrorAction SilentlyContinue
+    # Its own pid file only: one started after it wrote its own.
+    if ("$(Get-Content "$global:dir\hearth-jarvis.pid" -Raw -ErrorAction SilentlyContinue)" -eq "$($j.Id)") {
+      Remove-Item "$global:dir\hearth-jarvis.pid"
+    }
     Write-Event "jarvis $($j.Id) stops with its task"
   }
   Update-Log
@@ -120,17 +129,33 @@ function global:Stop-Process { param($Id, [switch]$Force) Write-Event "kill $Id 
 function global:Start-Service {
   param($Name)
   foreach ($n in @($Name)) {
+    # As Windows does: starting one that runs does nothing, so it hasn't restarted.
+    if ($global:running[$n]) {
+      Write-Event "start $n, already running"
+      continue
+    }
     if ($global:case -eq "service-fails" -and $n -eq "hearth-worker" -and $global:head -eq $global:new) {
       throw "Service 'hearth-worker' cannot be started"
     }
     $global:running[$n] = $global:head
+    $global:started[$n] = [datetime]::UtcNow
     Write-Event "start $n"
   }
 }
 function global:Stop-Service {
   param($Name)
-  foreach ($n in @($Name)) { $global:running.Remove($n) }
+  foreach ($n in @($Name)) {
+    if ($global:case -eq "worker-stop-fails" -and $n -eq "hearth-worker") {
+      Write-Event "stop $(@($Name) -join ' '): hearth-worker won't stop"
+      throw "Service 'hearth-worker' cannot be stopped"
+    }
+    $global:running.Remove($n)
+  }
   Write-Event "stop $(@($Name) -join ' ')"
+}
+function global:Get-Service {
+  param($Name)
+  return [pscustomobject]@{ Name = $Name; Status = $(if ($global:running[$Name]) { "Running" } else { "Stopped" }) }
 }
 function global:git {
   $global:LASTEXITCODE = 0
@@ -168,7 +193,7 @@ function global:Invoke-RestMethod {
   $jarvis = $(if ($global:jarvis.Count) { $now } else { $long })
   return [pscustomobject]@{
     sha = $sha
-    startedAt = $now
+    startedAt = $global:started["hearth-server"].ToString("o")
     db = [pscustomobject]@{ ok = $true }
     migrations = [pscustomobject]@{ ok = -not ($sha -eq $global:new -and $global:case -eq "jarvis-throws") }
     problems = @("0999_fake")
@@ -201,7 +226,7 @@ foreach ($name in "Invoke-WebRequest", "node", "psql", "taskkill", "schtasks", "
 # by now, or one of the refusals above. Being a function isn't enough: Windows' own
 # Stop-ScheduledTask and Start-ScheduledTask are functions too (the ScheduledTasks module's).
 foreach ($name in "Get-Process", "Get-CimInstance", "New-Object", "Get-ScheduledTask", "Stop-ScheduledTask",
-  "Start-ScheduledTask", "Stop-Process", "Start-Service", "Stop-Service", "git", "pnpm", "pg_dump",
+  "Start-ScheduledTask", "Stop-Process", "Start-Service", "Stop-Service", "Get-Service", "git", "pnpm", "pg_dump",
   "Invoke-RestMethod", "Invoke-WebRequest", "node", "psql", "taskkill", "schtasks", "Restart-Service",
   "Set-Service", "Register-ScheduledTask", "Unregister-ScheduledTask", "Enable-ScheduledTask", "Disable-ScheduledTask") {
   $command = Get-Command $name -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -212,8 +237,11 @@ foreach ($name in "Get-Process", "Get-CimInstance", "New-Object", "Get-Scheduled
 
 $global:running["hearth-server"] = $global:old
 $global:running["hearth-worker"] = $global:old
+$global:started["hearth-server"] = [datetime]::UtcNow.AddHours(-1)
+$global:started["hearth-worker"] = [datetime]::UtcNow.AddHours(-1)
 $global:taskOn = $true
 Start-FakeJarvis 999988 $true $true
+if ($global:case -eq "stuck-first") { Start-FakeJarvis 999984 $false $false }
 & "$PSScriptRoot\update.ps1" -Root "$Work\root" -HealthTimeoutSec 0 -Force:$force
 $code = $LASTEXITCODE
 if ($global:held) { $global:held.Dispose() }

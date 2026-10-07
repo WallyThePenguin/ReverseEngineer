@@ -30,6 +30,7 @@ import { type DocStatus, LiveDoc, NoteGone } from "../lib/doc.ts";
 import { TYPE_LABEL, who } from "../lib/format.ts";
 import { onLiveEvent } from "../lib/live.ts";
 import { layout, routeFor } from "../lib/panes.ts";
+import { signInConfirmed } from "../lib/signedIn.ts";
 import type { SearchHit } from "../lib/types.ts";
 import { editorLook } from "./editorLook.ts";
 import { remoteCaret } from "./remoteCaret.ts";
@@ -221,6 +222,11 @@ export default function DocEditor(props: { id: string; placeholder?: string }) {
       clear = window.setTimeout(() => setEditedBy(null), 5000);
     };
     try {
+      // The copy kept on this device opens without the server, so only once the server, not the
+      // guess, says you're signed in. On a session that has ended, anyone at the device could
+      // read it, and their edits would later be sent as yours.
+      await signInConfirmed();
+      if (disposed) return;
       await doc.open();
     } catch (err) {
       if (disposed) return;

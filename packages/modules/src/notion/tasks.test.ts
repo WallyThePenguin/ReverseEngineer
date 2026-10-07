@@ -3,13 +3,14 @@ import { audit, entity, notionAccount, notionTask } from "@hearth/db";
 import { type Caller, integrationCaller, jarvisCaller, ownerCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { eq } from "drizzle-orm";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { VAULT_SERVICE, Vault } from "../browser/vault.ts";
 import { ALL_MODULES } from "../index.ts";
 import { NOTION_SERVICE, NotionError } from "./api.ts";
 import { pickColumns, ticketOf } from "./columns.ts";
 import { FakeNotion, type FakeTicket, taskBoard } from "./fake.ts";
 import { notionModule } from "./index.ts";
+import { ROUND_FAILED } from "./sync.ts";
 
 let t: TestKernel;
 let n: FakeNotion;
@@ -253,6 +254,42 @@ describe("notion tasks", () => {
     // It isn't read again, so it isn't counted or listed as one of yours still open.
     expect(await ok("notion.status")).toMatchObject({ state: "ok", open: 0 });
     expect(await ok("notion.tasks")).toEqual([]);
+  });
+
+  it("leaves a ticket you deleted in Hearth out of the brief", async () => {
+    await connected();
+    ticket("a");
+    await sync();
+    ticket("new");
+    await sync();
+    const [row] = await t.tdb.db.select().from(notionTask).where(eq(notionTask.pageId, "new"));
+    await t.tdb.db
+      .update(entity)
+      .set({ deletedAt: t.clock.now() })
+      .where(eq(entity.id, row!.entityId));
+    const brief = await notionModule.digest!({
+      db: t.tdb.db,
+      now: t.clock.now(),
+      since: new Date(0),
+    });
+    expect(brief).toEqual([]);
+  });
+
+  it("keeps a failure that isn't Notion's as fixed text, and its reason only in the log", async () => {
+    await connected();
+    ticket("a");
+    // A database error can carry what the round was saving: here, the board's title.
+    n.failWith = new Error('Failed query: update "notion_account" set "source_title" = $1', {
+      cause: new Error("canceling statement due to statement timeout\nparams: Otopair tasks"),
+    });
+    const logged = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const [why] = (await sync()).failed;
+    expect(why).toBe(ROUND_FAILED);
+    expect(await ok("notion.status")).toMatchObject({ lastError: ROUND_FAILED });
+    expect(logged).toHaveBeenCalledWith(
+      "[notion] a round failed: canceling statement due to statement timeout",
+    );
+    logged.mockRestore();
   });
 
   it("keeps the board's own words from Jarvis: only Settings reads how Notion is doing", async () => {

@@ -22,7 +22,7 @@ import { JarvisPane, jarvis } from "../jarvis/JarvisPane.tsx";
 import { getMe, setSignedOutHandler } from "../lib/api.ts";
 import { goLabel, PLACES } from "../lib/apps.ts";
 import { forgetAllDocs, sendKeptNotes } from "../lib/docStore.ts";
-import { useHotkeys } from "../lib/hotkeys.ts";
+import { pauseHotkeys, useHotkeys } from "../lib/hotkeys.ts";
 import { live, queryClient, toast } from "../lib/live.ts";
 import { narrow } from "../lib/narrow.ts";
 import { type ListView, layout, type Pane, type PaneRoute } from "../lib/panes.ts";
@@ -132,7 +132,7 @@ function PaneView(props: { route: PaneRoute; index: number }) {
   );
 }
 
-function Shell(props: { onSignOut: () => void }) {
+function Shell(props: { onSignOut: () => void; covered: boolean }) {
   const [palette, setPalette] = createSignal(false);
   const [help, setHelp] = createSignal(false);
   const [menu, setMenu] = createSignal(false);
@@ -221,7 +221,8 @@ function Shell(props: { onSignOut: () => void }) {
   };
 
   return (
-    <div class="flex h-full flex-col">
+    // Covered while Hearth can't be reached: kept as it is, out of reach of clicks and typing.
+    <div class="flex h-full flex-col" inert={props.covered}>
       <div class="flex min-h-0 flex-1">
         <Show
           when={narrow()}
@@ -284,6 +285,7 @@ export function App() {
     if (me.state === "errored") setUnreachable(true);
     else if (me.state === "ready") setUnreachable(false);
   });
+  createEffect(() => pauseHotkeys(unreachable()));
   const retryNow = useAutoRetry(
     () => (me.state === "errored" ? "failed" : me.state === "ready" ? "ok" : "trying"),
     () => void refetch(),
@@ -295,16 +297,14 @@ export function App() {
     if (a) rememberSignedIn(a.signedIn);
   });
   // One condition from the guess to the answer, so the shell isn't drawn twice when they agree.
-  const hearth = createMemo(() => showHearth(answer(), me.loading));
+  const hearth = createMemo(() => showHearth(answer()));
   return (
     <QueryClientProvider client={queryClient}>
       <ErrorBoundary fallback={(error, reset) => <Crashed error={error} reset={reset} />}>
         <Switch fallback={<p class="p-6 text-muted">Loading…</p>}>
-          <Match when={unreachable()}>
-            <Unreachable trying={me.loading} retry={retryNow} />
-          </Match>
           <Match when={hearth()}>
             <Shell
+              covered={unreachable()}
               onSignOut={() => {
                 rememberSignedIn(false);
                 live.stop();
@@ -313,6 +313,16 @@ export function App() {
                 void refetch();
               }}
             />
+            {/* Over the guess, not instead of it: what you'd started typing is there after.
+                Above z-50, where an open menu's portal sits outside the shell. */}
+            <Show when={unreachable()}>
+              <div class="fixed inset-0 z-[60] bg-bg">
+                <Unreachable trying={me.loading} retry={retryNow} />
+              </div>
+            </Show>
+          </Match>
+          <Match when={unreachable()}>
+            <Unreachable trying={me.loading} retry={retryNow} />
           </Match>
           <Match when={answer()}>
             {(m) => <Login needsSetup={m().needsSetup} onSignedIn={() => void refetch()} />}

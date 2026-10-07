@@ -117,13 +117,29 @@ async function principalFor(ctx: ActionContext, ws: Ws, u: SlackUserRow, name: s
 type Took = { cid: string | null };
 const SETTLED: Took = { cid: null };
 
+/** Whether you've blocked them: as Settings has them, or their principal turned off. */
+async function blockedNow(ctx: ActionContext, id: string, u: SlackUserRow | undefined) {
+  if (u?.tier === "blocked") return true;
+  const [p] = await ctx.tx
+    .select({ off: principal.disabledAt })
+    .from(principal)
+    .where(eq(principal.id, id));
+  return Boolean(p?.off);
+}
+
 /**
  * A message whose writer Slack still hasn't said anything about a day on: passed on to you as
- * unanswered rather than dropped, unless it's yours, from someone Hearth knew wasn't a member, or
- * in a channel Jarvis isn't on. Nothing is said back: Slack never said who they are (D62).
+ * unanswered rather than dropped, unless it's yours, from someone Hearth knew wasn't a member or
+ * you blocked, or in a channel Jarvis isn't on. Nothing is said back: Slack never said who they
+ * are (D62).
  */
 async function unchecked(ctx: ActionContext, ws: Ws, row: InboundRow, u: SlackUserRow | undefined) {
   const inDm = row.channelType === "im";
+  const id = memberPrincipal(ws.teamId, row.userId);
+  if (await blockedNow(ctx, id, u)) {
+    await settle(ctx, [row], "blocked");
+    return;
+  }
   const skip =
     row.userId === ws.userId ||
     (u && notAMember(u)) ||
@@ -133,7 +149,7 @@ async function unchecked(ctx: ActionContext, ws: Ws, row: InboundRow, u: SlackUs
     return;
   }
   await passOn(ctx, {
-    principal: memberPrincipal(ws.teamId, row.userId),
+    principal: id,
     name: cleanName(u?.name, row.userId),
     text: await plainOf(ctx.tx, row.text),
     kind: "unanswered",
@@ -245,6 +261,13 @@ async function conversationOf(ctx: ActionContext, ws: Ws, row: InboundRow) {
   return { who, thread, blocked } satisfies Conversation & { blocked: boolean };
 }
 
+/** Someone you've blocked, or who's no longer a member: one note a day, and nothing passed on. */
+async function turnAway(ctx: ActionContext, ws: Ws, c: Conversation, rows: InboundRow[]) {
+  const to = { ...noteAt(rows.at(-1)!), conversationId: c.who.conversationId };
+  await sendNote(ctx, "blocked", { teamId: ws.teamId, principal: c.who.principal, ...to });
+  await settle(ctx, rows, "blocked");
+}
+
 /**
  * In a channel's thread, what a turn needs first: the channel still on and checked within the
  * hour, and the thread so far. Null (wait a round) while its check is due or Slack can't be read.
@@ -312,16 +335,16 @@ export async function takeRound(ctx: ActionContext): Promise<TakeRound> {
   for (const [turnId, mine] of claimed) {
     const c = await conversationOf(ctx, ws, mine[0]!);
     if (!c) continue;
-    const how = await settleClaimed(ctx, turnId, mine, c.who, c.thread);
+    const how = await settleClaimed(ctx, turnId, mine, c.who, c.thread, c.blocked);
+    // Blocked while their turn ran, so it sent nothing.
+    if (how === "blocked") await turnAway(ctx, ws, c, mine);
     if (how !== "open") done.settled += mine.length;
   }
   for (const waiting of conversations.values()) {
     const c = await conversationOf(ctx, ws, waiting[0]!);
     if (!c) continue;
     if (c.blocked) {
-      const to = { ...noteAt(waiting.at(-1)!), conversationId: c.who.conversationId };
-      await sendNote(ctx, "blocked", { teamId: ws.teamId, principal: c.who.principal, ...to });
-      await settle(ctx, waiting, "blocked");
+      await turnAway(ctx, ws, c, waiting);
       continue;
     }
     let more: More | undefined;

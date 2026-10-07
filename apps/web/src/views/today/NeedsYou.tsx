@@ -4,8 +4,9 @@
 // Approve under it: a yes never covers words you haven't seen (D33, D58). One whose line is all
 // there is to it (an invitation, say) has its yes on the line. Hearth's usual reason is said once
 // over the list; any other stays on its row. Several asking for the same kind of thing share an
-// "Approve all", which first opens them ("Read all 3") and covers only rows that have been open and
-// on screen a moment, so one that arrives or opens just before a tap waits for you to look. A send
+// "Approve all", which first opens them ("Read all 3") and then sits under the last of them, so
+// reaching it means passing every one. It covers only rows that have been open and listed a
+// moment, so one that arrives or opens just before a tap waits for you to look. A send
 // that would reach someone who isn't in its conversation (or a new email) is approved on its own.
 // "Approve all" sends each yes in turn and says how they went in one place, which stays after the
 // rows have gone.
@@ -197,7 +198,7 @@ function Group(props: {
   const closed = () => live().filter((id) => !props.open.has(id));
   // One that just arrived waits for a look, open or not.
   const arrived = () => live().filter((id) => !props.seen.includes(id)).length;
-  // What a tap covers: rows open and on screen a moment.
+  // What a tap covers: rows open and listed a moment, all above the button.
   const covered = () =>
     live().filter((id) => props.seen.includes(id) && shown.armed().includes(id));
   const running = () => props.approving.running() === props.group;
@@ -214,49 +215,47 @@ function Group(props: {
       <For each={props.items}>{(a) => props.row(a)}</For>
     </ul>
   );
+  const several = () => live().length > 1 || running();
+  // All read: the yes goes under the last row, so reaching it means passing every one of them.
+  const allRead = () => several() && (closed().length === 0 || running());
   return (
     <Show when={props.items.length > 1} fallback={rows()}>
       <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line bg-sunk/50 py-1.5 pr-2 pl-3">
-        {/* Never squeezed: narrow, the button goes under it, and the note under both. */}
+        {/* Never squeezed: narrow, the button goes under it. */}
         <p class="min-w-40 flex-1 text-meta">
           <span class="font-medium">{toolDoing(props.action)}</span>
           <span class="text-muted"> · {props.items.length} waiting</span>
         </p>
-        <Show when={arrived() > 0}>
-          <p
-            role="status"
-            class="order-last flex basis-full items-center gap-1 pb-1 text-meta font-medium text-warn"
-          >
-            <Icon name="warn" size={14} />
-            {`${arrived()} new — look again`}
-          </p>
-        </Show>
-        <Show when={live().length > 1 || running()}>
-          <Show
-            when={closed().length === 0 || running()}
-            fallback={
-              <Button small icon="chevron-down" onClick={() => props.openAll(closed())}>
-                {`Read all ${live().length}`}
-              </Button>
-            }
-          >
-            <Button
-              kind="primary"
-              small
-              icon="check"
-              disabled={
-                props.approving.running() !== null ||
-                arrived() > 0 ||
-                covered().length < live().length
-              }
-              onClick={approveAll}
-            >
-              {running() ? "Approving…" : `Approve all ${live().length}`}
-            </Button>
-          </Show>
+        <Show when={several() && !allRead()}>
+          <Button small icon="chevron-down" onClick={() => props.openAll(closed())}>
+            {`Read all ${live().length}`}
+          </Button>
         </Show>
       </div>
       {rows()}
+      <Show when={allRead()}>
+        <div class="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 border-t border-line bg-sunk/50 py-1.5 pr-2 pl-3">
+          <Show when={arrived() > 0}>
+            <p role="status" class="flex flex-1 items-center gap-1 text-meta font-medium text-warn">
+              <Icon name="warn" size={14} />
+              {`${arrived()} new — look again`}
+            </p>
+          </Show>
+          <Button
+            kind="primary"
+            small
+            icon="check"
+            disabled={
+              props.approving.running() !== null ||
+              arrived() > 0 ||
+              covered().length < live().length
+            }
+            onClick={approveAll}
+          >
+            {running() ? "Approving…" : `Approve all ${live().length}`}
+          </Button>
+        </div>
+      </Show>
     </Show>
   );
 }

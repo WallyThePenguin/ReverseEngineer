@@ -11,6 +11,21 @@ import { act, useAction } from "../lib/query.ts";
 import { OwnerDmSwitch, SlackChannels } from "./SlackChannels.tsx";
 import { MemberSwitches, SlackMembers } from "./SlackMembers.tsx";
 
+/** What a disconnect did with posts Jarvis hadn't finished, as the toast says it. */
+export interface LeftBehind {
+  unsent: number;
+  unsure: number;
+}
+
+export function leftBehind(r: LeftBehind): string {
+  const n = (k: number) => `${k} message${k === 1 ? "" : "s"}`;
+  const said = [
+    ...(r.unsent ? [`${n(r.unsent)} it hadn't sent won't go out`] : []),
+    ...(r.unsure ? [`${n(r.unsure)} may already have gone out`] : []),
+  ];
+  return said.length ? ` ${said.join(", and ")}; your inbox lists them.` : "";
+}
+
 interface BotStatus {
   connected: boolean;
   appId: string;
@@ -124,14 +139,8 @@ export function SlackBotSettings(props: { manifest: string }) {
   const disconnect = async () => {
     if (!confirm("Disconnect Jarvis's bot? Its tokens leave Hearth and it stops listening."))
       return;
-    const r = await act<{ unsent: number; unsure: number }>("slack.bot_disconnect");
-    if (!r) return;
-    const left = r.unsent + r.unsure;
-    toast.show(
-      left
-        ? `Jarvis's bot is disconnected. ${left} message${left === 1 ? "" : "s"} it hadn't sent won't go out; your inbox lists them.`
-        : "Jarvis's bot is disconnected.",
-    );
+    const r = await act<LeftBehind>("slack.bot_disconnect");
+    if (r) toast.show(`Jarvis's bot is disconnected.${leftBehind(r)}`);
   };
 
   return (

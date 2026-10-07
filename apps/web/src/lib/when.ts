@@ -34,9 +34,10 @@ const weekdayWord = WEEKDAYS.flat()
   .filter((w) => w !== "sat" && w !== "sun")
   .join("|");
 // "Sat" and "Sun" alone are too often other words ("sat with Bob", "the sun deck"): they're days
-// when on, by, this or next leads in, or a time or a length follows ("Brunch Sun 11am").
+// when on, by, this or next leads in, or a time, a range or a length follows ("Brunch Sun 11am",
+// "Soccer Sat 9-11am").
 const soon =
-  "(?:at\\s+)?\\d{1,2}(?::\\d{2})?\\s*[ap]\\.?m\\b|(?:at\\s+)?\\d{1,2}:\\d{2}|at\\s+\\d|noon|midday|morning|afternoon|evening|night|\\d{1,2}(?:\\.\\d+)?\\s*(?:h|hrs?|hours?|m|mins?|minutes?)\\b";
+  "(?:at\\s+)?\\d{1,2}(?::\\d{2})?\\s*[ap]\\.?m\\b|(?:at\\s+)?\\d{1,2}:\\d{2}|at\\s+\\d|\\d{1,2}\\s*(?:-|–|—|to|until|till)\\s*\\d{1,2}(?::\\d{2}|\\s*[ap]\\.?m\\b)|noon|midday|morning|afternoon|evening|night|\\d{1,2}(?:\\.\\d+)?\\s*(?:h|hrs?|hours?|m|mins?|minutes?)\\b";
 const weekend = `(?<=\\b(?:on|by|due|before|this|next)\\s+)(?:sat|sun)|(?:sat|sun)(?=\\.?,?\\s+(?:${soon}))`;
 const monthWord =
   "jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?";
@@ -111,7 +112,7 @@ const TIME_PATTERNS: {
 }[] = [
   {
     re: new RegExp(`\\b${atLead}(\\d{1,2})(?::(\\d{2}))?\\s*${meridiem}(?=\\s|$|[,;!?])`, "i"),
-    read: (m) => clock(m[1]!, m[2], m[3]),
+    read: (m, evening) => clock(m[1]!, m[2], m[3], evening),
   },
   {
     re: new RegExp(`\\b${atLead}(\\d{1,2}):([0-5]\\d)\\b`, "i"),
@@ -126,8 +127,8 @@ const TIME_PATTERNS: {
   },
 ];
 
-// "3-4pm", "10am to 11am", "15:00-16:00": a start and an end. One end has to say am or pm, or
-// both have minutes, so "chapters 3-4" is no time.
+// "3-4pm", "10am to 11am", "9:30-11": a start and an end. One end has to say am or pm, or have
+// minutes, so "chapters 3-4" is no time.
 const RANGE = new RegExp(
   `\\b${atLead}(?:from\\s+)?(\\d{1,2})(?::(\\d{2}))?\\s*${meridiem}?\\s*(?:-|–|—|to|until|till)\\s*(\\d{1,2})(?::(\\d{2}))?\\s*${meridiem}?(?=\\s|$|[,;!?])`,
   "i",
@@ -238,27 +239,35 @@ function read(text: string, now: Date): (When & { lasts?: number }) | null {
 /**
  * Minutes into the day for a time on a clock face. Without am or pm, 1 to 7 (and 12) are the
  * afternoon and 8 to 11 the morning, as people mean "at 3" and "at 9", and in the evening
- * ("tonight at 8") all of them are. A leading zero or 13 to 23 is a 24-hour time.
+ * ("tonight at 8") all of them are, but 12 is midnight and an am time comes after it. A
+ * leading zero or 13 to 23 is a 24-hour time.
  */
 function clock(hour: string, min: string | undefined, half: string | undefined, evening = false) {
   const h = Number(hour);
   const m = Number(min ?? 0);
   if (m > 59) return null;
-  if (half) return h < 1 || h > 12 ? null : ((h % 12) + (/^p/i.test(half) ? 12 : 0)) * 60 + m;
+  // Tonight's midnight and small hours are tomorrow's, by the clock.
+  const night = evening ? 24 * 60 : 0;
+  if (half) {
+    if (h < 1 || h > 12) return null;
+    return /^p/i.test(half) ? ((h % 12) + 12) * 60 + m : night + (h % 12) * 60 + m;
+  }
   if (h > 23) return null;
   if (hour.startsWith("0") || h >= 13) return h * 60 + m;
+  if (evening && h === 12) return night + m;
   return (evening || h < 8 || h === 12 ? (h % 12) + 12 : h) * 60 + m;
 }
 
 /** A range's start and how long it lasts, in minutes. */
 function range(r: RegExpExecArray, evening: boolean): { start: number; lasts: number } | null {
   const [, h1, m1, half1, h2, m2, half2] = r;
-  if (!half1 && !half2 && !(m1 && m2)) return null;
-  // "3-4pm": the start is in the end's half of the day, unless that puts it after the end.
+  if (!half1 && !half2 && !m1 && !m2) return null;
+  // "3-4pm": the start is in the end's half of the day, unless that puts it after the end. Then
+  // it's in the other half: "11-1pm" starts in the morning, "10-2am" the evening before.
   let start = clock(h1!, m1, half1 ?? half2, evening);
   let end = clock(h2!, m2, half2, evening);
   if (start === null || end === null) return null;
-  if (!half1 && half2 && start >= end && start >= 12 * 60) start -= 12 * 60;
+  if (!half1 && half2 && start >= end) start = (start + 12 * 60) % (24 * 60);
   // "7:30-8:30" ends in the evening it started in.
   if (!half2 && end <= start && end < 12 * 60 && end + 12 * 60 > start) end += 12 * 60;
   // Past midnight: "10pm-1am".
@@ -334,14 +343,16 @@ const monthOf = (word: string) =>
 
 /**
  * That day this year, or next year's once it's more than a month gone ("jan 15" in October); a
- * date just gone ("oct 1" on the 6th) is overdue, not a year off. A weekday said with it goes with
- * it when it matches, and stays in the title when it doesn't, so you see the mismatch. Null for a
- * day the month doesn't have.
+ * date just gone ("oct 1" on the 6th, "dec 30" on January 3rd) is overdue, not a year off. A
+ * weekday said with it goes with it when it matches, and stays in the title when it doesn't, so
+ * you see the mismatch. Null for a day the month doesn't have.
  */
 function onDate(now: Date, month: number, date: number, weekday?: string): DateHit | null {
   if (month < 0 || date < 1 || date > 31) return null;
-  let d = new Date(now.getFullYear(), month, date);
-  if (d.getTime() < addDays(now, -30).getTime()) d = new Date(now.getFullYear() + 1, month, date);
+  const gone = addDays(now, -30).getTime();
+  const y = now.getFullYear();
+  const year = [y - 1, y].find((n) => new Date(n, month, date).getTime() >= gone) ?? y + 1;
+  const d = new Date(year, month, date);
   if (d.getMonth() !== month) return null;
   const keep = weekday && dayOf(weekday) !== d.getDay() ? weekday : undefined;
   return { day: d, weekday: false, ...(keep ? { keep } : {}) };

@@ -4,7 +4,7 @@
   dot-sources this file after its own tests (it defines Assert-Equal): run that.
 
   The rule these check: a rollback never runs git reset, pnpm install or the build while a service
-  runs the new code, and starts again only what it can.
+  runs the new code, and starts again only what is down and can start.
 #>
 $fakeWork = Join-Path ([IO.Path]::GetTempPath()) "hearth-test-update-$PID"
 
@@ -24,12 +24,14 @@ function Invoke-FakeUpdate([string]$Case) {
   return [pscustomobject]@{ Code = $code; Out = $out; Events = $events }
 }
 
-# The events from the merge on, as "what [running: ...]" lines, joined for comparing.
-function Format-AfterMerge($Run) {
-  $from = [array]::IndexOf($Run.Events, @($Run.Events | Where-Object { $_ -like "merge *" })[0])
-  if ($from -lt 0) { return "never merged: $($Run.Out)" }
+# The events from the first that is -like $Like on, as "what [running: ...]" lines, joined for
+# comparing.
+function Format-From($Run, [string]$Like) {
+  $from = [array]::IndexOf($Run.Events, @($Run.Events | Where-Object { $_ -like $Like })[0])
+  if ($from -lt 0) { return "nothing like '$Like': $($Run.Out)" }
   return ($Run.Events[$from..($Run.Events.Count - 1)] -join "`n")
 }
+function Format-AfterMerge($Run) { return Format-From $Run "merge *" }
 
 # A Jarvis from before D63 started while the update installed, holding its log: Start-Hearth must
 # refuse before it starts anything, the rollback stops everything, and starts all but that Jarvis.
@@ -97,6 +99,29 @@ Assert-Equal (Format-AfterMerge $run) (@(
   ) -join "`n") "Stop-Jarvis throwing in a rollback still stops the services first"
 Assert-Equal ($run.Out -match "Stopping Jarvis failed: The RPC server is unavailable") $true "and it says stopping Jarvis failed"
 
+# A Jarvis from before D63 won't stop, so the update's stop fails before the services: Hearth was
+# never down, so nothing starts, nothing is waited for, and it doesn't say Hearth isn't back up.
+$run = Invoke-FakeUpdate "stuck-first"
+Assert-Equal $run.Code 1 "an update that can't stop Jarvis fails"
+Assert-Equal @($run.Events | Where-Object { $_ -match "^(start|stop) hearth-|^merge" }).Count 0 `
+  "and never stops, starts or moves anything"
+Assert-Equal ($run.Out -match "An older Jarvis \(pid 999984\)") $true "and it says which Jarvis to end"
+Assert-Equal ($run.Out -match "Hearth's services were never stopped: it's still up on 1111111") $true `
+  "and that Hearth is still up"
+Assert-Equal ($run.Out -match "ISN'T BACK UP") $false "rather than that it isn't back up"
+
+# hearth-worker won't stop after hearth-server has: the server and Jarvis start again, and the
+# worker, which never stopped, isn't waited for.
+$run = Invoke-FakeUpdate "worker-stop-fails"
+Assert-Equal $run.Code 1 "an update whose worker won't stop fails"
+Assert-Equal (Format-From $run "stop *") (@(
+    "stop hearth-server hearth-worker: hearth-worker won't stop [running: hearth-worker@1]",
+    "start hearth-server [running: hearth-server@1 hearth-worker@1]",
+    "start task [running: hearth-server@1 hearth-worker@1]",
+    "jarvis 999992 starts [running: hearth-server@1 hearth-worker@1]"
+  ) -join "`n") "only what stopped starts again, on the same code"
+Assert-Equal ($run.Out -match "== Hearth is back up on 1111111\.") $true "and Hearth is back up"
+
 # -Force on the commit Hearth is already on: nothing to roll back, but a start that fails must
 # still start Hearth again, or the update leaves it down without a word.
 $run = Invoke-FakeUpdate "force-leftover"
@@ -120,9 +145,8 @@ Assert-Equal (Format-AfterMerge $run) (@(
     "pnpm install --frozen-lockfile [running: ]",
     "pnpm build:web [running: ]",
     "pnpm --silent hearth migrate [running: ]",
-    "start hearth-server [running: hearth-server@1]",
     "start hearth-server [running: hearth-server@1]"
-  ) -join "`n") "and tries to start Hearth again, with nothing reset"
+  ) -join "`n") "and tries to start what's down again (not the server it started), with nothing reset"
 Assert-Equal ($run.Out -match "Couldn't start Hearth again: Service 'hearth-worker' cannot be started") $true "and says it couldn't"
 Assert-Equal ($run.Out -match "HEARTH ISN'T BACK UP on 1111111: the worker hasn't reported in since it started") $true `
   "and that Hearth isn't back up"
