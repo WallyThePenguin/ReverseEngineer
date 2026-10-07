@@ -82,6 +82,20 @@ try {
       throw new Error("the selection didn't move to the row that took the completed one's place");
   });
 
+  await step("a task added elsewhere leaves the rows on screen as they were", async (p) => {
+    // The list is read again, all of it: only the new row is drawn, so nothing else blinks or
+    // loses what's open on it.
+    const rows = pane(p, "Tasks").locator("li");
+    const shown = await rows.evaluateAll((els) => {
+      for (const el of els) el.setAttribute("data-shown", "");
+      return els.length;
+    });
+    await run(p, "task.create", { title: `Daily added ${tag}` });
+    await pane(p, "Tasks").getByText(`Daily added ${tag}`).waitFor();
+    const kept = await pane(p, "Tasks").locator("li[data-shown]").count();
+    if (kept !== shown) throw new Error(`${shown - kept} of ${shown} rows were drawn again`);
+  });
+
   await step(
     "a task trashed from its row's menu leaves at once, and Undo puts it back",
     async (p) => {
