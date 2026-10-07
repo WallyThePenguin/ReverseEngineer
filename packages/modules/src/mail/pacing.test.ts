@@ -90,6 +90,23 @@ describe("when Gmail says slow down", () => {
     expect(await account()).toMatchObject({ state: "ok", pausedUntil: null, waiting: 0 });
   });
 
+  it("waits out a shut-out until the time Gmail gives, not a minute", async () => {
+    await sync();
+    g.gmail.deliver({ from: ANA, subject: "Hello", text: "." });
+    const until = new Date(t.clock.now().getTime() + 2 * 3600_000);
+    g.gmail.shutOut(until);
+    expect(await sync()).toMatchObject({ added: 0, paused: [ME], failed: [] });
+    // The Mail page says it resumes then.
+    const paused = await account();
+    expect(paused).toMatchObject({ state: "paused" });
+    expect(new Date(paused.pausedUntil!).getTime()).toBe(until.getTime());
+    // A minute on, it doesn't ask Gmail again.
+    t.clock.advance(61_000);
+    const calls = g.gmail.requests.length;
+    expect(await sync()).toMatchObject({ added: 0, paused: [ME] });
+    expect(g.gmail.requests.length).toBe(calls);
+  });
+
   it("waits only as long as a pause another process ran into", async () => {
     await sync();
     // Jarvis, say, was told to slow down first.

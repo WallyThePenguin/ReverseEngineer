@@ -3,9 +3,16 @@
 // draft's Message-ID was chosen when it was written, and Sent is checked for it first, so a send
 // that went out while Hearth didn't hear back (Gmail didn't answer, or Hearth stopped mid-way)
 // isn't sent again when you press Send a second time (D61).
-import { entity, mailAccount, mailDraft } from "@hearth/db";
-import { ActionError, defineAction, type ReadContext, stableStringify } from "@hearth/kernel";
-import { eq } from "drizzle-orm";
+import { formatTime } from "@hearth/core";
+import { type DbOrTx, entity, mailAccount, mailDraft, mailMessage } from "@hearth/db";
+import {
+  ActionError,
+  defineAction,
+  getSetting,
+  type ReadContext,
+  stableStringify,
+} from "@hearth/kernel";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { id } from "../shared.ts";
 import { loadDraft, oneLine, type Snapshot, snapshotOf, snapshotSchema } from "./drafts.ts";
@@ -69,10 +76,13 @@ export const sendAction = defineAction({
     const from = account!.address;
     const provider = providerFor(ctx, account!);
     const messageId = draftRow.messageId;
+    const { timeZone } = await getSetting(ctx.tx, "owner.dayRules");
+    const sendError = (err: unknown, sending: boolean) =>
+      whyNotSent(err, from, sending, ctx.now, timeZone);
     // Already in Sent: an earlier Send went out without Hearth hearing back. Keep that one. It
     // can't have gone before the draft was written; a change made since doesn't hide it.
     const earlier = await provider.findSent(from, messageId, row.written).catch((err: unknown) => {
-      throw sendError(err, from, false);
+      throw sendError(err, false);
     });
     let sent: RawMail | null;
     if (earlier) sent = await provider.fetch(from, earlier).catch(() => null);
@@ -90,8 +100,9 @@ export const sendAction = defineAction({
         references: draftRow.refs,
         date: ctx.now,
       });
-      const { providerId } = await provider.send(from, raw).catch((err: unknown) => {
-        throw sendError(err, from, true);
+      const replied = await answering(ctx.tx, account!.id, draftRow.inReplyTo, draftRow.refs);
+      const { providerId } = await provider.send(from, raw, replied).catch((err: unknown) => {
+        throw sendError(err, true);
       });
       sent = { providerId, labels: ["SENT"], raw };
     }
@@ -116,15 +127,41 @@ export const sendAction = defineAction({
 });
 
 /**
+ * The provider's id for the message a reply answers, in the account it goes from: the one it
+ * replies to, or else the newest it refers to that the account has. None for a new email.
+ */
+async function answering(db: DbOrTx, accountId: string, inReplyTo: string | null, refs: string[]) {
+  const ids = inReplyTo ? [...refs, inReplyTo] : refs;
+  if (!ids.length) return undefined;
+  const rows = await db
+    .select({ providerId: mailMessage.providerId, messageId: mailMessage.messageId })
+    .from(mailMessage)
+    .where(and(eq(mailMessage.accountId, accountId), inArray(mailMessage.messageId, ids)));
+  const rank = (m: string) => ids.lastIndexOf(m);
+  return rows.sort((a, b) => rank(b.messageId) - rank(a.messageId))[0]?.providerId;
+}
+
+/**
  * Why a send didn't go, in words for the owner. The draft stays either way. `sending`: the
  * message itself was on its way, so it may have gone out.
  */
-function sendError(err: unknown, from: string, sending: boolean): unknown {
+function whyNotSent(
+  err: unknown,
+  from: string,
+  sending: boolean,
+  now: Date,
+  timeZone: string,
+): unknown {
   if (!(err instanceof MailProviderError)) return err;
   if (err.slowDown) {
     const seconds = Math.max(5, Math.ceil((err.retryAfterMs ?? 60_000) / 1000));
+    // Gmail can shut an account out for hours: then the time it said, in yours.
     const when =
-      seconds < 90 ? `in about ${seconds} seconds` : `in ${Math.ceil(seconds / 60)} minutes`;
+      seconds < 90
+        ? `in about ${seconds} seconds`
+        : seconds < 90 * 60
+          ? `in ${Math.ceil(seconds / 60)} minutes`
+          : `after ${formatTime(new Date(now.getTime() + seconds * 1000), timeZone)}`;
     // "paced": Hearth held it back itself, to keep Gmail from turning it away.
     const why =
       err.kind === "paced"

@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ALL_MODULES } from "../index.ts";
 import { BLOB_SERVICE, BlobStore } from "../mail/blobs.ts";
 import { GOOGLE_SERVICE, GoogleApiError, GoogleClient, SCOPES } from "./client.ts";
-import { retryAfter } from "./errors.ts";
+import { LONGEST_WAIT_MS, retryAfter, retryAfterText } from "./errors.ts";
 import { FakeGoogle } from "./fake.ts";
 
 const ME = "owner@example.com";
@@ -193,5 +193,16 @@ describe("calls", () => {
     expect(retryAfter("Sun, 04 Oct 2026 12:01:30 GMT", now)).toBe(90_000);
     expect(retryAfter(null, now)).toBeNull();
     expect(retryAfter("soon", now)).toBeNull();
+  });
+
+  it("reads Gmail's own 'Retry after' time in an error's text", () => {
+    const now = Date.parse("2026-10-07T12:00:00Z");
+    const text = (at: string) => `User-rate limit exceeded.  Retry after ${at}`;
+    expect(retryAfterText(text("2026-10-07T14:05:00.000Z"), now)).toBe(125 * 60_000);
+    expect(retryAfterText(`${text("2026-10-07T12:00:30Z")}.`, now)).toBe(30_000);
+    // Already past, or nonsense far off.
+    expect(retryAfterText(text("2026-10-07T11:00:00Z"), now)).toBe(0);
+    expect(retryAfterText(text("2027-10-07T12:00:00Z"), now)).toBe(LONGEST_WAIT_MS);
+    expect(retryAfterText("Quota exceeded for quota metric 'Queries'", now)).toBeNull();
   });
 });

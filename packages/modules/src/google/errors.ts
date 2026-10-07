@@ -90,6 +90,18 @@ interface GoogleErrorBody {
   };
 }
 
+/** The longest Hearth waits on a time Google gives, in case one is nonsense. */
+export const LONGEST_WAIT_MS = 24 * 3600_000;
+
+/**
+ * Gmail's "User-rate limit exceeded. Retry after 2026-10-07T14:05:00.000Z": a shut-out that can
+ * last hours, said in the error's text, often with no Retry-After header to go with it.
+ */
+export function retryAfterText(message: string, now: number): number | null {
+  const at = Date.parse(message.match(/retry after (\d[\dT:.+-]*[\dZ])/i)?.[1] ?? "");
+  return Number.isNaN(at) ? null : Math.min(LONGEST_WAIT_MS, Math.max(0, at - now));
+}
+
 /** Seconds or an HTTP date, as Retry-After allows. */
 export function retryAfter(header: string | null, now: number): number | null {
   if (!header) return null;
@@ -99,7 +111,7 @@ export function retryAfter(header: string | null, now: number): number | null {
   return Number.isNaN(at) ? null : Math.max(0, at - now);
 }
 
-/** Reads Google's error reply: its message, reason, quota details and Retry-After. */
+/** Reads Google's error reply: its message, reason, quota details and when to try again. */
 export function parseGoogleError(
   res: { status: number; headers: Headers },
   text: string,
@@ -115,7 +127,7 @@ export function parseGoogleError(
   const message = body.error?.message ?? text.slice(0, 300);
   return new GoogleApiError(res.status, `Google ${what}: ${message}`, {
     reason,
-    retryAfterMs: retryAfter(res.headers.get("retry-after"), now),
+    retryAfterMs: retryAfter(res.headers.get("retry-after"), now) ?? retryAfterText(message, now),
     quotaLimit: info?.metadata?.quota_limit_value ?? null,
   });
 }
