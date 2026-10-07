@@ -53,11 +53,16 @@ export function Brief(props: { row: InboxRow; go: Go; class?: string }) {
   const [unfolded, setUnfolded] = createSignal(false);
   let root!: HTMLElement;
   /** Folds or unfolds it. The control you used goes, so the focus goes in its place: to the line,
-   *  or to the card's start, where a second Enter doesn't land on Got it. */
+   *  or to the card's start, where a second Enter doesn't land on Got it. Folded from the foot of
+   *  a long one, the line can be above the screen: it's brought just into view. */
   const fold = (open: boolean) => {
     setUnfolded(open);
     const to = open ? "[data-fold=start]" : "[data-fold=line]";
-    queueMicrotask(() => root.querySelector<HTMLElement>(to)?.focus({ preventScroll: true }));
+    queueMicrotask(() => {
+      const el = root.querySelector<HTMLElement>(to);
+      el?.focus({ preventScroll: true });
+      el?.scrollIntoView({ block: "nearest" });
+    });
   };
   const gotIt = () => {
     setReadHere(true);

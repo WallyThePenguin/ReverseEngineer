@@ -304,9 +304,14 @@ describe("The Ask box", () => {
       draft({ id: "d3", ...blank, subject: "Lease" }),
       kept,
     ];
-    expect(blankDraft(drafts)).toBe(kept);
-    expect(blankDraft(drafts.slice(0, 3))).toBeUndefined();
-    expect(blankDraft(undefined)).toBeUndefined();
+    const from = "sam@x.example";
+    expect(blankDraft(drafts, from)).toBe(kept);
+    expect(blankDraft(drafts.slice(0, 3), from)).toBeUndefined();
+    expect(blankDraft(undefined, from)).toBeUndefined();
+    // One from another of your accounts would go from the wrong address: a new one is started.
+    expect(blankDraft([draft({ ...blank, account: "sam@work.example" })], from)).toBeUndefined();
+    // Your accounts not read yet: a new one too, as Hearth picks its account itself.
+    expect(blankDraft(drafts, undefined)).toBeUndefined();
   });
 });
 
