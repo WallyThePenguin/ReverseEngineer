@@ -111,6 +111,8 @@ export class FakeGmail {
   limit: { units: number; windowMs: number } | null = null;
   /** Whether history says what labels each message has (the real one does). */
   historyLabels = true;
+  /** The most a list of messages returns a page, whatever Hearth asks for (Gmail may send fewer). */
+  pageSize = Number.POSITIVE_INFINITY;
   /** The next `n` sends go out, but the reply is lost (Hearth sees a 503). */
   loseSendReplies = 0;
   /** Sends get a Message-ID of Gmail's own, as Gmail might do for mail sent through its API. */
@@ -228,7 +230,7 @@ export class FakeGmail {
           (!msgId || headerOf(m.raw, "Message-ID") === `<${msgId}>`) &&
           (after === null || (m.labelIds.includes("SENT") && m.at >= after)),
       );
-      const size = Number(u.searchParams.get("maxResults") ?? 100);
+      const size = Math.min(Number(u.searchParams.get("maxResults") ?? 100), this.pageSize);
       const from = Number(u.searchParams.get("pageToken") ?? 0);
       const page = all.reverse().slice(from, from + size);
       return json(200, {

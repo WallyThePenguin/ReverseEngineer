@@ -8,12 +8,15 @@ import type { PushSend } from "../push.ts";
 
 export const TEST_ORIGIN = "http://localhost:4400";
 
+/** A request's body as JSON, and the address it connects from (none, unless a test says). */
+type Init = RequestInit & { json?: unknown; from?: string };
+
 export interface TestServer extends TestKernel {
   server: ReturnType<typeof createApp>;
   /** Sends a request as the browser: same-origin, with whatever cookies it has. */
-  browser(path: string, init?: RequestInit & { json?: unknown }): Promise<Response>;
+  browser(path: string, init?: Init): Promise<Response>;
   /** Sends a request with a bearer token and no cookies. */
-  api(path: string, token: string, init?: RequestInit & { json?: unknown }): Promise<Response>;
+  api(path: string, token: string, init?: Init): Promise<Response>;
   cookies: Map<string, string>;
 }
 
@@ -40,20 +43,16 @@ export async function createTestServer(
   });
   const cookies = new Map<string, string>();
 
-  const send = async (
-    path: string,
-    init: RequestInit & { json?: unknown },
-    headers: Record<string, string>,
-  ) => {
-    const { json, ...rest } = init;
+  const send = async (path: string, init: Init, headers: Record<string, string>) => {
+    const { json, from, ...rest } = init;
     const h = new Headers(headers);
     for (const [k, v] of new Headers(rest.headers)) h.set(k, v);
     if (json !== undefined) h.set("content-type", "application/json");
-    const res = await server.app.request(path, {
-      ...rest,
-      headers: h,
-      body: json !== undefined ? JSON.stringify(json) : rest.body,
-    });
+    const res = await server.app.request(
+      path,
+      { ...rest, headers: h, body: json !== undefined ? JSON.stringify(json) : rest.body },
+      from ? { incoming: { socket: { remoteAddress: from } } } : undefined,
+    );
     return res;
   };
 

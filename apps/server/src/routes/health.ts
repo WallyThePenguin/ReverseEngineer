@@ -15,15 +15,19 @@ import { deepHealth } from "../deep-health.ts";
 import type { AppEnv } from "../env.ts";
 import { readVersionStamp } from "../version.ts";
 
-const FORWARDED = ["forwarded", "x-forwarded-for", "x-forwarded-host", "x-real-ip"];
+/** A proxy's headers: Forwarded, X-Real-IP, and any X-Forwarded-* or Tailscale-* (D69). */
+const proxyHeader = (h: string) =>
+  h === "forwarded" ||
+  h === "x-real-ip" ||
+  h.startsWith("x-forwarded-") ||
+  h.startsWith("tailscale-");
 
 /** A request straight from a program on this PC, not through a proxy or a web page. */
 export function directFromThisPc(c: Context<AppEnv>): boolean {
   const incoming = (c.env as { incoming?: IncomingMessage } | undefined)?.incoming;
   const from = incoming?.socket?.remoteAddress?.replace(/^::ffff:/, "");
   if (!from || !isLoopback(from)) return false;
-  if (FORWARDED.some((h) => c.req.header(h))) return false;
-  if (Object.keys(c.req.header()).some((h) => h.startsWith("tailscale-"))) return false;
+  if (Object.keys(c.req.header()).some(proxyHeader)) return false;
   const host = (c.req.header("host") ?? "").replace(/:\d+$/, "").replace(/^\[(.*)\]$/, "$1");
   return isLoopback(host);
 }

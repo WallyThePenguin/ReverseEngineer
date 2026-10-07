@@ -155,6 +155,11 @@ jobs:
         run: |
           node ops/ci-runner/guard.ts
           pnpm --filter @hearth/web e2e:offline
+      - name: Hearth's window on this PC signs in with Windows Hello, end-to-end
+        # Starts and stops its own server too, on the same port, with an https address of its own.
+        run: |
+          node ops/ci-runner/guard.ts
+          pnpm --filter @hearth/web e2e:window
       - name: Split panes, the trash and triage by touch, end-to-end
         env:
           HEARTH_DEV_AUTH: "1"
