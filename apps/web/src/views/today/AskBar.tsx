@@ -21,7 +21,7 @@ import type { Go } from "./parts.tsx";
 /** A chip under the box. A double-click's second click (detail 2) isn't a second tap. */
 function Chip(props: {
   icon: IconName;
-  onClick: () => void;
+  onClick: (e: MouseEvent) => void;
   busy?: boolean;
   class?: string;
   children: JSX.Element;
@@ -32,7 +32,7 @@ function Chip(props: {
       class={`inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 text-sm aria-busy:opacity-60 md:min-h-8 ${props.class ?? "shrink-0 border border-line bg-panel text-muted hover:bg-sunk hover:text-ink"}`}
       aria-busy={props.busy || undefined}
       data-chip
-      onClick={(e) => e.detail < 2 && props.onClick()}
+      onClick={(e) => e.detail < 2 && props.onClick(e)}
     >
       <Icon name={props.icon} size={15} class={props.class ? "" : "text-faint"} />
       {props.children}
@@ -43,6 +43,7 @@ function Chip(props: {
 export function AskBar(props: { go: Go; now: Date; class?: string }) {
   const [text, setText] = createSignal("");
   const box = { get: text, set: setText };
+  let input!: HTMLInputElement;
   let chips!: HTMLDivElement;
   // Read on Today's clock, so "in 20 min" moves on with it. The task made is the one the chip
   // shows, and the toast says the same.
@@ -73,15 +74,20 @@ export function AskBar(props: { go: Go; now: Date; class?: string }) {
     jarvis.toggle(true);
   };
 
-  const addTask = (w: When) =>
+  const addTask = (w: When, e: MouseEvent) =>
     once("task", async () => {
       setAdding(w);
-      const had = chips.contains(document.activeElement);
+      // The next line is typed in the box, so the focus goes back there: not to a chip, where a
+      // key would start a conversation. Not on a touch screen, where it brings the keyboard up.
+      const had =
+        chips.contains(document.activeElement) && (e as PointerEvent).pointerType !== "touch";
       const made = await quickAdd(box, () => act<{ id: string }>("task.create", w)).finally(() =>
         setAdding(null),
       );
-      // The chip that was used has gone: the one in its place takes the focus.
-      if (had) chips.querySelector<HTMLElement>("[data-chip]")?.focus();
+      // Only if it's still in the chips, or went with the chip: not if you've moved it meanwhile.
+      const at = document.activeElement;
+      if (had && (!at || at === document.body || chips.contains(at)))
+        input.focus({ preventScroll: true });
       if (made)
         toast.show(`Added “${w.title}”, due ${due(w.dueAt, w.dueIsDate)?.text ?? "then"}.`, "ok", {
           label: "Open",
@@ -113,6 +119,7 @@ export function AskBar(props: { go: Go; now: Date; class?: string }) {
       >
         <JarvisMark size={18} />
         <input
+          ref={input}
           class="min-h-9 min-w-0 flex-1 bg-transparent outline-none placeholder:text-faint"
           aria-label="Ask Jarvis or add a task"
           placeholder="Ask Jarvis or add a task…"
@@ -163,7 +170,7 @@ export function AskBar(props: { go: Go; now: Date; class?: string }) {
               icon="plus"
               busy={busy() === "task"}
               class="min-w-0 bg-accent-soft text-accent hover:underline"
-              onClick={() => void addTask(w())}
+              onClick={(e) => void addTask(w(), e)}
             >
               <span class="truncate">
                 Add task “{w().title}” · due {due(w().dueAt, w().dueIsDate)?.text}

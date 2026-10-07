@@ -259,23 +259,32 @@ describe("The Ask box", () => {
     expect(offerAsTask("Can we meet tomorrow at 10", now)).toBeNull();
   });
 
-  it("leaves asking Jarvis to do something for Jarvis", () => {
+  it("leaves asking Jarvis by name, to remind you or to move your things, for Jarvis", () => {
     for (const q of [
       "remind me to call Sam at 3",
       "move my 3pm to 4",
-      "cancel lunch tomorrow",
-      "reschedule the dentist to fri 3pm",
-      "tell Dana I'm late at 5pm",
-      "ask Leo about friday 2pm",
-      "email Priya tomorrow at 9am",
-      "reply to Sam by 5pm",
-      "schedule a call with Ana tomorrow at 10am",
-      "plan my day tomorrow",
+      "cancel my lunch tomorrow",
+      "reschedule my dentist to fri 3pm",
       "please move my 3pm",
       "Jarvis, remind me at 5pm",
+      "hey jarvis book lunch fri 1pm",
+      "does Sam need the deck by friday",
     ])
       expect(offerAsTask(q, now), q).toBeNull();
-    // A thing to do yourself still is one: these name what you'll do, not what Jarvis should.
+  });
+
+  it("offers a to-do that starts like a request, since Enter is there to ask", () => {
+    // A chip offered wrongly is one you don't tap; one missed is a task typed again.
+    for (const q of [
+      "do taxes by friday",
+      "Will's party saturday 7pm",
+      "email Sam the deck by Friday",
+      "schedule vet appointment tomorrow",
+      "plan Sam's party saturday",
+      "reply to landlord by friday",
+    ])
+      expect(offerAsTask(q, now), q).not.toBeNull();
+    expect(offerAsTask("Will's party saturday 7pm", now)?.title).toBe("Will's party");
     expect(offerAsTask("call Sam at 3", now)?.title).toBe("call Sam");
     expect(offerAsTask("pick up the cake tomorrow 5pm", now)?.title).toBe("pick up the cake");
   });
@@ -321,5 +330,23 @@ describe("The brief, folded", () => {
     const brief =
       "Brief for 2026-10-07 7:30 a.m.\n\n## Handled\n- Archived 4 newsletters\n- Filed 2";
     expect(briefHeadline(brief)).toBe("Archived 4 newsletters");
+  });
+
+  it("doesn't stop at a time's a.m. or p.m., a title or e.g.", () => {
+    const fallback =
+      "Brief for 2026-10-07 7:30 a.m.\n\n## Today\n- 9:30 a.m. Standup\n- 2 p.m. Review";
+    expect(briefHeadline(fallback)).toBe("9:30 a.m. Standup");
+    expect(briefHeadline("Moved your 3 p.m. with Dana to 4 p.m.")).toBe(
+      "Moved your 3 p.m. with Dana to 4 p.m.",
+    );
+    expect(briefHeadline("Dentist with Dr. Patel at 3. Bring the forms.")).toBe(
+      "Dentist with Dr. Patel at 3.",
+    );
+    expect(briefHeadline("Mrs. Hale asked about Sunday lunch. Ruth too.")).toBe(
+      "Mrs. Hale asked about Sunday lunch.",
+    );
+    expect(briefHeadline("Pick a venue, e.g. the diner, by Friday. Leo asked.")).toBe(
+      "Pick a venue, e.g. the diner, by Friday.",
+    );
   });
 });

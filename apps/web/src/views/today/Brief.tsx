@@ -52,10 +52,11 @@ export function Brief(props: { row: InboxRow; go: Go; class?: string }) {
   const read = () => readHere() || n().state !== "unseen";
   const [unfolded, setUnfolded] = createSignal(false);
   let root!: HTMLElement;
-  /** Folds or unfolds it. The control you used goes, so the one in its place takes the focus. */
+  /** Folds or unfolds it. The control you used goes, so the focus goes in its place: to the line,
+   *  or to the card's start, where a second Enter doesn't land on Got it. */
   const fold = (open: boolean) => {
     setUnfolded(open);
-    const to = open ? "[data-fold=card] > button:last-child" : "[data-fold=line]";
+    const to = open ? "[data-fold=start]" : "[data-fold=line]";
     queueMicrotask(() => root.querySelector<HTMLElement>(to)?.focus({ preventScroll: true }));
   };
   const gotIt = () => {
@@ -89,7 +90,7 @@ export function Brief(props: { row: InboxRow; go: Go; class?: string }) {
           <button
             type="button"
             class="flex w-full items-center gap-3 rounded-[inherit] px-4 py-3 text-left hover:bg-sunk/60"
-            aria-expanded={unfolded()}
+            aria-expanded={false}
             data-fold="line"
             onClick={() => fold(true)}
           >
@@ -115,7 +116,11 @@ export function Brief(props: { row: InboxRow; go: Go; class?: string }) {
       </Show>
       <Show when={unfolded() || !read()}>
         <Card class={unfolded() ? "" : "hidden @4xl:block"}>
-          <div class="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+          <div
+            class="flex flex-wrap items-center gap-x-2 gap-y-1.5"
+            tabindex="-1"
+            data-fold="start"
+          >
             <JarvisMark size={16} />
             <p class="min-w-0 flex-1 text-meta text-muted">
               {/* Its title ("Brief for 2026-10-05") says less than when it was written. */}
@@ -150,7 +155,7 @@ export function Brief(props: { row: InboxRow; go: Go; class?: string }) {
               <Show
                 when={!read()}
                 fallback={
-                  <Button kind="quiet" small onClick={() => fold(false)}>
+                  <Button kind="quiet" small expanded onClick={() => fold(false)}>
                     Fold
                   </Button>
                 }
