@@ -185,7 +185,21 @@ export interface SystemStatus {
   /** When the Jarvis process last checked in; null before it ever has. */
   jarvisAlive: { at: string; since: string; pid: number } | null;
   components: Record<string, { status: "ok" | "degraded" | "failing"; detail: string; at: string }>;
+  /** Hearth's own schedules, soonest first; reminders have their own list (reminder.list). */
   schedules: { id: string; nextRunAt: string | null }[];
+}
+
+/** A reminder still to ring, as reminder.list gives it. */
+export interface Reminder {
+  id: string;
+  /** Its words; wrapped as outside content when set after reading an email or a message. */
+  text: string;
+  at: string;
+  /** When, in your time zone: "Thu 2026-10-08, 3:00 p.m.". */
+  when: string;
+  setAfterOutsideContent: boolean;
+  /** You asked for it, in a conversation that had read an email or a message. */
+  asked?: boolean;
 }
 
 export interface LastContact {

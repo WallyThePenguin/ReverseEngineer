@@ -17,6 +17,7 @@ import { ImportSettings } from "./ImportSettings.tsx";
 import { NotionSettings } from "./NotionSettings.tsx";
 import { PasskeySettings } from "./PasskeySettings.tsx";
 import { PhoneSettings } from "./PhoneSettings.tsx";
+import { ReminderSettings } from "./ReminderSettings.tsx";
 import { RoutineSettings } from "./RoutineSettings.tsx";
 import { Anchor, SettingsNav } from "./SettingsNav.tsx";
 import { SignInSettings } from "./SignInSettings.tsx";
@@ -193,6 +194,7 @@ export function Settings() {
                 )}
               </For>
             </ul>
+            <ReminderSettings />
           </section>
         </Anchor>
       </div>

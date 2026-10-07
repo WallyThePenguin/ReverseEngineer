@@ -7,8 +7,8 @@ import { ApprovalCard } from "../../components/ApprovalCard.tsx";
 import { Body } from "../../components/Body.tsx";
 import { Overflow, ROW_MENU } from "../../components/Menu.tsx";
 import { Badge, Button, Kbd } from "../../components/ui.tsx";
-import { ago, due, snoozeOptions, who } from "../../lib/format.ts";
-import { approvalParts, type InboxView, rowMenu, wholeBody } from "../../lib/inbox.ts";
+import { ago, snoozeOptions, who } from "../../lib/format.ts";
+import { approvalParts, type InboxView, itemDue, rowMenu, wholeBody } from "../../lib/inbox.ts";
 import type { InboxRow } from "../../lib/types.ts";
 import { UndoButton } from "./UndoButton.tsx";
 
@@ -28,7 +28,7 @@ export function InboxItem(props: {
   onSnoozeUntil: (until: Date) => void;
 }) {
   const n = () => props.row.notification;
-  const deadline = () => due(n().deadline, false);
+  const deadline = () => itemDue(n());
   // What e and s do, for a finger.
   const menu = () => (
     <Overflow
