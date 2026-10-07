@@ -171,10 +171,17 @@ export const inboxModule = defineModule({
         deadline: isoDateTime.optional(),
         dedupeKey: z.string().max(300).optional(),
         kind: z.string().max(60).default("note"),
+        outside: z
+          .boolean()
+          .optional()
+          .describe(
+            "Its words came from outside content (an email, a message). Set by Hearth; it can only make it more careful.",
+          ),
       }),
       risk: "internal",
       async handler(i, ctx) {
         const created = await createNotification(ctx, {
+          ...(i.outside ? { outside: true } : {}),
           kind: i.kind,
           title: i.title,
           body: i.body ?? null,

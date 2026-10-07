@@ -150,6 +150,8 @@ export const ringReminder: ReflexDef = {
           ...(said.length ? { body: said.join("\n") } : {}),
           urgency: "interrupt",
           ...(vouched ? { deadline: due } : {}),
+          // Set after reading an email or a message: its words are still that content's.
+          ...(vouched ? {} : { outside: true }),
           dedupeKey: `reminder:${String(p.reminder)}`,
         },
       },

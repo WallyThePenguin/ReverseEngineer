@@ -1,5 +1,14 @@
 // The inbox, approvals, standing rules and the audit log. Mirrors migrations/*.sql.
-import { bigint, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  bigint,
+  boolean,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uuid,
+} from "drizzle-orm/pg-core";
 
 const ts = (name: string) => timestamp(name, { withTimezone: true, mode: "date" });
 
@@ -56,6 +65,8 @@ export const notification = pgTable("notification", {
   dedupeKey: text("dedupe_key").unique(),
   sourceEventSeq: bigint("source_event_seq", { mode: "number" }),
   createdBy: text("created_by").notNull(),
+  /** Its words came from outside content: reading it back lowers a turn's trust (D25). */
+  outside: boolean("outside").notNull().default(false),
   createdAt: ts("created_at").notNull().defaultNow(),
   updatedAt: ts("updated_at").notNull().defaultNow(),
 });

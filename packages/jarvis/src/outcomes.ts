@@ -152,6 +152,8 @@ export async function applyOutcomes(
             urgency: n.urgency ?? "normal",
             ...(n.deadline ? { deadline: n.deadline.toISOString() } : {}),
             ...(n.dedupeKey ? { dedupeKey: n.dedupeKey } : {}),
+            // Told because of outside content (or saying its words): reading it back is too.
+            ...(n.outside || src.event.origin === "untrusted" ? { outside: true } : {}),
           },
           callerFor(src),
         );
