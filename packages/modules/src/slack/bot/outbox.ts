@@ -12,13 +12,13 @@
 // - Nothing goes while Slack has the bot revoked: rows wait for new tokens, and a row still
 //   waiting after a day expires, and you're told. Your own token failing a read-back is never
 //   taken for the bot's.
-// - A member's answer is checked once more as it goes, since it may have waited: to someone you
-//   blocked since, with members off, or (unless you approved it) with Jarvis paused, it doesn't.
+// - A member's answer, or a note, is checked once more as it goes, since it may have waited
+//   (member/recheck.ts): to someone you blocked since, or with members off, it doesn't go.
 import { type Db, slackAnswer, slackBot, slackWorkspace } from "@hearth/db";
 import type { Kernel } from "@hearth/kernel";
 import { eq } from "drizzle-orm";
 import { SlackError, type SlackMessage } from "../api.ts";
-import { answerStopped } from "../member/recheck.ts";
+import { answerStopped, noteStopped } from "../member/recheck.ts";
 import { openToken, slackApi } from "../save.ts";
 import { linksIn, slackText } from "./filter.ts";
 import { botTrouble, REVOKED_CODES, saveBotHealth } from "./health.ts";
@@ -178,6 +178,11 @@ async function deliver(
       await tell(kernel, row, "didn't go out", stopped);
       return done({ state: "failed", error: stopped }, "failed");
     }
+    if (await noteStopped(kernel.db, row))
+      return done(
+        { state: "failed", error: "Not sent: members are off, or they're blocked." },
+        "failed",
+      );
     const text = slackText(
       row.text,
       row.kind === "answer" ? { sharedLinks: await sharedLinks(kernel.db, bot.teamId) } : {},

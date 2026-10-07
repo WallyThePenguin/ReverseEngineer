@@ -104,18 +104,23 @@ export function authorOf(kind: string, payload: Record<string, unknown>, you = "
 /**
  * The conversation so far, written by Hearth from its own log: what a turn starts from when
  * Claude no longer has the session it would have resumed (D54), or when a member's conversation
- * starts a new one after 12 idle hours (D62). `skip` leaves out lines the turn sends as
- * themselves, and in a member's conversation, answers that never went out.
+ * starts a new one after 12 idle hours (D62).
  */
 export async function recapConversation(
   kernel: Kernel,
   conversationId: string,
   turn: { id: string; prompt: string },
   limit = 20,
-  skip: (
-    payload: Record<string, unknown>,
-    row: { kind: string; turnId: string | null },
-  ) => boolean = () => false,
+  opts: {
+    /** Lines the turn sends as themselves. */
+    skip?: (payload: Record<string, unknown>) => boolean;
+    /**
+     * In a member's conversation, each turn's answer as it went out, by turn. What Jarvis said
+     * there is only that, one line a turn: what it wrote on the way isn't, nor is an answer that
+     * never went. Notes and your sends carry their outbox row, and stay as they are.
+     */
+    said?: ReadonlyMap<string, string>;
+  } = {},
 ): Promise<string | null> {
   const rows = await kernel.db
     .select()
@@ -131,16 +136,23 @@ export async function recapConversation(
   // The message this turn answers is sent as itself, after the recap.
   const [newest] = rows;
   if (newest?.kind === "user_message" && newest.payload.text === turn.prompt) rows.shift();
-  const lines = rows
-    .filter((r) => r.turnId !== turn.id && !skip(r.payload, r))
-    .slice(0, limit)
-    .reverse()
-    .map((r) => {
-      const who = authorOf(r.kind, r.payload);
-      const text = String(r.payload.text ?? "").slice(0, 1500);
-      return `- ${who} (${formatDateTime(r.at)}): ${text}`;
-    });
-  return lines.length ? lines.join("\n") : null;
+  const lines: string[] = [];
+  const shown = new Set<string>();
+  // Newest first, so a turn's line goes where its answer was: at its last message.
+  for (const r of rows) {
+    if (lines.length >= limit) break;
+    if (r.turnId === turn.id || opts.skip?.(r.payload)) continue;
+    let text = String(r.payload.text ?? "");
+    if (opts.said && r.kind === "assistant_message" && r.turnId && !r.payload.outboxId) {
+      const out = opts.said.get(r.turnId);
+      if (out === undefined || shown.has(r.turnId)) continue;
+      shown.add(r.turnId);
+      text = out;
+    }
+    const who = authorOf(r.kind, r.payload);
+    lines.push(`- ${who} (${formatDateTime(r.at)}): ${text.slice(0, 1500)}`);
+  }
+  return lines.length ? lines.reverse().join("\n") : null;
 }
 
 /** The prompt for a turn whose session is gone: the recap as background, then the message. */
