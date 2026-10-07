@@ -43,7 +43,7 @@ export const inboxModule = defineModule({
     {
       kind: "notification.delivered",
       description:
-        "An interrupt held for quiet hours went out. Payload: notificationId, kind, title, urgency, delivered.",
+        "An interrupt held for quiet hours went out. Payload: notificationId, kind, title, urgency, delivered, and outside when its words are outside content's.",
     },
   ],
   kernelEvents: ["notification.created", "notification.updated"],
@@ -239,6 +239,8 @@ export const inboxModule = defineModule({
             title: n.title,
             urgency: n.urgency,
             delivered: true,
+            // Its title is outside content's words: whatever reacts to it reads them as such.
+            ...(n.outside ? { outside: true } : {}),
           },
         });
         return { delivered: true };

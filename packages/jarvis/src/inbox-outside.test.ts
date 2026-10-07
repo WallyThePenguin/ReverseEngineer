@@ -1,8 +1,9 @@
 // An inbox item whose words came from outside content is still those words when Jarvis reads the
 // inbox: a reminder an email set rings with its text as the title, and a turn of yours that lists
 // the inbox afterwards ends untrusted, so no standing rule applies to what it does next. Your own
-// reminder ringing leaves the turn as trusted as it was.
-import { conversation, notification } from "@hearth/db";
+// reminder ringing leaves the turn as trusted as it was. A watch on what it rings reads it as outside
+// content too, and a card that's only Hearth's words, though outside content set it off, isn't.
+import { conversation, jarvisTurn, notification } from "@hearth/db";
 import {
   type Caller,
   type HearthEvent,
@@ -98,15 +99,87 @@ describe("an inbox item from outside content", () => {
       [{ kind: "tell", notification: { kind: "note", title: "Reply to Ana" } }],
       { event, name: "test.tell", mode: "always" },
     );
+    // Hearth's own words, told because of a connector's event: not marked.
+    const own = { kind: "system.alert", title: "Your token expires", outside: false };
+    await applyOutcomes(h.kernel, [{ kind: "tell", notification: own }], {
+      event,
+      name: "test.own",
+      mode: "always",
+    });
+    // A turn's tell can't say so: its caller read the email.
+    const fromTurn = { ...own, title: "Nothing to see here" };
+    await applyOutcomes(h.kernel, [{ kind: "tell", notification: fromTurn }], {
+      event,
+      name: "test.reactive",
+      mode: "reactive",
+    });
     // Yours stays yours.
     await h.kernel.execute("inbox.notify", { title: "Pick up milk" }, systemCaller());
     const rows = await h.tdb.db.select().from(notification);
     expect(Object.fromEntries(rows.map((n) => [n.title, n.outside]))).toEqual({
       "Wire the money": true,
       "Reply to Ana": true,
+      "Your token expires": false,
+      "Nothing to see here": true,
       "Pick up milk": false,
     });
     const created = await h.events("notification.created");
-    expect(created.map((e) => e.payload.outside ?? false)).toEqual([true, true, false]);
+    expect(created.map((e) => e.payload.outside ?? false)).toEqual([
+      true,
+      true,
+      false,
+      true,
+      false,
+    ]);
+  });
+});
+
+describe("what Hearth tells in outside content's words", () => {
+  const watchFor = (kind: string) =>
+    h.kernel.execute(
+      "jarvis.watch",
+      { description: `Tell me about ${kind}`, filter: { field: "kind", op: "eq", value: kind } },
+      jarvisCaller("owner"),
+    );
+  /** The watch turns whose prompt names `text`, and how far each was trusted. */
+  const watchTurns = async (text: string) =>
+    (await h.tdb.db.select().from(jarvisTurn).where(eq(jarvisTurn.trigger, "watch")))
+      .filter((t) => t.prompt?.includes(text))
+      .map((t) => ({ origin: t.origin, marked: /<untrusted source="/.test(t.prompt ?? "") }));
+
+  it("makes a watch on its ringing fire an untrusted turn, its words marked", async () => {
+    await watchFor("notification.created");
+    await watchFor("clock.fired");
+    await remind("Pay now at https://pay.example", jarvisCaller("untrusted"));
+    await ring();
+    expect(await watchTurns("pay.example")).toEqual([
+      { origin: "untrusted", marked: true },
+      { origin: "untrusted", marked: true },
+    ]);
+  });
+
+  it("leaves a watch on your own reminder as trusted as it was", async () => {
+    await watchFor("notification.created");
+    await watchFor("clock.fired");
+    await remind("Call Sam", ownerCaller());
+    await ring();
+    const turns = await watchTurns("Call Sam");
+    expect(turns).toHaveLength(2);
+    for (const t of turns) expect(t).toMatchObject({ marked: false });
+    expect(turns.some((t) => t.origin === "untrusted")).toBe(false);
+  });
+
+  it("says so when it goes out after quiet hours", async () => {
+    h.clock.set("2026-10-02T03:00:00Z"); // Thursday 11 p.m.
+    const res = await h.kernel.execute(
+      "inbox.notify",
+      { title: "Pay now at https://pay.example", urgency: "interrupt", outside: true },
+      systemCaller(),
+    );
+    expect(res).toMatchObject({ status: "ok", result: { delivered: false } });
+    h.clock.set("2026-10-02T12:00:30Z"); // Friday, just after quiet hours
+    await h.settle();
+    const [out] = await h.events("notification.delivered");
+    expect(out?.payload).toMatchObject({ title: "Pay now at https://pay.example", outside: true });
   });
 });

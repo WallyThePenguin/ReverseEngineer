@@ -289,9 +289,11 @@ export const assistantModule = defineModule({
           payload: event.payload,
         };
         // The turn is no more trusted than what set the watch up, or than what happened; text
-        // from either that's outside content is marked as such (D58).
+        // from either that's outside content is marked as such (D58). Hearth itself can carry
+        // outside content's words (a reminder an email set, ringing): its event says so.
+        const outside = event.origin === "untrusted" || event.payload.outside === true;
         const payload = JSON.stringify(event.payload).slice(0, 2000);
-        const what = event.origin === "untrusted" ? asUntrusted(payload, event.kind) : payload;
+        const what = outside ? asUntrusted(payload, event.kind) : payload;
         return active
           .filter((w) => matches(w.filter as never, view))
           .map((w) => {
@@ -302,7 +304,7 @@ export const assistantModule = defineModule({
               trigger: "watch" as const,
               lane: "fast" as const,
               origin: w.origin,
-              ...(setUpOutside || event.origin === "untrusted" ? { untrusted: true } : {}),
+              ...(setUpOutside || outside ? { untrusted: true } : {}),
               conversationId: w.conversationId,
               subjectId: w.subjectId,
               dedupeKey: `watch:${w.id}:${event.id}`,
