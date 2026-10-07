@@ -231,6 +231,8 @@ describe("their DM's session", () => {
     const [held] = await replies();
     expect(held).toMatchObject({ status: "expired", error: "A newer reply went out instead." });
     expect((await cardOf(held!.id))!.state).toBe("done");
+    // And what it answered is settled, in the same go.
+    expect((await t.inbound()).at(-1)!.outcome).toBe("answered");
   });
 
   it("starts afresh, from the recap, once you change their tier", async () => {

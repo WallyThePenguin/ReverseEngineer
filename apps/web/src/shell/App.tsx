@@ -26,6 +26,7 @@ import { pauseHotkeys, useHotkeys } from "../lib/hotkeys.ts";
 import { live, queryClient, toast } from "../lib/live.ts";
 import { narrow } from "../lib/narrow.ts";
 import { type ListView, layout, type Pane, type PaneRoute } from "../lib/panes.ts";
+import { openSettings, windowAsked } from "../lib/settingsNav.ts";
 import { rememberSignedIn, showHearth } from "../lib/signedIn.ts";
 import { sendKeptOnRestore } from "../lib/trash.ts";
 import { Inbox } from "../views/Inbox.tsx";
@@ -142,8 +143,16 @@ function Shell(props: { onSignOut: () => void; covered: boolean }) {
     // Note edits a closed tab never sent, and a deleted note's once it's restored (D59).
     void sendKeptNotes();
     onCleanup(sendKeptOnRestore());
+    const query = new URLSearchParams(location.search);
     // The home screen's "Talk to Jarvis" shortcut.
-    if (new URLSearchParams(location.search).has("jarvis")) jarvis.toggle(true);
+    if (query.has("jarvis")) jarvis.toggle(true);
+    // Hearth's window on this PC, signed out, asked to be connected again (D69): Settings, at
+    // Desktop app. Only shown, never started: any website can link here.
+    if (query.get("connect") === "desktop") {
+      windowAsked.set(true);
+      openSettings("desktop");
+      history.replaceState(null, "", location.pathname);
+    }
   });
   onCleanup(() => live.stop());
 
@@ -325,7 +334,14 @@ export function App() {
             <Unreachable trying={me.loading} retry={retryNow} />
           </Match>
           <Match when={answer()}>
-            {(m) => <Login needsSetup={m().needsSetup} onSignedIn={() => void refetch()} />}
+            {(m) => (
+              <Login
+                needsSetup={m().needsSetup}
+                origin={m().origin}
+                localPasskey={m().localPasskey}
+                onSignedIn={() => void refetch()}
+              />
+            )}
           </Match>
         </Switch>
       </ErrorBoundary>

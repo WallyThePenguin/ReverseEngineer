@@ -146,6 +146,10 @@ export interface Me {
   signedIn: boolean;
   principal: string | null;
   needsSetup: boolean;
+  /** Hearth's own address, where your passkeys work (D69). Missing from an older Hearth. */
+  origin?: string;
+  /** Whether the window on this PC has a Windows Hello passkey of its own. */
+  localPasskey?: boolean;
 }
 
 /**

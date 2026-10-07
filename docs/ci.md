@@ -127,7 +127,7 @@ Disk image location.
 Everything else CI keeps is in `D:\hearth-ci`: the Windows runner and its work folder, the tool
 cache with its Node, the pnpm store (`pnpm-store`) and Playwright's Chromium (`ms-playwright`).
 The Postgres cluster on 5499 keeps its data in `%LOCALAPPDATA%\HearthTestDb`, on C:, but each
-run's database is dropped at the end. The runner's `-Start`, which runs at every sign-in, starts that
+run's database is dropped at the end. The runner's task (or `-Start`), which runs at every restart, starts that
 cluster too when it isn't answering, so a restart doesn't leave every job failing at its first step.
 
 ## Adding and removing runners
@@ -141,14 +141,24 @@ or with `gh api -X POST repos/WallyThePenguin/ReverseEngineer/actions/runners/re
 --jq .token`. Then:
 
 ```powershell
-powershell -File ops\ci-runner\windows-runner.ps1 -Install   # start it at every sign-in
-powershell -File ops\ci-runner\windows-runner.ps1 -Start     # start it now, hidden
+powershell -File ops\ci-runner\windows-runner.ps1 -Install   # administrator: off your desktop, from every restart
+powershell -File ops\ci-runner\windows-runner.ps1 -Start     # start it now
 powershell -File ops\ci-runner\windows-runner.ps1 -Status
 powershell -File ops\ci-runner\windows-runner.ps1 -Stop
 ```
 
-`-Install` copies the script to `D:\hearth-ci` and puts a shortcut in your Startup folder. Neither
-needs administrator, and neither registers or reconfigures the runner.
+`-Install`, from an administrator PowerShell, copies the script to `D:\hearth-ci` and registers
+the task "Hearth CI runner": at every restart it runs the runner as you, unelevated, whether or
+not you're signed in, without storing your password, in the session services use. Nothing a
+job starts can open a window there. On your desktop it could: when a running job is cancelled
+(a newer push to the same branch cancels it), GitHub's runner lets go of its hidden console to
+stop the step, and each clean-up step after that opens a console window. If the task can't start
+the runner, `-Install` removes it again and changes nothing. `-Start`, `-Stop` and `-Status` need
+no administrator, and none of these registers or reconfigures the runner. Without the task,
+`-Start` runs it hidden on your desktop, as before.
+
+Stopping it kills it, which runs no clean-up steps and so opens no windows. To stop a job from
+GitHub without windows, cancel it while it's still queued.
 
 **Linux** (`hearth-pc-linux`). With Docker Desktop running (and its disk image on D:):
 

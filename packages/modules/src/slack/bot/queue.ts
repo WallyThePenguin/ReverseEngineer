@@ -6,10 +6,10 @@
 // A row is claimed FOR UPDATE SKIP LOCKED and marked `sending` before Slack is called, so a crash
 // mid-call leaves it `sending`; after a minute it's read back before it's posted again. The pace is
 // at most one post a second in a place and 20 a minute in all.
-import { type Db, notification, type SlackOutboxKind, slackBot, slackOutbox } from "@hearth/db";
+import { type Db, type SlackOutboxKind, slackBot, slackOutbox } from "@hearth/db";
 import { type ActionContext, ActionError, newId } from "@hearth/kernel";
-import { and, asc, count, eq, gt, lt, lte, ne, notInArray, or, sql } from "drizzle-orm";
-import { notSentKey } from "./not-sent.ts";
+import { and, asc, count, eq, gt, inArray, lt, lte, notInArray, or, sql } from "drizzle-orm";
+import { closeNotSent, forgetUnsaid } from "./not-sent.ts";
 
 export type OutboxRow = typeof slackOutbox.$inferSelect;
 
@@ -151,34 +151,28 @@ export type Settle =
 
 /**
  * Saves how a claimed post went, unless something else closed it meanwhile. That Slack has it
- * counts even then: disconnecting the bot marks a post being sent "may not have gone out", and
- * if it did go after all, it's sent, and that card closes.
+ * counts even then: disconnecting the bot marks a post being sent "may not have gone out", and if
+ * it did go after all, it's sent, and that card closes. Disconnecting Slack takes the row with the
+ * workspace, and the card still closes. An answer that didn't go ends its DM's session.
  */
-export async function settle(db: Db, row: OutboxRow, s: Settle, now: Date): Promise<boolean> {
+export function settle(db: Db, row: OutboxRow, s: Settle, now: Date): Promise<boolean> {
   const finished = s.state !== "queued" && s.state !== "sending";
   const set = {
     ...s,
     ...(s.state === "sent" ? { error: null } : {}),
     ...(finished ? { finishedAt: now } : {}),
   };
-  const mine = eq(slackOutbox.id, row.id);
-  const done = await db
-    .update(slackOutbox)
-    .set(set)
-    .where(and(mine, eq(slackOutbox.state, "sending")))
-    .returning({ id: slackOutbox.id });
-  if (done.length || s.state !== "sent") return done.length > 0;
-  const late = await db
-    .update(slackOutbox)
-    .set(set)
-    .where(and(mine, eq(slackOutbox.state, "unknown")))
-    .returning({ id: slackOutbox.id });
-  if (!late.length) return false;
-  await db
-    .update(notification)
-    .set({ state: "done", updatedAt: now })
-    .where(and(eq(notification.dedupeKey, notSentKey(row.id)), ne(notification.state, "done")));
-  return true;
+  const from = s.state === "sent" ? ["sending" as const, "unknown" as const] : ["sending" as const];
+  return db.transaction(async (tx) => {
+    const done = await tx
+      .update(slackOutbox)
+      .set(set)
+      .where(and(eq(slackOutbox.id, row.id), inArray(slackOutbox.state, from)))
+      .returning();
+    if (s.state === "failed" || s.state === "expired") await forgetUnsaid(tx, done);
+    if (s.state === "sent") await closeNotSent(tx, row.id, now);
+    return done.length > 0;
+  });
 }
 
 /** Slack asked the bot to slow down: nothing else of the workspace's goes before `until` either. */
@@ -221,19 +215,23 @@ export function giveUpLooking(db: Db, teamId: string, now: Date): Promise<Outbox
 
 /** Posts still waiting a day later expire. Returns them, for you to be told. */
 export function expireWaiting(db: Db, teamId: string, now: Date): Promise<OutboxRow[]> {
-  return db
-    .update(slackOutbox)
-    .set({
-      state: "expired",
-      error: "It waited a day without going out.",
-      finishedAt: now,
-    })
-    .where(
-      and(
-        eq(slackOutbox.teamId, teamId),
-        eq(slackOutbox.state, "queued"),
-        lte(slackOutbox.expiresAt, now),
-      ),
-    )
-    .returning();
+  return db.transaction(async (tx) => {
+    const rows = await tx
+      .update(slackOutbox)
+      .set({
+        state: "expired",
+        error: "It waited a day without going out.",
+        finishedAt: now,
+      })
+      .where(
+        and(
+          eq(slackOutbox.teamId, teamId),
+          eq(slackOutbox.state, "queued"),
+          lte(slackOutbox.expiresAt, now),
+        ),
+      )
+      .returning();
+    await forgetUnsaid(tx, rows);
+    return rows;
+  });
 }

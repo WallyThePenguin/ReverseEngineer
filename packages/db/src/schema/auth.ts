@@ -14,6 +14,8 @@ export const credential = pgTable("credential", {
   label: text("label").notNull().default(""),
   createdAt: ts("created_at").notNull().defaultNow(),
   lastUsedAt: ts("last_used_at"),
+  /** Null for Hearth's own address; "localhost" for the desktop app's window on this PC (D69). */
+  rpId: text("rp_id").$type<"localhost">(),
 });
 
 export const session = pgTable("session", {
@@ -35,6 +37,8 @@ export const authChallenge = pgTable("auth_challenge", {
   purpose: text("purpose").$type<"register" | "login">().notNull(),
   createdAt: ts("created_at").notNull().defaultNow(),
   expiresAt: ts("expires_at").notNull(),
+  /** The address it was made for, as credential.rpId: it's answered only there. */
+  rpId: text("rp_id").$type<"localhost">(),
 });
 
 export const setting = pgTable("setting", {

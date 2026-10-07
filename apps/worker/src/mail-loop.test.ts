@@ -53,7 +53,14 @@ const stored = async () => (await t.tdb.db.select().from(mailMessage)).length;
 
 describe("mail rounds", () => {
   it("doesn't run Gmail over its limit when the server's sync and the worker's overlap", async () => {
-    for (let i = 0; i < 300; i++)
+    // That day's numbers a fifth the size, so it saves 60 messages rather than 300 (its time is
+    // all database work): each process may spend 80 units a minute, and Gmail turns calls away
+    // past 110. Two that each counted only their own would go over; the two together mustn't.
+    g.gmail.limit = { units: 110, windowMs: 60_000 };
+    const allowances = { gmail: { units: 80, headroom: 20 } };
+    t.kernel.services[GOOGLE_SERVICE] = g.client(t.tdb.db, { allowances });
+    worker.services[GOOGLE_SERVICE] = g.client(t.tdb.db, { allowances });
+    for (let i = 0; i < 60; i++)
       g.gmail.deliver({
         from: { address: `p${i % 30}@x.example` },
         subject: `Mail ${i}`,
@@ -74,7 +81,7 @@ describe("mail rounds", () => {
       minutes++;
       if ((await mailRound(worker, { now })).accounts[ME] === "done") break;
     }
-    expect(await stored()).toBe(300);
+    expect(await stored()).toBe(60);
     expect(g.gmail.rejected).toBe(0);
     expect([...g.gmail.gets.values()].every((n) => n === 1)).toBe(true);
     expect(minutes).toBeGreaterThan(2);
