@@ -5,7 +5,14 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { approval, googleAccount, heartbeatItem, jarvisTurn, mailThread } from "@hearth/db";
+import {
+  approval,
+  googleAccount,
+  heartbeatItem,
+  jarvisTurn,
+  mailThread,
+  notification,
+} from "@hearth/db";
 import { type Caller, integrationCaller, newId, ownerCaller } from "@hearth/kernel";
 import {
   BLOB_SERVICE,
@@ -190,7 +197,7 @@ describe("drafting on its own", () => {
 });
 
 describe("invitations to another account of yours", () => {
-  it("get a card when that account's calendar syncs through this one", async () => {
+  it("are yours to answer when that account's calendar syncs through this one", async () => {
     const WORK = "work@example.com";
     await h.tdb.db.insert(googleAccount).values({ email: WORK, refreshToken: "rt2" });
     const boss = await ok<{ id: string }>("person.create", { name: "The Boss" });
@@ -209,8 +216,10 @@ describe("invitations to another account of yours", () => {
     });
     await ok("calendar.sync", {}, integrationCaller("google"));
     await h.settle();
-    expect(await h.tdb.db.select().from(approval)).toMatchObject([
-      { action: "calendar.respond", status: "pending" },
+    // From someone you know, and you're free: Jarvis accepts it for you (D71).
+    expect(await h.tdb.db.select().from(approval)).toEqual([]);
+    expect(await h.tdb.db.select().from(notification)).toMatchObject([
+      { kind: "calendar.accepted", title: expect.stringContaining('"Standup"') },
     ]);
   });
 });
