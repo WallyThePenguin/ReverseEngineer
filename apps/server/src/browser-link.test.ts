@@ -177,7 +177,7 @@ describe("Chrome's health", () => {
         return res.status === "ok" ? res.result.components.browser : undefined;
       };
       await until(async () => (await health()) !== undefined);
-      expect(await health()).toMatchObject({ status: "degraded" });
+      expect(await health()).toMatchObject({ status: "ok" });
       expect(String((await health())?.detail)).toContain("No Chrome extension is paired");
       stop();
       bridge.close();

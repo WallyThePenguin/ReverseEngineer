@@ -54,7 +54,10 @@ export function syncLine(a: MailAccount): SyncLine {
           ? `Catching up: ${count(a.waiting)} to go`
           : "Catching up…",
     };
-  return { badge: "mail", tone: "ok", text: a.syncedAt ? `synced ${ago(a.syncedAt)}` : "" };
+  // Mail that failed and waits to be tried again (6.2): the rest is in, but not all of it.
+  const waiting = a.waiting > 0 ? `${count(a.waiting)} waiting to come in` : "";
+  const synced = a.syncedAt ? `synced ${ago(a.syncedAt)}` : "";
+  return { badge: "mail", tone: "ok", text: [synced, waiting].filter(Boolean).join(" · ") };
 }
 
 const LOUDEST: MailAccount["state"][] = ["failing", "paused", "catching_up"];

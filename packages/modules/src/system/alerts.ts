@@ -47,6 +47,9 @@ async function today(ctx: AlertContext) {
  * closed or dismissed before then, saying what's wrong now, as a new item: with no second buzz
  * if it went out, and through the day's budget if it never did (held overnight, and closed
  * before the morning). One you closed while it was still failing stays as you left it.
+ *
+ * A new day's alert closes the ones before it: a slowdown that runs past midnight leaves one
+ * open, not one a day.
  */
 export async function alertFailing(
   ctx: AlertContext,
@@ -63,7 +66,8 @@ export async function alertFailing(
     urgency: "interrupt",
     dedupeKey,
   });
-  if (created || !okAt) return;
+  if (created) return closeFailing(ctx, component, dedupeKey);
+  if (!okAt) return;
   const [n] = await ctx.tx.select().from(notification).where(eq(notification.dedupeKey, dedupeKey));
   if (n?.state !== "done" || n.updatedAt > new Date(okAt)) return;
   const decision = n.deliveredAt ? null : await interruptDecision(ctx, null);
@@ -104,8 +108,11 @@ export async function alertFailing(
     });
 }
 
-/** Closes a component's open "is failing" alerts, whatever day they're from: it's ok again. */
-export async function closeFailing(ctx: AlertContext, component: string) {
+/**
+ * Closes a component's open "is failing" alerts, whatever day they're from: it's ok again, or
+ * the one kept (today's) takes over.
+ */
+export async function closeFailing(ctx: AlertContext, component: string, kept?: string) {
   const rows = await ctx.tx
     .update(notification)
     .set({ state: "done", updatedAt: ctx.now })
@@ -113,6 +120,7 @@ export async function closeFailing(ctx: AlertContext, component: string) {
       and(
         ne(notification.state, "done"),
         sql`starts_with(${notification.dedupeKey}, ${`failing:${component}:`})`,
+        kept ? ne(notification.dedupeKey, kept) : undefined,
       ),
     )
     .returning({ id: notification.id, entityId: notification.entityId });

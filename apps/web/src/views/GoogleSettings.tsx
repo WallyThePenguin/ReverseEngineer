@@ -83,6 +83,11 @@ export function GoogleSettings() {
                       ? ` · ${m.setAside} message${m.setAside === 1 ? "" : "s"} couldn't be brought in`
                       : ""}
                   </span>
+                  <Show when={m.setAside > 0}>
+                    <Button small onClick={() => void tryAgain(m.address)}>
+                      Try again
+                    </Button>
+                  </Show>
                 </li>
               )}
             </For>
@@ -94,6 +99,12 @@ export function GoogleSettings() {
       </Show>
     </section>
   );
+}
+
+/** Puts an account's set-aside mail back for the next sync to try (it also tries once a day). */
+async function tryAgain(address: string) {
+  const r = await act<{ released: number }>("mail.retry_set_aside", { account: address });
+  if (r) toast.show(`Hearth will try ${r.released === 1 ? "it" : "them"} again in a minute or so.`);
 }
 
 type Cal = CalendarSetup["calendars"][number];

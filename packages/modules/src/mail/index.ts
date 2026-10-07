@@ -20,7 +20,7 @@ import { changeFlags, pendingChanges, recomputeThread } from "./flags.ts";
 import { normalizePattern, senderPatterns } from "./people.ts";
 import { restoreAction } from "./repair.ts";
 import { sendAction } from "./send.ts";
-import { syncMail, syncProgress } from "./sync.ts";
+import { retrySetAside, syncMail, syncProgress } from "./sync.ts";
 import { alertKey } from "./sync-state.ts";
 import { listThreads, loadThread, searchThreads, threadText, who } from "./views.ts";
 import { followUpRoutine, replyDraftRoutine, waitingActions, waitingDigest } from "./waiting.ts";
@@ -335,6 +335,15 @@ export const mailModule = defineModule({
           });
         return out;
       },
+    }),
+    defineAction({
+      name: "mail.retry_set_aside",
+      description:
+        "Try again to bring in the mail an account set aside after it failed to come in a few times.",
+      input: z.object({ account: z.string().email() }),
+      risk: "internal",
+      callers: ["owner"],
+      handler: async (i, ctx) => ({ released: await retrySetAside(ctx, i.account) }),
     }),
     defineAction({
       name: "mail.sync",

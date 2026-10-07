@@ -133,8 +133,10 @@ describe("overlap notices", () => {
     await sync();
     const out = await outcomes();
     expect(told(out)).toHaveLength(1);
-    // 3 p.m. UTC is 11 a.m. at home.
-    expect(bodies(out)[0]).toMatch(/^Both repeat: every \w+day at 11 a\.m\.$/);
+    // Named by the first week's date. 3 p.m. UTC is 11 a.m. at home.
+    const first = new Date(t.clock.now().getTime() + DAY_MS).toISOString().slice(0, 10);
+    expect(bodies(out)[0]).toMatch(/^Both repeat, and overlap on \w+day \S+ 11 a\.m\.$/);
+    expect(bodies(out)[0]).toContain(` ${first} `);
   });
 
   it("tell a one-off again when it moves onto another week's meeting", async () => {
