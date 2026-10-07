@@ -1,6 +1,7 @@
 export * from "./auth.ts";
 export * from "./browser.ts";
 export * from "./canvas.ts";
+export * from "./data.ts";
 export * from "./docs.ts";
 export * from "./github.ts";
 export * from "./google.ts";
