@@ -31,6 +31,8 @@ const BY_MODULE: Record<string, Rule> = {
   chat: ["conversation.", "jarvis.activity"],
   jarvis: ["jarvis.", "observation.list", "system.status", "conversation."],
   system: ["system.status"],
+  // Settings → Coming up lists them.
+  reminder: ["reminder.", "system.status"],
   memory: ["memory."],
   page_watch: ["page_watch."],
   browser: ["browser.", "vault.logins"],

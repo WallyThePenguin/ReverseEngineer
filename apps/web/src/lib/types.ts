@@ -174,7 +174,7 @@ export interface SystemStatus {
   jarvisAlive: { at: string; since: string; pid: number } | null;
   components: Record<string, { status: "ok" | "degraded" | "failing"; detail: string; at: string }>;
   /** label: what a reminder says ("Reminder: Call Sam"); null for Hearth's own schedules. */
-  schedules: { id: string; label?: string | null; nextRunAt: string | null }[];
+  schedules: { id: string; label?: string | null; nextRunAt: string | null; outside?: boolean }[];
 }
 
 export interface LastContact {

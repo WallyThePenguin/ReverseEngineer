@@ -24,6 +24,8 @@ import { SignInSettings } from "./SignInSettings.tsx";
 import { SlackSettings } from "./SlackSettings.tsx";
 
 const TONE = { ok: "ok", degraded: "warn", failing: "bad" } as const;
+/** A reminder's schedule id, before its own id. */
+const REMINDER = "reminder:";
 /** Health components by a name you'd use; any other goes by its own. */
 const PART: Record<string, string> = {
   "sync.google": "Google",
@@ -217,6 +219,18 @@ export function Settings() {
                     <span class="text-muted">
                       {s.nextRunAt ? new Date(s.nextRunAt).toLocaleString() : ""}
                     </span>
+                    <Show when={s.id.startsWith(REMINDER)}>
+                      <Button
+                        small
+                        kind="quiet"
+                        label={`Cancel ${s.label ?? "this reminder"}`}
+                        onClick={() =>
+                          void act("reminder.cancel", { id: s.id.slice(REMINDER.length) })
+                        }
+                      >
+                        Cancel
+                      </Button>
+                    </Show>
                   </li>
                 )}
               </For>
