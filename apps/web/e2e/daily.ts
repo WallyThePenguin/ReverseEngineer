@@ -283,7 +283,15 @@ try {
 
     const later = tp.locator("li", { hasText: `Later ${tag}` });
     await later.getByRole("button", { name: `Actions for Later ${tag}` }).tap();
-    await tp.getByRole("menuitem", { name: "Snooze…" }).tap();
+    // Something new comes in while the menu is open, so the list is read again under it: the
+    // menu and its buttons stay as they were, and a tap can't land on one being replaced.
+    const snooze = tp.getByRole("menuitem", { name: "Snooze…" });
+    await snooze.evaluate((el) => el.setAttribute("data-shown", ""));
+    await run(page, "inbox.notify", { title: `Meanwhile ${tag}` });
+    await tp.locator("li", { hasText: `Meanwhile ${tag}` }).waitFor();
+    if (!(await tp.locator("[role=menuitem][data-shown]").count()))
+      throw new Error("the open menu was drawn again when the list was read again");
+    await snooze.tap();
     await later.getByRole("button", { name: /Tomorrow morning/ }).tap();
     await later.waitFor({ state: "detached" });
   });
