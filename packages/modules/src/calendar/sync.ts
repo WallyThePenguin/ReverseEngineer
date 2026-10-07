@@ -11,6 +11,7 @@ import type { Trouble } from "../connector-health.ts";
 import { CalendarApi, type GEvent } from "../google/calendar-api.ts";
 import { cleanDeep } from "../google/clean.ts";
 import { GOOGLE_SERVICE, GoogleApiError, type GoogleClient, SCOPES } from "../google/client.ts";
+import { accountAddresses, readOnce } from "../mail/mine.ts";
 import { id } from "../shared.ts";
 import { syncCalendarList } from "./calendars.ts";
 import { recordCalendarHealth, troubleOf } from "./health.ts";
@@ -83,6 +84,8 @@ export async function syncCalendars(ctx: ActionContext): Promise<SyncResult> {
     paused: [],
     skipped: 0,
   };
+  // Your accounts' addresses, read once for the sync (and again if that read fails).
+  const yours = readOnce(() => accountAddresses(ctx.tx));
   for (const acct of accounts) {
     const troubles: Trouble[] = [];
     const gone: Trouble[] = [];
@@ -149,7 +152,11 @@ export async function syncCalendars(ctx: ActionContext): Promise<SyncResult> {
         let saved: Awaited<ReturnType<typeof saveEvent>>;
         try {
           saved = await savepoint(ctx, async (sp) =>
-            saveEvent(sp, m, { ...(await blockOf(sp, g)), replaces: takeovers.get(g.id) }),
+            saveEvent(sp, m, {
+              ...(await blockOf(sp, g)),
+              replaces: takeovers.get(g.id),
+              yours,
+            }),
           );
         } catch {
           result.skipped++;
