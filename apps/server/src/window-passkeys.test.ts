@@ -301,3 +301,50 @@ describe("which address a request is for", () => {
     expect(windowRelyingParty({ ...base, localOrigin: "http://127.0.0.1:4400" })).toBeNull();
   });
 });
+
+describe("removing a passkey", () => {
+  const list = async () =>
+    (
+      (await (await browser("/api/auth/passkeys")).json()) as {
+        passkeys: { id: string; label: string }[];
+      }
+    ).passkeys;
+  const remove = (id: string) =>
+    browser(`/api/auth/passkeys/${encodeURIComponent(id)}`, { method: "DELETE" });
+  const signIn = async (passkey: SoftAuthenticator) => {
+    const opts = await options(browser("/api/auth/login/options", { method: "POST" }));
+    return browser("/api/auth/login/verify", {
+      method: "POST",
+      json: { response: passkey.login(opts) },
+    });
+  };
+
+  it("stops it signing in, and never takes the last one for Hearth's own address", async () => {
+    const laptop = await firstPasskey();
+    const phone = new SoftAuthenticator(TS_NET);
+    const opts = await options(browser("/api/auth/register/options", { method: "POST", json: {} }));
+    const added = await browser("/api/auth/register/verify", {
+      method: "POST",
+      json: { response: phone.register(opts), label: "Phone" },
+    });
+    expect(added.status).toBe(200);
+    await connect();
+    await windowPasskey();
+    const [, ofPhone, ofWindow] = await list();
+
+    expect((await remove(ofPhone!.id)).status).toBe(200);
+    expect((await remove(ofPhone!.id)).status).toBe(404);
+    expect((await remove(ofWindow!.id)).status).toBe(200);
+    expect(await me()).toMatchObject({ localPasskey: false });
+    // The laptop's is the last for Hearth's own address now: it stays.
+    const last = await remove((await list())[0]!.id);
+    expect(last.status).toBe(409);
+    expect(((await last.json()) as { error: string }).error).toContain("pc.example.ts.net");
+    expect((await list()).map((p) => p.label)).toEqual(["Laptop"]);
+
+    t.cookies.clear();
+    expect((await remove(ofPhone!.id)).status).toBe(401);
+    expect((await signIn(phone)).status).not.toBe(200);
+    expect((await signIn(laptop)).status).toBe(200);
+  });
+});

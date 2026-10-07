@@ -86,6 +86,7 @@ export async function passkeysMade(db: Db): Promise<{ own: boolean; window: bool
 export async function listPasskeys(db: Db) {
   const rows = await db
     .select({
+      id: credential.id,
       label: credential.label,
       rpId: credential.rpId,
       createdAt: credential.createdAt,
@@ -94,6 +95,29 @@ export async function listPasskeys(db: Db) {
     .from(credential)
     .orderBy(credential.createdAt);
   return rows.map(({ rpId, ...r }) => ({ ...r, window: rpId === "localhost" }));
+}
+
+/**
+ * Removes one of your passkeys, but never the last one for Hearth's own address: without it, only
+ * a new code from `hearth setup` on the PC would let you in again.
+ */
+export async function removePasskey(db: Db, id: string): Promise<"removed" | "last" | "missing"> {
+  return db.transaction(async (tx) => {
+    // Locked first, so two removals at once can't take the last two.
+    const own = await tx
+      .select({ id: credential.id })
+      .from(credential)
+      .where(isNull(credential.rpId))
+      .for("update");
+    const [row] = await tx
+      .select({ rpId: credential.rpId })
+      .from(credential)
+      .where(eq(credential.id, id));
+    if (!row) return "missing";
+    if (row.rpId === null && own.length <= 1) return "last";
+    await tx.delete(credential).where(eq(credential.id, id));
+    return "removed";
+  });
 }
 
 export async function checkSetupCode(db: Db, code: string): Promise<boolean> {
