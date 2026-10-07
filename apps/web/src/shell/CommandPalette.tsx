@@ -17,6 +17,7 @@ import { layout, routeFor } from "../lib/panes.ts";
 import { setPaused } from "../lib/pause.ts";
 import { act, useAction } from "../lib/query.ts";
 import type { SearchHit, SystemStatus } from "../lib/types.ts";
+import { reloadPage } from "../lib/version.ts";
 import { readWhen } from "../lib/when.ts";
 import { loadCode, ViewLoadError } from "./loadView.tsx";
 import { sidebar } from "./Sidebar.tsx";
@@ -65,7 +66,7 @@ const make = (what: string, get: () => Promise<(pane: number) => unknown>) => as
       );
     return toast.show(`Hearth was updated. Reload to make a new ${what}.`, "error", {
       label: "Reload",
-      run: () => location.reload(),
+      run: () => reloadPage(),
     });
   }
   await create(layout.focused());
