@@ -1271,7 +1271,8 @@ server doesn't answer it shows a built-in "Hearth isn't running" page with Retry
 links open a page (`hearth://open/<path>`, relative paths only), open voice settings, or
 connect the PC. Any website can open them, so every part of one is untrusted.
 
-Passkeys belong to Hearth's https address, so the window signs in by hand-off. In a signed-in
+Passkeys belong to Hearth's https address, so the window signs in by hand-off (or, since D69,
+with a Windows Hello passkey of its own). In a signed-in
 browser, Settings → Desktop app → Connect Hearth on this PC makes a single-use nonce (one minute,
 kept in memory, compared in constant time) and opens `hearth://connect?nonce=…`. The app asks
 you first, then trades the nonce at its own configured address, never one from the link, for
@@ -2075,3 +2076,43 @@ after connecting (your open work wouldn't be there on day one).
 
 **Why:** The owner wants Jarvis to pick up their work without being told, and their tickets live
 on Otopair's Notion board.
+
+## D69. Hearth's window on the PC signs in with a Windows Hello passkey of its own (2026-10-07)
+
+*This amends D53: the window can sign itself in again without your browser. D53's rule stands: a
+device's token never becomes a session.*
+
+**Decision:** Passkeys belong to two addresses. Every browser signs in at Hearth's own
+(`HEARTH_ORIGIN`, https), as before. The other is `localhost`, only for Hearth's window on this
+PC, which opens Hearth at `HEARTH_LOCAL_ORIGIN` (`http://localhost:<port>`). In the window,
+Settings → Passkeys offers "Add a passkey for this PC's Hearth window" (Windows Hello: this PC's
+own authenticator, with your face, finger or PIN every time). From then on the window's sign-in
+page offers "Sign in with Windows Hello", and that sign-in always ends as the window's one
+session (`window:desktop`, D53): signing in again replaces it, and Disconnect signs it out.
+Without that passkey, or when Windows Hello fails, the page offers "Connect in your browser",
+which opens Settings → Desktop app at Hearth's own address (`/settings?connect=desktop`). A line
+there says the window asked; connecting is still your click, since any website can link there.
+The window never shows a passkey button that can't work where it is.
+
+The window's address is used only for requests straight from its page. The Origin must be
+`http://localhost:<port>`, the Host `localhost:<port>`, and the connection from this PC, with no
+proxy's headers (`X-Forwarded-*`, `Forwarded`, `Tailscale-*`). The Origin header alone proves
+nothing, since any program on the PC can send it. Tailscale Serve connects from this PC too, but
+it always adds `X-Forwarded-Host` and keeps the ts.net name as the Host, so a request through it
+is always for Hearth's own address. Each passkey and each sign-in challenge records its address
+(`rp_id`, migration 0035: null for Hearth's own, `localhost` for the window's). A passkey is
+offered and checked only at its own address, and a challenge is answered only there. The setup
+code makes a passkey for Hearth's own address only, so the window's is never the first. A local
+address given by number (127.0.0.1, ::1) gets no passkeys, because a passkey's address must be a
+name. Whether Windows Hello opens inside the app's WebView2 window is unproven. If it doesn't,
+adding the passkey says so plainly, and the window keeps signing in from your browser.
+
+**Alternatives:** The app signing its window in with its device pairing (D53's device-token rule
+forbids it, and the owner said no). A browser shortcut only (still a browser every time).
+Starting Windows Hello by itself when the sign-in page opens (a prompt nobody asked for, right
+after you sign out; the window is also loaded out of sight when Windows starts).
+
+**Why:** On 2026-10-07 the PC lost power, and the window's WebView2 lost its session cookie
+though the session was still valid. Its sign-in page offered a passkey button that can't work at
+`http://localhost:4400`, so the owner had to connect it again from the browser. They don't want
+to sign in through the web every time.

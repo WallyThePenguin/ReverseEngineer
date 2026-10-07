@@ -1,6 +1,7 @@
 // Sign-in with passkeys. The first passkey is added with the setup code `hearth setup` prints;
 // after that, new passkeys can only be added from a signed-in session. The desktop app's window
-// signs in by hand-off from a signed-in browser instead (D53, /desktop/* below).
+// signs in by hand-off from a signed-in browser (D53, /desktop/* below), or with a Windows Hello
+// passkey of its own once you've added one there (D69, auth/relying-party.ts).
 
 import type { Context } from "hono";
 import { Hono } from "hono";
@@ -12,12 +13,14 @@ import { SESSION_COOKIE, secureCookies } from "../auth/middleware.ts";
 import {
   checkSetupCode,
   hasPasskey,
+  listPasskeys,
   loginOptions,
+  passkeysMade,
   registrationOptions,
-  relyingParty,
   verifyLogin,
   verifyRegistration,
 } from "../auth/passkeys.ts";
+import { relyingPartyFor } from "../auth/relying-party.ts";
 import { createSession, revokeToken } from "../auth/tokens.ts";
 import type { AppEnv } from "../env.ts";
 
@@ -65,11 +68,18 @@ async function signIn(c: Context<AppEnv>, principal: string, label?: string) {
   });
 }
 
-/** You may add a passkey if you're signed in, or if none exists yet and you have the setup code. */
-async function mayRegister(c: Context<AppEnv>, setupCode: string | undefined): Promise<boolean> {
+/**
+ * You may add a passkey if you're signed in, or if none exists yet and you have the setup code.
+ * The window's own only once it's signed in: your first passkey is for Hearth's own address.
+ */
+async function mayRegister(
+  c: Context<AppEnv>,
+  setupCode: string | undefined,
+  local: boolean,
+): Promise<boolean> {
   const { kernel } = c.get("deps");
   if (c.get("caller")?.kind === "owner") return true;
-  if (await hasPasskey(kernel.db)) return false;
+  if (local || (await hasPasskey(kernel.db))) return false;
   return !!setupCode && (await checkSetupCode(kernel.db, setupCode));
 }
 
@@ -119,40 +129,52 @@ export function authRoutes(handoffs: Handoffs = sharedHandoffs) {
   });
 
   app.get("/me", async (c) => {
-    const { kernel } = c.get("deps");
+    const { kernel, config } = c.get("deps");
     const caller = c.get("caller");
+    const made = await passkeysMade(kernel.db);
     return c.json({
       signedIn: !!caller,
       principal: caller?.principal ?? null,
       kind: caller?.kind ?? null,
-      needsSetup: !(await hasPasskey(kernel.db)),
+      needsSetup: !made.any,
+      // Where your passkeys work, and whether the window on this PC has its own (D69). The
+      // address is public anyway: Google's sign-in is sent back to it.
+      origin: config.origin,
+      localPasskey: made.window,
     });
   });
 
-  app.post("/register/options", async (c) => {
+  // Your passkeys, and the address each works at, for Settings.
+  app.get("/passkeys", async (c) => {
+    if (c.get("caller")?.kind !== "owner") return c.json({ error: "Sign in first." }, 401);
     const { kernel, config } = c.get("deps");
+    return c.json({ passkeys: await listPasskeys(kernel.db), origin: config.origin });
+  });
+
+  app.post("/register/options", async (c) => {
+    const { kernel } = c.get("deps");
+    const rp = relyingPartyFor(c);
     const body = registerOptionsBody.safeParse(await c.req.json().catch(() => ({})));
-    if (!body.success || !(await mayRegister(c, body.data.setupCode))) {
+    if (!body.success || !(await mayRegister(c, body.data.setupCode, !!rp.local))) {
       return c.json({ error: "Sign in, or use the setup code from `hearth setup`." }, 403);
     }
-    const { options, challengeId } = await registrationOptions(
-      kernel.db,
-      relyingParty(config.origin),
-    );
+    const { options, challengeId } = await registrationOptions(kernel.db, rp);
     setChallenge(c, challengeId);
     return c.json(options);
   });
 
   app.post("/register/verify", async (c) => {
-    const { kernel, config } = c.get("deps");
+    const { kernel } = c.get("deps");
+    const rp = relyingPartyFor(c);
     const body = verifyBody.safeParse(await c.req.json().catch(() => null));
     const challengeId = takeChallengeCookie(c);
     if (!body.success || !challengeId) return c.json({ error: "Start again." }, 400);
     const first = c.get("caller")?.kind !== "owner";
-    if (!(await mayRegister(c, body.data.setupCode))) return c.json({ error: "Not allowed." }, 403);
+    if (!(await mayRegister(c, body.data.setupCode, !!rp.local)))
+      return c.json({ error: "Not allowed." }, 403);
     const ok = await verifyRegistration(
       kernel.db,
-      relyingParty(config.origin),
+      rp,
       challengeId,
       body.data.response as never,
       body.data.label ?? "Passkey",
@@ -163,27 +185,41 @@ export function authRoutes(handoffs: Handoffs = sharedHandoffs) {
   });
 
   app.post("/login/options", async (c) => {
-    const { kernel, config } = c.get("deps");
-    if (!(await hasPasskey(kernel.db)))
-      return c.json({ error: "No passkey yet. Run `hearth setup`." }, 409);
-    const { options, challengeId } = await loginOptions(kernel.db, relyingParty(config.origin));
-    setChallenge(c, challengeId);
-    return c.json(options);
+    const { kernel } = c.get("deps");
+    const rp = relyingPartyFor(c);
+    const made = await loginOptions(kernel.db, rp);
+    if (!made)
+      return c.json(
+        {
+          error: rp.local
+            ? "This PC's Hearth window has no passkey yet. Connect it from your browser."
+            : "No passkey yet. Run `hearth setup`.",
+        },
+        409,
+      );
+    setChallenge(c, made.challengeId);
+    return c.json(made.options);
   });
 
   app.post("/login/verify", async (c) => {
-    const { kernel, config } = c.get("deps");
+    const { kernel } = c.get("deps");
+    const rp = relyingPartyFor(c);
     const body = verifyBody.safeParse(await c.req.json().catch(() => null));
     const challengeId = takeChallengeCookie(c);
     if (!body.success || !challengeId) return c.json({ error: "Start again." }, 400);
     const principal = await verifyLogin(
       kernel.db,
-      relyingParty(config.origin),
+      rp,
       challengeId,
       body.data.response as never,
     ).catch(() => null);
     if (!principal) return c.json({ error: "That passkey didn't work." }, 401);
-    await signIn(c, principal);
+    if (rp.local) {
+      // The window's passkey signs in only as the window: its one session, as a hand-off makes,
+      // so connecting again replaces it and Disconnect signs it out (D53).
+      await revokeDesktopWindow(kernel.db);
+      await signIn(c, principal, DESKTOP_WINDOW);
+    } else await signIn(c, principal);
     return c.json({ ok: true });
   });
 
