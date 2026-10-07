@@ -190,9 +190,10 @@ jobs:
   windows:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, Windows, hearth-ci]
-    # A busy PC took 33 min for the tests alone (2026-10-07). Running out of time cancels the job,
-    # and a cancelled job on the owner's desktop can flash console windows, so leave room.
-    timeout-minutes: 80
+    # A busy PC took 33 min for the tests alone, and over 80 for the whole job (2026-10-07). Running
+    # out of time cancels the job, and a cancelled job on the owner's desktop can flash console
+    # windows, so leave plenty of room.
+    timeout-minutes: 150
     env:
       HEARTH_CI_DB: hearth_ci_${{ github.run_id }}_${{ github.run_attempt }}
       HEARTH_DATABASE_URL: postgres://hearth@127.0.0.1:5499/hearth_ci_${{ github.run_id }}_${{ github.run_attempt }}
