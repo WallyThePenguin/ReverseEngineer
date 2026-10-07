@@ -74,6 +74,8 @@ export async function guardAgentCall(
     const pinned = await def
       .pin(input, { service: (n) => kernel.services[n] as never })
       .catch(() => null);
+    // Never runs there, so no card asks you about it either.
+    if (pinned?.refused) return { kind: "blocked", reason: pinned.refused };
     if (pinned && normalizeUrl(pinned.url)) {
       // Outward and destructive calls ask anyway; the rest are held to D30 after outside content.
       if (def.risk !== "outward" && def.risk !== "destructive") {

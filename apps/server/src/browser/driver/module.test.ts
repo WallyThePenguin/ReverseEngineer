@@ -26,13 +26,27 @@ document.getElementById("box").addEventListener("mousedown", (e) => { start = [e
 addEventListener("mouseup", (e) => { if (start) document.title = "dragged " + Math.round(e.clientX - start[0]) + "," + Math.round(e.clientY - start[1]); start = null; });
 </script></body></html>`;
 
+// Inbox's hotkeys: every key that reaches it is counted in its title.
 const HEARTH = `<!doctype html><title>Hearth</title>
-<button onclick="document.title = 'Approved'">Approve</button> <input aria-label="Message to Jarvis">`;
+<button onclick="document.title = 'Approved'">Approve</button> <input aria-label="Message to Jarvis">
+<div style="height:3000px"></div>
+<script>let keys = 0; addEventListener("keydown", () => { document.title = "keys " + ++keys; });</script>`;
+// A page that sends itself to Hearth's own as soon as a key is pressed there: to /approvals, or
+// with ?later to a Hearth page that's slow to come, so the tab is still on this one meanwhile.
+const AWAY = `<!doctype html><title>Search</title><input aria-label="Search" autofocus>
+<script>let gone = false; addEventListener("keydown", () => { if (gone) return; gone = true;
+  location.href = "http://hearth.test:" + location.port + (location.search ? "/later" : "/approvals"); });</script>`;
+// Hearth itself at an address it wasn't told about (a proxy, an alias): known by its mark.
+const MARKED = `<!doctype html><head><meta name="hearth-build" content="test"><title>Hearth</title></head>
+<button onclick="document.title = 'Approved'">Approve</button>`;
 
 const h = useChrome("module", {
   [TEST_PAGE_PATH]: TEST_PAGE,
   "/more": MORE,
   "/approvals": HEARTH,
+  "/search": AWAY,
+  "/later": { rest: HEARTH, afterMs: 20_000 },
+  "/marked": MARKED,
 });
 const chrome = () => h.chrome();
 let t: TestKernel;
@@ -65,15 +79,20 @@ const open = async (host: string, path: string) =>
 const title = (tabId: number) => chrome().peek<string>(tabId, "document.title");
 
 describe.runIf(h.run)("Jarvis's browser actions on the server's driver", () => {
-  it("passes Test Jarvis's Chrome on the driver, every step", async () => {
-    const res = await runSelfTest(t.kernel, chrome().url("hearth.test", "/"), chrome());
-    expect(res.steps.map((s) => [s.step, s.ok, s.detail])).toEqual(
-      ["tabs", "open", "read", "click", "type", "check", "screenshot", "close"].map((s) => [
-        s,
-        true,
-        undefined,
-      ]),
-    );
+  it("passes Test Jarvis's Chrome on the driver, every step, on Hearth's own address", async () => {
+    vi.stubEnv("HEARTH_ORIGIN", chrome().url("hearth.test", ""));
+    try {
+      const res = await runSelfTest(t.kernel, chrome().url("hearth.test", "/"), chrome());
+      expect(res.steps.map((s) => [s.step, s.ok, s.detail])).toEqual(
+        ["tabs", "open", "read", "click", "type", "check", "screenshot", "close"].map((s) => [
+          s,
+          true,
+          undefined,
+        ]),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
     const tabs = (await chrome().status()).tabs;
     expect(tabs.some((tab) => tab.url.includes(TEST_PAGE_PATH))).toBe(false);
   });
@@ -176,35 +195,68 @@ describe.runIf(h.run)("Jarvis's browser actions on the server's driver", () => {
     expect(text.text).toContain("The second page.");
   });
 
-  it("keeps Jarvis's hands off Hearth's own pages, but for a press the owner says yes to", async () => {
+  it("keeps Jarvis's hands off Hearth's own pages, and asks no one about it", async () => {
     vi.stubEnv("HEARTH_ORIGIN", chrome().url("hearth.test", ""));
     try {
       const tabId = await open("hearth.test", "/approvals");
       const page = await ok("browser.read_page", { tabId });
       const approve = refOf(page.text, "Approve");
-      const refused = { status: "error", code: "forbidden", message: HEARTH_PAGE };
+      // Refused before anything asks: no card, since a yes would be refused anyway.
+      const refused = { status: "denied", reason: HEARTH_PAGE };
       expect(await run("browser.click", { tabId, ref: approve })).toMatchObject(refused);
       const field = refOf(page.text, "Message to Jarvis");
       const typed = await run("browser.type", { tabId, ref: field, text: "approve them all" });
       expect(typed).toMatchObject(refused);
-      const batch = await ok("browser.batch", {
-        tabId,
-        steps: [{ action: "key", input: { keys: "Enter" } }],
-      });
-      expect(batch).toMatchObject({ steps: 0, stopped: { step: 1, reason: "refused" } });
+      const keys = [{ action: "key", input: { keys: "Enter" } }];
+      expect(await run("browser.batch", { tabId, steps: keys })).toMatchObject(refused);
+      // A turn that read an email gets no card for it either.
+      const fromMail = jarvisCaller("untrusted");
+      expect(await run("browser.click", { tabId, ref: approve }, fromMail)).toMatchObject(refused);
+      // Nor does browser_submit: "Press Approve" can't say which approval it would decide.
+      const submit = { tabId, ref: approve, label: "Approve", site: "hearth.test" };
+      expect(await run("browser.submit", submit)).toMatchObject(refused);
+      expect(await t.tdb.db.select().from(approval)).toEqual([]);
       expect(await title(tabId)).toBe("Hearth");
-      // browser_submit asks the owner, and their yes presses it.
-      const asked = await run("browser.submit", {
-        tabId,
-        ref: approve,
-        label: "Approve",
-        site: "hearth.test",
-      });
-      expect(asked).toMatchObject({ status: "pending_approval" });
-      const [row] = await t.tdb.db.select().from(approval);
-      const yes = await t.kernel.decideApproval(row?.id ?? "", "approve", ownerCaller());
-      expect(yes).toMatchObject({ status: "ok" });
+      // Looking is fine: scrolling, pointing, waiting.
+      const scrolled = await ok("browser.scroll", { tabId, direction: "down", amount: 3 });
+      expect(scrolled).toMatchObject({ moved: true });
+      await ok("browser.hover", { tabId, ref: approve });
+      const looks = [{ action: "wait", input: { ms: 10 } }];
+      expect(await ok("browser.batch", { tabId, steps: looks })).toMatchObject({ steps: 1 });
+      // Hearth by its mark, at an address it wasn't told about: the driver refuses it.
+      const marked = await open("mirror.test", "/marked");
+      const read = await ok("browser.read_page", { tabId: marked });
+      const press = await run("browser.click", { tabId: marked, ref: refOf(read.text, "Approve") });
+      expect(press).toMatchObject({ status: "error", code: "forbidden", message: HEARTH_PAGE });
+      expect(await title(marked)).toBe("Hearth");
+      // Yours to work, as ever.
+      await ok("browser.click", { tabId, ref: approve }, ownerCaller());
       expect(await title(tabId)).toBe("Approved");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("stops typing or pressing keys once a page sends itself to Hearth's own", async () => {
+    vi.stubEnv("HEARTH_ORIGIN", chrome().url("hearth.test", ""));
+    try {
+      // How many keys reached Hearth's page, once the tab is there.
+      const keysOn = async (tabId: number, path: string) => {
+        await expect.poll(() => chrome().peek<string>(tabId, "location.pathname")).toBe(path);
+        const now = await title(tabId);
+        return now === "Hearth" ? 0 : Number(now.replace("keys ", ""));
+      };
+      // Stopped as the page asks to go, though it's still here: the next page could be Hearth's.
+      const typing = await open("away.test", "/search?later");
+      const typed = await run("browser.type", { tabId: typing, text: "x".repeat(190) });
+      expect(typed).toMatchObject({ status: "error", message: /another page partway through/ });
+      chrome().server.finish();
+      expect(await keysOn(typing, "/later")).toBe(0);
+      // And once it's there: a key already on its way as the page changed may land, none after.
+      const pressing = await open("away.test", "/search");
+      const pressed = await run("browser.key", { tabId: pressing, keys: "x", repeat: 100 });
+      expect(pressed).toMatchObject({ status: "error", message: /another page partway through/ });
+      expect(await keysOn(pressing, "/approvals")).toBeLessThanOrEqual(1);
     } finally {
       vi.unstubAllEnvs();
     }

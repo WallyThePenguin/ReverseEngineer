@@ -4,6 +4,7 @@
 import { type ActionContext, ActionError } from "@hearth/kernel";
 import { z } from "zod";
 import { assertAllowed } from "./access.ts";
+import { HEARTH_PAGE, isHearthPage } from "./classify.ts";
 import type { BrowserClient, TabInfo } from "./client.ts";
 import { cdp } from "./input.ts";
 import { findTab, forgetLinks, listTabs, waitForLoad } from "./page.ts";
@@ -40,6 +41,16 @@ export async function tabPin(i: { tabId: number }, services: Services) {
   const tabs = await listTabs(client);
   const url = tabs.find((t) => t.tabId === i.tabId)?.url;
   return url ? { url } : null;
+}
+
+/** tabPin, for a step that presses, types or uses keys: on Hearth's own page it's refused before
+ * a card asks you, since it would be refused after your yes anyway. */
+export async function handsPin(
+  i: { tabId: number },
+  services: Services,
+): Promise<{ url: string; refused?: string } | null> {
+  const pinned = await tabPin(i, services);
+  return pinned && isHearthPage(pinned.url) ? { ...pinned, refused: HEARTH_PAGE } : pinned;
 }
 
 /** The tab a step works in, and the tabs open before it, to tell which ones it opens. */

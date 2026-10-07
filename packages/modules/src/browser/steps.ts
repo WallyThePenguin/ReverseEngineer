@@ -5,11 +5,12 @@ import { type ActionContext, ActionError, defineAction } from "@hearth/kernel";
 import { z } from "zod";
 import { assertAllowed, assertNotHearth, browser, CALLERS } from "./access.ts";
 import { askWhy, dialogVerdict, isTrusted, judge, REJECT, type Verdict } from "./classify.ts";
+import type { BrowserClient } from "./client.ts";
 import { clickAt, pressCombo } from "./input.ts";
 import { type Combo, isPaste, parseKeys, types } from "./keys.ts";
 import { pace } from "./pace.ts";
 import { evaluate, pageCall, pageFunction } from "./page.ts";
-import { afterStep, assertSite, beforeStep, SITE_CHECK, tabId, tabPin } from "./step.ts";
+import { afterStep, assertSite, beforeStep, handsPin, SITE_CHECK, tabId, tabPin } from "./step.ts";
 
 const PROBE = pageFunction("./page-probe.js", "pageProbe");
 
@@ -82,6 +83,10 @@ function tally(names: string[]): string {
   return out.map(([n, k]) => (k > 1 ? `${n} ×${k}` : n)).join(", ");
 }
 
+/** The page a tab is on right now, asked of the page itself. */
+const where = (client: BrowserClient, tab: number) =>
+  evaluate<string>(client, tab, "location.href").catch(() => "");
+
 async function ready(ctx: ActionContext, i: { tabId: number; site?: string }) {
   const client = browser(ctx);
   const { tab, known } = await beforeStep(client, i.tabId);
@@ -107,7 +112,7 @@ export const stepActions = [
     callers: CALLERS,
     io: true,
     external: true,
-    pin: tabPin,
+    pin: handsPin,
     summarize: (i) =>
       `Press ${i.keys}${i.repeat > 1 ? ` ${i.repeat} times` : ""} in tab ${i.tabId}${i.site ? ` on ${i.site}` : ""}`,
     async handler(i, ctx) {
@@ -123,8 +128,15 @@ export const stepActions = [
       const trusted = await isTrusted(ctx, tab.url);
       const done: string[] = [];
       let dialog = false;
+      const began = await where(client, i.tabId);
       for (let r = 0; r < i.repeat && !dialog; r++) {
         for (const c of combos) {
+          // A page that sends itself somewhere (Hearth's own page) mid-step stops it there.
+          if (ctx.caller.kind !== "owner" && (await where(client, i.tabId)) !== began)
+            throw new ActionError(
+              "conflict",
+              `The tab went to another page partway through, so Jarvis stopped there.${done.length ? ` (Already pressed: ${tally(done)}.)` : ""}`,
+            );
           if (sensitive(c)) {
             const active = await evaluate<Active>(
               client,
@@ -164,14 +176,15 @@ export const stepActions = [
     callers: CALLERS,
     io: true,
     external: true,
-    pin: tabPin,
+    pin: (i, s) => (i.accept ? handsPin(i, s) : tabPin(i, s)),
     summarize: (i) => `${i.accept ? "Accept" : "Dismiss"} the dialog in tab ${i.tabId}`,
     async handler(i, ctx) {
       const client = browser(ctx);
       const { tab, known } = await beforeStep(client, i.tabId);
       assertSite(tab, i.site);
       await assertAllowed(ctx, tab.url);
-      assertNotHearth(ctx, tab.url);
+      // Cancel or Stay is fine on Hearth's own page; OK or Leave there is the owner's.
+      if (i.accept) assertNotHearth(ctx, tab.url);
       const dialog = tab.dialog;
       if (!dialog) throw new ActionError("not_found", `There's no dialog open in tab ${i.tabId}.`);
       if (i.accept) {
@@ -211,7 +224,7 @@ export const stepActions = [
     callers: CALLERS,
     io: true,
     external: true,
-    pin: tabPin,
+    pin: handsPin,
     summarize: (i) => `Reject cookies in tab ${i.tabId}`,
     async handler(i, ctx) {
       const { client, tab, known } = await ready(ctx, i);

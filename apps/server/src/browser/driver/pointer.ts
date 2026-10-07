@@ -106,7 +106,12 @@ export interface ClickInput {
 
 export async function clickStep(d: DriverContext, i: ClickInput): Promise<string> {
   const button = i.button ?? "left";
-  const opts = { button, clickCount: i.clickCount ?? 1, modifiers: modifierBits(i.modifiers) };
+  const opts = {
+    button,
+    clickCount: i.clickCount ?? 1,
+    modifiers: modifierBits(i.modifiers),
+    still: () => d.assertStill(),
+  };
   // Only the left button presses things; a right click opens a menu.
   const presses = button === "left";
   if (i.ref) {
@@ -152,7 +157,7 @@ export async function dragStep(
   };
   const a = await end(i.fromRef, i.from);
   const b = await end(i.toRef, i.to);
-  await drag(d.cdp, a.at, b.at);
+  await drag(d.cdp, a.at, b.at, () => d.assertStill());
   return `Dragged "${a.name}" to "${b.name}"`;
 }
 

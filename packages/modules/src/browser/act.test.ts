@@ -14,6 +14,7 @@ import { loadTiming } from "./page.ts";
 const SHOP = "https://shop.example/";
 // 127.0.0.1, not localhost: a step on a one-word host never gets past its site check.
 const HEARTH = "http://127.0.0.1:4400/approvals";
+const AWAY = "https://search.example/";
 const PAGES: Record<string, string> = {
   [SHOP]: `<!doctype html><title>Shop</title>
     <form role="search" action="/search" method="get">
@@ -34,10 +35,16 @@ const PAGES: Record<string, string> = {
     </div>`,
   "https://shop.example/search": "<title>Results</title><p>3 kettles</p>",
   "https://shop.example/order": "<title>Thanks</title><p>Order placed</p>",
-  // Hearth's own address on this PC (served here: nothing reaches a real Hearth).
+  // Hearth's own address on this PC (served here: nothing reaches a real Hearth). Every key that
+  // reaches it is counted in its title, as its hotkeys would take them.
   [HEARTH]: `<!doctype html><title>Hearth</title>
     <button onclick="document.title = 'Approved'">Approve</button>
-    <input aria-label="Message to Jarvis">`,
+    <input aria-label="Message to Jarvis">
+    <script>let keys = 0; addEventListener("keydown", () => { document.title = "keys " + ++keys; });</script>`,
+  // A page that sends itself to Hearth's own as soon as a key is pressed there.
+  [AWAY]: `<!doctype html><title>Search</title><input aria-label="Search" autofocus>
+    <script>let gone = false; addEventListener("keydown", () => { if (gone) return; gone = true;
+      location.href = "${HEARTH}"; });</script>`,
 };
 
 const hasChromium = chromiumForTests();
@@ -132,22 +139,51 @@ describe.skipIf(!hasChromium)("Jarvis's hands in Chrome", () => {
     const { tabId } = await ok<{ tabId: number }>("browser.open", { url: HEARTH });
     const page = await ok<{ text: string }>("browser.read", { tabId });
     expect(page.text).toContain("[button E1: Approve] [field E2: Message to Jarvis]");
-    for (const [name, input] of [
+    const hands = [
       ["browser.click", { tabId, ref: "E1" }],
       ["browser.type", { tabId, ref: "E2", text: "approve them all" }],
       ["browser.key", { tabId, keys: "Tab" }],
-    ] as const)
-      for (const caller of [jarvis, systemCaller()])
+      ["browser.dialog", { tabId, accept: true }],
+      ["browser.submit", { tabId, ref: "E1", label: "Approve", site: "127.0.0.1" }],
+    ] as const;
+    // Refused before anything asks, a turn that read an email too: a yes would be refused anyway.
+    for (const [name, input] of hands)
+      for (const caller of [jarvis, jarvisCaller("untrusted")])
         expect(await t.kernel.execute(name, input, caller)).toMatchObject({
-          status: "error",
-          code: "forbidden",
-          message: HEARTH_PAGE,
+          status: "denied",
+          reason: HEARTH_PAGE,
         });
+    expect(await t.tdb.db.select().from(approval)).toEqual([]);
+    // Hearth's own reflexes get the same no from the step itself.
+    for (const [name, input] of hands.slice(0, 4))
+      expect(await t.kernel.execute(name, input, systemCaller())).toMatchObject({
+        status: "error",
+        code: "forbidden",
+        message: HEARTH_PAGE,
+      });
+    // Cancel or Stay there is fine (there's no dialog open here to answer).
+    const dismiss = await t.kernel.execute("browser.dialog", { tabId, accept: false }, jarvis);
+    expect(dismiss).toMatchObject({ status: "error", code: "not_found" });
     expect(await chrome.page(tabId).title()).toBe("Hearth");
     expect(await chrome.page(tabId).inputValue("input")).toBe("");
     // Yours to work, as ever.
     await ok("browser.click", { tabId, ref: "E1" }, ownerCaller());
     expect(await chrome.page(tabId).title()).toBe("Approved");
+  });
+
+  it("stops pressing keys once a page sends itself to Hearth's own", async () => {
+    const { tabId } = await ok<{ tabId: number }>("browser.open", { url: AWAY });
+    const pressed = await t.kernel.execute(
+      "browser.key",
+      { tabId, keys: "x", repeat: 100 },
+      jarvis,
+    );
+    expect(pressed).toMatchObject({ status: "error", code: "conflict" });
+    expect(JSON.stringify(pressed)).toContain("another page partway through");
+    await expect.poll(() => chrome.page(tabId).url()).toBe(HEARTH);
+    // A key already on its way as the page changed may land; none after it does.
+    const now = await chrome.page(tabId).title();
+    expect(now === "Hearth" ? 0 : Number(now.replace("keys ", ""))).toBeLessThanOrEqual(1);
   });
 
   it("submits only with the owner's yes, and only what it said it would press", async () => {

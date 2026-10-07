@@ -10,6 +10,7 @@ export {
   dialogVerdict,
   type Floor,
   FREE,
+  HEARTH_MARK,
   HEARTH_PAGE,
   isHearthPage,
   judge,

@@ -44,7 +44,8 @@ async function focusRef(d: DriverContext, t: Target, ref: string, clear: boolean
   const at = await centerOf(d, t);
   if (at) {
     const hit = await hitAt(d, at.x, at.y);
-    if ((await reaches(d, t, hit)).ok) await click(d.cdp, at.x, at.y);
+    if ((await reaches(d, t, hit)).ok)
+      await click(d.cdp, at.x, at.y, { still: () => d.assertStill() });
   }
   if (!(await d.worlds.call<boolean>(t.session, t.frameId, [t.node], fn, [clear])))
     throw fail(
@@ -77,7 +78,7 @@ export async function typeStep(
     assertTypeable(info, "What has focus");
     where = `"${info.label || info.kind}"`;
   }
-  await typeText(d.cdp, i.text);
+  await typeText(d.cdp, i.text, () => d.assertStill());
   return `Typed ${i.text.length} characters into ${where}`;
 }
 
@@ -129,6 +130,7 @@ export async function keyStep(d: DriverContext, i: { keys: string; repeat?: numb
             done.length ? `${no} (Already pressed: ${done.join(", ")}.)` : no,
           );
       }
+      d.assertStill(done);
       const stopped = await pressCombo(d.cdp, c);
       done.push(c.name);
       if (stopped) return `Pressed ${done.join(", ")}; a dialog opened`;
@@ -195,13 +197,14 @@ export async function pressStep(
     );
   if (info.editable) {
     await focusRef(d, t, i.ref, false);
+    d.assertStill();
     await pressCombo(d.cdp, parseKeys("Enter")[0]!);
   } else {
     const { center } = await aimRef(d, i.ref, false);
     const hit = await hitAt(d, center.x, center.y);
     if (!(await reaches(d, t, hit)).ok)
       throw fail("covered", `Something covers ${i.ref}. Nothing was pressed.`);
-    await click(d.cdp, center.x, center.y);
+    await click(d.cdp, center.x, center.y, { still: () => d.assertStill() });
   }
   return `Pressed "${info.label || e.name}" (${i.ref})`;
 }

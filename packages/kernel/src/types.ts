@@ -85,12 +85,13 @@ export interface ActionDef<S extends z.ZodType = z.ZodType, R = unknown> {
   /**
    * Pins a call to the page it acts on before it runs or waits for your yes: the page's address,
    * so a turn that read outside content is held to D30, and anything to add to the input so the
-   * call refuses to run if the page changed by the time it's approved.
+   * call refuses to run if the page changed by the time it's approved. `refused` says the call
+   * can't run on that page at all (Hearth's own), so it's refused before anything asks you.
    */
   pin?(
     input: z.output<S>,
     services: { service<T>(name: string): T },
-  ): Promise<{ url: string; extra?: Record<string, unknown> } | null>;
+  ): Promise<{ url: string; extra?: Record<string, unknown>; refused?: string } | null>;
   /**
    * What the call will do, captured from the records it acts on before it runs or waits for your
    * yes (an email's recipients and text). It's added to the input, so the approval card shows it

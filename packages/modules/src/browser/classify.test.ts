@@ -50,7 +50,11 @@ describe("whether a press may go ahead (D52)", () => {
 });
 
 describe("Hearth's own pages", () => {
-  const env = { HEARTH_PORT: "4474", HEARTH_ORIGIN: "https://hearth.tail.ts.net" };
+  const env = {
+    HEARTH_PORT: "4474",
+    HEARTH_ORIGIN: "https://hearth.tail.ts.net",
+    HEARTH_LOCAL_ORIGIN: "http://hearth.localhost:4400",
+  };
   it.each([
     ["http://localhost:4400/approvals", true],
     ["http://127.0.0.1:4400/", true],
@@ -58,9 +62,25 @@ describe("Hearth's own pages", () => {
     ["http://localhost:4474/chat", true],
     ["https://hearth.tail.ts.net/approvals", true],
     ["https://HEARTH.tail.ts.net:443/", true],
-    ["https://hearth.tail.ts.net:8443/", false],
-    ["http://localhost:3000/", false],
+    // Any port: a dev proxy, a second port, whatever else answers there.
+    ["https://hearth.tail.ts.net:8443/", true],
+    ["http://localhost:3000/", true],
+    ["http://127.0.0.2:4400/", true],
+    // The same place by another spelling.
+    ["https://hearth.tail.ts.net./approvals", true],
+    ["http://localhost.:4400/", true],
+    ["http://[::ffff:127.0.0.1]:4400/", true],
+    ["http://[::ffff:7f00:1]:4400/", true],
+    ["http://0.0.0.0:4400/", true],
+    ["http://[::]:4400/", true],
+    ["blob:http://localhost:4400/0b1c", true],
+    ["blob:https://hearth.tail.ts.net/0b1c", true],
+    ["http://hearth.localhost:4400/inbox", true],
     ["https://shop.example/", false],
+    ["https://tail.ts.net/", false],
+    ["https://evil-hearth.tail.ts.net/", false],
+    ["http://[::ffff:c000:207]:4400/", false],
+    ["blob:https://shop.example/0b1c", false],
     // Chrome's test page has nothing behind it.
     ["http://localhost:4400/api/browser/test-page", false],
     ["not an address", false],

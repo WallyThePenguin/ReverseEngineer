@@ -100,45 +100,60 @@ export function askWhy(what: string, v: Verdict, trusted: boolean, instead: stri
 
 /** Why Jarvis's hands stay off Hearth's own pages. */
 export const HEARTH_PAGE =
-  "That's Hearth's own page. Jarvis does what's there with its own actions (approvals, tasks, mail, chat, settings), never by working the page; reading it is fine. If the owner wants something pressed there, browser_submit asks them first.";
+  "That's Hearth's own page. Jarvis does what's there with its own actions (approvals, tasks, mail, chat, settings), never by working the page; reading, scrolling and closing a dialog are fine. Anything to press there is the owner's to press.";
 
-const bare = (host: string) => host.replace(/^\[|\]$/g, "").toLowerCase();
+/** A host as compared: no brackets or trailing dot, and an IPv4 address written as IPv6
+ * (::ffff:7f00:1) as itself. */
+function bare(host: string): string {
+  const h = host
+    .replace(/^\[|\]$/g, "")
+    .replace(/\.$/, "")
+    .toLowerCase();
+  const v4 = /^::ffff:(?:(\d+\.\d+\.\d+\.\d+)|([0-9a-f]{1,4}):([0-9a-f]{1,4}))$/.exec(h);
+  if (!v4) return h;
+  if (v4[1]) return v4[1];
+  const [hi, lo] = [Number.parseInt(v4[2]!, 16), Number.parseInt(v4[3]!, 16)];
+  return [hi >> 8, hi & 255, lo >> 8, lo & 255].join(".");
+}
 
-/** An address's host and port ("localhost", "4400"), or null if it isn't one. */
-function hostPort(raw: string | undefined) {
+/** An address's host and path; a blob: address is its page's. Null if it isn't one. */
+function hostOf(raw: string | undefined) {
   try {
-    const u = new URL(raw ?? "");
-    const port = u.port || (u.protocol === "https:" ? "443" : "80");
-    return { host: bare(u.hostname), port, path: u.pathname };
+    let u = new URL(raw ?? "");
+    if (u.protocol === "blob:") u = new URL(u.pathname);
+    return { host: bare(u.hostname), path: u.pathname };
   } catch {
     return null;
   }
 }
 
+/** This PC by any of its names, where whatever answers on any port may be Hearth. */
+function thisPc(host: string, env: NodeJS.ProcessEnv): boolean {
+  if (isLoopbackHost(host) || host === "0.0.0.0" || host === "::") return true;
+  // Bound to every address (0.0.0.0), Hearth answers on each of this PC's.
+  const bound = bare(env.HEARTH_HOST ?? "");
+  const here =
+    bound === "0.0.0.0" || bound === "::"
+      ? Object.values(networkInterfaces()).flatMap((l) => (l ?? []).map((a) => bare(a.address)))
+      : [bound];
+  return here.includes(host);
+}
+
 /**
  * Whether an address is one of Hearth's own pages: where you open it (HEARTH_ORIGIN,
- * HEARTH_LOCAL_ORIGIN), or this PC on Hearth's port or the usual 4400. Jarvis has its own actions
- * for all of it, so a press, a key or typing there is never its own to do. Chrome's test page is
- * Hearth's too, but has nothing behind it.
+ * HEARTH_LOCAL_ORIGIN), or this PC, on any port (a dev proxy, a second port). Jarvis has its own
+ * actions for all of it, so a press, a key or typing there is never its own to do. Chrome's test
+ * page is Hearth's too, but has nothing behind it.
  */
 export function isHearthPage(url: string, env: NodeJS.ProcessEnv = process.env): boolean {
-  const at = hostPort(url);
-  if (!at || at.path === TEST_PAGE_PATH) return false;
-  if (at.port === "4400" || at.port === (env.HEARTH_PORT ?? "4400")) {
-    if (isLoopbackHost(at.host)) return true;
-    // Bound to every address (0.0.0.0), Hearth answers on each of this PC's.
-    const bound = bare(env.HEARTH_HOST ?? "");
-    const here =
-      bound === "0.0.0.0" || bound === "::"
-        ? Object.values(networkInterfaces()).flatMap((l) => (l ?? []).map((a) => bare(a.address)))
-        : [bound];
-    if (here.includes(at.host)) return true;
-  }
-  return [env.HEARTH_ORIGIN, env.HEARTH_LOCAL_ORIGIN].some((o) => {
-    const own = hostPort(o);
-    return own !== null && own.host === at.host && own.port === at.port;
-  });
+  const at = hostOf(url);
+  if (!at?.host || at.path === TEST_PAGE_PATH) return false;
+  if (thisPc(at.host, env)) return true;
+  return [env.HEARTH_ORIGIN, env.HEARTH_LOCAL_ORIGIN].some((o) => o && hostOf(o)?.host === at.host);
 }
+
+/** Hearth's own page says so in its head, whatever address reached it (a proxy, an alias). */
+export const HEARTH_MARK = 'meta[name="hearth-build"]';
 
 /** The floor a piece of text (a button's name, a dialog's message) hits, if any. */
 export function floorOfText(text: string): Floor | null {
