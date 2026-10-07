@@ -1,7 +1,7 @@
 // What a member's turn can do (D62), each through its own action: your free time as times only,
 // a message passed on to you, a meeting request that books nothing. And what you set about them
 // in Settings, which only you can.
-import { approval, calendarEvent, entity, jarvisTurn } from "@hearth/db";
+import { approval, calendarEvent, entity, jarvisTurn, slackUser } from "@hearth/db";
 import { integrationCaller, memberCaller, ownerCaller } from "@hearth/kernel";
 import { GOOGLE_SERVICE } from "@hearth/modules";
 import { FakeGoogle } from "@hearth/modules/google-testing";
@@ -142,6 +142,21 @@ describe("what you set in Settings", () => {
       expect(await t.h.kernel.execute(name, { user: SAM, tier: "schedule" }, asSam)).toMatchObject({
         status: "denied",
       });
+  });
+
+  it("keeps what you decided for someone through disconnecting Slack and connecting again", async () => {
+    t.h.brain.next([{ say: "Hi." }]);
+    await t.write(SAM, "Hi");
+    await t.tick();
+    await t.drain();
+    await t.setSam({ replies: "review", vip: true });
+    await t.ok("slack.disconnect");
+    // Only the people you decided about stay: not you, or anyone else read in.
+    expect(await t.h.tdb.db.select({ id: slackUser.id }).from(slackUser)).toEqual([{ id: SAM }]);
+    await t.ok("slack.connect", { token: t.s.token });
+    expect(await t.ok("slack.members")).toEqual([
+      expect.objectContaining({ id: SAM, tier: "relay", replies: "review", vip: true }),
+    ]);
   });
 
   it("never gives a guest more than blocked", async () => {

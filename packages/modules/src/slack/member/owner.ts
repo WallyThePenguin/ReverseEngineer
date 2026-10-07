@@ -5,13 +5,20 @@
 // widen what a member gets or mark something shareable. Everyone starts at relay, with replies
 // that go out on their own; schedule is yours to give, one person at a time (the owner's answers).
 import { memberPrincipal } from "@hearth/core";
-import { principal, slackAnswer, slackInbound, slackUser } from "@hearth/db";
+import {
+  conversation,
+  principal,
+  slackAnswer,
+  slackInbound,
+  slackThread,
+  slackUser,
+} from "@hearth/db";
 import { type ActionContext, ActionError, defineAction, newId } from "@hearth/kernel";
-import { and, desc, eq, isNotNull, max, ne, or } from "drizzle-orm";
+import { and, desc, eq, inArray, max } from "drizzle-orm";
 import { z } from "zod";
 import { workspace } from "../bot/tokens.ts";
 import { openToken, slackApi } from "../save.ts";
-import { cleanName, notAMember } from "./people.ts";
+import { cleanName, decidedAbout, notAMember } from "./people.ts";
 
 const userId = z.string().regex(/^[UW][A-Z0-9]{2,40}$/, "A Slack user id, like U012ABCDEF.");
 
@@ -57,14 +64,7 @@ export const ownerMemberActions = [
         .select({ user: slackUser, wrote: max(slackInbound.receivedAt) })
         .from(slackUser)
         .leftJoin(slackInbound, eq(slackInbound.userId, slackUser.id))
-        .where(
-          or(
-            isNotNull(slackUser.principal),
-            ne(slackUser.tier, "relay"),
-            ne(slackUser.replies, "auto"),
-            eq(slackUser.vip, true),
-          ),
-        )
+        .where(decidedAbout())
         .groupBy(slackUser.id)
         .orderBy(desc(max(slackInbound.receivedAt)), slackUser.name);
       return rows.map(({ user: u, wrote }) => ({
@@ -124,6 +124,21 @@ export const ownerMemberActions = [
       const [row] = Object.keys(patch).length
         ? await ctx.tx.update(slackUser).set(patch).where(eq(slackUser.id, u.id)).returning()
         : [u];
+      // Their DM's next turn starts afresh: a session kept from before carries what the old tier
+      // let it read (your free time, say) and replies you held, as if they'd been sent (D62).
+      if ((i.tier && i.tier !== u.tier) || (i.replies && i.replies !== u.replies))
+        await ctx.tx
+          .update(conversation)
+          .set({ agentSessionId: null })
+          .where(
+            inArray(
+              conversation.entityId,
+              ctx.tx
+                .select({ id: slackThread.conversationId })
+                .from(slackThread)
+                .where(eq(slackThread.member, memberPrincipal(u.teamId, u.id))),
+            ),
+          );
       return {
         id: row!.id,
         name: cleanName(row!.name, row!.id),

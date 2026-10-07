@@ -124,7 +124,14 @@ export function SlackBotSettings(props: { manifest: string }) {
   const disconnect = async () => {
     if (!confirm("Disconnect Jarvis's bot? Its tokens leave Hearth and it stops listening."))
       return;
-    if (await act("slack.bot_disconnect")) toast.show("Jarvis's bot is disconnected.");
+    const r = await act<{ unsent: number; unsure: number }>("slack.bot_disconnect");
+    if (!r) return;
+    const left = r.unsent + r.unsure;
+    toast.show(
+      left
+        ? `Jarvis's bot is disconnected. ${left} message${left === 1 ? "" : "s"} it hadn't sent won't go out; your inbox lists them.`
+        : "Jarvis's bot is disconnected.",
+    );
   };
 
   return (

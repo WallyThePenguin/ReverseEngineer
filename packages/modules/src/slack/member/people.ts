@@ -16,7 +16,7 @@ import {
   slackWorkspace,
 } from "@hearth/db";
 import { type ActionContext, ActionError, type Caller } from "@hearth/kernel";
-import { eq } from "drizzle-orm";
+import { eq, isNotNull, ne, or } from "drizzle-orm";
 import { named } from "../save.ts";
 
 export type SlackUserRow = typeof slackUser.$inferSelect;
@@ -28,6 +28,18 @@ const RANK: Record<SlackMemberTier | SlackChannelTier, number> = {
   relay: 1,
   schedule: 2,
 };
+
+/**
+ * The people Hearth keeps through a disconnect, and Settings lists: whoever has written to Jarvis,
+ * and anyone you've set a tier, review or VIP for (D62).
+ */
+export const decidedAbout = () =>
+  or(
+    isNotNull(slackUser.principal),
+    ne(slackUser.tier, "relay"),
+    ne(slackUser.replies, "auto"),
+    eq(slackUser.vip, true),
+  )!;
 
 /** Whether a tier reaches what an action needs. */
 export const reaches = (tier: SlackMemberTier, need: SlackMemberTier) => RANK[tier] >= RANK[need];

@@ -215,7 +215,12 @@ describe("notion tasks", () => {
     b.schema.columns = b.schema.columns.map((c) =>
       c.name === "Assignee" ? { ...c, name: "Reviewer" } : c,
     );
-    expect((await sync()).failed[0]).toMatch(/no "Assignee" column any more.*Pick the board again/);
+    const [why] = (await sync()).failed;
+    expect(why).toMatch(
+      /no longer has the column that said who a ticket is for.*Pick the board again/,
+    );
+    // Whoever renamed it chose those words: the message doesn't carry them (D58).
+    expect(why).not.toMatch(/Otopair|Reviewer|Assignee/);
     expect(await kinds()).toEqual(["notion.task_assigned"]);
     expect(await ok("notion.status")).toMatchObject({ state: "failing" });
     expect(n.calls.filter((c) => c.startsWith("pages")).length).toBe(1);
@@ -245,7 +250,25 @@ describe("notion tasks", () => {
     ticket("a", { title: "Ticket a, renamed" });
     ticket("b", { status: "Done" });
     expect(await sync()).toMatchObject({ failed: [], done: 1 });
-    expect(await ok("notion.status")).toMatchObject({ state: "ok" });
+    // It isn't read again, so it isn't counted or listed as one of yours still open.
+    expect(await ok("notion.status")).toMatchObject({ state: "ok", open: 0 });
+    expect(await ok("notion.tasks")).toEqual([]);
+  });
+
+  it("keeps the board's own words from Jarvis: only Settings reads how Notion is doing", async () => {
+    await connected();
+    expect((await t.kernel.execute("notion.status", {}, jarvisCaller("owner"))).status).toBe(
+      "denied",
+    );
+    // Its tickets it may read: they come marked as outside content.
+    ticket("a");
+    await sync();
+    const res = await t.kernel.execute<{ type: string }[]>(
+      "notion.tasks",
+      {},
+      jarvisCaller("owner"),
+    );
+    expect(res).toMatchObject({ status: "ok", result: [{ type: "notion_task" }] });
   });
 
   it("describes a ticket for Jarvis with its link", async () => {

@@ -44,11 +44,12 @@ import {
 } from "./messages.ts";
 import { sendNote } from "./notes.ts";
 import { cleanName, notAMember, type SlackUserRow } from "./people.ts";
+import { passOn } from "./relay.ts";
 import { settleClaimed } from "./sweep.ts";
 
 /** A message is taken once it's been stored this long, so a burst is taken together. */
 export const SETTLE_MS = 1_500;
-/** A message whose writer Slack hasn't told Hearth about in a day is let go. */
+/** A message whose writer Slack hasn't told Hearth about in a day is passed on to you. */
 const UNCHECKED_MS = 86_400_000;
 /** The most messages a round looks at. */
 const PER_ROUND = 200;
@@ -117,6 +118,31 @@ type Took = { cid: string | null };
 const SETTLED: Took = { cid: null };
 
 /**
+ * A message whose writer Slack still hasn't said anything about a day on: passed on to you as
+ * unanswered rather than dropped, unless it's yours, from someone Hearth knew wasn't a member, or
+ * in a channel Jarvis isn't on. Nothing is said back: Slack never said who they are (D62).
+ */
+async function unchecked(ctx: ActionContext, ws: Ws, row: InboundRow, u: SlackUserRow | undefined) {
+  const inDm = row.channelType === "im";
+  const skip =
+    row.userId === ws.userId ||
+    (u && notAMember(u)) ||
+    (!inDm && !isOn(await channelOf(ctx.tx, row.channelId)));
+  if (skip) {
+    await settle(ctx, [row], "ignored:unchecked");
+    return;
+  }
+  await passOn(ctx, {
+    principal: memberPrincipal(ws.teamId, row.userId),
+    name: cleanName(u?.name, row.userId),
+    text: await plainOf(ctx.tx, row.text),
+    kind: "unanswered",
+    vip: u?.vip ?? false,
+  });
+  await settle(ctx, [row], "relayed");
+}
+
+/**
  * Takes one new message: who wrote it, their conversation, its line in the log. Null when it
  * isn't taken yet, because Slack hasn't said who wrote it.
  */
@@ -126,7 +152,7 @@ async function takeOne(ctx: ActionContext, ws: Ws, row: InboundRow): Promise<Too
   if (!u || !fresh) {
     // Waits for users.info (check.ts), but not for ever.
     if (row.receivedAt.getTime() >= ctx.now.getTime() - UNCHECKED_MS) return null;
-    await settle(ctx, [row], "ignored:unchecked");
+    await unchecked(ctx, ws, row, u);
     return SETTLED;
   }
   const inDm = row.channelType === "im";

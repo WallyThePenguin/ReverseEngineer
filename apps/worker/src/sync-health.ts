@@ -215,13 +215,16 @@ async function github(kernel: Kernel): Promise<SyncSource[]> {
   }));
 }
 
-/** Notion once you've picked the task board it reads (D68). */
+/**
+ * Notion once you've picked the task board it reads (D68). Named "Notion", never by the board's
+ * title or workspace: anyone who can edit the board chose those, and Jarvis reads this (D58).
+ */
 async function notion(kernel: Kernel): Promise<SyncSource[]> {
   const rows = await kernel.db.select().from(notionAccount);
   return rows
     .filter((a) => a.sourceId)
     .map((a) => ({
-      name: a.sourceTitle ?? a.workspace ?? "Notion",
+      name: "Notion",
       error: a.lastError,
       failing: a.syncState !== "ok",
       lastGood: a.syncedAt,
