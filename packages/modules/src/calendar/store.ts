@@ -18,6 +18,7 @@ import {
 } from "@hearth/kernel";
 import { and, eq, isNull } from "drizzle-orm";
 import type { GEvent } from "../google/calendar-api.ts";
+import { accountAddresses, addressKey } from "../mail/mine.ts";
 import { ensurePerson, linkPerson, personFor } from "../people/store.ts";
 
 export type EventRow = typeof calendarEvent.$inferSelect;
@@ -175,13 +176,21 @@ export async function loadEvent(db: DbOrTx, id: string): Promise<EventView | nul
 /** Meetings bigger than this are announcements; their guests don't all become people. */
 const MAX_GUESTS = 20;
 
+/** Your accounts' addresses, by addressKey (mail/mine.ts); a sync reads them once for all. */
+export type Yours = () => Promise<ReadonlySet<string>>;
+
 /**
  * Links an event to the people on it. A meeting you organized or accepted makes its guests
- * people (like mail you send); any other only links the people you already know.
+ * people (like mail you send); any other only links the people you already know. You aren't
+ * someone you know: another account of yours on it (invited to block time on its calendar)
+ * becomes no person, nor a company for its domain. Google marks only the calendar's own account.
  */
-async function linkGuests(ctx: ActionContext, id: string, m: Mapped): Promise<void> {
+async function linkGuests(ctx: ActionContext, id: string, m: Mapped, own: Yours): Promise<void> {
   if (m.status === "cancelled") return;
-  const list = m.attendees.filter((a) => !a.self).slice(0, MAX_GUESTS);
+  const guests = m.attendees.filter((a) => !a.self);
+  if (!guests.length) return;
+  const mine = await own();
+  const list = guests.filter((a) => !mine.has(addressKey(a.email))).slice(0, MAX_GUESTS);
   const yours =
     m.attendees.length <= MAX_GUESTS + 1 && (m.selfOrganizer || m.selfResponse === "accepted");
   for (const g of list) {
@@ -221,12 +230,14 @@ export type Change = "added" | "updated" | "cancelled" | null;
 /**
  * Saves Google's version of an event. Returns what changed, for the event log. `replaces`: the
  * row a repeating meeting's occurrence takes over when Google gave it a new id (series.ts).
+ * `yours`: your accounts' addresses (by default, read when a guest list needs them).
  */
 export async function saveEvent(
   ctx: ActionContext,
   m: Mapped,
-  extra: { taskId?: string | null; replaces?: string } = {},
+  extra: { taskId?: string | null; replaces?: string; yours?: Yours } = {},
 ): Promise<{ id: string; change: Change }> {
+  const yours = extra.yours ?? (() => accountAddresses(ctx.tx));
   const found = await findEvent(ctx.tx, m.calendarId, m.googleId);
   const existing = found ?? (extra.replaces ? await eventRow(ctx.tx, extra.replaces) : null);
   const { title, body, ...fields } = m;
@@ -236,7 +247,7 @@ export async function saveEvent(
     await ctx.tx
       .insert(calendarEvent)
       .values({ entityId: row.id, ...fields, taskId: extra.taskId ?? null, peopleLinked: true });
-    await linkGuests(ctx, row.id, m);
+    await linkGuests(ctx, row.id, m, yours);
     return { id: row.id, change: "added" };
   }
   const { e, r } = existing;
@@ -273,7 +284,7 @@ export async function saveEvent(
       ...(extra.taskId !== undefined ? { taskId: extra.taskId } : {}),
     })
     .where(eq(calendarEvent.entityId, e.id));
-  if (!e.deletedAt) await linkGuests(ctx, e.id, m);
+  if (!e.deletedAt) await linkGuests(ctx, e.id, m, yours);
   if (!e.deletedAt && change === "updated") await followPrep(ctx, e.id, m);
   return { id: e.id, change };
 }

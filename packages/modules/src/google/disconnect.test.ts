@@ -14,7 +14,7 @@ import { BLOB_SERVICE, BlobStore } from "../mail/blobs.ts";
 import type { DraftView } from "../mail/drafts.ts";
 import { sendAction } from "../mail/send.ts";
 import type { ThreadSummary } from "../mail/views.ts";
-import { GOOGLE_SERVICE, SCOPES } from "./client.ts";
+import { GOOGLE_SERVICE, type GoogleClient, SCOPES } from "./client.ts";
 import { FakeGoogle } from "./fake.ts";
 
 const ME = "owner@example.com";
@@ -268,5 +268,40 @@ describe("disconnecting a Google account", () => {
     const cal = await alert(`calendar.sync_failed:${ME}:2026-10-01T14:00:00.000Z`);
     await ok("google.disconnect", { email: WORK });
     expect(await cal()).toBe("unseen");
+  });
+
+  const accounts = async () =>
+    (await t.tdb.db.select({ id: mailAccount.id }).from(mailAccount)).map((a) => a.id).sort();
+
+  it("says Google is syncing when it stops waiting for a sync", async () => {
+    const sync = await syncing(ME);
+    const transaction = t.tdb.db.transaction.bind(t.tdb.db);
+    vi.spyOn(t.tdb.db, "transaction").mockImplementation(((run, config) =>
+      transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL lock_timeout = '200ms'`);
+        return run(tx);
+      }, config)) as typeof transaction);
+    const res = await t.kernel.execute("google.disconnect", { email: WORK }, ownerCaller());
+    expect(res).toMatchObject({
+      status: "error",
+      code: "conflict",
+      message: "Google is syncing; try again in a moment.",
+    });
+    vi.restoreAllMocks();
+    await sync();
+    expect(await accounts()).toEqual([`gmail:${ME}`, `gmail:${WORK}`]);
+  });
+
+  it("says so for a deadlock with a sync anywhere, but not when it's slow itself later on", async () => {
+    const failed = (code: string) =>
+      new Error("Failed query", { cause: Object.assign(new Error("from Postgres"), { code }) });
+    vi.spyOn(t.kernel.services[GOOGLE_SERVICE] as GoogleClient, "revoke")
+      .mockRejectedValueOnce(failed("40P01"))
+      .mockRejectedValueOnce(failed("57014"));
+    const deadlock = await t.kernel.execute("google.disconnect", { email: WORK }, ownerCaller());
+    expect(deadlock).toMatchObject({ status: "error", code: "conflict" });
+    const slow = await t.kernel.execute("google.disconnect", { email: WORK }, ownerCaller());
+    expect(slow).toMatchObject({ status: "error", code: "failed" });
+    expect(await accounts()).toEqual([`gmail:${ME}`, `gmail:${WORK}`]);
   });
 });
