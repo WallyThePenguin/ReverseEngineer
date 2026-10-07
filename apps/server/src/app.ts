@@ -54,6 +54,7 @@ import { authRoutes } from "./routes/auth.ts";
 import { desktopRoutes } from "./routes/desktop.ts";
 import { deviceRoutes } from "./routes/devices.ts";
 import { eventRoutes } from "./routes/events.ts";
+import { fileRoutes } from "./routes/files.ts";
 import { googleRoutes } from "./routes/google.ts";
 import { healthRoutes } from "./routes/health.ts";
 import { importRoutes } from "./routes/imports.ts";
@@ -166,6 +167,7 @@ export function createApp(opts: AppOptions) {
   app.route("/api/voice", voiceRoutes());
   app.route("/api/push", pushRoutes(sendPush));
   app.route("/api/import", importRoutes());
+  app.route("/api/files", fileRoutes());
   app.route("/api", actionRoutes(timings));
   app.route("/mcp", mcpRoutes());
   app.all("/api/*", (c) => c.json({ error: "Not found." }, 404));

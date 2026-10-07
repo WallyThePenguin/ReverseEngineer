@@ -2,7 +2,7 @@
 // from the mail service: at once when you open one, and in the background, a few a round, in one
 // pass a day per account. Files no message needs any more are deleted after that pass (6.6). The
 // same pass reads mail from before 0032 for whether it was sent to many at once (6.9).
-import { mailAccount, mailMessage } from "@hearth/db";
+import { mailAccount, mailMessage, storedFile } from "@hearth/db";
 import { type ActionContext, defineAction } from "@hearth/kernel";
 import { and, asc, eq, gt } from "drizzle-orm";
 import { z } from "zod";
@@ -56,10 +56,15 @@ async function restore(
   return true;
 }
 
-/** Deletes files no message needs any more. */
+/**
+ * Deletes stored bytes nothing needs any more: no message's original, and no file you added
+ * (files/index.ts), even one in the trash, which can come back.
+ */
 export async function sweepBlobs(ctx: ActionContext): Promise<number> {
-  const rows = await ctx.tx.selectDistinct({ hash: mailMessage.rawHash }).from(mailMessage);
-  return ctx.service<BlobStore>(BLOB_SERVICE).sweep(new Set(rows.map((r) => r.hash)));
+  const mail = await ctx.tx.selectDistinct({ hash: mailMessage.rawHash }).from(mailMessage);
+  const files = await ctx.tx.selectDistinct({ hash: storedFile.hash }).from(storedFile);
+  const keep = new Set([...mail, ...files].map((r) => r.hash));
+  return ctx.service<BlobStore>(BLOB_SERVICE).sweep(keep);
 }
 
 /**
