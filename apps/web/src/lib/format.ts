@@ -1,4 +1,6 @@
-// Dates and labels the way you'd say them.
+// Dates and labels the way you'd say them. Said from now, they move on each minute (clock.ts).
+
+import { timeNow } from "./clock.ts";
 
 const DAY = 86_400_000;
 
@@ -15,7 +17,7 @@ export function time(d: Date): string {
 }
 
 /** "today", "tomorrow", "Fri", "Oct 14". */
-export function day(d: Date, now = new Date()): string {
+export function day(d: Date, now = timeNow()): string {
   const diff = Math.round((startOfDay(d) - startOfDay(now)) / DAY);
   if (diff === 0) return "today";
   if (diff === 1) return "tomorrow";
@@ -28,7 +30,7 @@ export function day(d: Date, now = new Date()): string {
  * "Wed, Oct 7", with the year when it isn't this one: a day that stays right however long it
  * waits to be read, as an approval may. English, like the rest of Hearth's words.
  */
-export function date(d: Date, now = new Date()): string {
+export function date(d: Date, now = timeNow()): string {
   return d.toLocaleDateString("en-US", {
     weekday: "short",
     month: "short",
@@ -38,7 +40,7 @@ export function date(d: Date, now = new Date()): string {
 }
 
 /** "Wed, Oct 7, 4 p.m." */
-export function dateTime(d: Date, now = new Date()): string {
+export function dateTime(d: Date, now = timeNow()): string {
   return `${date(d, now)}, ${time(d)}`;
 }
 
@@ -51,7 +53,7 @@ export function hours(start: Date, end: Date): string {
 }
 
 /** "Wed, Oct 7, 4 to 4:30 p.m.", or "Wed, Oct 7, 4 p.m. to Thu, Oct 8, 9 a.m." across days. */
-export function span(start: Date, end: Date, now = new Date()): string {
+export function span(start: Date, end: Date, now = timeNow()): string {
   return startOfDay(start) === startOfDay(end)
     ? `${date(start, now)}, ${hours(start, end)}`
     : `${dateTime(start, now)} to ${dateTime(end, now)}`;
@@ -108,7 +110,7 @@ function eventTimes(a: string, b: string, now: Date): string | null {
  * "Wed, Oct 7, all day". Nothing else changes: a link, a file name, a title or any other date
  * shows exactly as written, since that's what will be used.
  */
-export function humanTimes(text: string, now = new Date()): string {
+export function humanTimes(text: string, now = timeNow()): string {
   let out = text;
   for (const re of EVENT)
     out = out.replace(re, (all: string, lead: string, a: string, b: string, tail: string) => {
@@ -134,7 +136,7 @@ export function plural(n: number, one: string, many = `${one}s`): string {
 export function due(
   iso: string | null,
   isDate: boolean,
-  now = new Date(),
+  now = timeNow(),
 ): { text: string; overdue: boolean; soon: boolean } | null {
   if (!iso) return null;
   const d = new Date(iso);
@@ -151,7 +153,7 @@ export function due(
  * A due date in full, for checking one read from what you typed: "today 3 p.m.", "tomorrow",
  * "Fri, Oct 16, 3 p.m.", "Thu, Jan 14, 2027". Only today and tomorrow are said as words.
  */
-export function dueInFull(iso: string, isDate: boolean, now = new Date()): string {
+export function dueInFull(iso: string, isDate: boolean, now = timeNow()): string {
   const d = new Date(iso);
   const days = Math.round((startOfDay(d) - startOfDay(now)) / DAY);
   if (days === 0 || days === 1) return isDate ? day(d, now) : `${day(d, now)} ${time(d)}`;
@@ -159,7 +161,7 @@ export function dueInFull(iso: string, isDate: boolean, now = new Date()): strin
 }
 
 /** "just now", "5 min ago", "3 h ago", then a date. */
-export function ago(iso: string, now = new Date()): string {
+export function ago(iso: string, now = timeNow()): string {
   const ms = now.getTime() - new Date(iso).getTime();
   if (ms < 60_000) return "just now";
   if (ms < 3_600_000) return `${Math.floor(ms / 60_000)} min ago`;
@@ -217,7 +219,7 @@ export function who(principal: string): string {
 }
 
 /** Snooze choices: later today, this evening, tomorrow morning, next week. */
-export function snoozeOptions(now = new Date()): { label: string; until: Date }[] {
+export function snoozeOptions(now = timeNow()): { label: string; until: Date }[] {
   const at = (days: number, hour: number) => {
     const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + days, hour);
     return d;

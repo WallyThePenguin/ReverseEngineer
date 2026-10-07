@@ -3,6 +3,7 @@
 
 import { createSignal, Show } from "solid-js";
 import { Button } from "../components/ui.tsx";
+import { timeNow } from "../lib/clock.ts";
 import { ago, day } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
 import { act, useAction } from "../lib/query.ts";
@@ -26,7 +27,7 @@ const WEEK = 7 * 86_400_000;
 function expiresSoon(s: Status): string | null {
   if (!s.tokenExpiresAt) return null;
   const at = new Date(s.tokenExpiresAt);
-  return at.getTime() - Date.now() < WEEK ? day(at) : null;
+  return at.getTime() - timeNow().getTime() < WEEK ? day(at) : null;
 }
 
 /** GitHub's page for a new fine-grained token, read-only pull requests. */
