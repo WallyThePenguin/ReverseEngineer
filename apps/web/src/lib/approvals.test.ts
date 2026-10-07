@@ -1,6 +1,7 @@
 // Deciding from the app: a double tap sends one decision, a decided approval's buttons stay
-// gone, and only Hearth being out of reach leaves it to decide again (D58). Always allow writes
-// its rule before the yes, and approves nothing if the rule wasn't written (D70).
+// gone, and only Hearth being out of reach leaves it to decide again (D58). Always allow is the
+// yes with its rule: Hearth writes the rule only when the yes goes through, and you're told when
+// it didn't (D70).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const shown: { text: string; tone: string }[] = [];
@@ -21,15 +22,18 @@ const {
   deciding,
   isDecided,
   isWaiting,
+  ruleWords,
   settledAs,
 } = await import("./approvals.ts");
 
 let calls = 0;
 const paths: string[] = [];
+const sent: unknown[] = [];
 function reply(status: number, body: unknown, wait = 0) {
-  vi.stubGlobal("fetch", async (path: string) => {
+  vi.stubGlobal("fetch", async (path: string, init?: RequestInit) => {
     calls++;
     paths.push(path);
+    sent.push(JSON.parse(String(init?.body ?? "null")));
     await new Promise((r) => setTimeout(r, wait));
     return new Response(JSON.stringify(body), { status });
   });
@@ -38,6 +42,7 @@ function reply(status: number, body: unknown, wait = 0) {
 beforeEach(() => {
   calls = 0;
   paths.length = 0;
+  sent.length = 0;
   shown.length = 0;
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -134,25 +139,60 @@ describe("deciding an approval", () => {
     expect(settledAs("deny", { code: "not_found", message: "Approval not found" })).toBe("gone");
   });
 
-  it("Always allow writes the rule, then says yes, once however often it's pressed", async () => {
+  it("Always allow is one yes with its rule, once however often it's pressed", async () => {
     reply(200, { status: "ok", result: {} }, 10);
     const first = alwaysAllow("c1", "posting in #eng");
     expect(deciding("c1")).toBe(true);
     await Promise.all([first, alwaysAllow("c1", "posting in #eng"), decide("c1", "deny")]);
-    expect(paths).toEqual(["/api/actions/standing_rule.always_allow", "/api/approvals/c1"]);
+    expect(paths).toEqual(["/api/approvals/c1"]);
+    expect(sent).toEqual([{ decision: "approve", alwaysAllow: true }]);
     expect(decidedAs("c1")).toBe("executed");
     expect(shown).toEqual([
-      { text: "Approved. Jarvis won't ask again before posting in #eng.", tone: "ok" },
+      { text: "Done. From now on, posting in #eng goes without asking.", tone: "ok" },
+    ]);
+    // A plain yes doesn't ask for a rule.
+    reply(200, { status: "ok", result: {} });
+    await decide("c9", "approve");
+    expect(sent.at(-1)).toEqual({ decision: "approve" });
+  });
+
+  it("Always allow says plainly that no rule was saved when the yes didn't go through", async () => {
+    const no =
+      "Always allow is only for what Jarvis asks in a conversation you started, so nothing was done.";
+    reply(403, { status: "denied", reason: no });
+    expect(await alwaysAllow("c2", "posting in #eng")).toBe("failed");
+    // Still waiting for you: the card is read again, without the button an email's turn can't use.
+    expect(isDecided("c2")).toBe(false);
+    reply(409, { status: "error", code: "conflict", message: "This was already denied." });
+    expect(await alwaysAllow("c3", "posting in #eng")).toBe("changed");
+    expect(decidedAs("c3")).toBe("denied");
+    const changed = "Who or where this goes changed since you were asked, so nothing was sent.";
+    reply(409, { status: "error", code: "conflict", message: changed });
+    expect(await alwaysAllow("c4", "posting in #eng")).toBe("changed");
+    expect(shown).toEqual([
+      { text: `${no} No rule was saved.`, tone: "error" },
+      { text: "This was already denied. No rule was saved.", tone: "info" },
+      { text: `${changed} No rule was saved.`, tone: "error" },
     ]);
   });
 
-  it("Always allow approves nothing when the rule can't be written", async () => {
-    const no = "Always allow is only for what Jarvis asks in a conversation you started.";
-    reply(403, { status: "error", code: "forbidden", message: no });
-    expect(await alwaysAllow("c2", "posting in #eng")).toBe("failed");
-    expect(calls).toBe(1);
-    expect(isDecided("c2")).toBe(false);
-    expect(shown).toEqual([{ text: no, tone: "error" }]);
+  it("Always allow doesn't claim no rule was saved when Hearth didn't answer", async () => {
+    vi.stubGlobal("fetch", async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    expect(await alwaysAllow("c5", "posting in #eng")).toBe("failed");
+    expect(isDecided("c5")).toBe(false);
+    expect(shown).toEqual([
+      { text: "Can't reach Hearth right now. Try again in a moment.", tone: "error" },
+    ]);
+  });
+
+  it("reads a rule for one channel, and one for any, in Settings", () => {
+    const rule = { action: "slack.post_in_channel", target: "C1", note: "posting in #eng" };
+    expect(ruleWords(rule)).toBe("Always allow posting in #eng");
+    expect(ruleWords({ ...rule, target: null, note: "Team news" })).toBe("Team news · any channel");
+    expect(ruleWords({ action: "slack.dm", target: null, note: "" })).toBe("anyone");
+    expect(ruleWords({ action: "task.create", target: null, note: "Tasks" })).toBe("Tasks");
   });
 
   it("offers Always allow only on what Jarvis asked in a conversation you started", () => {

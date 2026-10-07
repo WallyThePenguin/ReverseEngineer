@@ -10,7 +10,13 @@ import { type JSX, Show } from "solid-js";
 import { Decide, ExactText } from "../../components/ApprovalCard.tsx";
 import type { IconName } from "../../components/icons.tsx";
 import { Avatar } from "../../components/kit/Avatar.tsx";
-import { approvalStateText, decidedAs, isWaiting, type Said } from "../../lib/approvals.ts";
+import {
+  alwaysAllowWords,
+  approvalStateText,
+  decidedAs,
+  isWaiting,
+  type Said,
+} from "../../lib/approvals.ts";
 import { ago, humanTimes } from "../../lib/format.ts";
 import {
   approvalCard,
@@ -59,6 +65,8 @@ export function AskRow(props: {
   const why = () => ownWhy(parts().why);
   const waiting = () => isWaiting(a().id, a().status);
   const asked = () => `Asked ${ago(a().createdAt)}`;
+  // Where Jarvis asked in a conversation you started, as the Approvals view offers it (D70).
+  const always = () => alwaysAllowWords(a());
   // A send says who it reached, and View opens its conversation.
   const said = (): Said | undefined => {
     if (a().action !== "mail.send") return undefined;
@@ -75,7 +83,9 @@ export function AskRow(props: {
           {approvalStateText(decidedAs(a().id) ?? a().status ?? "gone")}
         </span>
       );
-    return line().whole ? <Decide approvalId={a().id} said={said()} /> : undefined;
+    return line().whole ? (
+      <Decide approvalId={a().id} said={said()} always={always()} />
+    ) : undefined;
   };
   return (
     <FoldRow
@@ -103,7 +113,7 @@ export function AskRow(props: {
           {[sendFrom(a()) && `From ${sendFrom(a())}`, asked()].filter(Boolean).join(" · ")}
         </span>
         <Show when={waiting()}>
-          <Decide approvalId={a().id} said={said()} />
+          <Decide approvalId={a().id} said={said()} always={always()} />
         </Show>
       </div>
     </FoldRow>

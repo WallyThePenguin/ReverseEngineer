@@ -193,7 +193,7 @@ export function Decide(props: {
             disabled={deciding(props.approvalId)}
             onClick={() => alwaysAllow(props.approvalId, says())}
           >
-            Always allow {says()}
+            Approve, and always allow {says()}
           </Button>
         )}
       </Show>

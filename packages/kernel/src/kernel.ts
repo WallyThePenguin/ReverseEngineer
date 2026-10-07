@@ -4,7 +4,8 @@ import { memberWildcard } from "@hearth/core";
 import { type Db, principal, standingRule, type Tx } from "@hearth/db";
 import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { z } from "zod";
-import { alwaysAllowOf, requestApproval, resolveApproval } from "./approvals.ts";
+import { alwaysAllowOf } from "./always-allow.ts";
+import { requestApproval, resolveApproval } from "./approvals.ts";
 import { isAudited, writeAudit } from "./audit.ts";
 import { normalizeCaller } from "./callers.ts";
 import { type Clock, systemClock } from "./clock.ts";
@@ -151,13 +152,14 @@ export class Kernel {
     return { status: "denied", reason };
   }
 
-  /** Approve or deny a pending approval. Only you can. */
+  /** Approve or deny a pending approval. Only you can. Always allow writes its rule too (D70). */
   decideApproval(
     approvalId: string,
     decision: "approve" | "deny",
     caller: Caller,
+    opts: { alwaysAllow?: boolean } = {},
   ): Promise<ExecuteResult> {
-    return resolveApproval(this, approvalId, decision, caller);
+    return resolveApproval(this, approvalId, decision, caller, opts);
   }
 
   /**

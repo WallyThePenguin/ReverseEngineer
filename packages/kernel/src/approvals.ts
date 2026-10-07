@@ -3,16 +3,10 @@
 // the same request waits once, a yes claims the approval before the action runs, and what's
 // approved is checked again against the action before it runs.
 import { isUuid } from "@hearth/core";
-import {
-  type AlwaysAllow,
-  type ApprovalStatus,
-  approval,
-  notification,
-  principal,
-  type Tx,
-} from "@hearth/db";
+import { type ApprovalStatus, approval, notification, principal, type Tx } from "@hearth/db";
 import { and, eq, gt, isNull, ne, or } from "drizzle-orm";
 import { z } from "zod";
+import { alwaysAllowOf, alwaysAllowRule, NOT_ALWAYS, writeStandingRule } from "./always-allow.ts";
 import { approvalTtlMs, expireOverdue, resolvedOrigin, withTitles } from "./approval-life.ts";
 import { writeAudit } from "./audit.ts";
 import { ActionError, describeError } from "./errors.ts";
@@ -33,10 +27,6 @@ export interface Deferred {
 
 /** A value as JSON stores it, so the hash is of exactly what's kept (a Date becomes its text). */
 const asStored = (value: unknown): unknown => JSON.parse(JSON.stringify(value ?? {}));
-
-/** What an Always allow for this call would cover, if its action offers one (D70). */
-export const alwaysAllowOf = (def: ActionDef, input: unknown): AlwaysAllow | null =>
-  def.alwaysAllow?.(input as never) ?? null;
 
 export async function requestApproval(
   kernel: Kernel,
@@ -188,6 +178,8 @@ export async function resolveApproval(
   approvalId: string,
   decision: "approve" | "deny",
   caller: Caller,
+  /** Always allow (D70): the yes also writes the card's rule, or neither happens. */
+  opts: { alwaysAllow?: boolean } = {},
 ): Promise<ExecuteResult> {
   if (caller.kind !== "owner")
     return { status: "denied", reason: "Only you can decide approvals." };
@@ -195,6 +187,8 @@ export async function resolveApproval(
   if (!isUuid(approvalId)) return notFound;
   const [row] = await kernel.db.select().from(approval).where(eq(approval.id, approvalId));
   if (!row) return notFound;
+  const always = decision === "approve" && opts.alwaysAllow === true;
+  if (always && !alwaysAllowRule(row)) return { status: "denied", reason: NOT_ALWAYS };
   const def = kernel.registry.action(row.action);
   // As it is when closed: a copy asked meanwhile after reading outside content may lower it.
   let origin = row.origin;
@@ -290,13 +284,19 @@ export async function resolveApproval(
       : { status: "error", code: "conflict", message: GONE };
   }
 
-  // Claimed before anything runs: a second yes finds it taken instead of running it again.
+  // Claimed before anything runs: a second yes finds it taken instead of running it again. An
+  // Always allow claims it only while it's still from a conversation you started alone.
   const [claimed] = await kernel.db
     .update(approval)
     .set({ status: "executing", decidedBy: caller.principal, decidedAt: now })
-    .where(stillOpen)
+    .where(always ? and(stillOpen, eq(approval.origin, "owner")) : stillOpen)
     .returning();
-  if (!claimed) return taken();
+  if (!claimed) {
+    const [r] = always ? await kernel.db.select().from(approval).where(stillOpen) : [];
+    // Still waiting, but a turn that read an email has since asked for the same thing.
+    return r ? { status: "denied", reason: NOT_ALWAYS } : taken();
+  }
+  const rule = always ? alwaysAllowRule(claimed) : null;
   // `error` is kept on the approval (and told to Jarvis); you're told `message`.
   const fail = async (message: string, error = message): Promise<ExecuteResult> => {
     await finish("executing", "failed", { error });
@@ -340,6 +340,13 @@ export async function resolveApproval(
       const result = (r ?? null) as ApprovalRow["result"];
       const d = await close(tx, "executing", "executed", { result }, touched);
       if (!d) throw new ActionError("conflict", "This approval was closed while it ran.");
+      // With the yes it came with: a yes that fails or is refused leaves no rule (D70).
+      if (rule)
+        await writeStandingRule(
+          tx,
+          { action: row.action, target: rule.target, note: rule.says },
+          now,
+        );
       return d;
     },
   });

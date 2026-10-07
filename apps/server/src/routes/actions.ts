@@ -68,7 +68,11 @@ function parseJson(text: string): unknown {
   }
 }
 
-const decisionBody = z.object({ decision: z.enum(["approve", "deny"]) });
+const decisionBody = z.object({
+  decision: z.enum(["approve", "deny"]),
+  /** Always allow (D70): the yes also writes the card's rule. */
+  alwaysAllow: z.boolean().optional(),
+});
 
 export function actionRoutes(timings?: ActionTimings) {
   const app = new Hono<AppEnv>();
@@ -112,6 +116,7 @@ export function actionRoutes(timings?: ActionTimings) {
       c.req.param("id"),
       body.data.decision,
       c.get("caller")!,
+      { alwaysAllow: body.data.alwaysAllow === true },
     );
     return c.json(result, httpStatus(result));
   });
