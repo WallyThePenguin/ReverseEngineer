@@ -31,11 +31,19 @@ describe("keepUnchanged", () => {
     expect(next.items[1]).toBe(b);
   });
 
-  it("keeps two rows that read the same as two, not one twice", () => {
-    const [x, y] = [{ v: 1 }, { v: 1 }];
-    const next = keepUnchanged([x, y], [{ v: 1 }, { v: 1 }, { v: 1 }]);
-    expect(new Set(next).size).toBe(3);
-    expect(next.slice(0, 2)).toEqual([x, y]);
+  it("keeps two rows that read the same as two, never one object twice", () => {
+    // Two "Call Sam" tasks: a <For> over one object twice would draw one row for both.
+    const sam = () => ({ title: "Call Sam", done: false });
+    const [x, y] = [sam(), sam()];
+    const next = keepUnchanged([x, y], [{ title: "New" }, sam(), sam(), sam()]);
+    expect(next[1]).toBe(x);
+    expect(next[2]).toBe(y);
+    expect(next[3]).toEqual(sam());
+    expect(new Set(next).size).toBe(4);
+    // One of them done: the other is kept, and the done one is as it now is.
+    const after = keepUnchanged([x, y], [sam(), { title: "Call Sam", done: true }]);
+    expect(after[0]).toBe(x);
+    expect(after[1]).toEqual({ title: "Call Sam", done: true });
   });
 
   it("takes the new read whole when the shape is different, or there was none", () => {
