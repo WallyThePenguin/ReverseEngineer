@@ -1989,7 +1989,8 @@ tabs Today, Mail, Jarvis, Tasks and More; People as its own part; and the name "
 guard stops a job before it can reach anything of the live Hearth's. See docs/ci.md.
 
 - **Two runners.** `hearth-pc-win`: GitHub's runner in `D:\hearth-ci`, as the owner, unelevated,
-  at below-normal priority, started at sign-in from the Startup folder. `hearth-pc-linux`: a Docker
+  at below-normal priority, started with Windows by a task off the desktop (2026-10-07: on the
+  desktop, a cancelled job opened console windows). `hearth-pc-linux`: a Docker
   Desktop container from GitHub's runner image, with PostgreSQL 16 and Chromium's libraries, 4
   CPUs and 8 GB, no published ports, no Docker socket and none of the PC's drives. One job each at
   a time; tests 4 files at a time.
