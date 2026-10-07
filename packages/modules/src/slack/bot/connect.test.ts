@@ -23,6 +23,7 @@ import { SLACK_SERVICE } from "../api.ts";
 import { FakeSlack } from "../fake.ts";
 import { SLACK_BOT_SERVICE } from "./api.ts";
 import { BOT_SCOPES, USER_SCOPES } from "./manifest.ts";
+import { enqueue, settle } from "./queue.ts";
 import { openBotToken } from "./tokens.ts";
 
 let t: TestKernel;
@@ -59,6 +60,21 @@ const refused = async (input: unknown = tokens()) => {
   return (res as { message: string }).message;
 };
 const bot = async () => (await t.tdb.db.select().from(slackBot))[0]!;
+/** A post of yours in the outbox, as the sender left it. */
+const post = (id: string, state: "queued" | "sending" | "sent") => ({
+  id,
+  dedupeKey: `send:${id}`,
+  teamId: "T1",
+  channelId: "DUSAM",
+  text: "Build is fixed",
+  kind: "send" as const,
+  createdBy: PRINCIPAL.owner,
+  state,
+  ...(state === "sending" ? { sendingAt: t.clock.now() } : {}),
+  expiresAt: new Date(t.clock.now().getTime() + 86_400_000),
+});
+const notSent = () =>
+  t.tdb.db.select().from(notification).where(eq(notification.kind, "slack.not_sent"));
 const autoRule = async () =>
   (await t.tdb.db.select().from(standingRule)).filter(
     (r) => r.action === "slack.reply" && r.principal === memberPrincipal("T1", "*"),
@@ -239,25 +255,10 @@ describe("the bot afterwards", () => {
 
   it("forgets the bot on disconnect, and what it hadn't sent doesn't go out later", async () => {
     await connect();
-    const row = (id: string, state: "queued" | "sending" | "sent") => ({
-      id,
-      dedupeKey: `send:${id}`,
-      teamId: "T1",
-      channelId: "DUSAM",
-      text: "Build is fixed",
-      kind: "send" as const,
-      createdBy: PRINCIPAL.owner,
-      state,
-      expiresAt: new Date(t.clock.now().getTime() + 86_400_000),
-    });
     const [waiting, sending, sent] = [newId(), newId(), newId()];
     await t.tdb.db
       .insert(slackOutbox)
-      .values([
-        row(waiting, "queued"),
-        { ...row(sending, "sending"), sendingAt: t.clock.now() },
-        row(sent, "sent"),
-      ]);
+      .values([post(waiting, "queued"), post(sending, "sending"), post(sent, "sent")]);
     expect(await ok("slack.bot_disconnect")).toEqual({ disconnected: true, unsent: 1, unsure: 1 });
     expect(await t.tdb.db.select().from(slackBot)).toEqual([]);
     const states = await t.tdb.db.select().from(slackOutbox);
@@ -268,14 +269,42 @@ describe("the bot afterwards", () => {
       [sent]: "sent",
     });
     // You're told of both, each on its own card.
-    const cards = await t.tdb.db
-      .select()
-      .from(notification)
-      .where(eq(notification.kind, "slack.not_sent"));
-    expect(cards.map((c) => c.title).sort()).toEqual([
+    expect((await notSent()).map((c) => c.title).sort()).toEqual([
       "Jarvis's Slack message to a direct message didn't go out",
       "Jarvis's Slack message to a direct message may not have gone out",
     ]);
     expect(await ok("slack.bot_status")).toMatchObject({ connected: false });
+
+    // Slack then says the one it was sending went: it's sent, and its card closes.
+    const [was] = await t.tdb.db.select().from(slackOutbox).where(eq(slackOutbox.id, sending));
+    expect(await settle(t.tdb.db, was!, { state: "sent", sentTs: "1.000001" }, t.clock.now())).toBe(
+      true,
+    );
+    const [now] = await t.tdb.db.select().from(slackOutbox).where(eq(slackOutbox.id, sending));
+    expect(now).toMatchObject({ state: "sent", sentTs: "1.000001", error: null });
+    expect(
+      (await notSent()).map((c) => [c.title.endsWith("may not have gone out"), c.state]),
+    ).toEqual(expect.arrayContaining([[true, "done"]]));
+    // And with no bot, nothing new is queued.
+    const queued = t.tdb.db.transaction((tx) =>
+      enqueue(
+        { tx, now: t.clock.now(), caller: ownerCaller() },
+        { dedupeKey: newId(), teamId: "T1", channelId: "DUSAM", text: "Hi", kind: "send" },
+      ),
+    );
+    await expect(queued).rejects.toThrow("Jarvis's Slack bot isn't connected.");
+  });
+
+  it("goes with Slack, and what it hadn't sent is settled and told first", async () => {
+    await connect();
+    const [waiting, sending] = [newId(), newId()];
+    await t.tdb.db.insert(slackOutbox).values([post(waiting, "queued"), post(sending, "sending")]);
+    expect(await ok("slack.disconnect")).toEqual({ disconnected: true, unsent: 1, unsure: 1 });
+    // Its outbox went with the workspace; the cards stay.
+    expect(await t.tdb.db.select().from(slackOutbox)).toEqual([]);
+    expect((await notSent()).map((c) => c.body?.split("\n")[0]).sort()).toEqual([
+      "You disconnected Slack before it said whether it went out.",
+      "You disconnected Slack.",
+    ]);
   });
 });

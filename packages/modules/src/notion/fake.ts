@@ -44,7 +44,7 @@ export class FakeNotion {
   ];
   boards = new Map<string, { schema: NotionSchema; pages: NotionPage[] }>();
   /** Set to have every call fail with it (Notion unreachable, say). */
-  failWith: NotionError | null = null;
+  failWith: Error | null = null;
   /** Answers as if Notion ignored the person filter, to test that Hearth checks it too. */
   ignoreFilter = false;
   /** The most it sends in one page (Notion's own is 100). */

@@ -58,6 +58,8 @@ export class FakeSlack {
   failCalls = new Map<string, string | { code: string; retryAfter?: number }>();
   /** Every call Hearth made, of any kind. */
   requests = 0;
+  /** The workspace your own token is for. */
+  teamId = "T1";
   /** What your own token may do, as x-oauth-scopes says: the reading list and the kept writes. */
   scopes: string[] = [...USER_SCOPES, ...KEPT_USER_SCOPES];
   /** Jarvis's bot: its tokens, who it is, what it may do, and the app its socket's hello names. */
@@ -167,7 +169,7 @@ export class FakeSlack {
       whoami: async (token) => {
         check(token);
         return {
-          teamId: "T1",
+          teamId: this.teamId,
           team: "Acme",
           url: "https://acme.slack.com/",
           userId: this.me,

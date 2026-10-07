@@ -6,9 +6,10 @@
 // A row is claimed FOR UPDATE SKIP LOCKED and marked `sending` before Slack is called, so a crash
 // mid-call leaves it `sending`; after a minute it's read back before it's posted again. The pace is
 // at most one post a second in a place and 20 a minute in all.
-import { type Db, type SlackOutboxKind, slackOutbox } from "@hearth/db";
-import { type ActionContext, newId } from "@hearth/kernel";
-import { and, asc, count, eq, gt, lt, lte, notInArray, or, sql } from "drizzle-orm";
+import { type Db, notification, type SlackOutboxKind, slackBot, slackOutbox } from "@hearth/db";
+import { type ActionContext, ActionError, newId } from "@hearth/kernel";
+import { and, asc, count, eq, gt, lt, lte, ne, notInArray, or, sql } from "drizzle-orm";
+import { notSentKey } from "./not-sent.ts";
 
 export type OutboxRow = typeof slackOutbox.$inferSelect;
 
@@ -40,12 +41,20 @@ export interface NewPost {
 
 /**
  * Adds a post to the outbox in the caller's transaction, and wakes the worker when it commits.
- * The same dedupe key twice gives back the row already there.
+ * The same dedupe key twice gives back the row already there. It holds the bot's row until then,
+ * so disconnecting the bot meanwhile waits, and then settles this post with the rest; with the
+ * bot gone, nothing is added (D62).
  */
 export async function enqueue(
   ctx: Pick<ActionContext, "tx" | "now" | "caller">,
   post: NewPost,
 ): Promise<{ row: OutboxRow; created: boolean }> {
+  const [bot] = await ctx.tx
+    .select({ teamId: slackBot.teamId })
+    .from(slackBot)
+    .where(eq(slackBot.teamId, post.teamId))
+    .for("key share");
+  if (!bot) throw new ActionError("unavailable", "Jarvis's Slack bot isn't connected.");
   const [made] = await ctx.tx
     .insert(slackOutbox)
     .values({
@@ -140,19 +149,36 @@ export type Settle =
    */
   | { state: "sending"; error: string; notBefore?: Date };
 
-/** Saves how a claimed post went, unless something else closed it meanwhile. */
+/**
+ * Saves how a claimed post went, unless something else closed it meanwhile. That Slack has it
+ * counts even then: disconnecting the bot marks a post being sent "may not have gone out", and
+ * if it did go after all, it's sent, and that card closes.
+ */
 export async function settle(db: Db, row: OutboxRow, s: Settle, now: Date): Promise<boolean> {
   const finished = s.state !== "queued" && s.state !== "sending";
+  const set = {
+    ...s,
+    ...(s.state === "sent" ? { error: null } : {}),
+    ...(finished ? { finishedAt: now } : {}),
+  };
+  const mine = eq(slackOutbox.id, row.id);
   const done = await db
     .update(slackOutbox)
-    .set({
-      ...s,
-      ...(s.state === "sent" ? { error: null } : {}),
-      ...(finished ? { finishedAt: now } : {}),
-    })
-    .where(and(eq(slackOutbox.id, row.id), eq(slackOutbox.state, "sending")))
+    .set(set)
+    .where(and(mine, eq(slackOutbox.state, "sending")))
     .returning({ id: slackOutbox.id });
-  return done.length > 0;
+  if (done.length || s.state !== "sent") return done.length > 0;
+  const late = await db
+    .update(slackOutbox)
+    .set(set)
+    .where(and(mine, eq(slackOutbox.state, "unknown")))
+    .returning({ id: slackOutbox.id });
+  if (!late.length) return false;
+  await db
+    .update(notification)
+    .set({ state: "done", updatedAt: now })
+    .where(and(eq(notification.dedupeKey, notSentKey(row.id)), ne(notification.state, "done")));
+  return true;
 }
 
 /** Slack asked the bot to slow down: nothing else of the workspace's goes before `until` either. */

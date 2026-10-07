@@ -144,7 +144,7 @@ describe("what you set in Settings", () => {
       });
   });
 
-  it("keeps what you decided for someone through disconnecting Slack and connecting again", async () => {
+  it("keeps what you decided for someone through disconnecting Slack and connecting it again", async () => {
     t.h.brain.next([{ say: "Hi." }]);
     await t.write(SAM, "Hi");
     await t.tick();
@@ -157,6 +157,11 @@ describe("what you set in Settings", () => {
     expect(await t.ok("slack.members")).toEqual([
       expect.objectContaining({ id: SAM, tier: "relay", replies: "review", vip: true }),
     ]);
+    // Another workspace's people aren't the same people, whatever their Slack ids.
+    await t.ok("slack.disconnect");
+    t.s.teamId = "T2";
+    await t.ok("slack.connect", { token: t.s.token });
+    expect(await t.ok("slack.members")).toEqual([]);
   });
 
   it("never gives a guest more than blocked", async () => {
