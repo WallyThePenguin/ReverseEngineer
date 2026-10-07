@@ -6,7 +6,7 @@ import type { ConversationItem } from "@hearth/core";
 import { createMemo, createSignal, Show } from "solid-js";
 import { ApprovalCard } from "../components/ApprovalCard.tsx";
 import { Badge } from "../components/ui.tsx";
-import { isWaiting } from "../lib/approvals.ts";
+import { alwaysAllowWords, isWaiting } from "../lib/approvals.ts";
 import { summaryParts } from "../lib/inbox.ts";
 import { PENDING_LIMIT, usePendingApprovals } from "../lib/query.ts";
 import { toolSentence } from "../lib/toolNames.ts";
@@ -48,6 +48,7 @@ function Asked(props: { approvalId: string; summary: string | null }) {
       what={`Jarvis asks: ${parts().what ?? "something that needs your yes (see the inbox)"}`}
       text={isWaiting(props.approvalId, status()) ? parts().text : null}
       status={status()}
+      always={alwaysAllowWords(pending.data?.find((a) => a.id === props.approvalId))}
       byJarvis
       class="mt-1.5"
     />

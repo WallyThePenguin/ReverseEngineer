@@ -2,8 +2,10 @@
 // Google asked for is calm until it won't let up, and each account gets its own line. The rest of
 // checkSyncs is in sync-health.test.ts.
 import { calendar, googleAccount, googleQuota, mailAccount, notification } from "@hearth/db";
+import { integrationCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
-import { ALL_MODULES } from "@hearth/modules";
+import { ALL_MODULES, GOOGLE_SERVICE, SCOPES } from "@hearth/modules";
+import { FakeGoogle } from "@hearth/modules/google-testing";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { reportHealth } from "./health.ts";
@@ -120,5 +122,40 @@ describe("checkSyncs, for Google", () => {
     const [paused] = await checkSyncs(t.kernel, new ErrorClock());
     expect(paused).toMatchObject({ status: "ok" });
     expect(paused?.detail).toMatch(/me@example.com calendar: Google asked Hearth to slow down/);
+  });
+});
+
+describe("a calendar Google says isn't there, from sync to alert", () => {
+  const ME = "owner@example.com";
+  let t: TestKernel;
+  let g: FakeGoogle;
+  beforeEach(async () => {
+    t = await createTestKernel(ALL_MODULES);
+    g = new FakeGoogle(ME);
+    g.clock = t.clock;
+    t.kernel.services[GOOGLE_SERVICE] = g.client(t.tdb.db);
+    const client = g.client(t.tdb.db);
+    const url = new URL(await client.startSignIn(t.tdb.db, [...SCOPES.calendar]));
+    await client.finishSignIn(t.tdb.db, url.searchParams.get("state")!, "the-code");
+  });
+  afterEach(() => t.destroy());
+
+  it("closes 'Google sync is failing' once the account's others sync, though it's still selected", async () => {
+    const sync = () => t.kernel.execute("calendar.sync", {}, integrationCaller("google"));
+    const report = async () => reportHealth(t.kernel, await checkSyncs(t.kernel, new ErrorClock()));
+    const primary = (selected: boolean) =>
+      t.tdb.db.update(calendar).set({ selected }).where(eq(calendar.googleId, ME));
+    g.addCalendar({ id: "holidays", summary: "Holidays", accessRole: "owner" });
+    await sync();
+    g.brokenCalendars.set("holidays", 404);
+    // Failing over it, as the owner's account is from before this fix.
+    await primary(false);
+    await sync();
+    await report();
+    expect(await alerts(t)).toMatchObject([{ title: "Google sync is failing", state: "unseen" }]);
+    await primary(true);
+    await sync();
+    await report();
+    expect(await alerts(t)).toMatchObject([{ title: "Google sync is failing", state: "done" }]);
   });
 });

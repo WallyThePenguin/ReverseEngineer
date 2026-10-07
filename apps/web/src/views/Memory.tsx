@@ -8,6 +8,7 @@ import { Badge, Button, PaneHeader } from "../components/ui.tsx";
 import { ago, who } from "../lib/format.ts";
 import { listKeys, useHotkeys } from "../lib/hotkeys.ts";
 import { toast } from "../lib/live.ts";
+import { orBack } from "../lib/orBack.ts";
 import { layout } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
 import { quickAdd } from "../lib/quickadd.ts";
@@ -145,12 +146,16 @@ export function MemoryPanel(props: { id: string }) {
                   value={n().keywords.join(", ")}
                   placeholder="dentist, teeth"
                   onChange={(e) =>
-                    void update({
-                      keywords: e.currentTarget.value
-                        .split(",")
-                        .map((w) => w.trim())
-                        .filter(Boolean),
-                    })
+                    void orBack(
+                      e.currentTarget,
+                      update({
+                        keywords: e.currentTarget.value
+                          .split(",")
+                          .map((w) => w.trim())
+                          .filter(Boolean),
+                      }),
+                      () => n().keywords.join(", "),
+                    )
                   }
                 />
               </label>

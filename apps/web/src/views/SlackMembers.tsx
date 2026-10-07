@@ -8,6 +8,7 @@ import { createSignal, For, Show } from "solid-js";
 import { Button } from "../components/ui.tsx";
 import { ago } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
+import { orBack } from "../lib/orBack.ts";
 import { act, useAction } from "../lib/query.ts";
 
 type Tier = "blocked" | "relay" | "schedule";
@@ -56,14 +57,20 @@ const field = "min-w-0 flex-1 rounded border border-line bg-panel px-2 py-1 text
 /** The two switches: members at all, and replies without your yes. */
 export function MemberSwitches(props: { membersOn: boolean; answersOnOwn: boolean }) {
   const set = (input: { membersOn?: boolean; answersOnOwn?: boolean }) =>
-    void act("slack.bot_settings", input);
+    act("slack.bot_settings", input);
   return (
     <div class="space-y-1">
       <label class="flex items-center gap-2">
         <input
           type="checkbox"
           checked={props.membersOn}
-          onChange={(e) => set({ membersOn: e.currentTarget.checked })}
+          onChange={(e) =>
+            void orBack(
+              e.currentTarget,
+              set({ membersOn: e.currentTarget.checked }),
+              () => props.membersOn,
+            )
+          }
         />
         People in your workspace can talk to Jarvis
       </label>
@@ -72,7 +79,13 @@ export function MemberSwitches(props: { membersOn: boolean; answersOnOwn: boolea
           type="checkbox"
           checked={props.answersOnOwn}
           disabled={!props.membersOn}
-          onChange={(e) => set({ answersOnOwn: e.currentTarget.checked })}
+          onChange={(e) =>
+            void orBack(
+              e.currentTarget,
+              set({ answersOnOwn: e.currentTarget.checked }),
+              () => props.answersOnOwn,
+            )
+          }
         />
         Jarvis answers members on its own (in DMs; channels and anyone on review still wait for your
         yes)
@@ -83,7 +96,7 @@ export function MemberSwitches(props: { membersOn: boolean; answersOnOwn: boolea
 
 function MemberRow(props: { m: Member }) {
   const set = (patch: Partial<Pick<Member, "tier" | "replies" | "vip">>) =>
-    void act("slack.member_set", { user: props.m.id, ...patch });
+    act("slack.member_set", { user: props.m.id, ...patch });
   return (
     <li class="flex flex-wrap items-center gap-2 border-t border-line py-2">
       <div class="min-w-40 flex-1">
@@ -100,7 +113,13 @@ function MemberRow(props: { m: Member }) {
         class={select}
         aria-label={`What Jarvis does for ${props.m.name}`}
         value={props.m.tier}
-        onChange={(e) => set({ tier: e.currentTarget.value as Tier })}
+        onChange={(e) =>
+          void orBack(
+            e.currentTarget,
+            set({ tier: e.currentTarget.value as Tier }),
+            () => props.m.tier,
+          )
+        }
       >
         <For each={TIERS}>{(t) => <option value={t.value}>{t.label}</option>}</For>
       </select>
@@ -108,7 +127,13 @@ function MemberRow(props: { m: Member }) {
         class={select}
         aria-label={`Replies to ${props.m.name}`}
         value={props.m.replies}
-        onChange={(e) => set({ replies: e.currentTarget.value as Member["replies"] })}
+        onChange={(e) =>
+          void orBack(
+            e.currentTarget,
+            set({ replies: e.currentTarget.value as Member["replies"] }),
+            () => props.m.replies,
+          )
+        }
       >
         <option value="auto">Replies go out</option>
         <option value="review">Replies wait for you</option>
@@ -117,7 +142,9 @@ function MemberRow(props: { m: Member }) {
         <input
           type="checkbox"
           checked={props.m.vip}
-          onChange={(e) => set({ vip: e.currentTarget.checked })}
+          onChange={(e) =>
+            void orBack(e.currentTarget, set({ vip: e.currentTarget.checked }), () => props.m.vip)
+          }
         />
         VIP
       </label>

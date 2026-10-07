@@ -17,6 +17,12 @@ export const waitingOnYou = (row: InboxRow | undefined) =>
 export const NEEDS_DECISION = "This one needs a yes or a no first: press a or d.";
 
 /**
+ * A row whose body is shown whole, not cut to three lines: a Slack message Jarvis wrote that
+ * didn't go out has nothing to open, and what was stopped is the point of the card.
+ */
+export const wholeBody = (n: Pick<InboxRow["notification"], "kind">) => n.kind === "slack.not_sent";
+
+/**
  * A row's "more" menu: what e and s do, for a finger. An approval waiting for you isn't offered a
  * snooze at all: Hearth refuses it, and the card would blink out of the list and back first.
  */

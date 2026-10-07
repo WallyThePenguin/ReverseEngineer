@@ -39,7 +39,7 @@ import {
 import { z } from "zod";
 import { id, preview } from "../shared.ts";
 import { inSelectedCalendar } from "./calendars.ts";
-import { type EventView, guests, toEventView, whenText } from "./store.ts";
+import { type EventView, guests, NOT_MEETINGS, toEventView, whenText } from "./store.ts";
 
 const HOUR_MS = 3600_000;
 
@@ -72,12 +72,13 @@ export async function eventsToPrep(ctx: ReadContext, hours = 48): Promise<EventV
 }
 
 /**
- * A real meeting: not cancelled, all-day, declined or a time block, and with guests or at least
- * `minMinutes` long.
+ * A real meeting: not cancelled, all-day, declined, a time block or an entry like "Office" or
+ * "Out of office", and with guests or at least `minMinutes` long. Heads-ups ask this too.
  */
 export function worthPrep(v: EventView, minMinutes: number): boolean {
   if (v.status === "cancelled" || v.allDay || v.taskId || v.selfResponse === "declined")
     return false;
+  if (NOT_MEETINGS.includes(v.kind)) return false;
   return guests(v).length > 0 || v.endsAt.getTime() - v.startsAt.getTime() >= minMinutes * 60_000;
 }
 

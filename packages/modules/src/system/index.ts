@@ -16,7 +16,7 @@ import {
 } from "@hearth/kernel";
 import { and, asc, count, eq, isNotNull, isNull, like, ne } from "drizzle-orm";
 import { z } from "zod";
-import { alertBackupFailed, alertFailing } from "./alerts.ts";
+import { alertBackupFailed, alertFailing, closeFailing } from "./alerts.ts";
 import { judgeHealth } from "./staleness.ts";
 
 export {
@@ -142,6 +142,7 @@ export const systemModule = defineModule({
             payload: { component: i.component, status: i.status, previous, detail: i.detail },
           });
           if (i.status === "failing") await alertFailing(ctx, i.component, i.detail);
+          else if (previous === "failing") await closeFailing(ctx, i.component);
         }
         return { changed: previous !== i.status };
       },
@@ -177,6 +178,9 @@ export const systemModule = defineModule({
           },
         });
         if (!i.ok) await alertBackupFailed(ctx, i.detail);
+        // Written here, not through system.report: a backup that ran closes "The nightly backup is
+        // failing", which the worker raises when none has run for a day and a half.
+        else await closeFailing(ctx, "backup");
         return { recorded: true };
       },
     }),
