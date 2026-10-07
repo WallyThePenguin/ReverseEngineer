@@ -39,7 +39,7 @@ import {
 import { z } from "zod";
 import { id, preview } from "../shared.ts";
 import { inSelectedCalendar } from "./calendars.ts";
-import { type EventView, guests, NOT_MEETINGS, toEventView, whenText } from "./store.ts";
+import { type EventView, guests, NOT_MEETINGS, prepTitle, toEventView, whenText } from "./store.ts";
 
 const HOUR_MS = 3600_000;
 
@@ -282,7 +282,7 @@ export const prepPublish = defineAction({
     }
     const row = await createEntity(ctx, {
       type: "prep",
-      title: `Prep: ${ev.title} (${localDate(ev.startsAt, rules.timeZone)})`,
+      title: prepTitle(ev.title, ev.startsAt, rules.timeZone),
       body: i.markdown,
     });
     await addLink(ctx, { fromId: row.id, toId: i.eventId, kind: "derived_from" });

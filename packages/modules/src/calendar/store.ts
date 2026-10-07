@@ -1,9 +1,22 @@
 // Calendar events as Hearth keeps them: Google's event mapped onto an entity plus its row, and
 // the shape the app and Jarvis read.
 import { atLocal, formatDateTime, formatTime, localDate } from "@hearth/core";
-import { type Attendee, calendarEvent, type DbOrTx, type EventStatus, entity } from "@hearth/db";
-import { type ActionContext, createEntity, type EntityRow, updateEntity } from "@hearth/kernel";
-import { and, eq } from "drizzle-orm";
+import {
+  type Attendee,
+  calendarEvent,
+  type DbOrTx,
+  type EventStatus,
+  entity,
+  link,
+} from "@hearth/db";
+import {
+  type ActionContext,
+  createEntity,
+  type EntityRow,
+  getSetting,
+  updateEntity,
+} from "@hearth/kernel";
+import { and, eq, isNull } from "drizzle-orm";
 import type { GEvent } from "../google/calendar-api.ts";
 import { ensurePerson, linkPerson, personFor } from "../people/store.ts";
 
@@ -179,6 +192,30 @@ async function linkGuests(ctx: ActionContext, id: string, m: Mapped): Promise<vo
   }
 }
 
+/** A prep packet's name: the meeting and its day. */
+export const prepTitle = (title: string, startsAt: Date, timeZone: string) =>
+  `Prep: ${title} (${localDate(startsAt, timeZone)})`;
+
+/**
+ * A meeting moved or renamed: its prep packet's name says the new day, and a "When" line in it
+ * the new time. What it says about the people and last time still holds.
+ */
+async function followPrep(ctx: ActionContext, eventId: string, m: Mapped): Promise<void> {
+  const preps = await ctx.tx
+    .select({ id: entity.id, title: entity.title, body: entity.body })
+    .from(link)
+    .innerJoin(entity, eq(entity.id, link.fromId))
+    .where(and(eq(link.toId, eventId), eq(entity.type, "prep"), isNull(entity.deletedAt)));
+  if (!preps.length) return;
+  const { timeZone } = await getSetting(ctx.tx, "owner.dayRules");
+  for (const p of preps) {
+    const title = prepTitle(m.title, m.startsAt, timeZone);
+    const was = p.body ?? "";
+    const body = was.replace(/^- When: .*$/m, `- When: ${whenText(m, timeZone)}`);
+    if (title !== p.title || body !== was) await updateEntity(ctx, p.id, { title, body });
+  }
+}
+
 export type Change = "added" | "updated" | "cancelled" | null;
 
 /**
@@ -237,6 +274,7 @@ export async function saveEvent(
     })
     .where(eq(calendarEvent.entityId, e.id));
   if (!e.deletedAt) await linkGuests(ctx, e.id, m);
+  if (!e.deletedAt && change === "updated") await followPrep(ctx, e.id, m);
   return { id: e.id, change };
 }
 
