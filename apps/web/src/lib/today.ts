@@ -4,6 +4,7 @@
 import { plural } from "./format.ts";
 import { toolSentence } from "./toolNames.ts";
 import type { CalEvent, MailAddress, MailDraft, MailThread, Task, Turn } from "./types.ts";
+import { readWhen, type When } from "./when.ts";
 
 const DAY = 86_400_000;
 const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -16,6 +17,16 @@ export function greeting(now = new Date()): string {
   if (h >= 5 && h < 12) return "Good morning";
   if (h >= 12 && h < 18) return "Good afternoon";
   return "Good evening";
+}
+
+/**
+ * What the Ask box offers to add as a task: a line that names a time ("dentist fri 3pm"). A
+ * question is for Jarvis, even when it names a day ("what's on friday?"). Enter always asks Jarvis;
+ * the task is one more tap.
+ */
+export function offerAsTask(text: string, now = new Date()): When | null {
+  const q = text.trim();
+  return q && !q.endsWith("?") ? readWhen(q, now) : null;
 }
 
 /** A part of the line under the greeting, and the section it takes you to. */

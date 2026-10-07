@@ -17,7 +17,7 @@ import {
   KEPT_USER_SCOPES,
   USER_SCOPES,
 } from "./manifest.ts";
-import { settleUnsent } from "./not-sent.ts";
+import { settleUnsent, waitForTakeRounds } from "./not-sent.ts";
 import {
   answersOnOwn,
   botSettingsAction,
@@ -219,6 +219,7 @@ export const botActions = [
     risk: "secret",
     callers: ["owner"],
     async handler(_i, ctx) {
+      await waitForTakeRounds(ctx);
       const ws = await workspace(ctx);
       await ctx.tx.delete(slackBot).where(eq(slackBot.teamId, ws.teamId));
       // What it hadn't sent is settled now, and you're told about each (D62).

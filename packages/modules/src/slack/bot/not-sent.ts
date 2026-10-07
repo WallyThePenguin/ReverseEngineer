@@ -23,7 +23,6 @@ import {
   systemCaller,
 } from "@hearth/kernel";
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
-import { preview } from "../../shared.ts";
 import { named } from "../save.ts";
 import type { OutboxRow } from "./queue.ts";
 
@@ -78,7 +77,8 @@ export async function tellNotSent(ctx: ActionContext, row: OutboxRow, what: stri
   await createNotification(ctx, {
     kind: "slack.not_sent",
     title: `Jarvis's Slack message to ${where} ${what}`,
-    body: `${why}\n\n${preview(row.text, 300)}`,
+    // All of it: the card shows what was stopped.
+    body: `${why}\n\n${row.text}`,
     urgency: "normal",
     dedupeKey: notSentKey(row.id),
   });
@@ -121,6 +121,16 @@ export async function forgetUnsaid(db: DbOrTx, rows: Pick<OutboxRow, "kind" | "c
       .update(conversation)
       .set({ agentSessionId: null })
       .where(inArray(conversation.entityId, ids));
+}
+
+/**
+ * Waits for the take rounds, before letting the bot or the workspace go: a round holds people's
+ * rows and their conversations, then queues on the bot's row, the other way round from a
+ * disconnect, so one of the two would fail.
+ */
+export async function waitForTakeRounds(ctx: ActionContext) {
+  await ctx.tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('slack_take'))`);
+  await ctx.tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('slack_take_owner'))`);
 }
 
 /**

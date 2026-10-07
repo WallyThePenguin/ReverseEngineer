@@ -78,6 +78,24 @@ describe("an answer that didn't go", () => {
     expect(request(2).prompt).toContain("Thursday works.");
     expect(request(2).prompt).not.toContain("Hello Sam.");
   });
+
+  it("isn't kept by a turn that started afresh from a recap that had it, still waiting, as said", async () => {
+    await ask("Is the budget approved?", "Yes, it's approved.");
+    // Twelve idle hours on, the next turn starts with no session; the answer fails meanwhile.
+    t.h.clock.advance(13 * 3_600_000);
+    await meanwhile(async () => {
+      await pause(true);
+      await t.send();
+      await pause(false);
+    }, "Thursday works.");
+    expect(request(1).sessionId).toBeNull();
+    expect(request(1).prompt).toContain("Yes, it's approved.");
+    expect(await session()).toBeNull();
+    t.h.clock.advance(60_000);
+    await ask("At 3?", "3 is fine.");
+    expect(request(2).sessionId).toBeNull();
+    expect(request(2).prompt).not.toContain("Yes, it's approved.");
+  });
 });
 
 it("puts to the next session only what went out, not what Jarvis wrote on the way", async () => {

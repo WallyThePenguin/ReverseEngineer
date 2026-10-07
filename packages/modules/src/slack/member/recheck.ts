@@ -65,20 +65,29 @@ export async function answerStopped(db: Db, row: Row, now: Date): Promise<string
   const there = thread?.audience === "channel" ? " in that channel" : "";
   if (replies === "review")
     return `You set replies to them${there} to wait for your yes while this waited.`;
-  const wrote = turn.context.answeredAs;
-  if ((wrote === "relay" || wrote === "schedule") && !reaches(tier, wrote))
+  // Written before Hearth noted the tier: read as the most it could have been, so at relay it
+  // doesn't go.
+  const noted = turn.context.answeredAs;
+  if (!reaches(tier, noted === "relay" ? "relay" : "schedule")) {
+    if (noted !== "schedule")
+      return "They're at relay now, and Hearth can't tell whether this says more than that.";
     return there
       ? "You lowered what Jarvis may tell them in that channel while this waited."
       : `You lowered them to ${tier} while this waited.`;
+  }
   return null;
 }
 
-/** Whether a fixed note mustn't go now: members off, or to someone you've blocked since. */
+/**
+ * Whether a fixed note mustn't go now: members off, or to someone you've blocked since. Your own
+ * DM's notes (owner:…) aren't to a member, so they always go.
+ */
 export async function noteStopped(
   db: Db,
   row: Pick<OutboxRow, "kind" | "dedupeKey" | "channelId" | "ephemeralTo">,
 ) {
-  if (row.kind !== "note" || row.dedupeKey.startsWith("note:blocked:")) return false;
+  if (row.kind !== "note" || !row.dedupeKey.startsWith("note:")) return false;
+  if (row.dedupeKey.startsWith("note:blocked:")) return false;
   if (!(await getSetting(db, "slack.bot.membersOn"))) return true;
   const to = row.ephemeralTo ?? (isUser(row.channelId) ? row.channelId : null);
   let who = to ? eq(slackUser.id, to) : null;

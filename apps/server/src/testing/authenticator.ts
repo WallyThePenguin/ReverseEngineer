@@ -10,12 +10,17 @@ export class SoftAuthenticator {
   private readonly keys = generateKeyPairSync("ec", { namedCurve: "P-256" });
   private counter = 0;
   readonly origin: string;
+  /** A passkey synced to your other devices (a password manager's), not this one's alone. */
+  private readonly synced: boolean;
 
-  constructor(origin: string) {
+  constructor(origin: string, opts: { synced?: boolean } = {}) {
     this.origin = origin;
+    this.synced = opts.synced ?? false;
   }
 
   private authData(flags: number, extra: Uint8Array = new Uint8Array()) {
+    // Backup eligible and backed up (BE, BS), as a synced passkey says.
+    if (this.synced) flags |= 0x08 | 0x10;
     const counter = Buffer.alloc(4);
     counter.writeUInt32BE(this.counter);
     return Buffer.concat([
