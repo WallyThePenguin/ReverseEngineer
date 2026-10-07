@@ -138,7 +138,9 @@ export async function recordOutcome(
     // ran into first says what's left of it, and the account waits just that long.
     const until = new Date(ctx.now.getTime() + (wait > 0 ? wait : MIN_PAUSE_MS));
     if (work.progressed) await succeeded("paused");
-    await set({ syncState: "paused", pausedUntil: until });
+    // In the middle of a run of failures it's still failing, paused as well, so its alert stays.
+    const failing = !work.progressed && account.syncState === "failing";
+    await set({ syncState: failing ? "failing" : "paused", pausedUntil: until });
     return { status: "paused", ...base, more: true, retryAt: until };
   }
   const message = err instanceof Error ? err.message : String(err);

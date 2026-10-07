@@ -158,12 +158,55 @@ describe("calendar sync", () => {
       t.clock.advance(10 * 60_000);
     }
     expect(await t.events("calendar.sync_failed")).toEqual([]);
-    // Settings and the doctor still say which calendar and why.
-    expect(await health()).toMatchObject({ calendarState: "ok", calendarError: /Holidays/ });
+    expect(await health()).toMatchObject({ calendarState: "ok", calendarFailures: 0 });
+    // Settings still says which calendar and why.
+    const [hol] = await t.tdb.db.select().from(calendar).where(eq(calendar.googleId, "holidays"));
+    expect(hol?.lastError).toContain("calendars/holidays");
     // Alone, with nothing else read, it is the account failing: told at once, as before.
     await t.tdb.db.update(calendar).set({ selected: false }).where(eq(calendar.googleId, ME));
     await sync();
     expect(await health()).toMatchObject({ calendarState: "failing" });
+  });
+
+  it("recovers with that calendar still selected, from failing over it or over an outage", async () => {
+    g.addCalendar({ id: "holidays", summary: "Holidays", accessRole: "owner" });
+    await sync();
+    g.brokenCalendars.set("holidays", 404);
+    const primary = (selected: boolean) =>
+      t.tdb.db.update(calendar).set({ selected }).where(eq(calendar.googleId, ME));
+    // Failing over it, as the owner's account is from before this fix: one good round closes it.
+    await primary(false);
+    await sync();
+    const [first] = await t.events("calendar.sync_failed");
+    const key = await notice(first!);
+    await primary(true);
+    await sync();
+    expect(await stateOf(key)).toBe("done");
+    expect(await health()).toMatchObject({ calendarState: "ok", calendarError: null });
+    // An outage with it selected: told after half an hour, and closed once the others sync.
+    t.clock.advance(5 * 60_000);
+    for (let i = 0; i < 4; i++) {
+      g.failCalendar(1, 500);
+      await sync();
+      t.clock.advance(10 * 60_000);
+    }
+    const second = (await t.events("calendar.sync_failed"))[1];
+    expect(second?.payload).toMatchObject({ reconnect: false });
+    const again = await notice(second!);
+    await sync();
+    expect(await stateOf(again)).toBe("done");
+    expect(await health()).toMatchObject({ calendarState: "ok" });
+  });
+
+  it("isn't told at once when another calendar fails too, whichever was read first", async () => {
+    g.addCalendar({ id: "holidays", summary: "Holidays", accessRole: "owner" });
+    await sync();
+    g.brokenCalendars.set("holidays", 404);
+    g.brokenCalendars.set(ME, 500);
+    // Nothing read this round, but the account has a calendar Google does have: a blip so far.
+    expect((await sync()).failed).toHaveLength(2);
+    expect(await t.events("calendar.sync_failed")).toEqual([]);
+    expect(await health()).toMatchObject({ calendarState: "ok", calendarFailures: 1 });
   });
 
   it("tells you at once when Google signs Hearth out, and how to connect again", async () => {

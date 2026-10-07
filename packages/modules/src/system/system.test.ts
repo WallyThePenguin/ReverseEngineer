@@ -100,6 +100,32 @@ describe("system alerts", () => {
     expect(await t.events("notification.updated")).toHaveLength(2);
   });
 
+  it("opens the day's alert again when the component fails again after it closed, no second buzz", async () => {
+    await report("sync.google", "failing", "owner@example.com mail: fetch failed");
+    const [first] = await alerts();
+    await report("sync.google", "ok");
+    // That afternoon, Google signs Hearth out.
+    t.clock.advance(4 * 3_600_000);
+    await report("sync.google", "failing", "owner@example.com: invalid_grant");
+    expect(await alerts()).toMatchObject([
+      {
+        state: "unseen",
+        body: "owner@example.com: invalid_grant",
+        deliveredAt: first!.deliveredAt,
+      },
+    ]);
+    expect(await t.events("notification.updated")).toMatchObject([
+      { payload: { state: "done" } },
+      { payload: { state: "unseen" } },
+    ]);
+  });
+
+  it("closes the alert that no backup has run once one does", async () => {
+    await report("backup", "failing", "No backup since Monday");
+    await t.kernel.execute("system.backup_finished", { ok: true }, systemCaller());
+    expect(await alerts()).toMatchObject([{ state: "done" }]);
+  });
+
   it("keeps an audit row for a check-in only when its status changed", async () => {
     for (const s of ["ok", "ok", "ok", "degraded", "degraded", "ok"]) await report("disk", s);
     const rows = await t.tdb.db.select().from(audit).where(eq(audit.action, "system.report"));

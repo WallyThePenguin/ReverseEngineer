@@ -14,6 +14,8 @@ export type EventRow = typeof calendarEvent.$inferSelect;
  * aren't plans, so the brief, the journal and the evening card leave them out.
  */
 export const NOT_PLANS = ["workingLocation", "birthday"];
+/** Nor are they, or time marked out of office, meetings: no prep, heads-up or overlap notice. */
+export const NOT_MEETINGS = [...NOT_PLANS, "outOfOffice"];
 
 export interface EventView {
   id: string;
@@ -35,6 +37,8 @@ export interface EventView {
   attendees: Attendee[];
   /** The series it's one time of, for a repeating event. */
   recurringEventId: string | null;
+  /** Google's eventType: "default", "workingLocation", "outOfOffice"... */
+  kind: string;
   taskId: string | null;
   /** Its prep packet's record, when calendar.events lists it. */
   prepId?: string;
@@ -65,6 +69,7 @@ export function toEventView(e: EntityRow, r: EventRow): EventView {
     selfResponse: r.selfResponse,
     attendees: r.attendees,
     recurringEventId: r.recurringEventId,
+    kind: r.kind,
     taskId: r.taskId,
   };
 }

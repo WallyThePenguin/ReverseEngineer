@@ -29,7 +29,7 @@ import { meetingActions } from "./meetings.ts";
 import { prepPublish, prepRoutine, prepsFor } from "./prep.ts";
 import { respondAction } from "./respond.ts";
 import { meetingSoon } from "./soon.ts";
-import { guests, loadEvent, NOT_PLANS, toEventView, whenText } from "./store.ts";
+import { guests, loadEvent, NOT_MEETINGS, NOT_PLANS, toEventView, whenText } from "./store.ts";
 import { syncCalendars } from "./sync.ts";
 
 const DAY_MS = 24 * 3600_000;
@@ -75,7 +75,8 @@ const conflicts: ReflexDef = {
         });
         continue;
       }
-      if (r.taskId) continue;
+      // Only meetings overlap: not where you work, or time marked out of office.
+      if (r.taskId || NOT_MEETINGS.includes(ev.kind) || NOT_MEETINGS.includes(r.kind)) continue;
       const [a, b] = [ev.id, e.id].sort();
       out.push({
         kind: "tell" as const,

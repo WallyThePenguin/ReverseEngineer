@@ -108,7 +108,8 @@ export async function syncCalendars(ctx: ActionContext): Promise<SyncResult> {
       await recordCalendarHealth(ctx, acct, troubles, false, false);
       continue;
     }
-    for (const cal of await cals()) {
+    const selected = await cals();
+    for (const cal of selected) {
       let items: Awaited<ReturnType<CalendarApi["events"]>>;
       try {
         items = await api.events(acct.email, cal.googleId, from, to);
@@ -177,9 +178,11 @@ export async function syncCalendars(ctx: ActionContext): Promise<SyncResult> {
         .set({ lastSyncedAt: ctx.now, lastError: null })
         .where(eq(calendar.id, cal.id));
     }
-    // A calendar Google says isn't there (deleted, or no longer shared) while the account's others
-    // were read is that one calendar, not the account failing: Settings shows it, without a notice.
-    for (const t of gone) troubles.push(progressed ? { ...t, kind: "transient" } : t);
+    // A calendar Google says isn't there (deleted, or no longer shared) is that one calendar while
+    // the account has others: Settings names it (its lastError), and the account is judged by the
+    // others, so a failing one recovers, whichever calendar was read first. With none but such
+    // calendars selected, the account is failing: told at once, as before.
+    if (gone.length === selected.length) troubles.push(...gone);
     await recordCalendarHealth(ctx, acct, troubles, progressed, paused);
   }
   return result;

@@ -177,6 +177,9 @@ export const systemModule = defineModule({
           },
         });
         if (!i.ok) await alertBackupFailed(ctx, i.detail);
+        // Written here, not through system.report: a backup that ran closes "The nightly backup is
+        // failing", which the worker raises when none has run for a day and a half.
+        else await closeFailing(ctx, "backup");
         return { recorded: true };
       },
     }),

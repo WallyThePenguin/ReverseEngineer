@@ -1,16 +1,20 @@
 // The calendar's lines in the morning brief and the evening journal, and the evening card's look
 // at tomorrow: today's meetings and all-day events, never tomorrow's all-day ones, and never the
-// entries Google adds by itself to say where you work or whose birthday it is.
+// entries Google adds by itself to say where you work or whose birthday it is. Nor do those, or
+// time out of office, get a prep packet or a heads-up.
 import { addLocalDays, atLocal } from "@hearth/core";
-import { calendarEvent } from "@hearth/db";
+import { calendarEvent, entity } from "@hearth/db";
 import { getSetting, integrationCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { tomorrowAtAGlance } from "../assistant/wrap.ts";
 import { GOOGLE_SERVICE, SCOPES } from "../google/client.ts";
 import { FakeGoogle } from "../google/fake.ts";
 import { ALL_MODULES } from "../index.ts";
 import { calendarModule } from "./index.ts";
+import { worthPrep } from "./prep.ts";
+import { toEventView } from "./store.ts";
 
 const ME = "owner@example.com";
 const TODAY = "2026-10-07";
@@ -96,5 +100,18 @@ describe("the evening card", () => {
     const card = await tomorrowAtAGlance(t.tdb.db, TODAY, tz);
     expect(card).toMatch(/^Tomorrow: 9 a\.m\. Planning$/m);
     expect(card).not.toContain("Office");
+  });
+});
+
+describe("prep packets and heads-ups", () => {
+  it("are for meetings, not where you'll work or time out of office", async () => {
+    timed("Out of office", TODAY, 15, "outOfOffice");
+    await sync();
+    const rows = await t.tdb.db
+      .select({ e: entity, r: calendarEvent })
+      .from(calendarEvent)
+      .innerJoin(entity, eq(entity.id, calendarEvent.entityId));
+    const meetings = rows.map((x) => toEventView(x.e, x.r)).filter((v) => worthPrep(v, 0));
+    expect(meetings.map((v) => v.title).sort()).toEqual(["Planning", "Standup"]);
   });
 });

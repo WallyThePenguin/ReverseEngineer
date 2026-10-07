@@ -292,6 +292,22 @@ describe("alerts", () => {
     expect(await t.events("mail.sync_failed")).toHaveLength(1);
   });
 
+  it("stays failing, notice and all, when Gmail asks it to slow down partway through", async () => {
+    await sync();
+    for (let i = 0; i < 4; i++) await outage();
+    const [e] = await t.events("mail.sync_failed");
+    const key = await notice(e!);
+    // Still down, and Gmail turns the next try away: failing, and paused as well.
+    g.gmail.failNext(1, 429);
+    expect(await sync()).toMatchObject({ paused: [ME] });
+    expect(await account()).toMatchObject({ state: "failing" });
+    expect(await stateOf(key)).toBe("unseen");
+    t.clock.advance(61_000);
+    expect(await sync()).toMatchObject({ failed: [] });
+    expect(await stateOf(key)).toBe("done");
+    expect(await account()).toMatchObject({ state: "ok" });
+  });
+
   it("says nothing if mail synced again before Jarvis got to the alert", async () => {
     await sync();
     for (let i = 0; i < 4; i++) await outage();

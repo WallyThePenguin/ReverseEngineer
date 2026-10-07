@@ -1,6 +1,6 @@
 // How each Google account's calendars are syncing, saved after each round the way Slack, GitHub
 // and Notion save theirs (D61). One that won't pass by itself (a calendar Google won't show Hearth,
-// or says isn't there when none of the account's others could be read either) is told at once;
+// or says isn't there when the account has no other calendar selected) is told at once;
 // others after 3 rounds in a row and half an hour of them with nothing read, and Google signing
 // Hearth out at once, with how to connect again. Each account's
 // run of failures is told once, and its first good round closes its notice (keyed by account,
