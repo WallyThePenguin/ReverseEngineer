@@ -17,11 +17,10 @@ import { act, useAction } from "../lib/query.ts";
 import { quickAdd } from "../lib/quickadd.ts";
 import { unanswered } from "../lib/today.ts";
 import type { CalEvent, Entity } from "../lib/types.ts";
-import { byDay, createWeekStart } from "../lib/week.ts";
+import { byDay, createWeekStart, weeksOn } from "../lib/week.ts";
 import { type EventDraft, readEvent } from "../lib/when.ts";
 import { takeNotes } from "./Meeting.tsx";
 
-const DAY_MS = 24 * 3600_000;
 const dayLabel = (d: Date) =>
   d.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
 /** "Wednesday, Oct 7, 4 to 4:30 p.m.", or both days for an event that runs past midnight. */
@@ -84,7 +83,7 @@ export function Calendar(props: { pane: number }) {
   const from = createWeekStart(offset);
   const events = useAction<CalEvent[]>("calendar.events", () => ({
     from: from().toISOString(),
-    to: new Date(from().getTime() + 7 * DAY_MS).toISOString(),
+    to: weeksOn(from(), 1).toISOString(),
   }));
   const week = byDay(() => events.data, from);
   return (
