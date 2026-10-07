@@ -8,9 +8,11 @@ export interface BrowserHealth {
 }
 
 export function browserHealth(s: BrowserStatus): BrowserHealth {
+  // Not set up, or unpaired on purpose: nothing's wrong, as with a sync that has no account. Left
+  // degraded, it would keep a "Chrome link is failing" alert open until you dismissed it.
   if (s.paired === false)
     return {
-      status: "degraded",
+      status: "ok",
       detail:
         "No Chrome extension is paired, so Jarvis can't use Chrome. Pair it in Settings, Chrome.",
     };

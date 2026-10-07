@@ -146,6 +146,25 @@ describe("system alerts", () => {
     expect(await alerts()).toMatchObject([{ state: "unseen" }]);
   });
 
+  it("keeps one alert open when a slowdown runs past midnight", async () => {
+    await report("sync.google", "failing", "Gmail keeps asking Hearth to slow down");
+    // Degraded and failing by turns, never ok, into the next day: today's alert takes over.
+    t.clock.advance(8 * 3_600_000);
+    await report("sync.google", "degraded", "Gmail keeps asking Hearth to slow down");
+    t.clock.advance(8 * 3_600_000);
+    await report("sync.google", "failing", "Gmail still keeps asking Hearth to slow down");
+    const states = async () =>
+      (await alerts())
+        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+        .map((a) => [a.body, a.state]);
+    expect(await states()).toEqual([
+      ["Gmail keeps asking Hearth to slow down", "done"],
+      ["Gmail still keeps asking Hearth to slow down", "unseen"],
+    ]);
+    await report("sync.google", "ok");
+    expect((await states()).map(([, state]) => state)).toEqual(["done", "done"]);
+  });
+
   it("sends an alert that opens again if it never went out, held through quiet hours", async () => {
     const { timeZone } = await getSetting(t.tdb.db, "owner.dayRules");
     const day = localDate(t.clock.now(), timeZone);

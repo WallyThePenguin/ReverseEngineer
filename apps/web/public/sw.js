@@ -1,15 +1,34 @@
-// Hearth's service worker: opens the app when the PC can't be reached, and shows notifications.
-// The API is never cached; everything you see comes live from your PC.
+// Hearth's service worker: opens the app at once from the last page seen (and when the PC can't be
+// reached), and shows notifications. The API is never cached; everything you see comes live from
+// your PC.
 
-// The page itself, and the built files of the build it comes from. When a new build's page
-// arrives, the old build's files are dropped, so the cache holds one build, not every one since.
+// The page itself, and the built files of each build, a cache per build. A new build's page is
+// kept once its files are; the files of builds before the last go then (the last may still be
+// open), so the cache holds two builds, not every one since.
 const SHELL = "hearth-shell-v2";
 const ASSETS = "hearth-assets";
+const assetsOf = (build) => `${ASSETS}:${build}`;
+/**
+ * Where SHELL notes the last build seen to start here. The page notes it once the app is up, so
+ * it can move itself on to a new build (UpdateNotice), and forgets it before a reload, which then
+ * comes from the PC (lib/version.ts).
+ */
+const STARTED = "/.started";
 /** How long a page may take from the PC before the last one seen opens instead. */
 const NAVIGATE_TIMEOUT_MS = 3000;
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(SHELL).then((c) => c.addAll(["/", "/manifest.webmanifest"])));
+  e.waitUntil(
+    Promise.all([
+      fetch("/")
+        .then((res) => (res.ok && isPage(res) ? rememberPage(res).catch(forgetStarted) : undefined))
+        .catch(() => {}),
+      caches
+        .open(SHELL)
+        .then((c) => c.add("/manifest.webmanifest"))
+        .catch(() => {}),
+    ]),
+  );
   self.skipWaiting();
 });
 
@@ -19,55 +38,97 @@ self.addEventListener("activate", (e) => {
     caches
       .keys()
       .then((keys) =>
-        Promise.all(keys.filter((k) => !keep.includes(k)).map((k) => caches.delete(k))),
+        Promise.all(
+          keys
+            .filter((k) => !keep.includes(k) && !k.startsWith(`${ASSETS}:`))
+            .map((k) => caches.delete(k)),
+        ),
       )
       .then(() => self.clients.claim()),
   );
 });
 
-/** Which build a page is from: its main script's hashed name. */
-const buildOf = (html) => html.match(/\/assets\/index-[\w-]+\.js/)?.[0] ?? null;
+/** Which build a page is from, as the PC names it (its hearth-build stamp). */
+const buildOf = (html) => html.match(/<meta name="hearth-build" content="([^"]+)"/)?.[1] ?? null;
+
+/** The built files a page loads before anything else: its script, its preloads, its styles. */
+const filesOf = (html) => [...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map((m) => m[1]);
+
+/** The next page opened comes from the PC first: the newest page couldn't be kept. */
+const forgetStarted = () => caches.open(SHELL).then((c) => c.delete(STARTED));
 
 /** Hearth's page, as opposed to one of its files opened as a page (/version.json, an icon). */
 const isPage = (res) => (res.headers.get("content-type") ?? "").startsWith("text/html");
 
+/** A place in the app (/today, /mail+thread/…), as opposed to one of its files (/version.json). */
+const inApp = (url) => !url.pathname.split("/").pop().includes(".");
+
+/** The build of the page kept, which files fetched now are kept with. */
+const keptBuild = async () => {
+  const kept = await caches.match("/");
+  return kept ? buildOf(await kept.text()) : null;
+};
+
 /**
- * Saves the newest page. If it's from a new build, the old build's files go, unless the old
- * page is the one open right now (it opened from the cache) and may still ask for them; those
- * go with the next new build. A page that isn't the app (no main script) isn't saved.
+ * Saves the newest page. If it's from a new build, its files are kept first (a page kept without
+ * them would open blank with the PC out of reach), and then the files of builds before the one it
+ * replaces go: that one's page may still be open (it may have opened from here) and ask for them.
+ * A page that isn't the app (no build stamp) isn't saved. Throws if it couldn't be kept.
  */
-async function rememberPage(res, oldPageOpen) {
+async function rememberPage(res) {
   const shell = await caches.open(SHELL);
   const old = await shell.match("/");
-  const [before, now] = await Promise.all([
-    old ? old.text().then(buildOf) : null,
-    res.clone().text().then(buildOf),
-  ]);
+  const html = await res.clone().text();
+  const [before, now] = [old ? buildOf(await old.text()) : null, buildOf(html)];
   if (!now) return;
+  if (before !== now) await (await caches.open(assetsOf(now))).addAll(filesOf(html));
   await shell.put("/", res);
-  if (before && before !== now && !oldPageOpen) await caches.delete(ASSETS);
+  if (before === now) return;
+  const keep = [assetsOf(now), assetsOf(before)];
+  const names = await caches.keys();
+  await Promise.all(
+    names.filter((k) => k.startsWith(ASSETS) && !keep.includes(k)).map((k) => caches.delete(k)),
+  );
 }
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * The newest page from the PC. If it's out of reach, answers with an error (Hearth restarting
- * behind a proxy) or takes more than a few seconds, the last page seen opens instead, and the
- * app inside it waits for Hearth to come back.
+ * A place in the app opens at once from the last page seen, so the app starts while the PC is
+ * still being reached; the newest page is fetched meanwhile and kept for next time. A new build
+ * reaches the open page through its update check, which reloads into it from the PC when that
+ * loses nothing (UpdateNotice). Only a build whose page has started opens this way: one that
+ * hasn't (a broken update, which can't move itself on) is asked of the PC each time, so the update
+ * that fixes it arrives as soon as there is one.
+ */
+async function openSaved(e) {
+  const [saved, started] = await Promise.all([caches.match("/"), caches.match(STARTED)]);
+  if (!saved || !started) return navigate(e);
+  if (buildOf(await saved.clone().text()) !== (await started.text())) return navigate(e);
+  e.waitUntil(
+    fetch(e.request)
+      .then((res) => (res.ok && isPage(res) ? rememberPage(res).catch(forgetStarted) : undefined))
+      .catch(() => {}),
+  );
+  return saved;
+}
+
+/**
+ * The newest page from the PC: before any is kept, while the one kept hasn't started, on a reload
+ * (lib/version.ts), and for its files opened as pages. If it's out of reach, answers with an error
+ * (Hearth restarting behind a proxy) or takes more than a few seconds, the last page seen opens
+ * instead, and the app inside it waits for Hearth to come back.
  */
 function navigate(e) {
   const network = fetch(e.request);
   let answered = false;
-  let openedSaved = false;
-  const saved = async () => {
-    const hit = await caches.match("/");
-    if (hit) openedSaved = true;
-    return hit;
-  };
+  const saved = () => caches.match("/");
   // Saved even when it arrives after the saved page has opened. (Copied before the page reads it.)
   e.waitUntil(
     network
-      .then((res) => (res.ok && isPage(res) ? rememberPage(res.clone(), openedSaved) : undefined))
+      .then((res) =>
+        res.ok && isPage(res) ? rememberPage(res.clone()).catch(forgetStarted) : undefined,
+      )
       .catch(() => {}),
   );
   const fromNetwork = network.then(
@@ -98,7 +159,11 @@ self.addEventListener("fetch", (e) => {
           fetch(e.request).then((res) => {
             if (res.ok) {
               const copy = res.clone();
-              e.waitUntil(caches.open(ASSETS).then((c) => c.put(e.request, copy)));
+              e.waitUntil(
+                keptBuild()
+                  .then((build) => caches.open(assetsOf(build)))
+                  .then((c) => c.put(e.request, copy)),
+              );
             }
             return res;
           }),
@@ -106,7 +171,7 @@ self.addEventListener("fetch", (e) => {
     );
     return;
   }
-  if (e.request.mode === "navigate") e.respondWith(navigate(e));
+  if (e.request.mode === "navigate") e.respondWith(inApp(url) ? openSaved(e) : navigate(e));
 });
 
 self.addEventListener("push", (e) => {

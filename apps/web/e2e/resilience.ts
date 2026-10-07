@@ -248,16 +248,17 @@ try {
       const answered = p.waitForResponse((r) => r.url().endsWith("/api/actions/chat.send"));
       await plan.click();
       await plan.click();
-      release();
-      await answered;
-      await p.unroute("**/api/actions/chat.send");
-      // A double-click adds the task once, and its second click lands on no chip sliding under it.
+      // Meanwhile a task can be added: a chip waits only on its own. A double-click adds it once,
+      // and its second click lands on no chip sliding under it.
       await ask.fill(`Cake ${tag} tomorrow 5pm`);
       await p.getByRole("button", { name: /^Add task/ }).dblclick();
       await p.getByText(`Added “Cake ${tag}”`).waitFor();
       // The box has the focus again, for the next line: not Plan my day, which a key would start.
       if (!(await ask.evaluate((el) => el.matches(":focus"))))
         throw new Error("adding a task didn't give the focus back to the box");
+      release();
+      await answered;
+      await p.unroute("**/api/actions/chat.send");
       await p.waitForTimeout(500);
       p.off("request", count);
       if (times("chat.send") !== 1 || times("task.create") !== 1)

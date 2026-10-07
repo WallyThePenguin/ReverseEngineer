@@ -4,9 +4,10 @@
 // or else from your browser (D53, D69): no page shows a passkey button that can't work where it is.
 
 import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
-import { createSignal, Match, Show, Switch } from "solid-js";
+import { createSignal, Match, onMount, Show, Switch } from "solid-js";
 import { authPost } from "../lib/api.ts";
 import { inDesktopApp } from "../lib/desktop.ts";
+import { forgetStarted } from "../lib/version.ts";
 import { connectLink, wayIn } from "../lib/wayIn.ts";
 
 const BUTTON = "w-full rounded-md bg-accent px-3 py-2 font-medium text-on-fill disabled:opacity-50";
@@ -25,6 +26,9 @@ export function Login(props: {
   const [sent, setSent] = createSignal(false);
   const app = inDesktopApp();
   const way = () => wayIn(location, props, app);
+  // Signed out, or never in: Hearth isn't checked for a new build until you're in (UpdateNotice),
+  // so this page opens from the PC next time, not from what's kept (sw.js).
+  onMount(() => void forgetStarted());
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
