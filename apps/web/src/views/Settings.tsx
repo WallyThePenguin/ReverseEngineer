@@ -185,12 +185,7 @@ export function Settings() {
               <For each={status.data?.schedules ?? []}>
                 {(s) => (
                   <li class="flex gap-3">
-                    <Show
-                      when={s.label}
-                      fallback={<span class="flex-1 font-mono text-xs">{s.id}</span>}
-                    >
-                      {(label) => <span class="flex-1 break-words">{label()}</span>}
-                    </Show>
+                    <span class="flex-1 font-mono text-xs">{s.id}</span>
                     <span class="text-muted">
                       {s.nextRunAt ? new Date(s.nextRunAt).toLocaleString() : ""}
                     </span>
