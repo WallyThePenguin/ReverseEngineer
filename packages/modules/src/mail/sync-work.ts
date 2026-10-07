@@ -121,8 +121,13 @@ export async function bringIn(
       work.removed += await removeMail(ctx, account.id, changes.removed);
       await sort(ctx, account, changes.changed, c, work);
     } else work.more = true;
+    // Your accounts' addresses, read once for the batch (and again if that read fails).
     let mine: Promise<Set<string>> | undefined;
-    const yours = () => (mine ??= accountAddresses(ctx.tx));
+    const yours = () =>
+      (mine ??= accountAddresses(ctx.tx).catch((err: unknown) => {
+        mine = undefined;
+        throw err;
+      }));
     let calls = CALLS_PER_SYNC;
     while (c.pending.length && calls-- > 0) {
       const id = c.pending[0]!;
@@ -148,7 +153,7 @@ export async function bringIn(
       if (!raw) continue;
       try {
         // A message that won't save is undone on its own; the rest carry on (6.2).
-        const saved = await savepoint(ctx, (sp) => saveMail(sp, account, raw));
+        const saved = await savepoint(ctx, (sp) => saveMail(sp, account, raw, yours));
         if (!saved?.added) continue;
         work.added++;
         // Your own email cc'd to this account, saved before its copy in Sent, isn't news either.
