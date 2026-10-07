@@ -48,7 +48,10 @@ export async function holdSyncs(ctx: Pick<ActionContext, "tx">, accountIds: stri
 
 export { providerFor };
 
-/** Every Google account you connected Gmail for gets a mail account. */
+/**
+ * Every Google account you connected Gmail for gets a mail account. Read so that one being
+ * disconnected is waited for (google.disconnect holds it), then left out: it mustn't come back.
+ */
 async function gmailAccounts(ctx: ActionContext): Promise<AccountRow[]> {
   const google = await ctx.tx
     .select({ email: googleAccount.email })
@@ -58,7 +61,8 @@ async function gmailAccounts(ctx: ActionContext): Promise<AccountRow[]> {
         ne(googleAccount.status, "revoked"),
         arrayContains(googleAccount.scopes, [SCOPES.gmail[0]]),
       ),
-    );
+    )
+    .for("key share");
   for (const g of google)
     await ctx.tx
       .insert(mailAccount)

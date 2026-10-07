@@ -12,9 +12,9 @@ import type { ParsedMail } from "./mime.ts";
 /**
  * An email's fingerprint: everything of it Hearth reads. Its Message-ID, From, To and Cc (names
  * too), Reply-To, Subject, Date as sent (to the millisecond, or none), the messages it answers,
- * whether it's bulk mail (its list and machine headers), body, and attachments (named as they
- * are). A copy delivered to another account has the same; a forgery that matched it all would
- * have nothing left to change.
+ * body, and attachments (named as they are). A copy delivered to another account has the same; a
+ * forgery that matched it all would have nothing left to change. Not whether it's bulk mail: a
+ * list relays its copy with headers of its own, so that's pooled instead (once).
  */
 export function copyKey(p: ParsedMail, messageId: string): string {
   const addresses = (xs: readonly { address: string; name?: string }[]) =>
@@ -37,7 +37,6 @@ export function copyKey(p: ParsedMail, messageId: string): string {
         p.date?.getTime() ?? null,
         p.inReplyTo,
         p.references,
-        p.bulk,
         p.text,
         p.html,
         files,
@@ -78,21 +77,23 @@ export interface Copyable {
   copyKey: string | null;
   outbound: boolean;
   labels: string[];
+  bulk?: boolean | null;
 }
 
 /**
- * The flags a copy that isn't shown adds to the one that is: unread or starred, and in the inbox,
- * unless the one shown is yours (sent): it's in Sent, not mail to you, wherever else it went.
+ * The flags a copy that isn't shown adds to the one that is: starred, and unread or in the inbox
+ * unless the one shown is yours (sent): it's in Sent, not news to you, wherever else it went.
  */
 const POOLED = new Set(["INBOX", "UNREAD", "STARRED"]);
 const pooled = (labels: readonly string[], toSent: boolean) =>
-  labels.filter((l) => POOLED.has(l) && !(toSent && l === "INBOX"));
+  labels.filter((l) => POOLED.has(l) && !(toSent && l !== "STARRED"));
 
 /**
  * Each email once. Of its copies, the one shown is the first saved, or the one you sent if a copy
- * is (your email cc'd to another of yours is yours, not mail to you). It's unread or starred if
- * any copy is, and in the inbox if any is unless it's yours; everything else about it (its Gmail
- * tab, importance) is its own. `rows` come in order of sentAt, then entityId (in the order saved).
+ * is (your email cc'd to another of yours is yours, not mail to you). It's starred if any copy
+ * is, unread or in the inbox if any is unless it's yours, and bulk mail only if every copy is (a
+ * list's copy of it can't make it need no reply); everything else about it (its Gmail tab,
+ * importance) is its own. `rows` come in order of sentAt, then entityId (in the order saved).
  */
 export function once<T extends Copyable>(rows: readonly T[]): T[] {
   const seen = new Map<string, { kept: T; accounts: Set<string> }[]>();
@@ -107,12 +108,14 @@ export function once<T extends Copyable>(rows: readonly T[]): T[] {
       continue;
     }
     of.accounts.add(m.accountId);
+    const bulk = of.kept.bulk && m.bulk;
     const flags = (shown: T, other: string[]) => [
       ...new Set([...shown.labels, ...pooled(other, shown.outbound)]),
     ];
     if (m.outbound && !of.kept.outbound)
       Object.assign(of.kept, m, { labels: flags(m, of.kept.labels) });
     else of.kept.labels = flags(of.kept, m.labels);
+    if (bulk !== undefined) of.kept.bulk = bulk;
   }
   return out;
 }
