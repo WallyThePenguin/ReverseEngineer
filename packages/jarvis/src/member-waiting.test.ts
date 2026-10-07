@@ -1,10 +1,12 @@
 // A post to a member checked once more as the outbox sends it (D62). An answer that went on its
 // own doesn't go once you've lowered their tier or put their replies on review while it waited,
-// and you're told why, with its text; one you said yes to still goes. A fixed note doesn't go to
-// someone you've blocked since, or with members off, and nobody needs telling.
-import { approval } from "@hearth/db";
-import { ownerCaller, setSetting } from "@hearth/kernel";
-import { eq } from "drizzle-orm";
+// and you're told why, with all of its text; one you said yes to still goes. A fixed note doesn't
+// go to someone you've blocked since, or with members off, and nobody needs telling; one in your
+// own DM always goes.
+import { PRINCIPAL } from "@hearth/core";
+import { approval, jarvisTurn, slackOutbox } from "@hearth/db";
+import { newId, ownerCaller, setSetting } from "@hearth/kernel";
+import { eq, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type MemberTest, memberTest, SAM } from "./member-testing.ts";
 
@@ -37,14 +39,37 @@ describe("an answer waiting to go", () => {
     });
   });
 
-  it("doesn't go once you've put their replies on review", async () => {
-    await ask("Hi", "Hello Sam.");
+  it("doesn't go once you've put their replies on review, and the card has all of it", async () => {
+    const answer = `Hello Sam. ${"Here's the plan, step by step. ".repeat(20).trim()}`;
+    await ask("Hi", answer);
     await t.setSam({ replies: "review" });
     await t.send();
     expect(t.s.posts).toEqual([]);
+    const why = "You set replies to them to wait for your yes while this waited.";
+    expect(await t.outbox()).toMatchObject([{ state: "failed", error: why }]);
+    expect((await t.cards("slack.not_sent"))[0]!.body).toBe(`${why}\n\n${answer}`);
+  });
+
+  it("doesn't go at relay when it was written before Hearth noted the tier", async () => {
+    const unnoted = () =>
+      t.h.tdb.db.update(jarvisTurn).set({ context: sql`${jarvisTurn.context} - 'answeredAs'` });
+    await ask("Hi", "Hello Sam.");
+    await unnoted();
+    await t.send();
+    expect(t.s.posts).toEqual([]);
     expect(await t.outbox()).toMatchObject([
-      { state: "failed", error: "You set replies to them to wait for your yes while this waited." },
+      {
+        state: "failed",
+        error: "They're at relay now, and Hearth can't tell whether this says more than that.",
+      },
     ]);
+    // Whatever it was written at, schedule allows it.
+    await t.setSam({ tier: "schedule" });
+    t.h.clock.advance(60_000);
+    await ask("Still there?", "Still here.");
+    await unnoted();
+    await t.send();
+    expect(t.s.posts.map((p) => p.text)).toEqual(["Still here."]);
   });
 
   it("still goes when you raised their tier, or said yes to it yourself", async () => {
@@ -98,5 +123,24 @@ describe("a note waiting to go", () => {
     await noteQueued();
     await t.send();
     expect(t.s.posts.map((p) => p.text)).toEqual([expect.stringMatching(/^I'm paused/)]);
+  });
+
+  it("still goes in your own DM with members off: it isn't to a member", async () => {
+    await setSetting(t.h.tdb.db, "slack.bot.membersOn", false);
+    const now = t.h.clock.now();
+    await t.h.tdb.db.insert(slackOutbox).values({
+      id: newId(),
+      dedupeKey: "owner:got:1.000001",
+      teamId: "T1",
+      channelId: "DUME",
+      text: "Got it, it's in Hearth.",
+      kind: "note",
+      createdBy: PRINCIPAL.owner,
+      createdAt: now,
+      notBefore: now,
+      expiresAt: new Date(now.getTime() + 86_400_000),
+    });
+    await t.send();
+    expect(t.s.posts.map((p) => p.text)).toEqual(["Got it, it's in Hearth."]);
   });
 });

@@ -5,7 +5,7 @@
 // session starts from the recap, which has Jarvis's words only as they went out.
 import { approval, conversation, jarvisTurn, slackOutbox } from "@hearth/db";
 import { REPLY_ACTION } from "@hearth/modules";
-import { and, desc, eq, inArray, isNull, ne } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, ne, notExists } from "drizzle-orm";
 import type { EndEnv } from "./turn-end.ts";
 
 /** A member's conversation starts a new agent session after this long idle (D62). */
@@ -79,16 +79,37 @@ export const forgetSession = (env: EndEnv, cid: string) =>
 
 /**
  * Keeps the session a turn ended with, unless its DM's session changed while the turn ran (`was`
- * is what it was then): you changed the member's tier or review, or one of their answers failed
- * to go, and that cleared it.
+ * is what it was then, `since` when it started): you changed the member's tier or review, or
+ * Claude lost it. Nor when an answer there failed or expired meanwhile, which a turn that began
+ * with no session can't see from the session alone: what it started from had that answer as said.
  */
-export const keepIfUnchanged = (env: EndEnv, cid: string, sessionId: string, was: string | null) =>
-  env.kernel.db
+export function keepIfUnchanged(
+  env: EndEnv,
+  cid: string,
+  sessionId: string,
+  was: string | null,
+  since: Date,
+) {
+  const { db } = env.kernel;
+  const lost = db
+    .select({ id: slackOutbox.id })
+    .from(slackOutbox)
+    .where(
+      and(
+        eq(slackOutbox.conversationId, cid),
+        eq(slackOutbox.kind, "answer"),
+        inArray(slackOutbox.state, ["failed", "expired"]),
+        gte(slackOutbox.finishedAt, since),
+      ),
+    );
+  return db
     .update(conversation)
     .set({ agentSessionId: sessionId })
     .where(
       and(
         eq(conversation.entityId, cid),
         was === null ? isNull(conversation.agentSessionId) : eq(conversation.agentSessionId, was),
+        notExists(lost),
       ),
     );
+}
