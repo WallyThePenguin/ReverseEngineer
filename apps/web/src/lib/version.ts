@@ -78,6 +78,21 @@ export function watchBuild(
 }
 
 /**
+ * Runs `check` each time the page goes out of sight: the desktop app's Ask window looks for a new
+ * build then, not as you open it to type (Mini.tsx). Returns the cleanup.
+ */
+export function whenHidden(
+  check: () => void,
+  doc: EventTarget & { visibilityState: DocumentVisibilityState } = document,
+): () => void {
+  const hidden = () => {
+    if (doc.visibilityState === "hidden") check();
+  };
+  doc.addEventListener("visibilitychange", hidden);
+  return () => doc.removeEventListener("visibilitychange", hidden);
+}
+
+/**
  * The build a page that's just come back into view should reload into now, or null to show the
  * notice instead. Only when it's out of date and reloading loses nothing, and not when it already
  * reloaded for that build and still came up old (the service worker's saved page, when the PC was
@@ -197,7 +212,7 @@ export function freeze(
 
 // Where the service worker keeps the last page seen, and notes the last build seen to start here
 // (sw.js: SHELL, STARTED). Only that build opens before the PC answers.
-const SHELL = "hearth-shell-v2";
+const SHELL = "hearth-shell-v3";
 const STARTED = "/.started";
 
 let marks: Promise<void> = Promise.resolve();

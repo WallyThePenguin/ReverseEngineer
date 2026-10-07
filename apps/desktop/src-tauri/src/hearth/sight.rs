@@ -156,8 +156,8 @@ fn bring_up(window: &WebviewWindow) {
     });
 }
 
-/// The main window is out of sight (just made, or put away): its page is told, unless the window
-/// has come up meanwhile.
+/// A window is out of sight (the main one just made, or put away, or the Ask window put away): its
+/// page is told, unless the window has come up meanwhile.
 pub(super) fn out_of_sight(window: &WebviewWindow) {
     let w = window.clone();
     let _ = window.run_on_main_thread(move || {

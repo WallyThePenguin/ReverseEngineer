@@ -15,9 +15,11 @@ import {
   BLOB_SERVICE,
   BROWSER_SERVICE,
   blobsFromEnv,
+  CONVEX_SERVICE,
   GITHUB_SERVICE,
   GOOGLE_SERVICE,
   googleFromEnv,
+  httpConvex,
   httpGithub,
   httpNotion,
   httpSlack,
@@ -111,6 +113,7 @@ export function createApp(opts: AppOptions) {
   opts.kernel.services[SLACK_BOT_SERVICE] ??= httpSlackBot();
   opts.kernel.services[INSTALL_SERVICE] ??= installFromEnv();
   opts.kernel.services[GITHUB_SERVICE] ??= httpGithub();
+  opts.kernel.services[CONVEX_SERVICE] ??= httpConvex();
   opts.kernel.services[NOTION_SERVICE] ??= httpNotion();
   opts.kernel.services[BLOB_SERVICE] ??= blobsFromEnv();
   opts.kernel.services[POLISH_SERVICE] ??= polisherFromEnv();
