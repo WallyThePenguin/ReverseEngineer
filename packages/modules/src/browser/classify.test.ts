@@ -62,9 +62,8 @@ describe("Hearth's own pages", () => {
     ["http://localhost:4474/chat", true],
     ["https://hearth.tail.ts.net/approvals", true],
     ["https://HEARTH.tail.ts.net:443/", true],
-    // Any port: a dev proxy, a second port, whatever else answers there.
+    // Where you open it from elsewhere, on any port: whatever answers there is Hearth's.
     ["https://hearth.tail.ts.net:8443/", true],
-    ["http://localhost:3000/", true],
     ["http://127.0.0.2:4400/", true],
     // The same place by another spelling.
     ["https://hearth.tail.ts.net./approvals", true],
@@ -76,6 +75,12 @@ describe("Hearth's own pages", () => {
     ["blob:http://localhost:4400/0b1c", true],
     ["blob:https://hearth.tail.ts.net/0b1c", true],
     ["http://hearth.localhost:4400/inbox", true],
+    // Other apps on this PC (a dev server), and Hearth's own dev server, which its mark tells.
+    ["http://localhost:3000/", false],
+    ["http://hearth.localhost:3000/", false],
+    ["http://localhost:5173/", false],
+    ["http://localhost/", false],
+    ["https://localhost/", false],
     ["https://shop.example/", false],
     ["https://tail.ts.net/", false],
     ["https://evil-hearth.tail.ts.net/", false],
@@ -94,10 +99,20 @@ describe("Hearth's own pages", () => {
         .flat()
         .find((a) => a?.family === "IPv4" && !a.internal)?.address ?? "127.0.0.1";
     expect(isHearthPage(`http://${lan}:4400/`, { HEARTH_HOST: "0.0.0.0" })).toBe(true);
+    expect(isHearthPage(`http://${lan}:3000/`, { HEARTH_HOST: "0.0.0.0" })).toBe(false);
     // 192.0.2.x is for documentation: never this PC.
     expect(isHearthPage("http://192.0.2.7:4400/", { HEARTH_HOST: "0.0.0.0" })).toBe(false);
     expect(isHearthPage("http://192.0.2.7:4400/", { HEARTH_HOST: "192.0.2.7" })).toBe(true);
     expect(isHearthPage("http://192.0.2.7:4400/", {})).toBe(false);
+  });
+
+  it("knows Hearth's ports on this PC from where it's opened", () => {
+    expect(isHearthPage("http://localhost:4400/", {})).toBe(true);
+    expect(isHearthPage("http://localhost:4400/", { HEARTH_PORT: "4474" })).toBe(false);
+    const at = { HEARTH_PORT: "4474", HEARTH_ORIGIN: "http://127.0.0.1:8080" };
+    expect(isHearthPage("http://localhost:8080/", at)).toBe(true);
+    const server = { HEARTH_PORT: "4474", HEARTH_SERVER_URL: "http://127.0.0.1:4490" };
+    expect(isHearthPage("http://localhost:4490/", server)).toBe(true);
   });
 });
 

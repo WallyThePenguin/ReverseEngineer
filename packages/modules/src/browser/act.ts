@@ -15,7 +15,16 @@ import { driverClick, driverPress, driverProbe, driverType } from "./drive-act.t
 import { clickAt, insertText, pressKey } from "./input.ts";
 import { pace } from "./pace.ts";
 import { elementSeen, evaluate, pageCall, pageFunction } from "./page.ts";
-import { afterStep, assertSite, beforeStep, handsPin, ref, SITE_CHECK, tabId } from "./step.ts";
+import {
+  afterStep,
+  assertHere,
+  assertSite,
+  beforeStep,
+  handsPin,
+  ref,
+  SITE_CHECK,
+  tabId,
+} from "./step.ts";
 
 export { afterStep } from "./step.ts";
 
@@ -74,7 +83,13 @@ export async function locate(
   const client = browser(ctx);
   const { tab, known } = await beforeStep(client, i.tabId);
   const url = await assertAllowed(ctx, tab.url);
-  if (paced) await pace(ctx, url);
+  // Hearth's own page is refused before any wait, by its address or the mark in its head. A page
+  // that goes elsewhere while Jarvis waits takes its references with it.
+  if (paced) {
+    assertNotHearth(ctx, url);
+    await assertHere(ctx, client, i.tabId);
+    await pace(ctx, url);
+  }
   const el = await evaluate<ElementState>(
     client,
     i.tabId,

@@ -5,12 +5,20 @@ import { type ActionContext, ActionError, defineAction } from "@hearth/kernel";
 import { z } from "zod";
 import { assertAllowed, assertNotHearth, browser, CALLERS } from "./access.ts";
 import { askWhy, dialogVerdict, isTrusted, judge, REJECT, type Verdict } from "./classify.ts";
-import type { BrowserClient } from "./client.ts";
 import { clickAt, pressCombo } from "./input.ts";
 import { type Combo, isPaste, parseKeys, types } from "./keys.ts";
 import { pace } from "./pace.ts";
 import { evaluate, pageCall, pageFunction } from "./page.ts";
-import { afterStep, assertSite, beforeStep, handsPin, SITE_CHECK, tabId, tabPin } from "./step.ts";
+import {
+  afterStep,
+  assertHere,
+  assertSite,
+  beforeStep,
+  handsPin,
+  SITE_CHECK,
+  tabId,
+  tabPin,
+} from "./step.ts";
 
 const PROBE = pageFunction("./page-probe.js", "pageProbe");
 
@@ -83,18 +91,17 @@ function tally(names: string[]): string {
   return out.map(([n, k]) => (k > 1 ? `${n} ×${k}` : n)).join(", ");
 }
 
-/** The page a tab is on right now, asked of the page itself. */
-const where = (client: BrowserClient, tab: number) =>
-  evaluate<string>(client, tab, "location.href").catch(() => "");
-
 async function ready(ctx: ActionContext, i: { tabId: number; site?: string }) {
   const client = browser(ctx);
   const { tab, known } = await beforeStep(client, i.tabId);
   assertSite(tab, i.site);
   const url = await assertAllowed(ctx, tab.url);
   assertNotHearth(ctx, url);
+  // Where the step begins, asked of the page before the wait, so a page that goes elsewhere
+  // (Hearth's own) while Jarvis waits is seen to have.
+  const began = await assertHere(ctx, client, i.tabId);
   await pace(ctx, url);
-  return { client, tab, known };
+  return { client, tab, known, began };
 }
 
 export const stepActions = [
@@ -124,19 +131,14 @@ export const stepActions = [
           "forbidden",
           "Pasting isn't allowed: it would send whatever is on the owner's clipboard. Type the text with browser_type.",
         );
-      const { client, tab, known } = await ready(ctx, i);
+      const { client, tab, known, began } = await ready(ctx, i);
       const trusted = await isTrusted(ctx, tab.url);
       const done: string[] = [];
       let dialog = false;
-      const began = await where(client, i.tabId);
       for (let r = 0; r < i.repeat && !dialog; r++) {
         for (const c of combos) {
-          // A page that sends itself somewhere (Hearth's own page) mid-step stops it there.
-          if (ctx.caller.kind !== "owner" && (await where(client, i.tabId)) !== began)
-            throw new ActionError(
-              "conflict",
-              `The tab went to another page partway through, so Jarvis stopped there.${done.length ? ` (Already pressed: ${tally(done)}.)` : ""}`,
-            );
+          // A page that goes to another (Hearth's own) while Jarvis waits or presses stops it there.
+          await assertHere(ctx, client, i.tabId, began, tally(done));
           if (sensitive(c)) {
             const active = await evaluate<Active>(
               client,
@@ -227,7 +229,9 @@ export const stepActions = [
     pin: handsPin,
     summarize: (i) => `Reject cookies in tab ${i.tabId}`,
     async handler(i, ctx) {
-      const { client, tab, known } = await ready(ctx, i);
+      const { client, tab, known, began } = await ready(ctx, i);
+      // The page may have gone elsewhere (to Hearth's own) while Jarvis waited.
+      await assertHere(ctx, client, i.tabId, began);
       const found = await evaluate<{
         found: boolean;
         banner: boolean;
@@ -260,6 +264,7 @@ export const stepActions = [
         );
       if (found.covered || found.x === undefined || found.y === undefined)
         throw new ActionError("failed", "Something covers the banner's reject button.");
+      await assertHere(ctx, client, i.tabId, began);
       await clickAt(client, i.tabId, "C1", found.x, found.y);
       return {
         tabId: i.tabId,

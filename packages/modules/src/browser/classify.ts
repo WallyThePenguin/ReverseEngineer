@@ -116,18 +116,19 @@ function bare(host: string): string {
   return [hi >> 8, hi & 255, lo >> 8, lo & 255].join(".");
 }
 
-/** An address's host and path; a blob: address is its page's. Null if it isn't one. */
+/** An address's host, port and path; a blob: address is its page's. Null if it isn't one. */
 function hostOf(raw: string | undefined) {
   try {
     let u = new URL(raw ?? "");
     if (u.protocol === "blob:") u = new URL(u.pathname);
-    return { host: bare(u.hostname), path: u.pathname };
+    const port = u.port || (u.protocol === "https:" ? "443" : "80");
+    return { host: bare(u.hostname), port, path: u.pathname };
   } catch {
     return null;
   }
 }
 
-/** This PC by any of its names, where whatever answers on any port may be Hearth. */
+/** This PC by any of its names. */
 function thisPc(host: string, env: NodeJS.ProcessEnv): boolean {
   if (isLoopbackHost(host) || host === "0.0.0.0" || host === "::") return true;
   // Bound to every address (0.0.0.0), Hearth answers on each of this PC's.
@@ -139,16 +140,26 @@ function thisPc(host: string, env: NodeJS.ProcessEnv): boolean {
   return here.includes(host);
 }
 
+/** The ports Hearth answers on here: its own, and those of its addresses on this PC. */
+function hearthPorts(env: NodeJS.ProcessEnv): string[] {
+  const own = [env.HEARTH_ORIGIN, env.HEARTH_LOCAL_ORIGIN, env.HEARTH_SERVER_URL]
+    .map((o) => hostOf(o))
+    .filter((o) => o && thisPc(o.host, env));
+  return [env.HEARTH_PORT || "4400", ...own.map((o) => o!.port)];
+}
+
 /**
- * Whether an address is one of Hearth's own pages: where you open it (HEARTH_ORIGIN,
- * HEARTH_LOCAL_ORIGIN), or this PC, on any port (a dev proxy, a second port). Jarvis has its own
- * actions for all of it, so a press, a key or typing there is never its own to do. Chrome's test
- * page is Hearth's too, but has nothing behind it.
+ * Whether an address is one of Hearth's own pages: where you open it from elsewhere
+ * (HEARTH_ORIGIN, on any port), or Hearth's own ports on this PC, where other apps answer on the
+ * rest (a dev server on :3000). Jarvis has its own actions for all of it, so a press, a key or
+ * typing there is never its own to do. Hearth's dev server, a proxy or an alias is told by the
+ * mark in its head (HEARTH_MARK) instead. Chrome's test page is Hearth's too, but has nothing
+ * behind it.
  */
 export function isHearthPage(url: string, env: NodeJS.ProcessEnv = process.env): boolean {
   const at = hostOf(url);
   if (!at?.host || at.path === TEST_PAGE_PATH) return false;
-  if (thisPc(at.host, env)) return true;
+  if (thisPc(at.host, env)) return hearthPorts(env).includes(at.port);
   return [env.HEARTH_ORIGIN, env.HEARTH_LOCAL_ORIGIN].some((o) => o && hostOf(o)?.host === at.host);
 }
 

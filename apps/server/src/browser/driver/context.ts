@@ -81,18 +81,27 @@ export class DriverContext {
 
   /**
    * Hearth's own pages are the owner's to work, known by address or by the mark in their head:
-   * Jarvis never presses, types or uses keys there. Checked as a step that acts begins.
+   * Jarvis never presses, types or uses keys there, nor on a page on its way there. Checked as a
+   * step that acts begins; a page that can't be asked isn't acted on either.
    */
   async assertNotHearth(): Promise<void> {
     if (this.policy.owner) return;
+    const heading = this.tab.heading;
+    if (isHearthPage(this.url()) || (heading && isHearthPage(heading)))
+      throw fail("refused", HEARTH_PAGE);
     const marked = await this.worlds
       .evaluate<boolean>(
         undefined,
         this.tab.mainFrame ?? "",
         `document.querySelector(${JSON.stringify(HEARTH_MARK)}) !== null`,
       )
-      .catch(() => false);
-    if (marked || isHearthPage(this.url())) throw fail("refused", HEARTH_PAGE);
+      .catch(() => null);
+    if (marked === null)
+      throw fail(
+        "changed",
+        `Jarvis couldn't tell what page tab ${this.tab.tabId} is on, so it didn't go ahead. Try again once the page has loaded.`,
+      );
+    if (marked) throw fail("refused", HEARTH_PAGE);
     this.began = this.tab.navigations;
     this.asked = this.tab.asked;
   }

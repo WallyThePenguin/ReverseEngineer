@@ -54,6 +54,8 @@ export class TabState {
   starting = false;
   /** Other pages the tab's own page asked to go to so far (a link, a form, a script). */
   asked = 0;
+  /** The page the tab's own page last asked to go to, until it arrives or loading stops. */
+  heading: string | null = null;
   dialog: { type: string; message: string } | null = null;
   shot: ShotMeta | null = null;
   /** When you last used the tab yourself, from Hearth's live view. */
@@ -114,6 +116,7 @@ export class TabState {
     this.last = null;
     this.seeded = false;
     this.starting = false;
+    this.heading = null;
   }
 
   handle(e: DriverEvent): void {
@@ -132,6 +135,7 @@ export class TabState {
         if (main) {
           this.mainFrame = f.id;
           this.navigations++;
+          this.heading = null;
           this.refs.clear();
           this.worlds.clear();
           this.owners.clear();
@@ -154,13 +158,18 @@ export class TabState {
       case "Page.frameStoppedLoading":
         if (!e.sessionId && (p.frameId === this.mainFrame || this.mainFrame === null)) {
           this.starting = e.method !== "Page.frameStoppedLoading";
-          // Heard as the page asks, before the new one comes; a #part of the same page isn't one.
+          if (!this.starting) this.heading = null;
+          // Heard as the page asks, before the new one comes. A #part of the same page isn't one,
+          // nor is a page asked for in a new tab or window, or a download.
           const at = this.mainFrame ? this.frames.get(this.mainFrame)?.url : undefined;
           if (
             e.method === "Page.frameRequestedNavigation" &&
+            (!p.disposition || p.disposition === "currentTab") &&
             String(p.url).split("#")[0] !== at?.split("#")[0]
-          )
+          ) {
             this.asked++;
+            this.heading = String(p.url);
+          }
         }
         break;
       case "Page.frameDetached":

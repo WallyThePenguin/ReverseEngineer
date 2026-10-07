@@ -1,7 +1,7 @@
 // Jarvis's browser actions end to end on a real Chromium (B1): the browser module's actions through
 // the kernel to the server's driver, as a turn uses them, and "Test Jarvis's Chrome" on that path.
 import { approval } from "@hearth/db";
-import { type Caller, jarvisCaller, ownerCaller } from "@hearth/kernel";
+import { type Caller, jarvisCaller, ownerCaller, systemCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import {
   ALL_MODULES,
@@ -223,10 +223,13 @@ describe.runIf(h.run)("Jarvis's browser actions on the server's driver", () => {
       await ok("browser.hover", { tabId, ref: approve });
       const looks = [{ action: "wait", input: { ms: 10 } }];
       expect(await ok("browser.batch", { tabId, steps: looks })).toMatchObject({ steps: 1 });
-      // Hearth by its mark, at an address it wasn't told about: the driver refuses it.
+      // Hearth by its mark, at an address it wasn't told about: refused before anything asks, and
+      // by the driver itself for Hearth's own reflexes, which nothing asks about.
       const marked = await open("mirror.test", "/marked");
       const read = await ok("browser.read_page", { tabId: marked });
-      const press = await run("browser.click", { tabId: marked, ref: refOf(read.text, "Approve") });
+      const there = { tabId: marked, ref: refOf(read.text, "Approve") };
+      expect(await run("browser.click", there)).toMatchObject(refused);
+      const press = await run("browser.click", there, systemCaller());
       expect(press).toMatchObject({ status: "error", code: "forbidden", message: HEARTH_PAGE });
       expect(await title(marked)).toBe("Hearth");
       // Yours to work, as ever.
@@ -240,9 +243,14 @@ describe.runIf(h.run)("Jarvis's browser actions on the server's driver", () => {
   it("stops typing or pressing keys once a page sends itself to Hearth's own", async () => {
     vi.stubEnv("HEARTH_ORIGIN", chrome().url("hearth.test", ""));
     try {
-      // How many keys reached Hearth's page, once the tab is there.
+      // How many keys reached Hearth's page, once the tab is there. A slow page comes as soon as
+      // the tab has asked for it, which it may not have yet the first time round.
       const keysOn = async (tabId: number, path: string) => {
-        await expect.poll(() => chrome().peek<string>(tabId, "location.pathname")).toBe(path);
+        const arrived = () => {
+          chrome().server.finish();
+          return chrome().peek<string>(tabId, "location.pathname");
+        };
+        await expect.poll(arrived, { timeout: 10_000 }).toBe(path);
         const now = await title(tabId);
         return now === "Hearth" ? 0 : Number(now.replace("keys ", ""));
       };
@@ -250,7 +258,6 @@ describe.runIf(h.run)("Jarvis's browser actions on the server's driver", () => {
       const typing = await open("away.test", "/search?later");
       const typed = await run("browser.type", { tabId: typing, text: "x".repeat(190) });
       expect(typed).toMatchObject({ status: "error", message: /another page partway through/ });
-      chrome().server.finish();
       expect(await keysOn(typing, "/later")).toBe(0);
       // And once it's there: a key already on its way as the page changed may land, none after.
       const pressing = await open("away.test", "/search");

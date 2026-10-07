@@ -2,7 +2,7 @@ import { approval, audit, event } from "@hearth/db";
 import { type Caller, jarvisCaller, ownerCaller, systemCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { eq } from "drizzle-orm";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ALL_MODULES } from "../index.ts";
 import { ChromiumBrowser, chromiumForTests } from "./chromium.ts";
 import { HEARTH_PAGE } from "./classify.ts";
@@ -15,6 +15,10 @@ const SHOP = "https://shop.example/";
 // 127.0.0.1, not localhost: a step on a one-word host never gets past its site check.
 const HEARTH = "http://127.0.0.1:4400/approvals";
 const AWAY = "https://search.example/";
+const MARKED = "https://mirror.example/";
+const COUNT = "https://count.example/";
+// A page with somewhere to type, which a test sends elsewhere while Jarvis waits its turn there.
+const LATER = `<!doctype html><title>Later</title><input aria-label="Search" autofocus>`;
 const PAGES: Record<string, string> = {
   [SHOP]: `<!doctype html><title>Shop</title>
     <form role="search" action="/search" method="get">
@@ -45,7 +49,31 @@ const PAGES: Record<string, string> = {
   [AWAY]: `<!doctype html><title>Search</title><input aria-label="Search" autofocus>
     <script>let gone = false; addEventListener("keydown", () => { if (gone) return; gone = true;
       location.href = "${HEARTH}"; });</script>`,
+  // Hearth at an address it wasn't told about (a proxy, an alias): known by the mark in its head.
+  [MARKED]: `<!doctype html><head><meta name="hearth-build" content="test"><title>Hearth</title></head>
+    <button onclick="document.title = 'Approved'">Approve</button>
+    <script>addEventListener("keydown", () => { document.title = "keyed"; });</script>`,
+  // Another site, counting the keys that reach it.
+  [COUNT]: `<!doctype html><title>Count</title>
+    <script>let keys = 0; addEventListener("keydown", () => { document.title = "keys " + ++keys; });</script>`,
+  "https://later.example/": LATER,
+  "https://soon.example/": LATER,
+  "https://anon.example/": LATER,
 };
+
+// Jarvis's wait for its turn on a site, which a test can hold open while the page moves.
+const turn = vi.hoisted(() => ({ held: null as Promise<void> | null, waits: 0 }));
+vi.mock("./pace.ts", async (real) => {
+  const pace = await real<typeof import("./pace.ts")>();
+  return {
+    ...pace,
+    pace: async (...args: Parameters<typeof pace.pace>) => {
+      turn.waits++;
+      await turn.held;
+      return pace.pace(...args);
+    },
+  };
+});
 
 const hasChromium = chromiumForTests();
 let t: TestKernel;
@@ -63,10 +91,13 @@ beforeEach(async () => {
   // Real pages take a moment to start navigating after a click.
   Object.assign(loadTiming, { startMs: 250, pollMs: 50, settleMs: 50 });
   pacing.enabled = false;
+  // Hearth's own port on this PC, whichever one CI's Hearth listens on.
+  vi.stubEnv("HEARTH_PORT", "4400");
   t = await createTestKernel(ALL_MODULES);
   t.kernel.services[BROWSER_SERVICE] = chrome;
 });
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await t?.destroy();
 });
 
@@ -178,12 +209,73 @@ describe.skipIf(!hasChromium)("Jarvis's hands in Chrome", () => {
       { tabId, keys: "x", repeat: 100 },
       jarvis,
     );
-    expect(pressed).toMatchObject({ status: "error", code: "conflict" });
-    expect(JSON.stringify(pressed)).toContain("another page partway through");
-    await expect.poll(() => chrome.page(tabId).url()).toBe(HEARTH);
+    // Stopped at the first look after: on Hearth's own page, or one that can't say mid-change.
+    expect(pressed).toMatchObject({ status: "error" });
+    expect(JSON.stringify(pressed)).toMatch(/Hearth's own page|couldn't tell what page/);
+    await expect.poll(() => chrome.page(tabId).url(), { timeout: 10_000 }).toBe(HEARTH);
     // A key already on its way as the page changed may land; none after it does.
     const now = await chrome.page(tabId).title();
     expect(now === "Hearth" ? 0 : Number(now.replace("keys ", ""))).toBeLessThanOrEqual(1);
+  });
+
+  it("presses no key once a page has gone elsewhere while Jarvis waited its turn", async () => {
+    const cases = [
+      [
+        "https://later.example/",
+        "browser.key",
+        HEARTH,
+        { code: "forbidden", message: HEARTH_PAGE },
+      ],
+      ["https://soon.example/", "browser.key", COUNT, { code: "conflict" }],
+      ["https://anon.example/", "browser.reject_cookies", HEARTH, { code: "forbidden" }],
+    ] as const;
+    for (const [url, step, there, error] of cases) {
+      const { tabId } = await ok<{ tabId: number }>("browser.open", { url });
+      // The step waits its turn on the site, held here...
+      let release = () => {};
+      turn.held = new Promise<void>((r) => {
+        release = r;
+      });
+      const waits = turn.waits;
+      const input = step === "browser.key" ? { tabId, keys: "x", repeat: 5 } : { tabId };
+      const res = t.kernel.execute(step, input, jarvis);
+      await expect.poll(() => turn.waits - waits, { timeout: 30_000 }).toBe(1);
+      // ...while the page goes elsewhere.
+      const go = `location.href = ${JSON.stringify(there)}`;
+      await chrome
+        .page(tabId)
+        .evaluate(go)
+        .catch(() => {});
+      await expect.poll(() => chrome.page(tabId).url(), { timeout: 30_000 }).toBe(there);
+      turn.held = null;
+      release();
+      expect(await res).toMatchObject({ status: "error", ...error });
+      expect(await chrome.page(tabId).title()).toBe(there === HEARTH ? "Hearth" : "Count");
+    }
+  }, 120_000);
+
+  it("knows Hearth's own page by the mark in its head, at any address", async () => {
+    const { tabId } = await ok<{ tabId: number }>("browser.open", { url: MARKED });
+    await ok("browser.read", { tabId });
+    const hands = [
+      ["browser.click", { tabId, ref: "E1" }],
+      ["browser.key", { tabId, keys: "Enter" }],
+      ["browser.reject_cookies", { tabId }],
+    ] as const;
+    // Refused before anything asks...
+    for (const [name, input] of hands)
+      expect(await t.kernel.execute(name, input, jarvis)).toMatchObject({
+        status: "denied",
+        reason: HEARTH_PAGE,
+      });
+    // ...and by the step itself.
+    for (const [name, input] of hands)
+      expect(await t.kernel.execute(name, input, systemCaller())).toMatchObject({
+        status: "error",
+        code: "forbidden",
+        message: HEARTH_PAGE,
+      });
+    expect(await chrome.page(tabId).title()).toBe("Hearth");
   });
 
   it("submits only with the owner's yes, and only what it said it would press", async () => {
