@@ -1,6 +1,6 @@
 // Renders a stored body (markdown plus <m-ref> mentions) as safe DOM, never as HTML.
 
-import { For, type JSX, Match, Switch } from "solid-js";
+import { createMemo, For, type JSX, Match, Switch } from "solid-js";
 import { blocks, inline } from "../lib/markdown.ts";
 import { layout, routeFor } from "../lib/panes.ts";
 import { splitInline } from "../lib/text.ts";
@@ -76,9 +76,12 @@ export function Body(props: {
   class?: string;
   onToggle?: (line: number) => void;
 }): JSX.Element {
+  // Read again only when the words change: a list that's read again hands rows their text anew,
+  // and parsing it afresh would draw every paragraph of every body again.
+  const text = createMemo(() => props.text ?? "");
   return (
     <div class={`space-y-1 leading-relaxed ${props.class ?? ""}`}>
-      <For each={blocks(props.text ?? "")}>
+      <For each={blocks(text())}>
         {(b) => (
           <Switch>
             <Match when={b.kind === "line" && b}>
