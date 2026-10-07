@@ -159,7 +159,7 @@ describe("only the identical email is a copy", () => {
     expect(await draftTo(all[HOME]!.id)).toEqual({ account: HOME, to: [ANA.address], cc: [] });
   });
 
-  it("keeps apart a forgery that changes only a name, a list header, what it answers or a file's name", async () => {
+  it("keeps apart a forgery that changes only a name, what it answers or a file's name", async () => {
     home.deliver(DINNER, IMPORTANT);
     const file = { mimeType: "text/plain", content: Buffer.from("menu") };
     home.deliver(
@@ -170,14 +170,13 @@ describe("only the identical email is a copy", () => {
       },
       IMPORTANT,
     );
-    // Each of these, saved first, would have named the sender, made it bulk mail (no reply
-    // needed), pulled it into another conversation, or renamed the file.
+    // Each of these, saved first, would have named the sender, pulled it into another
+    // conversation, or renamed the file.
     work.deliver({ ...DINNER, from: { ...ANA, name: "Ana (Bank)" } }, IMPORTANT);
     work.deliver(
       { ...DINNER, to: [{ address: HOME, name: "Billing" }, { address: WORK }] },
       IMPORTANT,
     );
-    work.deliver(forged({ "List-Unsubscribe": "<mailto:out@elsewhere.example>" }), IMPORTANT);
     work.deliver(
       {
         ...DINNER,
@@ -198,6 +197,15 @@ describe("only the identical email is a copy", () => {
     await sync();
     const real = (await threads()).filter((x) => x.account === HOME);
     expect(real.map((x) => x.messageCount)).toEqual([1, 1]);
+  });
+
+  it("takes a list's copy as the same email, which still needs your reply", async () => {
+    // Ana wrote to you and to a group you're in: the group's copy comes with list headers.
+    work.deliver(forged({ "List-Id": "<friends.groups.example>" }), IMPORTANT);
+    home.deliver(DINNER, IMPORTANT);
+    await ok("mail.sync", { account: WORK }, integrationCaller("google"));
+    await sync();
+    expect(await threads()).toMatchObject([{ account: WORK, messageCount: 1, waiting: "you" }]);
   });
 
   it("doesn't hide the real email behind a forgery that came first", async () => {
@@ -230,8 +238,13 @@ describe("only the identical email is a copy", () => {
       await sync();
       const [thread, ...others] = await threads();
       expect(others).toEqual([]);
-      // Sent, waiting on Bob: not mail to you that needs your reply.
-      expect(thread).toMatchObject({ messageCount: 1, waiting: "them", inInbox: false });
+      // Sent, waiting on Bob: not mail to you that needs your reply, nor news to you.
+      expect(thread).toMatchObject({
+        messageCount: 1,
+        waiting: "them",
+        inInbox: false,
+        unread: false,
+      });
       const sent = await ok<ThreadSummary[]>("mail.threads", { view: "sent" });
       expect(sent.map((x) => x.id)).toEqual([thread!.id]);
       expect(await draftTo(thread!.id)).toEqual({ account: HOME, to: [BOB.address], cc: [] });

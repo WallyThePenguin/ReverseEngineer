@@ -12,14 +12,14 @@ import {
   mailOp,
   mailThread,
 } from "@hearth/db";
-import { type ActionContext, defineAction } from "@hearth/kernel";
+import { type ActionContext, ActionError, defineAction } from "@hearth/kernel";
 import { and, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
 import { dropCalendars, handOver } from "../calendar/calendars.ts";
 import { closeCalendarAlerts } from "../calendar/health.ts";
 import { BLOB_SERVICE, type BlobStore } from "../mail/blobs.ts";
 import { recomputeThread } from "../mail/flags.ts";
-import { holdSyncs } from "../mail/sync.ts";
+import { accountId, holdSyncs } from "../mail/sync.ts";
 import { closeMailAlerts } from "../mail/sync-state.ts";
 import { GOOGLE_SERVICE, type GoogleClient } from "./client.ts";
 
@@ -106,6 +106,36 @@ async function rehome(ctx: ActionContext, leaving: string): Promise<string[]> {
   return [...kept];
 }
 
+/** Postgres stopped waiting (on a lock, or for the statement), wherever the driver wrapped it. */
+function gaveUpWaiting(err: unknown): boolean {
+  for (let e = err; e instanceof Error; e = e.cause)
+    if ("code" in e && (e.code === "57014" || e.code === "55P03")) return true;
+  return false;
+}
+
+/**
+ * Waits for any sync that's running to finish, and holds every account's off until this is done.
+ * Every Google account's too, not only those with mail here yet: an account's first sync makes
+ * its mail account, and until that sync is done no one else can see it.
+ */
+async function holdAll(ctx: ActionContext) {
+  const [mail, google] = await Promise.all([
+    ctx.tx.select({ id: mailAccount.id }).from(mailAccount),
+    ctx.tx.select({ email: googleAccount.email }).from(googleAccount),
+  ]);
+  const ids = new Set([
+    ...mail.map((a) => a.id),
+    ...google.map((g) => accountId("gmail", g.email)),
+  ]);
+  try {
+    await holdSyncs(ctx, [...ids]);
+  } catch (err) {
+    if (gaveUpWaiting(err))
+      throw new ActionError("conflict", "Mail is syncing; try again in a moment.");
+    throw err;
+  }
+}
+
 export const disconnectAction = defineAction({
   name: "google.disconnect",
   description:
@@ -116,13 +146,10 @@ export const disconnectAction = defineAction({
   async handler(i, ctx) {
     const email = i.email.toLowerCase();
     // A sync running now may be filing mail into this account's conversations, which a sync of
-    // another account can join too: wait for it, and hold every account's off until this is done,
-    // so none of its mail goes with them, never to be fetched again.
-    const accounts = await ctx.tx.select({ id: mailAccount.id }).from(mailAccount);
-    await holdSyncs(
-      ctx,
-      accounts.map((a) => a.id),
-    );
+    // another account can join too: none of its mail may go with them, never to be fetched again.
+    await holdAll(ctx);
+    // And a sync starting now waits until it's gone, rather than make its mail account again.
+    await ctx.tx.select().from(googleAccount).where(eq(googleAccount.email, email)).for("update");
     const cals = await ctx.tx.select().from(calendar).where(eq(calendar.account, email));
     await handOver(ctx, cals);
     await dropCalendars(
@@ -151,12 +178,13 @@ export const disconnectAction = defineAction({
     await dropMail(ctx, mailMessage, mailId);
     await ctx.tx.delete(mailOp).where(eq(mailOp.accountId, mailId));
     await dropMail(ctx, mailThread, mailId);
-    for (const id of new Set([...shared, ...joined.map((j) => j.id)]))
-      await recomputeThread(ctx, id);
     // Kept drafts lose their account with it (the key is set to null) and wait for a new From.
     if (!i.keepDrafts) await dropMail(ctx, mailDraft, mailId);
     await closeMailAlerts(ctx, mailId, false);
     await ctx.tx.delete(mailAccount).where(eq(mailAccount.id, mailId));
+    // Worked out once the account's gone, as its address is no longer one of yours.
+    for (const id of new Set([...shared, ...joined.map((j) => j.id)]))
+      await recomputeThread(ctx, id);
     const gone = await ctx.tx
       .delete(googleAccount)
       .where(eq(googleAccount.email, email))
