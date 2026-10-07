@@ -107,9 +107,17 @@ export async function action<T>(name: string, input: unknown = {}, opts?: SendOp
   throw new ApiError(400, r.code, r.message);
 }
 
-/** Approves or denies. Throws, like runAction, when Hearth can't give an answer. */
-export async function decideApproval(id: string, decision: "approve" | "deny") {
-  return resultOf<unknown>(await post(`/api/approvals/${id}`, { decision }));
+/**
+ * Approves or denies; with `alwaysAllow`, the yes also writes the card's rule (D70). Throws, like
+ * runAction, when Hearth can't give an answer.
+ */
+export async function decideApproval(
+  id: string,
+  decision: "approve" | "deny",
+  alwaysAllow = false,
+) {
+  const body = alwaysAllow ? { decision, alwaysAllow } : { decision };
+  return resultOf<unknown>(await post(`/api/approvals/${id}`, body));
 }
 
 /**

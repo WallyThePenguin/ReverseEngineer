@@ -8,6 +8,7 @@ import {
   setting,
 } from "@hearth/db";
 import {
+  type ActionContext,
   type DigestItem,
   defineAction,
   defineModule,
@@ -34,6 +35,28 @@ export interface HealthRecord {
   status: HealthStatus;
   detail: string;
   at: string;
+  /** When it last said ok: an alert closed or dismissed before then was about a failure that ended. */
+  okAt?: string;
+}
+
+/** Saves a component's health, keeping when it last said ok. Returns the record it replaced. */
+async function recordHealth(
+  ctx: Pick<ActionContext, "tx" | "now">,
+  component: string,
+  status: HealthStatus,
+  detail: string,
+): Promise<HealthRecord | undefined> {
+  const key = `health.${component}`;
+  const [prev] = await ctx.tx.select().from(setting).where(eq(setting.key, key));
+  const before = prev?.value as HealthRecord | undefined;
+  const at = ctx.now.toISOString();
+  const okAt = status === "ok" ? at : before?.okAt;
+  const value: HealthRecord = { status, detail, at, ...(okAt ? { okAt } : {}) };
+  await ctx.tx
+    .insert(setting)
+    .values({ key, value, updatedAt: ctx.now })
+    .onConflictDoUpdate({ target: setting.key, set: { value, updatedAt: ctx.now } });
+  return before;
 }
 
 /** What's connected so far, for the "Set up Hearth" checklist. Counts only, nothing secret. */
@@ -124,25 +147,16 @@ export const systemModule = defineModule({
       // Every component reports every minute; only a change of status is worth an audit row.
       auditWhen: (r: { changed: boolean }) => r.changed,
       async handler(i, ctx) {
-        const key = `health.${i.component}`;
-        const [prev] = await ctx.tx.select().from(setting).where(eq(setting.key, key));
-        const previous = (prev?.value as HealthRecord | undefined)?.status ?? null;
-        const value: HealthRecord = {
-          status: i.status,
-          detail: i.detail,
-          at: ctx.now.toISOString(),
-        };
-        await ctx.tx
-          .insert(setting)
-          .values({ key, value, updatedAt: ctx.now })
-          .onConflictDoUpdate({ target: setting.key, set: { value, updatedAt: ctx.now } });
+        const before = await recordHealth(ctx, i.component, i.status, i.detail);
+        const previous = before?.status ?? null;
         if (previous !== i.status) {
           ctx.emit({
             kind: "system.health_changed",
             payload: { component: i.component, status: i.status, previous, detail: i.detail },
           });
-          if (i.status === "failing") await alertFailing(ctx, i.component, i.detail);
-          else if (previous === "failing") await closeFailing(ctx, i.component);
+          if (i.status === "failing") await alertFailing(ctx, i.component, i.detail, before?.okAt);
+          // Over only once it's ok: going between failing and degraded (a long slowdown) isn't.
+          else if (i.status === "ok") await closeFailing(ctx, i.component);
         }
         return { changed: previous !== i.status };
       },
@@ -159,15 +173,7 @@ export const systemModule = defineModule({
       risk: "internal",
       callers: ["system", "owner"],
       async handler(i, ctx) {
-        const value: HealthRecord = {
-          status: i.ok ? "ok" : "failing",
-          detail: i.detail,
-          at: ctx.now.toISOString(),
-        };
-        await ctx.tx
-          .insert(setting)
-          .values({ key: "health.backup", value, updatedAt: ctx.now })
-          .onConflictDoUpdate({ target: setting.key, set: { value, updatedAt: ctx.now } });
+        await recordHealth(ctx, "backup", i.ok ? "ok" : "failing", i.detail);
         ctx.emit({
           kind: "system.backup_finished",
           payload: {

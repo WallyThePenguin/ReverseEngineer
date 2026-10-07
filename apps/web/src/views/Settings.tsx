@@ -3,6 +3,7 @@
 
 import { For, Show } from "solid-js";
 import { Badge, Button, PaneHeader } from "../components/ui.tsx";
+import { ruleWords } from "../lib/approvals.ts";
 import { ago } from "../lib/format.ts";
 import { jarvisLiveness } from "../lib/jarvis-health.ts";
 import { setPaused } from "../lib/pause.ts";
@@ -97,10 +98,10 @@ export function Settings() {
               <ul class="space-y-1">
                 <For each={rules.data}>
                   {(r) => (
-                    <li class="flex items-center gap-3 rounded-md bg-sunk px-3 py-2">
-                      <code class="font-mono text-sm">{r.action}</code>
-                      <span class="flex-1 text-sm text-muted">
-                        {r.target ? `Always allow ${r.note}` : r.note}
+                    <li class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-sunk px-3 py-2">
+                      <code class="min-w-0 font-mono text-sm break-all">{r.action}</code>
+                      <span class="min-w-0 flex-1 basis-40 text-sm break-words text-muted">
+                        {ruleWords(r)}
                       </span>
                       <Button
                         small

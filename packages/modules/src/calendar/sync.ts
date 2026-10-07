@@ -14,6 +14,7 @@ import { GOOGLE_SERVICE, GoogleApiError, type GoogleClient, SCOPES } from "../go
 import { id } from "../shared.ts";
 import { syncCalendarList } from "./calendars.ts";
 import { recordCalendarHealth, troubleOf } from "./health.ts";
+import { seriesTakeovers } from "./series.ts";
 import { emitChange, mapEvent, saveEvent } from "./store.ts";
 
 const DAY_MS = 24 * 3600_000;
@@ -97,6 +98,11 @@ export async function syncCalendars(ctx: ActionContext): Promise<SyncResult> {
     } catch (err) {
       if (slowDown(err)) {
         result.paused.push(acct.email);
+        // Tried, awake: a heads-up isn't held for a sync the PC slept through (soon.ts).
+        await ctx.tx
+          .update(googleAccount)
+          .set({ calendarAttemptedAt: ctx.now })
+          .where(eq(googleAccount.email, acct.email));
         continue;
       }
       // None of the account's calendars could be read: each says why, in Settings too.
@@ -129,17 +135,26 @@ export async function syncCalendars(ctx: ActionContext): Promise<SyncResult> {
       result.calendars++;
       progressed = true;
       const seen: string[] = [];
-      for (const g of items) {
-        const m = mapEvent(cal.id, cleanDeep(g), rules.timeZone);
+      const mapped = items.map((g) => ({ g, m: mapEvent(cal.id, cleanDeep(g), rules.timeZone) }));
+      const listed = mapped.flatMap(({ m }) => (m ? [m] : []));
+      // A repeating meeting edited at Google: its new occurrences keep the old rows.
+      const takeovers = await seriesTakeovers(ctx.tx, cal.id, listed, { from, to });
+      // Rows a takeover couldn't save to: still Google's, so not taken for deleted.
+      const kept: string[] = [];
+      for (const { g, m } of mapped) {
         if (!m) continue;
         // Seen even if it won't save, so it isn't taken for deleted at Google.
         seen.push(g.id);
         result.events++;
         let saved: Awaited<ReturnType<typeof saveEvent>>;
         try {
-          saved = await savepoint(ctx, async (sp) => saveEvent(sp, m, await blockOf(sp, g)));
+          saved = await savepoint(ctx, async (sp) =>
+            saveEvent(sp, m, { ...(await blockOf(sp, g)), replaces: takeovers.get(g.id) }),
+          );
         } catch {
           result.skipped++;
+          const old = takeovers.get(g.id);
+          if (old) kept.push(old);
           continue;
         }
         if (saved.change && m.endsAt > ctx.now) {
@@ -161,6 +176,7 @@ export async function syncCalendars(ctx: ActionContext): Promise<SyncResult> {
             gt(calendarEvent.endsAt, from),
             lt(calendarEvent.startsAt, to),
             ...(seen.length ? [notInArray(calendarEvent.googleId, seen)] : []),
+            ...(kept.length ? [notInArray(calendarEvent.entityId, kept)] : []),
           ),
         );
       for (const x of missing) {

@@ -227,6 +227,8 @@ export const reminderActions = [
             from,
             asked,
             ...(heard ? { heard } : {}),
+            // Set after reading outside content: its clock's event carries those words, and says so.
+            ...(vouched || asked ? {} : { outside: true }),
           },
         },
         ctx.now,
@@ -350,6 +352,8 @@ export const ringReminder: ReflexDef = {
           ...(said.length ? { body: said.join("\n") } : {}),
           urgency: lateBy > STALE_MS ? "normal" : "interrupt",
           ...(vouched ? { deadline: due } : {}),
+          // Set after reading an email or a message: its words are still that content's.
+          ...(p.vouched !== true && p.asked !== true ? { outside: true } : {}),
           dedupeKey: `reminder:${String(p.reminder)}`,
         },
       },

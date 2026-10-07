@@ -4,10 +4,10 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { calendar, mailMessage, notification } from "@hearth/db";
+import { calendar, mailAccount, mailMessage, notification } from "@hearth/db";
 import { integrationCaller, ownerCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ALL_MODULES } from "../index.ts";
 import { BLOB_SERVICE, BlobStore } from "../mail/blobs.ts";
@@ -167,6 +167,101 @@ describe("disconnecting a Google account", () => {
       timeout: 10_000,
     });
     expect(await blobs.has(myFile!)).toBe(true);
+  });
+
+  /** A sync of the account under way, holding the lock the sync takes (mail/sync.ts). */
+  async function syncing(address: string) {
+    let locked!: () => void;
+    let release!: () => void;
+    const holding = new Promise<void>((r) => (locked = r));
+    const done = new Promise<void>((r) => (release = r));
+    const running = t.tdb.db.transaction(async (tx) => {
+      const { rows } = await tx.execute<{ ok: boolean }>(
+        sql`SELECT pg_try_advisory_xact_lock(${0x6d61696c}, hashtext(${`gmail:${address}`})) AS ok`,
+      );
+      expect(rows[0]!.ok).toBe(true);
+      locked();
+      await done;
+    });
+    await holding;
+    return () => {
+      release();
+      return running;
+    };
+  }
+  /** Disconnects, checking it waits on the sync until that's done. */
+  async function waitsFor(sync: () => Promise<void>, email: string) {
+    let finished = false;
+    const disconnecting = ok("google.disconnect", { email }).then(() => (finished = true));
+    await vi.waitFor(
+      async () => {
+        const { rows } = await t.tdb.db.execute<{ n: number }>(
+          sql`SELECT count(*)::int AS n FROM pg_stat_activity
+              WHERE datname = current_database() AND wait_event = 'advisory'`,
+        );
+        expect(rows[0]!.n).toBe(1);
+      },
+      { timeout: 10_000 },
+    );
+    expect(finished).toBe(false);
+    await sync();
+    await disconnecting;
+  }
+
+  it("waits for a sync that's running, so none of the mail it brings in is left behind", async () => {
+    await waitsFor(await syncing(ME), WORK);
+  });
+
+  it("waits for an account's first sync, before any of its mail is here", async () => {
+    const NEW = "new@example.com";
+    g.addAccount(NEW);
+    await signIn(NEW);
+    const made = () =>
+      t.tdb.db
+        .select()
+        .from(mailAccount)
+        .where(eq(mailAccount.id, `gmail:${NEW}`));
+    expect(await made()).toEqual([]);
+    await waitsFor(await syncing(NEW), NEW);
+  });
+
+  it("doesn't come back through a sync that runs while it goes", async () => {
+    // Held as Google is told: the account's mail is gone by then, but not for good yet.
+    let revoking!: () => void;
+    let release!: () => void;
+    const atRevoke = new Promise<void>((r) => (revoking = r));
+    const released = new Promise<void>((r) => (release = r));
+    const fetch = g.fetch.bind(g);
+    vi.spyOn(g, "fetch").mockImplementation(async (url, init) => {
+      if (url.endsWith("/revoke")) {
+        revoking();
+        await released;
+      }
+      return fetch(url, init);
+    });
+    const disconnecting = ok("google.disconnect", { email: WORK });
+    await atRevoke;
+    let settled = false;
+    const syncing = t.kernel
+      .execute("mail.sync", {}, integrationCaller("google"))
+      .finally(() => (settled = true));
+    // It either finishes, or waits on the disconnect's rows (to put the account back after).
+    await vi.waitFor(
+      async () => {
+        if (settled) return;
+        const { rows } = await t.tdb.db.execute<{ n: number }>(
+          sql`SELECT count(*)::int AS n FROM pg_stat_activity
+              WHERE datname = current_database() AND wait_event_type = 'Lock'`,
+        );
+        expect(rows[0]!.n).toBeGreaterThan(0);
+      },
+      { timeout: 10_000 },
+    );
+    release();
+    await disconnecting;
+    await syncing;
+    const left = await t.tdb.db.select({ id: mailAccount.id }).from(mailAccount);
+    expect(left.map((a) => a.id)).toEqual([`gmail:${ME}`]);
   });
 
   it("leaves another account's calendar notice open", async () => {

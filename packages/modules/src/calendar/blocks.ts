@@ -155,7 +155,8 @@ export const blockRoutine: RoutineDef = {
   name: "calendar.time_blocks",
   description: "Each morning at 6:10 a.m., big tasks get time on your calendar before they're due.",
   cron: "10 6 * * 1-5",
-  staleAfterSeconds: 3 * 3600,
+  // Woken at 9, the PC still plans the day's blocks; woken that night, it waits for the morning.
+  staleAfterSeconds: 12 * 3600,
   async run(_firing, ctx) {
     const min = await getSetting(ctx.db, "calendar.blockMinMinutes");
     return (await bigTasks(ctx, min)).map((taskId) => ({

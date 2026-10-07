@@ -202,17 +202,12 @@ export function Today(props: { pane: number }) {
           <Show when={homeScreenSteps()}>
             <HomeScreenSteps class="mt-4 max-w-xl" />
           </Show>
-          <AskBar go={go} class="mt-5 max-w-2xl" />
+          <AskBar go={go} now={now()} class="mt-5 max-w-2xl" />
           {/* Hearth opens here, so what's still to connect shows here first. */}
           <SetupChecklist pane={props.pane} class="mt-6" />
           <UpNext today={plan().today} now={now()} go={go} class="mt-4 @4xl:hidden" />
           <div class="mt-6 grid gap-x-6 gap-y-8 @4xl:grid-cols-[minmax(0,1fr)_minmax(19rem,22rem)] @4xl:items-start">
-            {/* The brief heads the column when it's wide; on a phone its one line comes after what
-                needs you, so that stays on the first screen. */}
             <div class="flex min-w-0 flex-col gap-8">
-              <Show when={brief()}>
-                {(row) => <Brief row={row()} go={go} class="order-1 @4xl:order-first" />}
-              </Show>
               {/* What Approve all said stays over Needs you, even once its cards have gone. */}
               <Show
                 when={
@@ -245,8 +240,14 @@ export function Today(props: { pane: number }) {
                   </Show>
                 </div>
               </Show>
+              {/* On a phone the brief's one line comes after what needs you, so that stays on the
+                  first screen; when it's wide, the brief heads the column. Each new brief is drawn
+                  afresh (keyed), so yesterday's being read doesn't make today's read. */}
+              <Show when={brief()?.notification.id} keyed>
+                {(_id) => <Brief row={brief()!} go={go} class="@4xl:order-first" />}
+              </Show>
               <Show when={drafts.data === undefined && drafts.isError}>
-                <section aria-labelledby="today-drafts" class="order-2 space-y-3 @4xl:order-none">
+                <section aria-labelledby="today-drafts" class="space-y-3">
                   <SectionHeader id="today-drafts" title="Ready to send" />
                   <Card flush>
                     <Failed error={drafts.error} retry={drafts.refetch} what="Jarvis's drafts" />
@@ -254,12 +255,7 @@ export function Today(props: { pane: number }) {
                 </section>
               </Show>
               <Show when={ready().length > 0}>
-                <ReadyToSend
-                  drafts={ready()}
-                  fresh={fresh()}
-                  go={go}
-                  class="order-2 @4xl:order-none"
-                />
+                <ReadyToSend drafts={ready()} fresh={fresh()} go={go} />
               </Show>
             </div>
             <div class="min-w-0 space-y-4">

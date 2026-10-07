@@ -3,6 +3,7 @@
 
 import { plural } from "./format.ts";
 import { toolSentence } from "./toolNames.ts";
+import { unmark } from "./turns.ts";
 import type { CalEvent, MailAddress, MailDraft, MailThread, Task, Turn } from "./types.ts";
 import { readWhen, type When } from "./when.ts";
 
@@ -20,13 +21,55 @@ export function greeting(now = new Date()): string {
 }
 
 /**
- * What the Ask box offers to add as a task: a line that names a time ("dentist fri 3pm"). A
- * question is for Jarvis, even when it names a day ("what's on friday?"). Enter always asks Jarvis;
- * the task is one more tap.
+ * A line for Jarvis: a question, with or without its "?", or Jarvis asked by name, to remind you,
+ * or to move your things. Not "do" or "will", which start to-dos and names, nor a plain verb.
+ */
+const FOR_JARVIS =
+  /^(?:(?:hey\s+)?jarvis\b|(?:please[,\s]+)?(?:(?:what|when|who|where|why|how|which|is|are|am|was|were|can|could|should|would|does|did)\b|remind me\b|(?:move|cancel|reschedule) my\b))/i;
+
+/**
+ * What the Ask box offers to add as a task: a line that names a time ("dentist fri 3pm", "do taxes
+ * by friday", "email Sam the deck by Friday"). A question is for Jarvis, even when it names a day
+ * ("what's on friday?", "is Sam free at 3"), and so is "remind me to call Sam at 3", "move my 3pm"
+ * or "Jarvis, …". Enter always asks Jarvis, so a chip offered wrongly is one you don't tap; one
+ * missed is a task typed again.
  */
 export function offerAsTask(text: string, now = new Date()): When | null {
   const q = text.trim();
-  return q && !q.endsWith("?") ? readWhen(q, now) : null;
+  return q && !q.endsWith("?") && !FOR_JARVIS.test(q) ? readWhen(q, now) : null;
+}
+
+/** A new email of yours with nothing in it yet: Write email opens it, rather than start another. */
+export const blankDraft = (drafts: readonly MailDraft[] | undefined) =>
+  drafts?.find(
+    (d) =>
+      d.by === "owner" &&
+      !d.threadId &&
+      d.to.length + d.cc.length + d.bcc.length === 0 &&
+      !d.subject.trim() &&
+      !d.text.trim(),
+  );
+
+/** Where a sentence ends: not in a time ("9:30 a.m."), after a title ("Dr.") or after "e.g.". */
+const SENTENCE_END = /(?<=[.!?])(?<!(?:[ap]\.m|\b(?:dr|mrs?|ms|st|vs|e\.g|i\.e))\.)\s+/i;
+
+/**
+ * The brief folded to one line: its first sentence that says something. Not a heading ("Today",
+ * "Handled"), its title ("Brief for 2026-10-07") or a label ("Prepared:"), which say nothing on
+ * their own.
+ */
+export function briefHeadline(body: string): string {
+  for (const raw of body.split("\n")) {
+    if (/^\s*#/.test(raw)) continue;
+    const line = unmark(raw);
+    // A list item says something however short; a short line of its own is a heading.
+    const item = /^\s*(?:[-*+]|\d+[.)])\s/.test(raw);
+    const short = !item && line.split(/\s+/).length < 4 && !/[.!?]$/.test(line);
+    const label = line.endsWith(":") || short;
+    if (!line || label || /^brief for\b/i.test(line)) continue;
+    return line.split(SENTENCE_END)[0]!;
+  }
+  return "Your brief";
 }
 
 /** A part of the line under the greeting, and the section it takes you to. */
