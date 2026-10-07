@@ -299,6 +299,7 @@ describe("the bot afterwards", () => {
     await connect();
     const [waiting, sending] = [newId(), newId()];
     await t.tdb.db.insert(slackOutbox).values([post(waiting, "queued"), post(sending, "sending")]);
+    const [was] = await t.tdb.db.select().from(slackOutbox).where(eq(slackOutbox.id, sending));
     expect(await ok("slack.disconnect")).toEqual({ disconnected: true, unsent: 1, unsure: 1 });
     // Its outbox went with the workspace; the cards stay.
     expect(await t.tdb.db.select().from(slackOutbox)).toEqual([]);
@@ -306,5 +307,20 @@ describe("the bot afterwards", () => {
       "You disconnected Slack before it said whether it went out.",
       "You disconnected Slack.",
     ]);
+    // Slack then says the one it was sending went: there's no row to save it on, but its card
+    // closes, on an open inbox too.
+    expect(await settle(t.tdb.db, was!, { state: "sent", sentTs: "1.000002" }, t.clock.now())).toBe(
+      false,
+    );
+    const card = (await notSent()).find((c) => c.title.endsWith("may not have gone out"));
+    expect(card!.state).toBe("done");
+    const updates = await t.tdb.db
+      .select()
+      .from(event)
+      .where(eq(event.kind, "notification.updated"));
+    expect(updates.map((e) => e.payload)).toContainEqual({
+      notificationId: card!.id,
+      state: "done",
+    });
   });
 });

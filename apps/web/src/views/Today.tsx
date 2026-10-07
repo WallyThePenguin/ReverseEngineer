@@ -1,9 +1,10 @@
-// Today: your morning on one screen. What needs your yes, the brief, the drafts Jarvis has ready to
-// send, your day, what's due, who's waiting on a reply and what Jarvis did since yesterday, each
-// thing that needs you one tap away. It's made only of reads the other screens make already, so
-// it refreshes with them. On a wide pane what needs you runs down the left, the day down the right;
-// on a phone, one after the other, with the meeting on now or next under the greeting. What a row
-// opens goes beside Today, as from any list, so Today stays where it was.
+// Today: your morning on one screen. A greeting with a box to ask Jarvis or add a task, the brief
+// (one line once you've read it), what needs your yes, the drafts Jarvis has ready to send, your
+// day, what's due, who's waiting on a reply and what Jarvis did since yesterday, each thing that
+// needs you one tap away. It's made only of reads the other screens make already, so it refreshes
+// with them. On a wide pane what needs you runs down the left, the day down the right; on a phone,
+// one after the other, with the meeting on now or next under the greeting. What a row opens goes
+// beside Today, as from any list, so Today stays where it was.
 
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { HomeScreenSteps } from "../components/HomeScreenSteps.tsx";
@@ -27,6 +28,7 @@ import {
 } from "../lib/today.ts";
 import type { CalEvent, Did, InboxRow, MailDraft, MailThread, Task, Turn } from "../lib/types.ts";
 import { openToReply } from "./Mail.tsx";
+import { AskBar } from "./today/AskBar.tsx";
 import { Brief } from "./today/Brief.tsx";
 import { Due } from "./today/Due.tsx";
 import { JarvisDid } from "./today/JarvisDid.tsx";
@@ -150,16 +152,20 @@ export function Today(props: { pane: number }) {
 
   return (
     <div class="flex h-full flex-col" data-product="today">
-      <PaneHeader
-        title="Today"
-        sub={now().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
-      />
+      <PaneHeader title="Today" />
       <div ref={root} class="@container flex-1 overflow-auto bg-bg">
         <div class="mx-auto max-w-6xl px-4 pt-6 pb-12 md:px-8 md:pt-8">
           <header class="flex flex-wrap items-end gap-x-6 gap-y-3">
             {/* On a phone the button goes under the line, rather than squeezing it. */}
             <div class="min-w-0 flex-1 basis-72">
-              <p class="text-display">{greeting(now())}</p>
+              <p class="text-meta font-medium tracking-wide text-muted uppercase">
+                {now().toLocaleDateString("en-US", {
+                  weekday: "long",
+                  month: "long",
+                  day: "numeric",
+                })}
+              </p>
+              <h2 class="mt-1 font-serif text-hero">{greeting(now())}</h2>
               {/* Each part counts what its section shows, and takes you to it. */}
               <p class="mt-1 flex flex-wrap gap-x-1.5 text-sm text-muted">
                 <For each={line()}>
@@ -195,11 +201,17 @@ export function Today(props: { pane: number }) {
           <Show when={homeScreenSteps()}>
             <HomeScreenSteps class="mt-4 max-w-xl" />
           </Show>
+          <AskBar go={go} class="mt-5 max-w-2xl" />
           {/* Hearth opens here, so what's still to connect shows here first. */}
           <SetupChecklist pane={props.pane} class="mt-6" />
           <UpNext today={plan().today} now={now()} go={go} class="mt-4 @4xl:hidden" />
           <div class="mt-6 grid gap-x-6 gap-y-8 @4xl:grid-cols-[minmax(0,1fr)_minmax(19rem,22rem)] @4xl:items-start">
-            <div class="min-w-0 space-y-8">
+            {/* The brief heads the column when it's wide; on a phone its one line comes after what
+                needs you, so that stays on the first screen. */}
+            <div class="flex min-w-0 flex-col gap-8">
+              <Show when={brief()}>
+                {(row) => <Brief row={row()} go={go} class="order-1 @4xl:order-first" />}
+              </Show>
               {/* What Approve all said stays over Needs you, even once its cards have gone. */}
               <Show
                 when={
@@ -232,9 +244,8 @@ export function Today(props: { pane: number }) {
                   </Show>
                 </div>
               </Show>
-              <Show when={brief()}>{(row) => <Brief row={row()} go={go} />}</Show>
               <Show when={drafts.data === undefined && drafts.isError}>
-                <section aria-labelledby="today-drafts" class="space-y-3">
+                <section aria-labelledby="today-drafts" class="order-2 space-y-3 @4xl:order-none">
                   <SectionHeader id="today-drafts" title="Ready to send" />
                   <Card flush>
                     <Failed error={drafts.error} retry={drafts.refetch} what="Jarvis's drafts" />
@@ -242,7 +253,12 @@ export function Today(props: { pane: number }) {
                 </section>
               </Show>
               <Show when={ready().length > 0}>
-                <ReadyToSend drafts={ready()} fresh={fresh()} go={go} />
+                <ReadyToSend
+                  drafts={ready()}
+                  fresh={fresh()}
+                  go={go}
+                  class="order-2 @4xl:order-none"
+                />
               </Show>
             </div>
             <div class="min-w-0 space-y-4">

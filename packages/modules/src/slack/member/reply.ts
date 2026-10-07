@@ -11,6 +11,7 @@
 import {
   approval,
   type Db,
+  type DbOrTx,
   jarvisTurn,
   notification,
   slackChannel,
@@ -143,6 +144,9 @@ export const replyAction = defineAction({
       .where(
         and(eq(slackInbound.turnId, turn.id), inArray(slackInbound.outcome, ["claimed", "held"])),
       );
+    // An older reply still waiting for your yes would go out after this one: it expires. Last,
+    // since that takes the event log's lock, which comes after every other.
+    await expireHeldReplies(ctx.tx, thread.conversationId, ctx.caller.principal, ctx.now);
     return { queued: true, id: row.id, ...(created ? {} : { alreadyQueued: true }) };
   },
 });
@@ -171,7 +175,7 @@ export async function replaceHeldReplies(
  * newer one replaced them, or went out on its own, so approving one now would post it after.
  */
 export async function expireHeldReplies(
-  db: Db,
+  db: DbOrTx,
   conversationId: string,
   by: string,
   now: Date,

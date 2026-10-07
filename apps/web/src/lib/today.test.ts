@@ -9,6 +9,7 @@ import {
   jarvisDrafts,
   meetingState,
   nextMeeting,
+  offerAsTask,
   owed,
   sinceYesterday,
   splitDue,
@@ -228,5 +229,25 @@ describe("the greeting", () => {
     // Not "Nothing needs you" while what needs you is still being read, or couldn't be.
     expect(line({ approvals: null, ready: 0, meetings: 2, due: 0 })).toBe("2 meetings > today-day");
     expect(line({ approvals: 0, ready: null, meetings: 0, due: 0 })).toBe("");
+  });
+});
+
+describe("The Ask box", () => {
+  const now = new Date(2026, 9, 7, 9, 0); // a Wednesday morning
+
+  it("offers a line that names a time as a task, without the words that said when", () => {
+    const w = offerAsTask("dentist fri 3pm", now);
+    expect(w?.title).toBe("dentist");
+    expect(new Date(w?.dueAt ?? "")).toEqual(new Date(2026, 9, 9, 15, 0));
+  });
+
+  it("leaves a question for Jarvis, even one that names a day", () => {
+    expect(offerAsTask("what's on friday?", now)).toBeNull();
+    expect(offerAsTask("  am I free at 3pm?  ", now)).toBeNull();
+  });
+
+  it("offers nothing when no time is named, or nothing is typed", () => {
+    expect(offerAsTask("plan my week", now)).toBeNull();
+    expect(offerAsTask("   ", now)).toBeNull();
   });
 });
