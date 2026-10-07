@@ -191,7 +191,7 @@ export function Decide(props: {
             small
             icon="check"
             disabled={deciding(props.approvalId)}
-            onClick={() => alwaysAllow(props.approvalId, says())}
+            onClick={() => alwaysAllow(props.approvalId)}
           >
             Approve, and always allow {says()}
           </Button>

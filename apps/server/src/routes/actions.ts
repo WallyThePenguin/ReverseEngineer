@@ -107,11 +107,13 @@ export function actionRoutes(timings?: ActionTimings) {
   app.post("/approvals/:id", requireCaller(["owner"]), async (c) => {
     const { kernel } = c.get("deps");
     const body = decisionBody.safeParse(parseJson(await c.req.text()));
-    if (!body.success)
-      return c.json(
-        { status: "error", code: "invalid_input", message: "decision must be approve or deny" },
-        400,
-      );
+    if (!body.success) {
+      const message =
+        body.error.issues[0]?.path[0] === "alwaysAllow"
+          ? "alwaysAllow must be true or false"
+          : "decision must be approve or deny";
+      return c.json({ status: "error", code: "invalid_input", message }, 400);
+    }
     const result = await kernel.decideApproval(
       c.req.param("id"),
       body.data.decision,

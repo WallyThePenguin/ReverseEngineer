@@ -82,7 +82,20 @@ export interface Decision {
   message: string | null;
   /** Hearth didn't answer: it may still have gone through. */
   unanswered?: true;
+  /** Always allow's rule as Hearth wrote it, when the yes went through with one. */
+  kept?: Kept;
 }
+
+/** What a yes with Always allow answers: its rule, and whether an earlier press had saved it. */
+export interface Kept {
+  rule: Pick<StandingRule, "action" | "target" | "note">;
+  already?: true;
+}
+
+const keptOf = (result: unknown): Kept | null => {
+  const k = result as Partial<Kept> | null;
+  return typeof k?.rule?.note === "string" ? (k as Kept) : null;
+};
 
 /** What a yes says once it's done, in the approval's own words: "Sent to Dana Ruiz · View". */
 export interface Said {
@@ -115,12 +128,17 @@ export const alwaysAllowWords = (a: Approval | undefined): string | null =>
  * Always allow (D70): says yes to the card and writes its rule, in its one place or to its one
  * person, together. Hearth writes the rule only when the yes goes through, so whatever stops the
  * yes (decided elsewhere, ran out, what it sends changed, a turn that read an email asked for the
- * same thing) leaves no rule, and you're told so.
+ * same thing) leaves no rule, and you're told so. What it says comes from the rule Hearth wrote.
  */
-export async function alwaysAllow(approvalId: string, says: string): Promise<Decided> {
+export async function alwaysAllow(approvalId: string): Promise<Decided> {
   if (deciding(approvalId) || isDecided(approvalId)) return "changed";
   const d = await decideQuietly(approvalId, "approve", true);
-  if (d.outcome === "done") toast.show(`Done. From now on, ${says} goes without asking.`, "ok");
+  if (d.kept)
+    toast.show(
+      `${d.kept.already ? "Already done" : "Done"}. From now on, ${d.kept.rule.note} goes without asking.`,
+      "ok",
+    );
+  else if (d.outcome === "done") toast.show("Approved and done, but no rule was saved.", "error");
   else if (d.unanswered) toast.show(d.message ?? "Hearth didn't answer.", "error");
   else
     toast.show(
@@ -163,7 +181,8 @@ export async function decideQuietly(
     if (r instanceof Error) return { outcome: "failed", message: r.message, unanswered: true };
     if (r.status === "ok") {
       settle(approvalId, decision === "approve" ? "executed" : "denied");
-      return { outcome: "done", message: null };
+      const kept = alwaysAllow ? keptOf(r.result) : null;
+      return { outcome: "done", message: null, ...(kept ? { kept } : {}) };
     }
     if (r.status === "error") {
       // Decided elsewhere, ran out, or approved and then failed: it's no longer waiting either

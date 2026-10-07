@@ -12,6 +12,8 @@ vi.mock("./live.ts", () => ({
   reportError: (err: Error) => shown.push({ text: err.message, tone: "error" }),
 }));
 
+const eng = { action: "slack.post_in_channel", target: "C1", note: "posting in #eng" };
+
 const {
   alwaysAllow,
   alwaysAllowWords,
@@ -140,10 +142,10 @@ describe("deciding an approval", () => {
   });
 
   it("Always allow is one yes with its rule, once however often it's pressed", async () => {
-    reply(200, { status: "ok", result: {} }, 10);
-    const first = alwaysAllow("c1", "posting in #eng");
+    reply(200, { status: "ok", result: { rule: eng } }, 10);
+    const first = alwaysAllow("c1");
     expect(deciding("c1")).toBe(true);
-    await Promise.all([first, alwaysAllow("c1", "posting in #eng"), decide("c1", "deny")]);
+    await Promise.all([first, alwaysAllow("c1"), decide("c1", "deny")]);
     expect(paths).toEqual(["/api/approvals/c1"]);
     expect(sent).toEqual([{ decision: "approve", alwaysAllow: true }]);
     expect(decidedAs("c1")).toBe("executed");
@@ -156,19 +158,32 @@ describe("deciding an approval", () => {
     expect(sent.at(-1)).toEqual({ decision: "approve" });
   });
 
+  it("Always allow says what Hearth saved, and never that it saved one it didn't", async () => {
+    // Pressed again after the first answer was lost: it was done, rule and all.
+    reply(200, { status: "ok", result: { rule: eng, already: true } });
+    expect(await alwaysAllow("c6")).toBe("done");
+    // A yes that came back without its rule doesn't say it saved one.
+    reply(200, { status: "ok", result: { sent: true } });
+    expect(await alwaysAllow("c7")).toBe("done");
+    expect(shown).toEqual([
+      { text: "Already done. From now on, posting in #eng goes without asking.", tone: "ok" },
+      { text: "Approved and done, but no rule was saved.", tone: "error" },
+    ]);
+  });
+
   it("Always allow says plainly that no rule was saved when the yes didn't go through", async () => {
     const no =
       "Always allow is only for what Jarvis asks in a conversation you started, so nothing was done.";
     reply(403, { status: "denied", reason: no });
-    expect(await alwaysAllow("c2", "posting in #eng")).toBe("failed");
+    expect(await alwaysAllow("c2")).toBe("failed");
     // Still waiting for you: the card is read again, without the button an email's turn can't use.
     expect(isDecided("c2")).toBe(false);
     reply(409, { status: "error", code: "conflict", message: "This was already denied." });
-    expect(await alwaysAllow("c3", "posting in #eng")).toBe("changed");
+    expect(await alwaysAllow("c3")).toBe("changed");
     expect(decidedAs("c3")).toBe("denied");
     const changed = "Who or where this goes changed since you were asked, so nothing was sent.";
     reply(409, { status: "error", code: "conflict", message: changed });
-    expect(await alwaysAllow("c4", "posting in #eng")).toBe("changed");
+    expect(await alwaysAllow("c4")).toBe("changed");
     expect(shown).toEqual([
       { text: `${no} No rule was saved.`, tone: "error" },
       { text: "This was already denied. No rule was saved.", tone: "info" },
@@ -180,7 +195,7 @@ describe("deciding an approval", () => {
     vi.stubGlobal("fetch", async () => {
       throw new TypeError("Failed to fetch");
     });
-    expect(await alwaysAllow("c5", "posting in #eng")).toBe("failed");
+    expect(await alwaysAllow("c5")).toBe("failed");
     expect(isDecided("c5")).toBe(false);
     expect(shown).toEqual([
       { text: "Can't reach Hearth right now. Try again in a moment.", tone: "error" },

@@ -3,9 +3,9 @@
 // writes the rule together, so a yes that's refused, runs out or fails leaves no rule, and the
 // next send there goes at once. A card from a turn that read outside content never offers it,
 // can't make the rule, and the rule never lets such a turn through. Email always waits for you.
-import { approval, principal } from "@hearth/db";
+import { approval, audit, principal } from "@hearth/db";
 import { type Caller, jarvisCaller, newId, ownerCaller } from "@hearth/kernel";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type SendTest, sendTest } from "./outbox-testing.ts";
 
@@ -46,6 +46,31 @@ const always = (approvalId: string, caller: Caller = ownerCaller()) =>
   k.t.kernel.decideApproval(approvalId, "approve", caller, { alwaysAllow: true });
 const statusOf = async (id: string) =>
   (await k.t.tdb.db.select().from(approval).where(eq(approval.id, id)))[0]?.status;
+/** What the audit kept of each Always allow, given or refused. */
+const allowed = async () =>
+  (
+    await k.t.tdb.db
+      .select()
+      .from(audit)
+      .where(eq(audit.action, "standing_rule.always_allow"))
+      .orderBy(audit.at)
+  ).map((a) => ({ by: a.principal, outcome: a.outcome, approvalId: a.approvalId, input: a.input }));
+const generalRule = {
+  action: "slack.post_in_channel",
+  target: "CGEN",
+  note: "posting in #general",
+};
+/** Waits until a query in this test's database is waiting on a row lock. */
+async function waitingOnLock() {
+  for (let i = 0; i < 500; i++) {
+    const res = await k.t.tdb.db.execute(
+      sql`SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`,
+    );
+    if (res.rows.length > 0) return;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  throw new Error("Nothing waited on the card's lock.");
+}
 
 describe("Always allow", () => {
   it("says yes and covers the card's one channel, so the next post there goes at once", async () => {
@@ -168,9 +193,98 @@ describe("Always allow", () => {
     expect(await rules()).toEqual([]);
   });
 
-  it("is only yours to press", async () => {
+  it("is only yours to press, on your own screens", async () => {
     const id = await ask("slack.post_in_channel", postGeneral);
     expect(await always(id, yours)).toMatchObject({ status: "denied" });
+    // A paired device's yes is untrusted: it can say yes, but not give a standing one.
+    const device = ownerCaller("device", { origin: "untrusted" });
+    expect(await always(id, device)).toMatchObject({ status: "denied" });
+    expect(await statusOf(id)).toBe("pending");
     expect(await rules()).toEqual([]);
+  });
+
+  it("answers with the rule it saved, and the audit keeps who allowed it from which card", async () => {
+    const id = await ask("slack.post_in_channel", postGeneral);
+    expect(await always(id)).toEqual({ status: "ok", result: { rule: generalRule } });
+    const input = { approvalId: id, action: "slack.post_in_channel", target: "CGEN" };
+    expect(await allowed()).toEqual([{ by: "owner", outcome: "ok", approvalId: id, input }]);
+    const resolved = async (approvalId: string) =>
+      (await k.t.events("approval.resolved")).find((e) => e.payload.approvalId === approvalId)
+        ?.payload;
+    expect(await resolved(id)).toMatchObject({ decision: "approved", alwaysAllow: true });
+    // A plain yes isn't one, and writes no audit row of its own.
+    const plain = await ask("slack.dm", tellSam);
+    await k.t.kernel.decideApproval(plain, "approve", ownerCaller());
+    expect(await resolved(plain)).not.toHaveProperty("alwaysAllow");
+    // A refusal is kept too.
+    const mail = await ask("slack.dm", tellGus, fromMail);
+    expect(await always(mail)).toMatchObject({ status: "denied" });
+    expect((await allowed()).map((a) => [a.outcome, a.approvalId])).toEqual([
+      ["ok", id],
+      ["denied", mail],
+    ]);
+  });
+
+  it("says it's done, rule and all, when pressed again after its answer was lost", async () => {
+    const id = await ask("slack.post_in_channel", postGeneral);
+    expect(await always(id)).toMatchObject({ status: "ok" });
+    // The answer never reached you, so you press it again: nothing goes out twice.
+    expect(await always(id)).toEqual({
+      status: "ok",
+      result: { rule: generalRule, already: true },
+    });
+    expect(await k.rows()).toHaveLength(1);
+    expect(await allowed()).toHaveLength(1);
+    // A plain yes elsewhere saved no rule, so pressing Always allow after it says so.
+    const plain = await ask("slack.dm", tellSam);
+    await k.t.kernel.decideApproval(plain, "approve", ownerCaller());
+    expect(await always(plain)).toMatchObject({ status: "error", code: "conflict" });
+    // A card you said no to stays a no, though #general has its rule now.
+    const denied = newId();
+    await k.t.tdb.db.insert(approval).values({
+      id: denied,
+      action: "slack.post_in_channel",
+      input: {},
+      inputHash: "x",
+      risk: "outward",
+      summary: "Asks",
+      reason: "Asks",
+      requestedBy: "jarvis",
+      origin: "owner",
+      status: "denied",
+      alwaysAllow: { target: "CGEN", says: "posting in #general" },
+    });
+    expect(await always(denied)).toMatchObject({ status: "error", code: "conflict" });
+    // Nor once you've removed the rule in Settings.
+    const [rule] = await rules();
+    await k.ok("standing_rule.delete", { id: rule!.id });
+    expect(await always(id)).toMatchObject({ status: "error", code: "conflict" });
+  });
+
+  it("does nothing when an email's turn asks for the same thing while you press it", async () => {
+    const id = await ask("slack.post_in_channel", postGeneral);
+    // That turn's copy lowers the card after your press read it, before the press claims it.
+    let locked!: () => void;
+    let release!: () => void;
+    const held = new Promise<void>((r) => {
+      locked = r;
+    });
+    const done = new Promise<void>((r) => {
+      release = r;
+    });
+    const lowering = k.t.tdb.db.transaction(async (tx) => {
+      await tx.update(approval).set({ origin: "untrusted" }).where(eq(approval.id, id));
+      locked();
+      await done;
+    });
+    await held;
+    const pressed = always(id);
+    await waitingOnLock();
+    release();
+    await lowering;
+    expect(await pressed).toMatchObject({ status: "denied" });
+    expect(await statusOf(id)).toBe("pending");
+    expect(await rules()).toEqual([]);
+    expect(await k.rows()).toEqual([]);
   });
 });
