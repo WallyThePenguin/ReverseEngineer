@@ -10,6 +10,7 @@ import {
   reloadOnReturn,
   tryAgainBy,
   watchBuild,
+  whenHidden,
   wouldLoseWork,
 } from "./version.ts";
 
@@ -92,6 +93,25 @@ describe("the check on opening", () => {
     doc.dispatchEvent(new Event("visibilitychange"));
     stop();
     expect(openings).toEqual([true, undefined]);
+  });
+});
+
+describe("the desktop app's Ask window", () => {
+  it("looks for a new build only as it goes out of sight, never as it opens or comes back", () => {
+    const doc = Object.assign(new EventTarget(), {
+      visibilityState: "visible" as DocumentVisibilityState,
+    });
+    const check = vi.fn();
+    const stop = whenHidden(check, doc);
+    expect(check).not.toHaveBeenCalled();
+    doc.dispatchEvent(new Event("visibilitychange"));
+    expect(check).not.toHaveBeenCalled();
+    doc.visibilityState = "hidden";
+    doc.dispatchEvent(new Event("visibilitychange"));
+    expect(check).toHaveBeenCalledTimes(1);
+    stop();
+    doc.dispatchEvent(new Event("visibilitychange"));
+    expect(check).toHaveBeenCalledTimes(1);
   });
 });
 

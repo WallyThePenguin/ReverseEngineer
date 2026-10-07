@@ -82,6 +82,17 @@ pub fn main_focused(app: &AppHandle) -> bool {
 pub fn blurred(window: &tauri::Window) {
     if matches!(window.label(), CAPTURE | ASK) {
         let _ = window.hide();
+        if let Some(w) = window.app_handle().get_webview_window(window.label()) {
+            kept_out_of_sight(&w);
+        }
+    }
+}
+
+/// The Ask window keeps its page between uses: put away, its page is told, so it moves itself on
+/// to a new Hearth then rather than as you start typing (Mini.tsx). Quick capture opens afresh.
+fn kept_out_of_sight(window: &WebviewWindow) {
+    if window.label() == ASK {
+        sight::out_of_sight(window);
     }
 }
 
@@ -311,6 +322,7 @@ fn from_page(app: &AppHandle, label: &str, link: &str) {
                 if label == MAIN {
                     sight::out_of_sight(&w);
                 }
+                kept_out_of_sight(&w);
             }
         }
         Ok(links::Link::Retry) => offline::retry(app),
