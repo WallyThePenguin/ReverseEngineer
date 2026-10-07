@@ -11,7 +11,11 @@ import { id, writtenOutside } from "../shared.ts";
 const NEVER_ALWAYS = ["mail.send"];
 
 /** Writes Jarvis's rule for an action, or for its one place or person, and returns it. */
-async function writeRule(tx: Tx, rule: { action: string; target: string; note: string }, at: Date) {
+async function writeRule(
+  tx: Tx,
+  rule: { action: string; target: string | null; note: string },
+  at: Date,
+) {
   const [row] = await tx
     .insert(standingRule)
     .values({ id: newId(), principal: PRINCIPAL.jarvis, createdAt: at, ...rule })
@@ -65,7 +69,7 @@ export const approvalsModule = defineModule({
       risk: "internal",
       callers: ["owner"],
       handler: (i, ctx) =>
-        writeRule(ctx.tx, { action: i.action, target: "", note: i.note }, ctx.now),
+        writeRule(ctx.tx, { action: i.action, target: null, note: i.note }, ctx.now),
     }),
     defineAction({
       name: "standing_rule.always_allow",

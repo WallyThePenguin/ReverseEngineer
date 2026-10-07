@@ -2,7 +2,7 @@
 // an audit row and its events (PLAN.md section 5.4).
 import { memberWildcard } from "@hearth/core";
 import { type Db, principal, standingRule, type Tx } from "@hearth/db";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 import { alwaysAllowOf, requestApproval, resolveApproval } from "./approvals.ts";
 import { isAudited, writeAudit } from "./audit.ts";
@@ -308,7 +308,10 @@ export class Kernel {
         and(
           eq(standingRule.action, action),
           inArray(standingRule.principal, holders),
-          inArray(standingRule.target, target ? ["", target] : [""]),
+          // Any target (every rule written before D70), or this call's own.
+          target
+            ? or(isNull(standingRule.target), eq(standingRule.target, target))
+            : isNull(standingRule.target),
         ),
       );
     return rows.length > 0;

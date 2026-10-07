@@ -100,6 +100,17 @@ describe("Always allow", () => {
     expect(await k.rows()).toEqual([]);
   });
 
+  it("leaves a rule for any target, written in Settings, covering every target, once", async () => {
+    await k.ok("standing_rule.create", { action: "slack.dm", note: "Tell people things" });
+    await k.ok("standing_rule.create", { action: "slack.dm", note: "Tell anyone" });
+    const rules = (
+      await k.ok<{ action: string; target: string | null; note: string }[]>("standing_rule.list")
+    ).filter((r) => r.action === "slack.dm");
+    expect(rules).toMatchObject([{ target: null, note: "Tell anyone" }]);
+    expect(await k.run("slack.dm", tellSam, yours)).toMatchObject({ status: "ok" });
+    expect(await k.run("slack.dm", tellGus, yours)).toMatchObject({ status: "ok" });
+  });
+
   it("never covers email", () => {
     expect(k.t.kernel.registry.action("mail.send")?.alwaysAllow).toBeUndefined();
   });

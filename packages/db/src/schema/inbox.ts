@@ -40,8 +40,8 @@ export const standingRule = pgTable("standing_rule", {
   id: uuid("id").primaryKey(),
   action: text("action").notNull(),
   principal: text("principal").notNull(),
-  /** The one place or person it covers (a channel, a person), or '' for the whole action (D70). */
-  target: text("target").notNull().default(""),
+  /** The one place or person it covers (a channel, a person), or null for any (D70). */
+  target: text("target"),
   note: text("note").notNull().default(""),
   createdAt: ts("created_at").notNull().defaultNow(),
 });

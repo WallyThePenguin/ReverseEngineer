@@ -236,8 +236,8 @@ export interface StandingRule {
   id: string;
   action: string;
   principal: string;
-  /** The one place or person it covers, or "" for the whole action (D70). */
-  target: string;
+  /** The one place or person it covers, or null for any (D70). */
+  target: string | null;
   note: string;
   createdAt: string;
 }
