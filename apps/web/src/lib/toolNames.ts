@@ -49,6 +49,7 @@ const SAID: Record<string, Said> = {
   "entity.trash": ["Moving something to the trash", "Moved something to the trash"],
   "comment.create": ["Writing a comment", "Wrote a comment"],
   "inbox.notify": ["Adding to your inbox", "Added to your inbox"],
+  "reminder.create": ["Setting a reminder", "Set a reminder"],
   "browser.open": ["Opening a page in Chrome", "Opened a page in Chrome"],
   "browser.navigate": ["Going to a page in Chrome", "Went to a page in Chrome"],
   "browser.read": ["Reading a page", "Read a page"],
