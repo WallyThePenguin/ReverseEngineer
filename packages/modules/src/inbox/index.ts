@@ -11,7 +11,7 @@ import {
 import { and, count, desc, eq, inArray, isNull, lte, ne, notExists, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { id, isoDateTime } from "../shared.ts";
-import { remindAction, ringReminder } from "./reminders.ts";
+import { reminderActions, ringReminder } from "./reminders.ts";
 
 const live = (now: Date) =>
   and(
@@ -234,7 +234,7 @@ export const inboxModule = defineModule({
         return { delivered: true };
       },
     }),
-    remindAction,
+    ...reminderActions,
   ],
   reflexes: [
     ringReminder,

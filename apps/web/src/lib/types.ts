@@ -173,7 +173,8 @@ export interface SystemStatus {
   /** When the Jarvis process last checked in; null before it ever has. */
   jarvisAlive: { at: string; since: string; pid: number } | null;
   components: Record<string, { status: "ok" | "degraded" | "failing"; detail: string; at: string }>;
-  schedules: { id: string; nextRunAt: string | null }[];
+  /** label: what a reminder says ("Reminder: Call Sam"); null for Hearth's own schedules. */
+  schedules: { id: string; label?: string | null; nextRunAt: string | null }[];
 }
 
 export interface LastContact {

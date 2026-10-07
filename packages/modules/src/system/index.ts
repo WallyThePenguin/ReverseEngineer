@@ -14,7 +14,7 @@ import {
   getSetting,
   setSetting,
 } from "@hearth/kernel";
-import { and, asc, count, eq, isNotNull, isNull, like, ne } from "drizzle-orm";
+import { and, asc, count, eq, isNotNull, isNull, like, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { alertBackupFailed, alertFailing } from "./alerts.ts";
 import { judgeHealth } from "./staleness.ts";
@@ -86,6 +86,9 @@ export const systemModule = defineModule({
         const schedules = await ctx.tx
           .select({
             id: schedule.id,
+            // A reminder says what it's for, not its id.
+            label: sql<string | null>`CASE WHEN ${schedule.kind} = 'reminder'
+              THEN 'Reminder: ' || (${schedule.payload}->>'text') END`,
             nextRunAt: schedule.nextRunAt,
             lastRunAt: schedule.lastRunAt,
             lastOutcome: schedule.lastOutcome,

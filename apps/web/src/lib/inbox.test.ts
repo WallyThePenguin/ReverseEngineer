@@ -14,7 +14,7 @@ vi.mock("./live.ts", () => ({
   reportError: (err: Error) => errors.push(err.message),
 }));
 
-const { approvalParts, rowMenu, summaryParts } = await import("./inbox.ts");
+const { approvalParts, itemDue, rowMenu, summaryParts } = await import("./inbox.ts");
 const { act } = await import("./query.ts");
 
 const row = (id: string, approvalStatus: string | null = null) =>
@@ -89,5 +89,13 @@ describe("an approval in a conversation", () => {
       text: null,
     });
     expect(summaryParts(null)).toEqual({ what: null, text: null });
+  });
+});
+
+describe("a reminder that rang", () => {
+  it("never shows as overdue: its time is when it rang", () => {
+    const past = new Date(Date.now() - 60_000).toISOString();
+    expect(itemDue({ kind: "reminder", deadline: past })).toBeNull();
+    expect(itemDue({ kind: "note", deadline: past })).toMatchObject({ overdue: true });
   });
 });

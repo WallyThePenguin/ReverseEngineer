@@ -2,9 +2,14 @@
 // can't be put away, as done or snoozed: it leaves the inbox only by a yes or a no (D58).
 
 import { isWaiting } from "./approvals.ts";
-import type { InboxRow } from "./types.ts";
+import { due } from "./format.ts";
+import type { InboxRow, Notification } from "./types.ts";
 
 export type InboxView = "live" | "snoozed" | "done";
+
+/** The "due" beside an item, if any: a reminder's time is when it rang, never overdue. */
+export const itemDue = (n: Pick<Notification, "kind" | "deadline">) =>
+  n.kind === "reminder" ? null : due(n.deadline, false);
 
 /** An approval card still waiting for your yes or no (and not decided here a moment ago). */
 export const waitingOnYou = (row: InboxRow | undefined) =>
