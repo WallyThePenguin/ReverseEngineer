@@ -3,13 +3,22 @@
 // message, Space on a button that sends, are free only on a site you trust and above the floor.
 import { type ActionContext, ActionError, defineAction } from "@hearth/kernel";
 import { z } from "zod";
-import { assertAllowed, browser, CALLERS } from "./access.ts";
+import { assertAllowed, assertNotHearth, browser, CALLERS } from "./access.ts";
 import { askWhy, dialogVerdict, isTrusted, judge, REJECT, type Verdict } from "./classify.ts";
 import { clickAt, pressCombo } from "./input.ts";
 import { type Combo, isPaste, parseKeys, types } from "./keys.ts";
 import { pace } from "./pace.ts";
 import { evaluate, pageCall, pageFunction } from "./page.ts";
-import { afterStep, assertSite, beforeStep, SITE_CHECK, tabId, tabPin } from "./step.ts";
+import {
+  afterStep,
+  assertHere,
+  assertSite,
+  beforeStep,
+  handsPin,
+  SITE_CHECK,
+  tabId,
+  tabPin,
+} from "./step.ts";
 
 const PROBE = pageFunction("./page-probe.js", "pageProbe");
 
@@ -86,8 +95,13 @@ async function ready(ctx: ActionContext, i: { tabId: number; site?: string }) {
   const client = browser(ctx);
   const { tab, known } = await beforeStep(client, i.tabId);
   assertSite(tab, i.site);
-  await pace(ctx, await assertAllowed(ctx, tab.url));
-  return { client, tab, known };
+  const url = await assertAllowed(ctx, tab.url);
+  assertNotHearth(ctx, url);
+  // Where the step begins, asked of the page before the wait, so a page that goes elsewhere
+  // (Hearth's own) while Jarvis waits is seen to have.
+  const began = await assertHere(ctx, client, i.tabId);
+  await pace(ctx, url);
+  return { client, tab, known, began };
 }
 
 export const stepActions = [
@@ -105,7 +119,7 @@ export const stepActions = [
     callers: CALLERS,
     io: true,
     external: true,
-    pin: tabPin,
+    pin: handsPin,
     summarize: (i) =>
       `Press ${i.keys}${i.repeat > 1 ? ` ${i.repeat} times` : ""} in tab ${i.tabId}${i.site ? ` on ${i.site}` : ""}`,
     async handler(i, ctx) {
@@ -117,12 +131,14 @@ export const stepActions = [
           "forbidden",
           "Pasting isn't allowed: it would send whatever is on the owner's clipboard. Type the text with browser_type.",
         );
-      const { client, tab, known } = await ready(ctx, i);
+      const { client, tab, known, began } = await ready(ctx, i);
       const trusted = await isTrusted(ctx, tab.url);
       const done: string[] = [];
       let dialog = false;
       for (let r = 0; r < i.repeat && !dialog; r++) {
         for (const c of combos) {
+          // A page that goes to another (Hearth's own) while Jarvis waits or presses stops it there.
+          await assertHere(ctx, client, i.tabId, began, tally(done));
           if (sensitive(c)) {
             const active = await evaluate<Active>(
               client,
@@ -162,13 +178,15 @@ export const stepActions = [
     callers: CALLERS,
     io: true,
     external: true,
-    pin: tabPin,
+    pin: (i, s) => (i.accept ? handsPin(i, s) : tabPin(i, s)),
     summarize: (i) => `${i.accept ? "Accept" : "Dismiss"} the dialog in tab ${i.tabId}`,
     async handler(i, ctx) {
       const client = browser(ctx);
       const { tab, known } = await beforeStep(client, i.tabId);
       assertSite(tab, i.site);
       await assertAllowed(ctx, tab.url);
+      // Cancel or Stay is fine on Hearth's own page; OK or Leave there is the owner's.
+      if (i.accept) assertNotHearth(ctx, tab.url);
       const dialog = tab.dialog;
       if (!dialog) throw new ActionError("not_found", `There's no dialog open in tab ${i.tabId}.`);
       if (i.accept) {
@@ -208,10 +226,12 @@ export const stepActions = [
     callers: CALLERS,
     io: true,
     external: true,
-    pin: tabPin,
+    pin: handsPin,
     summarize: (i) => `Reject cookies in tab ${i.tabId}`,
     async handler(i, ctx) {
-      const { client, tab, known } = await ready(ctx, i);
+      const { client, tab, known, began } = await ready(ctx, i);
+      // The page may have gone elsewhere (to Hearth's own) while Jarvis waited.
+      await assertHere(ctx, client, i.tabId, began);
       const found = await evaluate<{
         found: boolean;
         banner: boolean;
@@ -244,6 +264,7 @@ export const stepActions = [
         );
       if (found.covered || found.x === undefined || found.y === undefined)
         throw new ActionError("failed", "Something covers the banner's reject button.");
+      await assertHere(ctx, client, i.tabId, began);
       await clickAt(client, i.tabId, "C1", found.x, found.y);
       return {
         tabId: i.tabId,
