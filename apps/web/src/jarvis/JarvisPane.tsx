@@ -9,7 +9,7 @@ import { Badge, Button } from "../components/ui.tsx";
 import { debounced } from "../lib/debounce.ts";
 import { ago, day, time } from "../lib/format.ts";
 import { jarvisLiveness } from "../lib/jarvis-health.ts";
-import { useLooking } from "../lib/looking.ts";
+import { onScreen } from "../lib/looking.ts";
 import { narrow } from "../lib/narrow.ts";
 import { layout } from "../lib/panes.ts";
 import { useAction } from "../lib/query.ts";
@@ -116,7 +116,6 @@ async function trashConversation(id: string) {
 }
 
 export function JarvisPane() {
-  const onScreen = useLooking();
   const [search, setSearch] = createSignal("");
   const query = debounced(search);
   const conversations = useAction<ConversationRow[]>("conversation.list", () => ({
