@@ -28,12 +28,18 @@ export function ReadyToSend(props: {
   /** The drafts were read since Today opened, and aren't being read again right now. */
   fresh: boolean;
   go: Go;
+  /** Placement only. */
+  class?: string;
 }) {
   const ids = createMemo(() => props.drafts.map((d) => d.id), [], {
     equals: (a, b) => a.length === b.length && a.every((id, i) => id === b[i]),
   });
   return (
-    <section aria-labelledby="today-drafts" data-jump="today-drafts" class="scroll-mt-4 space-y-2">
+    <section
+      aria-labelledby="today-drafts"
+      data-jump="today-drafts"
+      class={`scroll-mt-4 space-y-2 ${props.class ?? ""}`}
+    >
       <SectionHeader
         id="today-drafts"
         title="Ready to send"

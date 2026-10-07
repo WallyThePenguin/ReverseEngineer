@@ -60,10 +60,17 @@
   --font-sans:
     "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --font-mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, monospace;
+  /* Only Today's greeting: a warmer voice, still from the system (Windows' Sitka, Apple's New
+     York, Georgia elsewhere). */
+  --font-serif: "Sitka Heading", ui-serif, "New York", Georgia, serif;
 
   /* The type scale. Body text is text-sm (14px). Hierarchy comes from weight and space, not
      ever smaller text: nothing goes below micro. */
-  /* 24px: the Today greeting, a document's title. */
+  /* 32px: Today's greeting, in the serif. */
+  --text-hero: 2rem;
+  --text-hero--line-height: 2.5rem;
+  --text-hero--font-weight: 400;
+  /* 24px: a document's title. */
   --text-display: 1.5rem;
   --text-display--line-height: 2rem;
   --text-display--font-weight: 600;
