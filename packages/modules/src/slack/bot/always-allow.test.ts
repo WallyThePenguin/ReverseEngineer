@@ -3,7 +3,7 @@
 // writes the rule together, so a yes that's refused, runs out or fails leaves no rule, and the
 // next send there goes at once. A card from a turn that read outside content never offers it,
 // can't make the rule, and the rule never lets such a turn through. Email always waits for you.
-import { approval } from "@hearth/db";
+import { approval, principal } from "@hearth/db";
 import { type Caller, jarvisCaller, newId, ownerCaller } from "@hearth/kernel";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -157,6 +157,10 @@ describe("Always allow", () => {
       });
       return id;
     };
+    await k.t.tdb.db
+      .insert(principal)
+      .values({ id: "mcp:claude", kind: "mcp_client", displayName: "Claude" })
+      .onConflictDoNothing();
     for (const id of [await card("mail.send", "jarvis"), await card("slack.dm", "mcp:claude")]) {
       expect(await always(id)).toMatchObject({ status: "denied" });
       expect(await statusOf(id)).toBe("pending");
