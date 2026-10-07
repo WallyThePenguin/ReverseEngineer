@@ -20,7 +20,10 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # A new push to a PR replaces its old run. A merge to the deploy branch waits for the run before
+  # it instead: cancelling a running Windows job can flash console windows on the owner's desktop,
+  # and runs still waiting are dropped anyway, so a batch of merges ends in one run on the tip.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
