@@ -3,7 +3,7 @@
 // rings through quiet hours and the day's cap only because the meeting is about to start.
 import { calendar, calendarEvent, type DbOrTx, googleAccount } from "@hearth/db";
 import { getSetting, type ReflexDef, type ReflexOutcome } from "@hearth/kernel";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNotNull, or } from "drizzle-orm";
 import { preview } from "../shared.ts";
 import { eventsToPrep, prepsFor, worthPrep } from "./prep.ts";
 import { type EventView, loadEvent } from "./store.ts";
@@ -33,29 +33,52 @@ const plain = (title: string) =>
 
 /**
  * The meeting as one key across your accounts (the same invitation on two calendars is one
- * meeting), on a calendar you still see that's one of your own: not a family or team calendar
- * shared with you, nor one you've turned off since.
+ * meeting), on a calendar you still see that's one of your own: an account's own calendar or the
+ * one new events go to, not a family or team calendar shared with you, nor one you've turned off
+ * since. Only one you set up or said yes or maybe to: an invitation nobody answered, a stranger's
+ * included, mustn't ring through the night.
  */
 async function yours(db: DbOrTx, ev: EventView): Promise<string | null> {
+  if (!ev.selfOrganizer && ev.selfResponse !== "accepted" && ev.selfResponse !== "tentative")
+    return null;
   const [row] = await db
     .select({ icalUid: calendarEvent.icalUid })
     .from(calendarEvent)
     .innerJoin(calendar, eq(calendar.id, calendarEvent.calendarId))
-    .innerJoin(googleAccount, eq(googleAccount.email, calendar.googleId))
-    .where(and(eq(calendarEvent.entityId, ev.id), eq(calendar.selected, true)))
+    .leftJoin(googleAccount, eq(googleAccount.email, calendar.googleId))
+    .where(
+      and(
+        eq(calendarEvent.entityId, ev.id),
+        eq(calendar.selected, true),
+        or(isNotNull(googleAccount.email), eq(calendar.writeDefault, true)),
+      ),
+    )
     .limit(1);
   return row ? (row.icalUid ?? ev.id) : null;
 }
 
-/** What a prep says first, without its facts block (title, time, ids, people's notes). */
+/** prepFacts's lines: when, where, who, and pointers with ids meant for Jarvis. */
+const FACT =
+  /^- (When|Event id|Where|Video|Guests|About|Open task|Last time|Linked|Has a description|Last meeting with them)\b/;
+const HAS_ID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+/**
+ * What a prep says first, in its own words: none of the facts block (title, time, people, ids,
+ * a past meeting's indented summary). The plain facts written when Jarvis couldn't write the prep
+ * have none, so they give nothing.
+ */
 export function gist(body: string): string {
   const line = body
     .split("\n")
-    .map((l) => l.trim())
     .find(
-      (l) => l && !l.startsWith("#") && !/^- (When|Event id|Where|Video|Guests|About)\b/.test(l),
+      (raw) =>
+        raw.trim() &&
+        !/^\s/.test(raw) &&
+        !raw.startsWith("#") &&
+        !FACT.test(raw) &&
+        !HAS_ID.test(raw),
     );
-  return line ? preview(line.replace(/^[-*]\s+/, ""), 200) : "";
+  return line ? preview(line.trim().replace(/^[-*]\s+/, ""), 200) : "";
 }
 
 export const meetingSoon: ReflexDef = {
