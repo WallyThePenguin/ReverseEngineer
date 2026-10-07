@@ -10,7 +10,8 @@ export function EditableBody(props: {
   body: string | null;
   placeholder: string;
   save: (body: string) => Promise<boolean>;
-  onToggleLine?: (line: number) => void;
+  /** Ticks a checklist line: false when it wasn't saved. */
+  onToggleLine?: (line: number) => Promise<boolean>;
   rows?: number;
 }) {
   const [editing, setEditing] = createSignal(false);

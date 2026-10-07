@@ -6,6 +6,7 @@ import { NoRows } from "../components/QueryView.tsx";
 import { Badge, Button, PaneHeader } from "../components/ui.tsx";
 import { ago } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
+import { orBack } from "../lib/orBack.ts";
 import { act, useAction } from "../lib/query.ts";
 import { Samples } from "./VoiceSamples.tsx";
 
@@ -322,10 +323,18 @@ function Snippets() {
 function Styles() {
   const styles = useAction<Style[]>("voice.styles");
   const save = async (next: Style[]) => {
-    if (await act("voice.set_styles", { styles: next })) toast.show("Saved.");
+    const saved = await act("voice.set_styles", { styles: next });
+    if (saved) toast.show("Saved.");
+    return saved;
   };
-  const set = (i: number, patch: Partial<Style>) =>
-    void save((styles.data ?? []).map((s, j) => (j === i ? { ...s, ...patch } : s)));
+  // A field whose save doesn't go through shows what's saved again, so the next edit saves from
+  // what's shown.
+  type Field = "name" | "match" | "instructions";
+  const set = (el: HTMLInputElement, i: number, field: Field) => {
+    const was = styles.data?.[i]?.[field] ?? "";
+    const next = (styles.data ?? []).map((s, j) => (j === i ? { ...s, [field]: el.value } : s));
+    void orBack(el, save(next), () => was);
+  };
   return (
     <div class="space-y-3 px-4 py-3">
       <p class="text-sm text-muted">
@@ -340,13 +349,13 @@ function Styles() {
                 class={input}
                 value={s.name}
                 aria-label="Name"
-                onChange={(e) => set(i(), { name: e.currentTarget.value })}
+                onChange={(e) => set(e.currentTarget, i(), "name")}
               />
               <input
                 class={`${input} flex-1`}
                 value={s.match}
                 aria-label="App or window contains"
-                onChange={(e) => set(i(), { match: e.currentTarget.value })}
+                onChange={(e) => set(e.currentTarget, i(), "match")}
               />
               <button
                 type="button"
@@ -360,7 +369,7 @@ function Styles() {
               class={`${input} w-full`}
               value={s.instructions}
               aria-label="How to write"
-              onChange={(e) => set(i(), { instructions: e.currentTarget.value })}
+              onChange={(e) => set(e.currentTarget, i(), "instructions")}
             />
           </div>
         )}
