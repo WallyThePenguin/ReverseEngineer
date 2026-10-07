@@ -51,7 +51,13 @@ export function createSelection<T>(
     const i = index();
     const now = ids();
     if (i < 0 || now === replaced) return;
-    replaced = null;
+    if (replaced !== null) {
+      // The list a reset was for has come: its top row is next.
+      replaced = null;
+      setLast(0);
+      setSelected(now[0] ?? null);
+      return;
+    }
     const was = selected();
     if (comeback && was === comeback.took && now.includes(comeback.gone)) {
       if (Date.now() < comeback.until) {
@@ -80,10 +86,16 @@ export function createSelection<T>(
       setSelected(ids()[i] ?? null);
     },
     reset() {
+      // The list it's reset for may be showing already (one read before comes at once) and may
+      // never change: its top row is the selection now. Another that comes takes over with its
+      // own top row, and nothing changed by the end of this turn means this one is it.
       replaced = ids();
       comeback = null;
       setLast(0);
-      setSelected(null);
+      setSelected(ids()[0] ?? null);
+      queueMicrotask(() => {
+        if (ids() === replaced && ids().length > 0) replaced = null;
+      });
     },
   };
 }

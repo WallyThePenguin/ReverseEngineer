@@ -13,6 +13,35 @@ import type { Work } from "./sync-work.ts";
 /** Failures in a row before an alert, if nothing synced for FAILING_AFTER_MS either. */
 export const FAILURES_BEFORE_ALERT = 3;
 export const FAILING_AFTER_MS = 30 * 60_000;
+/** No try for this long: the PC slept or Hearth was off, so failures from before don't count. */
+export const AWAY_MS = 15 * 60_000;
+
+export interface RunState {
+  syncState: string;
+  failures: number;
+  failingSince: Date | null;
+  syncedAt: Date | null;
+  /** When it last tried. Left out by a sync that doesn't keep it: no gap is ever seen. */
+  attemptedAt?: Date | null;
+}
+
+/**
+ * Where a failure leaves its run of failures. "Nothing synced" counts from when the run started,
+ * not from the last sync, which after a night asleep was hours ago; and the first failure after a
+ * gap with no tries starts a new run. So the first syncs after the PC wakes, quick retries
+ * included, never make it failing. A run already told goes on, so its notice stays the one open.
+ */
+export function runOfFailures(h: RunState, now: Date) {
+  const told = h.syncState === "failing" || h.syncState === "revoked";
+  const away =
+    !told &&
+    h.attemptedAt !== undefined &&
+    now.getTime() - (h.attemptedAt?.getTime() ?? 0) >= AWAY_MS;
+  const failures = away ? 1 : h.failures + 1;
+  const since = away ? now : (h.failingSince ?? now);
+  const quietFor = now.getTime() - Math.max(h.syncedAt?.getTime() ?? 0, since.getTime());
+  return { failures, since, quietFor };
+}
 /** Alerts from before D55 were keyed by day: "mail.sync_failed:2026-10-04". */
 const OLD_ALERT = "^mail\\.sync_failed:[0-9-]+$";
 
@@ -75,7 +104,10 @@ export async function recordOutcome(
 ): Promise<AccountOutcome> {
   const base = { added: work.added, removed: work.removed, more: work.more };
   const set = (values: Partial<typeof mailAccount.$inferInsert>) =>
-    ctx.tx.update(mailAccount).set(values).where(eq(mailAccount.id, account.id));
+    ctx.tx
+      .update(mailAccount)
+      .set({ ...values, attemptedAt: ctx.now })
+      .where(eq(mailAccount.id, account.id));
   const busy: MailSyncState = work.more ? "catching_up" : "ok";
   const succeeded = async (state: MailSyncState) => {
     await set({
@@ -112,13 +144,13 @@ export async function recordOutcome(
     // ran into first says what's left of it, and the account waits just that long.
     const until = new Date(ctx.now.getTime() + (wait > 0 ? wait : MIN_PAUSE_MS));
     if (work.progressed) await succeeded("paused");
-    await set({ syncState: "paused", pausedUntil: until });
+    // In the middle of a run of failures it's still failing, paused as well, so its alert stays.
+    const failing = !work.progressed && account.syncState === "failing";
+    await set({ syncState: failing ? "failing" : "paused", pausedUntil: until });
     return { status: "paused", ...base, more: true, retryAt: until };
   }
   const message = err instanceof Error ? err.message : String(err);
-  const failures = account.failures + 1;
-  const since = account.failingSince ?? ctx.now;
-  const quietFor = ctx.now.getTime() - (account.syncedAt?.getTime() ?? 0);
+  const { failures, since, quietFor } = runOfFailures(account, ctx.now);
   const failing =
     kind === "auth" ||
     kind === "refused" ||

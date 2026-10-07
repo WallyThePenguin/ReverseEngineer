@@ -5,6 +5,7 @@ import { For, onMount, Show } from "solid-js";
 import { Badge, Button } from "../components/ui.tsx";
 import { ago } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
+import { orBack } from "../lib/orBack.ts";
 import { act, useAction } from "../lib/query.ts";
 import type { CalendarSetup, MailAccount } from "../lib/types.ts";
 import { DisconnectGoogle } from "./GoogleDisconnect.tsx";
@@ -150,7 +151,11 @@ function Calendars(props: { setup: CalendarSetup }) {
                       disabled={!c.selected && Boolean(elsewhere(c))}
                       aria-label={`Sync ${c.title}`}
                       onChange={(e) =>
-                        void act("calendar.choose", { id: c.id, selected: e.currentTarget.checked })
+                        void orBack(
+                          e.currentTarget,
+                          act("calendar.choose", { id: c.id, selected: e.currentTarget.checked }),
+                          () => c.selected,
+                        )
                       }
                     />
                     <span
@@ -183,7 +188,13 @@ function Calendars(props: { setup: CalendarSetup }) {
             <select
               class="rounded-md border border-line bg-panel px-2 py-1 text-sm"
               value={writable().find((c) => c.writeDefault)?.id ?? ""}
-              onChange={(e) => void act("calendar.set_default", { id: e.currentTarget.value })}
+              onChange={(e) =>
+                void orBack(
+                  e.currentTarget,
+                  act("calendar.set_default", { id: e.currentTarget.value }),
+                  () => writable().find((c) => c.writeDefault)?.id ?? "",
+                )
+              }
             >
               <For each={writable()}>{(c) => <option value={c.id}>{label(c)}</option>}</For>
             </select>

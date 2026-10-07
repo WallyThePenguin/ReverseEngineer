@@ -3,6 +3,7 @@
 // or a pause that has kept new mail out for two hours (Gmail isn't letting up).
 
 import { Show } from "solid-js";
+import { timeNow } from "../lib/clock.ts";
 import { ago, time } from "../lib/format.ts";
 import type { MailAccount } from "../lib/types.ts";
 
@@ -30,7 +31,7 @@ export function syncLine(a: MailAccount): SyncLine {
           : `Mail for ${a.address} hasn't synced yet. Hearth keeps trying.`,
     };
   if (a.state === "paused" && a.pausedUntil) {
-    const quiet = a.syncedAt ? Date.now() - new Date(a.syncedAt).getTime() : 0;
+    const quiet = a.syncedAt ? timeNow().getTime() - new Date(a.syncedAt).getTime() : 0;
     // The time ends in "a.m." or "p.m.", which ends the sentence too.
     const resuming = time(new Date(a.pausedUntil));
     return {

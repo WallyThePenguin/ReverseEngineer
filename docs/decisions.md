@@ -2131,3 +2131,30 @@ after you sign out; the window is also loaded out of sight when Windows starts).
 though the session was still valid. Its sign-in page offered a passkey button that can't work at
 `http://localhost:4400`, so the owner had to connect it again from the browser. They don't want
 to sign in through the web every time.
+
+## D70. "Always allow" on a card Jarvis showed in a conversation you started (2026-10-07)
+
+*This adds a way to write D25's standing rules. It doesn't change when one applies.*
+
+**Decision:** A card for something Jarvis asked in a conversation you started (origin `owner`)
+can offer "Always allow …" beside Approve. Pressing it approves the card and writes a standing
+rule as narrow as the card: the action, and the one place or person it reaches (`target`):
+"Always allow posting in #eng", "Always allow messaging Eve on Slack". An action offers it only
+if it says what its target is (`alwaysAllow`); today that's `slack.post_in_channel` (the channel,
+its threads too) and `slack.dm` (the person); `calendar.respond` doesn't, as D71 covers
+invitations. The rule shows in Settings, where Remove takes it back. A card from a turn that read
+outside content (an email, a page, a Slack message) never offers it, and no rule applies to such
+a turn (policy.ts, unchanged), so nothing from outside can make or use one.
+
+Only the card's Always allow refuses `mail.send`: a card never offers it for an email, and
+`standing_rule.always_allow` turns it down whatever the card says. Rules you make yourself in
+Settings (`standing_rule.create`, `target` NULL: any target) are unchanged, `mail.send` included,
+and keep covering every target. Migration 0040 adds the nullable `target`, unique per action and
+principal with NULLS NOT DISTINCT.
+
+**Alternatives:** A rule for the whole action (one yes for #eng would allow every channel).
+Offering it on every card (an injected email could put "Always allow" in front of you). A rule
+for `mail.send` from a card (one tap would let every later email go unread by you).
+
+**Why:** The owner chose it on 2026-10-07: "Yes, add Always allow". The same yes for the same
+channel or person, card after card, is part of why Jarvis "feels very manual".

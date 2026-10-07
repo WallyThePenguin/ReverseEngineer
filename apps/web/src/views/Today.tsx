@@ -6,12 +6,13 @@
 // one after the other, with the meeting on now or next under the greeting. What a row opens goes
 // beside Today, as from any list, so Today stays where it was.
 
-import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { HomeScreenSteps } from "../components/HomeScreenSteps.tsx";
 import { Card } from "../components/kit/Card.tsx";
 import { SectionHeader } from "../components/kit/SectionHeader.tsx";
 import { SetupChecklist } from "../components/SetupChecklist.tsx";
 import { Button, Failed, PaneHeader } from "../components/ui.tsx";
+import { createToday, timeNow } from "../lib/clock.ts";
 import { askedToSend } from "../lib/needsYou.ts";
 import { layout, type PaneRoute, routeFor } from "../lib/panes.ts";
 import { usePush } from "../lib/push.ts";
@@ -46,14 +47,10 @@ import { UpNext, YourDay } from "./today/YourDay.tsx";
 const DAY = 86_400_000;
 
 export function Today(props: { pane: number }) {
-  // The clock moves the meetings on, and a new day brings a new day's reads.
-  const [now, setNow] = createSignal(new Date());
-  const timer = window.setInterval(() => setNow(new Date()), 60_000);
-  onCleanup(() => window.clearInterval(timer));
-  const dayStart = createMemo(() => {
-    const n = now();
-    return new Date(n.getFullYear(), n.getMonth(), n.getDate()).getTime();
-  });
+  // The clock moves the meetings on with every other row (lib/clock.ts), and a new day brings a
+  // new day's reads.
+  const now = createMemo(() => timeNow());
+  const dayStart = createToday();
 
   const approvals = usePendingApprovals();
   const inbox = useAction<InboxRow[]>("inbox.list", () => inboxInput("live", "signal"));
@@ -166,10 +163,11 @@ export function Today(props: { pane: number }) {
                 })}
               </p>
               <h2 class="mt-1 font-serif text-hero">{greeting(now())}</h2>
-              {/* Each part counts what its section shows, and takes you to it. */}
+              {/* Each part counts what its section shows, and takes you to it. Kept by its words:
+                  the minute moving on doesn't draw it again, and the focus stays on it. */}
               <p class="mt-1 flex flex-wrap gap-x-1.5 text-sm text-muted">
-                <For each={line()}>
-                  {(part, i) => (
+                <For each={line().map((part) => part.text)}>
+                  {(text, i) => (
                     <>
                       <Show when={i() > 0}>
                         <span aria-hidden="true">·</span>
@@ -177,9 +175,12 @@ export function Today(props: { pane: number }) {
                       <button
                         type="button"
                         class="rounded-sm underline-offset-2 hover:text-ink hover:underline"
-                        onClick={() => jump(part.to)}
+                        onClick={() => {
+                          const to = line().find((part) => part.text === text)?.to;
+                          if (to) jump(to);
+                        }}
                       >
-                        {part.text}
+                        {text}
                       </button>
                     </>
                   )}
