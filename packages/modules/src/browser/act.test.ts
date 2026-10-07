@@ -20,14 +20,14 @@ const COUNT = "https://count.example/";
 // A page with somewhere to type, which a test sends elsewhere while Jarvis waits its turn there.
 const LATER = `<!doctype html><title>Later</title><input aria-label="Search" autofocus>`;
 // A page Jarvis reads, and what takes its place while it waits its turn: the same references
-// (as a page back from the cache keeps them), on Hearth's own page or another site's.
+// (as a page back from the cache keeps them), on Hearth's own page or another on the same site.
 const START = "https://start.example/";
 const STAGED = (mark: string) => `<!doctype html><head>${mark}<title>Staged</title></head>
   <button data-hearth="E1" onclick="document.title = 'Pressed'">Approve</button>
   <select data-hearth="E2" aria-label="Size" onchange="document.title = 'Changed'">
     <option>Small</option><option>Large</option></select>`;
 const STAGED_HEARTH = "https://staged.example/";
-const STAGED_AWAY = "https://elsewhere.example/";
+const STAGED_AWAY = "https://start.example/staged";
 const PAGES: Record<string, string> = {
   [SHOP]: `<!doctype html><title>Shop</title>
     <form role="search" action="/search" method="get">

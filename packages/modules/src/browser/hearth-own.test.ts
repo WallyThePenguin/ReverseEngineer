@@ -88,9 +88,10 @@ describe("a page last seen as Hearth's own", () => {
     });
   });
 
-  it("answers a dialog on any other page as before", async () => {
-    const { tabId } = await ok<{ tabId: number }>("browser.open", { url: SHOP });
+  it("answers a dialog on any other page as before, even in a tab that showed Hearth", async () => {
+    const { tabId } = await ok<{ tabId: number }>("browser.open", { url: MIRROR });
     await t.kernel.execute("browser.key", { tabId, keys: "Tab" }, jarvis);
+    await ok("browser.navigate", { tabId, url: SHOP });
     chrome.openDialog(tabId, { type: "alert", message: "Saved", url: SHOP });
     expect(await ok("browser.dialog", { tabId, accept: true })).toMatchObject({ accepted: true });
   });
