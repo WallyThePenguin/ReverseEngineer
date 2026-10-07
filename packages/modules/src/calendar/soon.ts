@@ -9,6 +9,10 @@ import { eventsToPrep, prepsFor, worthPrep } from "./prep.ts";
 import { type EventView, loadEvent } from "./store.ts";
 
 export const HEADS_UP_MINUTES = 10;
+/** No calendar sync tried for this long (three missed rounds): the PC slept or Hearth was off. */
+export const STALE_CALENDAR_MS = 15 * 60_000;
+/** How soon a heads-up waiting for that first sync looks again. */
+const RECHECK_MS = 60_000;
 /** Routines whose firing looks ahead for meetings already on the calendar, and how far. */
 const LOOK_AHEAD_HOURS: Record<string, number> = {
   "calendar.prep": 48,
@@ -55,6 +59,21 @@ async function yours(db: DbOrTx, ev: EventView): Promise<string | null> {
     )
     .limit(1);
   return row ? (row.icalUid ?? ev.id) : null;
+}
+
+/**
+ * Whether the calendar this event came from hasn't been synced since before the PC slept: the
+ * meeting may have moved or been cancelled overnight, and the first sync after waking would say.
+ */
+async function asleepSince(db: DbOrTx, eventId: string, now: Date): Promise<boolean> {
+  const [row] = await db
+    .select({ at: googleAccount.calendarAttemptedAt })
+    .from(calendarEvent)
+    .innerJoin(calendar, eq(calendar.id, calendarEvent.calendarId))
+    .innerJoin(googleAccount, eq(googleAccount.email, calendar.account))
+    .where(eq(calendarEvent.entityId, eventId))
+    .limit(1);
+  return !!row?.at && now.getTime() - row.at.getTime() >= STALE_CALENDAR_MS;
 }
 
 /** prepFacts's lines: when, where, who, and pointers with ids meant for Jarvis. */
@@ -107,6 +126,10 @@ export const meetingSoon: ReflexDef = {
     if (!worthPrep(ev, await getSetting(ctx.db, "calendar.prepMinMinutes"))) return [];
     const meeting = await yours(ctx.db, ev);
     if (!meeting) return [];
+    // Came due while the PC slept: wait for the first sync after waking. A sync that's down
+    // altogether holds it until the meeting starts; "Google Calendar is failing" says why.
+    if (await asleepSince(ctx.db, ev.id, ctx.now))
+      return [{ ...remind(ev, ctx.now), at: new Date(ctx.now.getTime() + RECHECK_MS) }];
     const prep = (await prepsFor(ctx.db, [ev.id])).get(ev.id);
     const minutes = Math.max(1, Math.round((ev.startsAt.getTime() - ctx.now.getTime()) / 60_000));
     const said = prep ? gist(prep.body) : "";
