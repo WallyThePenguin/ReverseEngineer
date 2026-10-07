@@ -215,6 +215,26 @@ describe("Google Calendar", () => {
     expect(await inbox("calendar.conflict")).toEqual([]);
   });
 
+  it("tells a clash weeks away two weeks before, even while Jarvis is paused", async () => {
+    g.put(CAL, {
+      summary: "A",
+      start: at("2026-10-29T15:00:00Z"),
+      end: at("2026-10-29T16:00:00Z"),
+    });
+    g.put(CAL, {
+      summary: "B",
+      start: at("2026-10-29T15:30:00Z"),
+      end: at("2026-10-29T16:30:00Z"),
+    });
+    await sync();
+    await h.settle();
+    expect(await inbox("calendar.conflict")).toEqual([]);
+    await ok("jarvis.pause", {});
+    h.clock.set("2026-10-15T15:00:10Z");
+    await h.settle();
+    expect(await inbox("calendar.conflict")).toHaveLength(1);
+  });
+
   it("makes prep packets at 6 a.m., plain ones when Jarvis is paused", async () => {
     g.put(CAL, {
       summary: "Planning with Sam",

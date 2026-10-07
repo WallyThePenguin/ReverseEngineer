@@ -17,85 +17,18 @@ import { disconnectAction } from "../google/disconnect.ts";
 import { describeRow, id, isOutside, isoDateTime, liveEntity } from "../shared.ts";
 import { calendarWriteActions } from "./actions.ts";
 import { blockAction, blockReflex, blockRoutine } from "./blocks.ts";
-import {
-  calendarSetupActions,
-  inSelectedCalendar,
-  isOwnCalendar,
-  ownAccount,
-} from "./calendars.ts";
+import { calendarSetupActions, isOwnCalendar, ownAccount } from "./calendars.ts";
+import { conflicts, overlaps } from "./conflicts.ts";
 import { freeSlots } from "./free.ts";
 import { newInvite } from "./invites.ts";
 import { meetingActions } from "./meetings.ts";
 import { prepPublish, prepRoutine, prepsFor } from "./prep.ts";
 import { respondAction } from "./respond.ts";
 import { meetingSoon } from "./soon.ts";
-import { guests, loadEvent, NOT_MEETINGS, NOT_PLANS, toEventView, whenText } from "./store.ts";
+import { guests, loadEvent, NOT_PLANS, toEventView, whenText } from "./store.ts";
 import { syncCalendars } from "./sync.ts";
 
 const DAY_MS = 24 * 3600_000;
-
-const conflicts: ReflexDef = {
-  name: "calendar.conflicts",
-  description:
-    "When an event lands on top of another, you hear about it; if it lands on a task's time block, the block moves.",
-  mode: "proactive",
-  on: ["calendar.event_changed"],
-  async run(event, ctx) {
-    if (!event.entityId || event.payload.change === "cancelled") return [];
-    const ev = await loadEvent(ctx.db, event.entityId);
-    if (!ev || ev.allDay || !ev.busy || ev.selfResponse === "declined") return [];
-    // Only what's on calendars you sync: a colleague's calendar you've turned off isn't yours.
-    const rows = await ctx.db
-      .select({ e: entity, r: calendarEvent })
-      .from(calendarEvent)
-      .innerJoin(entity, eq(entity.id, calendarEvent.entityId))
-      .innerJoin(calendar, inSelectedCalendar)
-      .where(
-        and(
-          ne(calendarEvent.entityId, ev.id),
-          ne(calendarEvent.status, "cancelled"),
-          eq(calendarEvent.allDay, false),
-          eq(calendarEvent.busy, true),
-          lt(calendarEvent.startsAt, ev.endsAt),
-          gt(calendarEvent.endsAt, ev.startsAt),
-        ),
-      );
-    const rules = await getSetting(ctx.db, "owner.dayRules");
-    const out = [];
-    for (const { e, r } of rows) {
-      if (r.selfResponse === "declined") continue;
-      // A meeting and a focus block: plan the task again around the meeting.
-      const block = r.taskId && !ev.taskId ? r.taskId : !r.taskId && ev.taskId ? ev.taskId : null;
-      if (block) {
-        out.push({
-          kind: "check_later" as const,
-          key: `block:${block}`,
-          at: new Date(event.at.getTime() + 60_000),
-          payload: { taskId: block },
-        });
-        continue;
-      }
-      // Only meetings overlap: not where you work, or time marked out of office.
-      if (r.taskId || NOT_MEETINGS.includes(ev.kind) || NOT_MEETINGS.includes(r.kind)) continue;
-      const [a, b] = [ev.id, e.id].sort();
-      out.push({
-        kind: "tell" as const,
-        notification: {
-          kind: "calendar.conflict",
-          title: `"${ev.title}" overlaps "${e.title}"`,
-          body: `${whenText(ev, rules.timeZone)} and ${whenText(toEventView(e, r), rules.timeZone)}.`,
-          entityId: ev.id,
-          urgency: "normal" as const,
-          dedupeKey: `conflict:${a}:${b}`,
-        },
-      });
-    }
-    return out;
-  },
-  async onCheck(payload) {
-    return [{ kind: "act", action: "calendar.block_task", input: { taskId: payload.taskId } }];
-  },
-};
 
 // One notice per run of failures, closed by the first good round (calendar/health.ts, D61).
 const syncFailed = syncFailedReflex(
@@ -289,7 +222,7 @@ export const calendarModule = defineModule({
     blockAction,
     prepPublish,
   ],
-  reflexes: [conflicts, syncFailed, noRoom, blockReflex, newInvite, meetingSoon],
+  reflexes: [conflicts, overlaps, syncFailed, noRoom, blockReflex, newInvite, meetingSoon],
   async digest(ctx): Promise<DigestItem[]> {
     const rules = await getSetting(ctx.db, "owner.dayRules");
     const today = localDate(ctx.now, rules.timeZone);
