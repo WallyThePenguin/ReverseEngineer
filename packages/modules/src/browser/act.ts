@@ -14,7 +14,15 @@ import { DRIVER_REF, point } from "./drive.ts";
 import { driverClick, driverPress, driverProbe, driverType } from "./drive-act.ts";
 import { clickAt, insertText, movedOn, pressKey, type RefPage } from "./input.ts";
 import { pace } from "./pace.ts";
-import { elementSeen, evaluate, pageCall, pageFunction, readDoc } from "./page.ts";
+import {
+  readDocField as doc,
+  elementSeen,
+  evaluate,
+  pageCall,
+  pageFunction,
+  readDoc,
+  withReadDoc,
+} from "./page.ts";
 import {
   afterStep,
   assertHere,
@@ -84,7 +92,7 @@ const TYPEABLE = new Set(["field", "text area"]);
  */
 export async function locate(
   ctx: ActionContext,
-  i: { tabId: number; ref: string },
+  i: { tabId: number; ref: string; doc?: number },
   op: "inspect" | "focus" | "choose",
   extra: Record<string, unknown> = {},
   paced = true,
@@ -97,11 +105,12 @@ export async function locate(
 }> {
   const client = browser(ctx);
   const { tab, known } = await beforeStep(client, i.tabId);
-  const doc = readDoc(i.tabId);
+  // Read here, or carried in the input from where it was read (a step approved in the server).
+  const read = i.doc ?? readDoc(i.tabId);
   const guarded = ctx.caller.kind !== "owner";
-  if (guarded && doc === undefined) throw new ActionError("conflict", movedOn(i.tabId));
+  if (guarded && read === undefined) throw new ActionError("conflict", movedOn(i.tabId));
   const page: RefPage = {
-    ...(doc === undefined ? {} : { doc }),
+    ...(read === undefined ? {} : { doc: read }),
     ...(guarded ? { mark: HEARTH_MARK } : {}),
   };
   const url = await assertAllowed(ctx, tab.url);
@@ -205,6 +214,7 @@ export const actActions = [
       modifiers: z.string().max(40).optional(),
       screenshot: z.boolean().default(false),
       site: SITE_CHECK.optional(),
+      doc,
     }),
     risk: "internal",
     callers: CALLERS,
@@ -212,17 +222,15 @@ export const actActions = [
     // Results carry the page's own words (a button's name), so they're outside content.
     external: true,
     pin: handsPin,
+    snapshot: withReadDoc,
     summarize: (i) => `Click ${described(i)}`,
     async handler(i, ctx) {
       if (toDriver(i.ref)) return driverClick(ctx, i);
       if (i.coordinate || i.button !== "left" || i.clickCount > 1 || i.modifiers || i.screenshot)
         legacyOnly("Clicking with a coordinate, button, clickCount, modifiers or screenshot");
       const ref = i.ref as string;
-      const { client, tab, known, el, page } = await locate(
-        ctx,
-        { tabId: i.tabId, ref },
-        "inspect",
-      );
+      const at = { tabId: i.tabId, ref, doc: i.doc };
+      const { client, tab, known, el, page } = await locate(ctx, at, "inspect");
       assertSite(tab, i.site);
       assertNotHearth(ctx, tab.url);
       if (el.isLink)
@@ -248,20 +256,19 @@ export const actActions = [
       text: z.string().max(10_000),
       clear: z.boolean().default(true),
       site: SITE_CHECK.optional(),
+      doc,
     }),
     risk: "internal",
     callers: CALLERS,
     io: true,
     external: true,
     pin: handsPin,
+    snapshot: withReadDoc,
     summarize: (i) => `Type into ${described(i)}: "${i.text.slice(0, 120)}"`,
     async handler(i, ctx) {
       if (toDriver(i.ref)) return driverType(ctx, i);
-      const { client, tab, el } = await locate(
-        ctx,
-        { tabId: i.tabId, ref: i.ref as string },
-        "inspect",
-      );
+      const at = { tabId: i.tabId, ref: i.ref as string, doc: i.doc };
+      const { client, tab, el } = await locate(ctx, at, "inspect");
       assertSite(tab, i.site);
       assertNotHearth(ctx, tab.url);
       if (el.kind === "password field")
@@ -273,13 +280,7 @@ export const actActions = [
       if (!TYPEABLE.has(el.kind))
         throw new ActionError("invalid_input", `${i.ref} is a ${el.kind}, not a field.`);
       if (el.disabled) throw new ActionError("failed", `"${el.label}" is disabled right now.`);
-      const ready = await locate(
-        ctx,
-        { tabId: i.tabId, ref: i.ref as string },
-        "focus",
-        { clear: i.clear },
-        false,
-      );
+      const ready = await locate(ctx, at, "focus", { clear: i.clear }, false);
       // Still the page it read (focusing checks), so one sent to Hearth's own gets nothing.
       if (!ready.el.focused)
         throw new ActionError("failed", `Couldn't put the cursor in "${el.label}".`);
@@ -291,12 +292,13 @@ export const actActions = [
     name: "browser.choose",
     description:
       'Pick an option in a list (by its text), or set a checkbox to "on" or "off", by a reference from browser_read ("E3"). With refs from browser_read_page, use browser_form_input.',
-    input: z.object({ tabId, ref, value: z.string().max(300), site: SITE_CHECK.optional() }),
+    input: z.object({ tabId, ref, value: z.string().max(300), site: SITE_CHECK.optional(), doc }),
     risk: "internal",
     callers: CALLERS,
     io: true,
     external: true,
     pin: handsPin,
+    snapshot: withReadDoc,
     summarize: (i) => `Set ${described(i)} to "${i.value}"`,
     async handler(i, ctx) {
       const peek = await locate(ctx, i, "inspect");
@@ -327,11 +329,13 @@ export const actActions = [
         .describe("Its name as browser_read_page showed it, e.g. 'Place order'."),
       site: SITE_CHECK.describe("The site the page is on, e.g. shop.example."),
       sends: SENDS.optional(),
+      doc,
     }),
     risk: "outward",
     callers: CALLERS,
     io: true,
     external: true,
+    snapshot: withReadDoc,
     // Pinned to what the press would send, so the card can show it and the press is refused if
     // the page or the form changed by the time it's approved.
     async pin(i, services) {

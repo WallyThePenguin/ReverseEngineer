@@ -11,7 +11,8 @@
  * @param {{ maxChars: number, selector?: string, elements?: boolean }} opts
  * @param {PageElements} h
  * @returns {{ url: string, title: string, text: string, links: string[], truncated: boolean,
- *   missing: boolean, elements: { ref: string, kind: string, label: string, submits: boolean }[] }}
+ *   missing: boolean, elements: { ref: string, kind: string, label: string, submits: boolean }[],
+ *   doc: number }}
  */
 // biome-ignore lint/correctness/noUnusedVariables: sent to the page as source text.
 function pageSnapshot(opts, h) {

@@ -122,9 +122,27 @@ function hostOf(raw: string | undefined) {
     let u = new URL(raw ?? "");
     if (u.protocol === "blob:") u = new URL(u.pathname);
     const port = u.port || (u.protocol === "https:" ? "443" : "80");
-    return { host: bare(u.hostname), port, path: u.pathname };
+    return { host: bare(u.hostname), port, path: routed(u.pathname) };
   } catch {
     return null;
+  }
+}
+
+/**
+ * A path as Hearth's server routes it: it decodes %-escapes, so /%61pi/... is /api/.... One that
+ * won't decode whole is decoded a run at a time.
+ */
+function routed(path: string): string {
+  try {
+    return decodeURI(path);
+  } catch {
+    return path.replace(/(?:%[0-9A-Fa-f]{2})+/g, (run) => {
+      try {
+        return decodeURI(run);
+      } catch {
+        return run;
+      }
+    });
   }
 }
 

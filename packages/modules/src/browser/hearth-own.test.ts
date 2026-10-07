@@ -15,6 +15,8 @@ import { VAULT_SERVICE, Vault } from "./vault.ts";
 const SHOP = "https://shop.example/";
 const MIRROR = "https://mirror.example/";
 const CONNECT = "http://127.0.0.1:4400/api/google/connect?for=gmail";
+// The same request as Hearth's server routes it: it decodes %61 back to "a".
+const ENCODED = "http://127.0.0.1:4400/%61pi/google/connect?for=gmail";
 let t: TestKernel;
 let chrome: FakeBrowser;
 const jarvis = jarvisCaller("agent");
@@ -47,10 +49,13 @@ const urls = async () =>
 describe("Hearth's own requests", () => {
   it("never open in your Chrome for Jarvis, in a new tab or an open one", async () => {
     const { tabId } = await ok<{ tabId: number }>("browser.open", { url: SHOP });
-    const steps = [
-      ["browser.open", { url: CONNECT }],
-      ["browser.navigate", { tabId, url: CONNECT }],
-    ] as const;
+    const steps = [CONNECT, ENCODED].flatMap(
+      (url) =>
+        [
+          ["browser.open", { url }],
+          ["browser.navigate", { tabId, url }],
+        ] as const,
+    );
     for (const [name, input] of steps)
       for (const caller of [jarvis, systemCaller()])
         expect(await t.kernel.execute(name, input, caller)).toMatchObject({

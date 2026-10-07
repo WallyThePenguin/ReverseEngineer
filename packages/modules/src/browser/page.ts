@@ -2,6 +2,7 @@
 // and remember its links so Jarvis can follow one by reference ("L4") instead of retyping it.
 import { readFileSync } from "node:fs";
 import { ActionError } from "@hearth/kernel";
+import { z } from "zod";
 import { PAGE_RULES } from "./classify.ts";
 import type { BrowserClient, TabInfo } from "./client.ts";
 
@@ -172,6 +173,20 @@ export function rememberDoc(tabId: number, doc: number | undefined): void {
 
 /** The page a tab's E-references belong to, if this process read it. */
 export const readDoc = (tabId: number): number | undefined => readDocs.get(tabId);
+
+/**
+ * The page a step's E-reference was read from, in the step's input: a step that waits for your
+ * yes runs in Hearth's server, which didn't read the page. Hearth fills it in as the step is asked
+ * (withReadDoc, an action's snapshot), always, so one the model gives is replaced.
+ */
+export const readDocField = z
+  .number()
+  .optional()
+  .describe("Filled in by Hearth: the page browser_read read. Leave it out.");
+
+export const withReadDoc = async (i: { tabId: number; ref?: string }) => ({
+  doc: i.ref && /^E\d+$/.test(i.ref) ? readDoc(i.tabId) : undefined,
+});
 
 /** The address behind "L4" on the page last read in a tab, or null. */
 export function linkUrl(tabId: number, ref: string): string | null {
