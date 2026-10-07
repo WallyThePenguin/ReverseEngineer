@@ -113,10 +113,11 @@ export function Tasks(props: { pane: number }) {
   const sel = createSelection(list, (t) => t.id);
   const focused = () => layout.focused() === props.pane;
   let input!: HTMLInputElement;
-  // Cmd+K's New task: the add box, ready to type in.
+  // Cmd+K's New task, or Today's: the add box, ready to type in, with what you'd typed there.
   createEffect(() => {
     if (!newTaskWanted() || !focused()) return;
-    newTaskTaken();
+    const typed = newTaskTaken();
+    if (typed) setTitle(typed);
     input.focus();
   });
 

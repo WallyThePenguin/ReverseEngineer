@@ -3,6 +3,7 @@
 
 import { plural } from "./format.ts";
 import { toolSentence } from "./toolNames.ts";
+import { unmark } from "./turns.ts";
 import type { CalEvent, MailAddress, MailDraft, MailThread, Task, Turn } from "./types.ts";
 import { readWhen, type When } from "./when.ts";
 
@@ -19,14 +20,49 @@ export function greeting(now = new Date()): string {
   return "Good evening";
 }
 
+/** A line that asks Jarvis something, or asks Jarvis to do something. */
+const FOR_JARVIS =
+  /^(?:(?:please|hey jarvis|jarvis)[,\s]+)?(?:what|when|who|where|why|how|which|is|are|am|was|were|can|could|should|would|will|do|does|did|remind|move|cancel|reschedule|tell|ask|email|reply|schedule|plan)\b/i;
+
 /**
  * What the Ask box offers to add as a task: a line that names a time ("dentist fri 3pm"). A
- * question is for Jarvis, even when it names a day ("what's on friday?"). Enter always asks Jarvis;
- * the task is one more tap.
+ * question is for Jarvis, even when it names a day ("what's on friday?", "is Sam free at 3"), and
+ * so is asking Jarvis to do something ("remind me to call Sam at 3", "move my 3pm"). Enter always
+ * asks Jarvis; the task is one more tap.
  */
 export function offerAsTask(text: string, now = new Date()): When | null {
   const q = text.trim();
-  return q && !q.endsWith("?") ? readWhen(q, now) : null;
+  return q && !q.endsWith("?") && !FOR_JARVIS.test(q) ? readWhen(q, now) : null;
+}
+
+/** A new email of yours with nothing in it yet: Write email opens it, rather than start another. */
+export const blankDraft = (drafts: readonly MailDraft[] | undefined) =>
+  drafts?.find(
+    (d) =>
+      d.by === "owner" &&
+      !d.threadId &&
+      d.to.length + d.cc.length + d.bcc.length === 0 &&
+      !d.subject.trim() &&
+      !d.text.trim(),
+  );
+
+/**
+ * The brief folded to one line: its first sentence that says something. Not a heading ("Today",
+ * "Handled"), its title ("Brief for 2026-10-07") or a label ("Prepared:"), which say nothing on
+ * their own.
+ */
+export function briefHeadline(body: string): string {
+  for (const raw of body.split("\n")) {
+    if (/^\s*#/.test(raw)) continue;
+    const line = unmark(raw);
+    // A list item says something however short; a short line of its own is a heading.
+    const item = /^\s*(?:[-*+]|\d+[.)])\s/.test(raw);
+    const short = !item && line.split(/\s+/).length < 4 && !/[.!?]$/.test(line);
+    const label = line.endsWith(":") || short;
+    if (!line || label || /^brief for\b/i.test(line)) continue;
+    return line.split(/(?<=[.!?])\s+/)[0]!;
+  }
+  return "Your brief";
 }
 
 /** A part of the line under the greeting, and the section it takes you to. */

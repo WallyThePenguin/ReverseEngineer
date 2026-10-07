@@ -2,6 +2,7 @@
 // to its first line, which opens it again; on a phone it's that one line from the start, so what
 // needs you stays on the first screen. It can quote your mail, so where it was written after
 // reading outside content it carries that mark (D58). A long one shows its start with "Read all".
+// Today draws each new brief afresh, so a new morning's starts new, not read and folded.
 
 import { createSignal, createUniqueId, onCleanup, Show } from "solid-js";
 import { Body } from "../../components/Body.tsx";
@@ -15,7 +16,7 @@ import { OutsideMark } from "../../components/OutsideMark.tsx";
 import { day, time } from "../../lib/format.ts";
 import { routeFor } from "../../lib/panes.ts";
 import { act, useAction } from "../../lib/query.ts";
-import { unmark } from "../../lib/turns.ts";
+import { briefHeadline } from "../../lib/today.ts";
 import type { Entity, InboxRow } from "../../lib/types.ts";
 import type { Go } from "./parts.tsx";
 
@@ -50,12 +51,19 @@ export function Brief(props: { row: InboxRow; go: Go; class?: string }) {
   const [readHere, setReadHere] = createSignal(false);
   const read = () => readHere() || n().state !== "unseen";
   const [unfolded, setUnfolded] = createSignal(false);
+  let root!: HTMLElement;
+  /** Folds or unfolds it. The control you used goes, so the one in its place takes the focus. */
+  const fold = (open: boolean) => {
+    setUnfolded(open);
+    const to = open ? "[data-fold=card] > button:last-child" : "[data-fold=line]";
+    queueMicrotask(() => root.querySelector<HTMLElement>(to)?.focus({ preventScroll: true }));
+  };
   const gotIt = () => {
     setReadHere(true);
-    setUnfolded(false);
+    fold(false);
     if (n().state === "unseen") void act("inbox.mark", { ids: [n().id], state: "seen" });
   };
-  const headline = () => body().split("\n").map(unmark).find(Boolean) ?? "Your brief";
+  const headline = () => briefHeadline(body());
   // Cut short where it's taller than the box; "Read all" shows the rest.
   const [whole, setWhole] = createSignal(false);
   const [long, setLong] = createSignal(false);
@@ -68,7 +76,7 @@ export function Brief(props: { row: InboxRow; go: Go; class?: string }) {
     onCleanup(() => measure.disconnect());
   };
   return (
-    <section aria-labelledby={id} class={`scroll-mt-4 space-y-3 ${props.class ?? ""}`}>
+    <section ref={root} aria-labelledby={id} class={`scroll-mt-4 space-y-3 ${props.class ?? ""}`}>
       <SectionHeader
         id={id}
         title="Your brief"
@@ -81,8 +89,9 @@ export function Brief(props: { row: InboxRow; go: Go; class?: string }) {
           <button
             type="button"
             class="flex w-full items-center gap-3 rounded-[inherit] px-4 py-3 text-left hover:bg-sunk/60"
-            aria-expanded="false"
-            onClick={() => setUnfolded(true)}
+            aria-expanded={unfolded()}
+            data-fold="line"
+            onClick={() => fold(true)}
           >
             <JarvisMark size={16} />
             <span class="min-w-0 flex-1">
@@ -127,7 +136,7 @@ export function Brief(props: { row: InboxRow; go: Go; class?: string }) {
                 <div class="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-linear-to-t from-raised" />
               </Show>
             </div>
-            <div class="-mb-1 mt-2 flex items-center">
+            <div class="-mb-1 mt-2 flex items-center" data-fold="card">
               <Show when={long() && !whole()}>
                 <button
                   type="button"
@@ -141,7 +150,7 @@ export function Brief(props: { row: InboxRow; go: Go; class?: string }) {
               <Show
                 when={!read()}
                 fallback={
-                  <Button kind="quiet" small onClick={() => setUnfolded(false)}>
+                  <Button kind="quiet" small onClick={() => fold(false)}>
                     Fold
                   </Button>
                 }
