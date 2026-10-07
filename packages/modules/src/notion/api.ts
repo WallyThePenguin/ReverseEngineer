@@ -117,7 +117,10 @@ export function readValue(p: Raw): NotionValue {
 /** Notion allows about three requests a second; Hearth keeps its own a little under that. */
 const SPACING_MS = 350;
 
-export function httpNotion(base = "https://api.notion.com/v1"): NotionApi {
+export function httpNotion(
+  base = "https://api.notion.com/v1",
+  log: (line: string) => void = (line) => console.warn(`[notion] ${line}`),
+): NotionApi {
   let last = 0;
   async function call(token: string, method: "GET" | "POST", path: string, body?: unknown) {
     const wait = last + SPACING_MS - Date.now();
@@ -147,14 +150,15 @@ export function httpNotion(base = "https://api.notion.com/v1"): NotionApi {
       );
     const json = (await res.json().catch(() => null)) as Raw | null;
     // Notion's own message can quote the board's column names, which anyone who can edit it
-    // chose: only its error code is kept, so a stored error holds none of their words (D58).
+    // chose: only its error code is kept, so a stored error holds none of their words (D58). The
+    // message, which says what Notion refused, goes to the process's log, which only you read.
     if (!res.ok) {
       const code =
         typeof json?.code === "string" && /^[a-z_]{1,40}$/.test(json.code) ? json.code : null;
-      throw new NotionError(
-        res.status,
-        `Notion answered ${res.status}${code ? ` (${code})` : ""}.`,
-      );
+      const said = `Notion answered ${res.status}${code ? ` (${code})` : ""}`;
+      const words = typeof json?.message === "string" ? json.message.slice(0, 500) : "";
+      log(words ? `${said}: ${words}` : said);
+      throw new NotionError(res.status, `${said}.`);
     }
     if (!json) throw new NotionError(502, "Notion sent back something Hearth can't read.");
     return json;

@@ -4,7 +4,8 @@
 // claimed with nothing sent; one still "running" ten minutes on was cut short (its two minutes
 // are long gone). Its messages are passed on to you, and the member hears why, once a day.
 // A turn whose answer did go out (or waits for your yes) is settled as such: the reply's outbox
-// row or its approval says so, even when the turn crashed before it could.
+// row or its approval says so, even when the turn crashed before it could. Someone you blocked
+// while their turn ran isn't sent the apology, nor passed on: the take loop turns them away.
 import { approval, jarvisTurn, slackOutbox, type slackThread } from "@hearth/db";
 import { type ActionContext, getSetting } from "@hearth/kernel";
 import { and, eq } from "drizzle-orm";
@@ -29,7 +30,8 @@ export async function settleClaimed(
   rows: InboundRow[],
   who: Writer,
   thread: ThreadRow | null,
-): Promise<"answered" | "held" | "relayed" | "open"> {
+  blocked = false,
+): Promise<"answered" | "held" | "relayed" | "blocked" | "open"> {
   const [turn] = await ctx.tx
     .select({ status: jarvisTurn.status, startedAt: jarvisTurn.startedAt })
     .from(jarvisTurn)
@@ -52,6 +54,7 @@ export async function settleClaimed(
     await settle(ctx, rows, "held");
     return "held";
   }
+  if (blocked) return "blocked";
   const paused =
     (thread?.pausedUntil && thread.pausedUntil > ctx.now) ||
     (await getSetting(ctx.tx, "jarvis.paused"));

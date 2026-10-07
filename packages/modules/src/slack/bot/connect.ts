@@ -2,9 +2,9 @@
 // app-level token (xapp) to listen over Socket Mode, because Hearth has no public address. Only you
 // can, from Settings, and only once both tokens prove to be app A0C0RPY4WKV's in your workspace,
 // with the scopes the manifest asks for. Nothing about them reaches the audit log (risk secret).
-import { slackBot, slackOutbox, slackWorkspace } from "@hearth/db";
+import { slackBot, slackWorkspace } from "@hearth/db";
 import { type ActionContext, ActionError, defineAction, getSetting } from "@hearth/kernel";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { INSTALL_SERVICE, type Install } from "../../install.ts";
 import { SlackError } from "../api.ts";
@@ -17,7 +17,7 @@ import {
   KEPT_USER_SCOPES,
   USER_SCOPES,
 } from "./manifest.ts";
-import { tellNotSent } from "./outbox.ts";
+import { settleUnsent } from "./not-sent.ts";
 import {
   answersOnOwn,
   botSettingsAction,
@@ -221,28 +221,12 @@ export const botActions = [
     async handler(_i, ctx) {
       const ws = await workspace(ctx);
       await ctx.tx.delete(slackBot).where(eq(slackBot.teamId, ws.teamId));
-      // Nothing it hadn't sent yet goes out later, after a reconnect you may not expect it from,
-      // and a post it was sending isn't looked for and posted again then either: each is settled
-      // now, and you're told which (D62).
-      const team = eq(slackOutbox.teamId, ws.teamId);
-      const unsent = await ctx.tx
-        .update(slackOutbox)
-        .set({ state: "failed", error: "Jarvis's bot was disconnected.", finishedAt: ctx.now })
-        .where(and(team, eq(slackOutbox.state, "queued")))
-        .returning();
-      const unsure = await ctx.tx
-        .update(slackOutbox)
-        .set({
-          state: "unknown",
-          error: "Jarvis's bot was disconnected before Slack said whether it went out.",
-          finishedAt: ctx.now,
-        })
-        .where(and(team, eq(slackOutbox.state, "sending")))
-        .returning();
-      for (const row of unsent) await tellNotSent(ctx, row, "didn't go out", row.error ?? "");
-      for (const row of unsure)
-        await tellNotSent(ctx, row, "may not have gone out", row.error ?? "");
-      return { disconnected: true, unsent: unsent.length, unsure: unsure.length };
+      // What it hadn't sent is settled now, and you're told about each (D62).
+      const left = await settleUnsent(ctx, ws.teamId, {
+        unsent: "Jarvis's bot was disconnected.",
+        unsure: "Jarvis's bot was disconnected before Slack said whether it went out.",
+      });
+      return { disconnected: true, ...left };
     },
   }),
   defineAction({
