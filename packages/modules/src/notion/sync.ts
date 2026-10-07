@@ -2,14 +2,16 @@
 // requests: the board's columns, then its pages a hundred at a time) and compares them with what
 // it read before. What changed becomes an event for Jarvis, which makes and closes your Hearth
 // tasks: a ticket newly yours, one that's done, one whose title or due date moved, an open one
-// that isn't yours any more. The first
-// round brings in your open tickets quietly (backfill: true). Tickets are other people's words.
+// that isn't yours any more. The first round brings in your open tickets quietly (backfill:
+// true), and each round tells again the news of a ticket out of step with its task
+// (catch-up.ts). Tickets are other people's words.
 import { entity, notionAccount, notionTask } from "@hearth/db";
 import { type ActionContext, createEntity, savepoint, updateEntity } from "@hearth/kernel";
 import { and, eq, inArray, ne } from "drizzle-orm";
 import { VAULT_SERVICE, type Vault } from "../browser/vault.ts";
 import { closeAlerts, nextHealth, type Trouble } from "../connector-health.ts";
 import { NOTION_SERVICE, type NotionApi, NotionError, type NotionPage } from "./api.ts";
+import { catchUp } from "./catch-up.ts";
 import { type Columns, pickColumns, type Ticket, ticketOf } from "./columns.ts";
 
 export type AccountRow = typeof notionAccount.$inferSelect;
@@ -116,7 +118,7 @@ async function follow(
       ...(change.changed ? { changed: change.changed } : {}),
     },
   });
-  return change.kind;
+  return { id, kind: change.kind };
 }
 
 export interface NotionSyncResult {
@@ -172,14 +174,17 @@ async function readBoard(ctx: ActionContext, account: AccountRow, token: string,
   const first = account.syncedAt === null;
   const board = { id: sourceId, title: schema.title };
   const out = { tickets: pages.size, assigned: 0, done: 0, changed: 0, unassigned: 0 };
+  /** Tickets whose news was told this round. */
+  const told = new Set<string>();
   for (const p of pages.values()) {
     const before = known.get(p.id);
     // One you deleted in Hearth stays out of it, rather than fail every round.
     if (before?.deletedAt) continue;
-    const kind = await follow(ctx, board, p, ticketOf(p, cols), before, first);
-    if (kind === "notion.task_assigned") out.assigned++;
-    else if (kind === "notion.task_done") out.done++;
-    else if (kind === "notion.task_changed") out.changed++;
+    const news = await follow(ctx, board, p, ticketOf(p, cols), before, first);
+    if (news) told.add(news.id);
+    if (news?.kind === "notion.task_assigned") out.assigned++;
+    else if (news?.kind === "notion.task_done") out.done++;
+    else if (news?.kind === "notion.task_changed") out.changed++;
   }
   // Only a whole read can tell a ticket is no longer yours (reassigned, or deleted in Notion).
   const gone = [...known.values()].filter((k) => k.assigned && !pages.has(k.pageId));
@@ -200,9 +205,15 @@ async function readBoard(ctx: ActionContext, account: AccountRow, token: string,
         entityId: g.entityId,
         payload: payloadOf(g, g.url, board, first),
       });
+      told.add(g.entityId);
       out.unassigned++;
     }
   }
+  // A ticket whose task never came, or whose task is still open after it closed or left you.
+  const late = await catchUp(ctx, sourceId, told, (t) => payloadOf(t, t.url, board, first));
+  out.assigned += late.assigned;
+  out.done += late.done;
+  out.unassigned += late.unassigned;
   await ctx.tx
     .update(notionAccount)
     .set({ columns: cols, sourceTitle: schema.title })
