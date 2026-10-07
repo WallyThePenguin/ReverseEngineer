@@ -141,7 +141,8 @@ const UNCHECKED_WRITES = ["calendar.create_event"];
  * Items a failed heartbeat turn took go back, for the next heartbeat to pick up. After a turn that
  * changed something, only those the next heartbeat checks again first (an email still without a
  * draft or a task): the rest may be done already, and putting them back would do them twice. A
- * turn that added an event puts nothing back; the morning drafts reach its emails.
+ * turn that added an event puts back only its Slack messages, which make tasks, never events; the
+ * morning drafts reach its emails.
  */
 export async function releaseHeartbeat(
   db: Db,
@@ -151,16 +152,17 @@ export async function releaseHeartbeat(
   const taken = turn.context.itemIds;
   if (!Array.isArray(taken) || taken.length === 0) return;
   let ids = taken.map(String);
-  if (wrote && (await ranAny(db, turn.id, UNCHECKED_WRITES))) return;
-  if (wrote)
+  if (wrote) {
+    const event = await ranAny(db, turn.id, UNCHECKED_WRITES);
     ids = (
       await db
         .select({ id: heartbeatItem.id, text: heartbeatItem.text })
         .from(heartbeatItem)
         .where(inArray(heartbeatItem.id, ids))
     )
-      .filter((i) => checkedAgain(i.text))
+      .filter((i) => checkedAgain(i.text) && (!event || i.text.startsWith(SLACK_FOR_YOU)))
       .map((i) => i.id);
+  }
   if (ids.length === 0) return;
   await db.update(heartbeatItem).set({ takenAt: null }).where(inArray(heartbeatItem.id, ids));
 }

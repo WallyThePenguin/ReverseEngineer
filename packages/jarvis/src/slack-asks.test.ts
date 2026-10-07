@@ -29,6 +29,7 @@ const sync = () => ok("slack.sync", {}, integrationCaller("slack"));
 const items = () => h.tdb.db.select().from(heartbeatItem);
 const ref = (id: string) => `<m-ref type="slack_message" id="${id}">Slack message</m-ref>`;
 const heartbeats = () => h.brain.requests.filter((r) => r.prompt.startsWith("Heartbeat."));
+const busy = () => h.tdb.db.select().from(notification).where(eq(notification.kind, "slack.busy"));
 
 beforeEach(async () => {
   h = await createJarvisHarness("2026-10-01T14:00:00Z"); // Thursday 10 a.m.
@@ -140,8 +141,82 @@ describe("Slack messages for you", () => {
     const [beat] = heartbeats();
     expect(beat?.prompt).toContain('Eve: "any update?"');
     expect(beat?.prompt).toContain(
-      'A task was made from this conversation before: "Review the budget"',
+      'Tasks made from this conversation, newest first: "Review the budget" (open)',
     );
+  });
+
+  it("shows the newest tasks from a long-running DM, not an old one", async () => {
+    s.post("D1", "UEVE", "can you review the budget?");
+    await sync();
+    await h.settle();
+    const [item] = await items();
+    await ok("task.create", { title: "Review the budget", body: ref(item!.aboutId!) });
+    h.clock.set("2026-10-01T14:05:00Z");
+    s.post("D1", "UEVE", "and send me the Q3 deck?");
+    await sync();
+    await h.settle();
+    await ok("task.create", { title: "Send Eve the Q3 deck", body: ref(item!.aboutId!) });
+    h.clock.set("2026-10-01T14:10:00Z");
+    s.post("D1", "UEVE", "any update on the deck?");
+    await sync();
+    await h.settle();
+    h.clock.set("2026-10-01T14:25:30Z");
+    await h.settle();
+    const [beat] = heartbeats();
+    expect(beat?.prompt).toContain(
+      'newest first: "Send Eve the Q3 deck" (open); "Review the budget" (open)',
+    );
+  });
+
+  it("looks again at what was said while the heartbeat's turn ran", async () => {
+    s.post("D1", "UEVE", "can you review the PR?");
+    await sync();
+    await h.settle();
+    const [item] = await items();
+    const id = item!.aboutId!;
+    h.brain.next(async () => {
+      // Eve writes again after the heartbeat took her message, before its task is made.
+      h.clock.set("2026-10-01T14:27:00Z");
+      s.post("D1", "UEVE", "also send me the Q3 numbers by Friday");
+      await sync();
+      return [
+        { call: "task_create", input: { title: "Review Eve's PR", body: ref(id) } },
+        { say: "Made a task: Review Eve's PR." },
+      ];
+    });
+    h.clock.set("2026-10-01T14:25:30Z");
+    await h.settle();
+    expect(await items()).toHaveLength(2);
+    h.clock.set("2026-10-01T14:50:30Z");
+    await h.settle();
+    const beats = heartbeats();
+    expect(beats).toHaveLength(2);
+    expect(beats[1]?.prompt).toContain('Eve: "also send me the Q3 numbers by Friday"');
+  });
+
+  it("counts a conversation once a day, however many heartbeats it spans", async () => {
+    s.post("D1", "UEVE", "can you look at the budget?");
+    await sync();
+    await h.settle();
+    h.clock.set("2026-10-01T14:25:30Z"); // the heartbeat takes it
+    await h.settle();
+    h.clock.set("2026-10-01T14:30:00Z");
+    s.post("D1", "UEVE", "also the Q3 deck?");
+    for (let n = 1; n < SLACK_ASKS; n++) s.post("C1", "UEVE", `<@UME> question ${n}?`);
+    await sync();
+    await h.settle();
+    // Eve's DM was set aside twice, and is one of the day's conversations.
+    expect(await items()).toHaveLength(SLACK_ASKS + 1);
+    expect(await busy()).toEqual([]);
+    h.clock.set("2026-10-01T14:50:30Z"); // takes them all
+    await h.settle();
+    // The day is full, but Eve's DM is already one of them.
+    s.post("D1", "UEVE", "and the invoice?");
+    s.post("C1", "UEVE", "<@UME> one more?");
+    await sync();
+    await h.settle();
+    expect(await items()).toHaveLength(SLACK_ASKS + 2);
+    expect(await busy()).toHaveLength(1);
   });
 
   it(`sets aside at most ${SLACK_ASKS} conversations a day, and says so once`, async () => {

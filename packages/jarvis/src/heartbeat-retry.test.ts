@@ -13,6 +13,7 @@ import {
   type DraftView,
   GOOGLE_SERVICE,
   SCOPES,
+  SLACK_FOR_YOU,
   type ThreadSummary,
 } from "@hearth/modules";
 import { FakeGoogle } from "@hearth/modules/google-testing";
@@ -119,9 +120,14 @@ describe("a heartbeat turn that doesn't finish", () => {
 });
 
 describe("a heartbeat turn that added an event, then failed", () => {
-  it("puts nothing back, so the event isn't made twice", async () => {
+  it("puts back only its Slack messages, so the event isn't made twice", async () => {
     await ok("calendar.sync", {}, integrationCaller("google"));
     const id = await twoEmails();
+    const [first] = await items();
+    const slack = `${SLACK_FOR_YOU}: Eve in a direct message`;
+    await h.tdb.db
+      .insert(heartbeatItem)
+      .values({ id: newId(), text: slack, sourceEventSeq: first!.sourceEventSeq });
     const event = {
       title: "Dentist",
       start: "2026-10-05T10:00:00-04:00",
@@ -134,10 +140,13 @@ describe("a heartbeat turn that added an event, then failed", () => {
     h.clock.set("2026-10-01T14:25:30Z");
     await h.settle();
     expect(id.Delivery).toBeTruthy();
-    expect((await items()).every((i) => i.takenAt)).toBe(true);
+    expect((await items()).filter((i) => !i.takenAt).map((i) => i.text)).toEqual([slack]);
     h.clock.set("2026-10-01T14:50:30Z");
     await h.settle();
-    expect(beats()).toHaveLength(1);
+    expect(beats()).toHaveLength(2);
+    expect(beats()[1]?.prompt).toContain(slack);
+    expect(beats()[1]?.prompt).not.toContain("Invoice");
+    expect(beats()[1]?.prompt).not.toContain("Delivery");
   });
 });
 
