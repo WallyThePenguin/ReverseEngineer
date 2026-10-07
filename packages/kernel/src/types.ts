@@ -214,6 +214,8 @@ export type ReflexOutcome =
       input: unknown;
       /** Ask you first whatever the risk, with this as the card's reason. */
       ask?: string;
+      /** What to do instead when it doesn't go through (refused when it ran, or failed). */
+      fallback?: ReflexOutcome[];
     }
   | { kind: "batch"; text: string; aboutId?: string | null }
   /**

@@ -1,12 +1,14 @@
 // Jarvis during the day, end to end: an email that needs your reply gets a draft at the next
 // heartbeat (never sent), overnight mail is left to the morning drafts, a busy day stops at the
-// cap, and a new invitation becomes one card without spending a model turn.
+// cap, and a new invitation is accepted when you're free (D71) or becomes one card, without
+// spending a model turn.
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { approval, heartbeatItem, jarvisTurn } from "@hearth/db";
+import { approval, heartbeatItem, jarvisTurn, notification } from "@hearth/db";
 import { type Caller, integrationCaller, jarvisCaller, newId, ownerCaller } from "@hearth/kernel";
 import {
+  AUTO_ACCEPTS,
   BLOB_SERVICE,
   BlobStore,
   DAYTIME_DRAFTS,
@@ -39,6 +41,9 @@ const syncMail = () => ok("mail.sync", {}, integrationCaller("google"));
 const syncCalendar = () => ok("calendar.sync", {}, integrationCaller("google"));
 const items = () => h.tdb.db.select().from(heartbeatItem);
 const cards = () => h.tdb.db.select().from(approval);
+const accepted = async () =>
+  (await h.tdb.db.select().from(notification)).filter((n) => n.kind === "calendar.accepted");
+const patches = () => g.calls.filter((c) => c.method === "PATCH");
 
 beforeEach(async () => {
   h = await createJarvisHarness("2026-10-01T14:00:00Z"); // Thursday 10 a.m.
@@ -186,7 +191,33 @@ describe("new invitations", () => {
     await ok("person.add_email", { id: boss.id, email: BOSS });
   });
 
-  it("becomes one card saying you're free, without a model turn or an answer", async () => {
+  it("is accepted when you're free, and says so with Undo, without a model turn", async () => {
+    g.put(ME, invite("design", "Design review", BOSS));
+    await syncCalendar();
+    await h.settle();
+    expect(await cards()).toEqual([]);
+    expect(await accepted()).toMatchObject([
+      {
+        title: expect.stringContaining('"Design review"'),
+        createdBy: "jarvis",
+        undo: { kind: "unaccept", before: { scope: "this" } },
+      },
+    ]);
+    expect(patches()).toHaveLength(1);
+    expect(h.brain.requests).toHaveLength(0);
+  });
+
+  it(`becomes one card saying you're free past ${AUTO_ACCEPTS} accepted in a day`, async () => {
+    await h.tdb.db.insert(notification).values(
+      Array.from({ length: AUTO_ACCEPTS }, () => ({
+        id: newId(),
+        kind: "calendar.accepted",
+        title: "earlier",
+        createdBy: "jarvis",
+        createdAt: h.clock.now(),
+        undo: { kind: "unaccept" as const, eventId: newId(), before: { scope: "this" as const } },
+      })),
+    );
     g.put(ME, invite("design", "Design review", BOSS));
     await syncCalendar();
     await h.settle();
@@ -198,8 +229,27 @@ describe("new invitations", () => {
         summary: expect.stringContaining('"Design review"'),
       },
     ]);
-    expect(h.brain.requests).toHaveLength(0);
-    expect(g.calls.some((c) => c.method === "PATCH")).toBe(false);
+    expect(patches()).toEqual([]);
+  });
+
+  it("leaves an old invitation a calendar's first sync brings as a card", async () => {
+    const monthAgo = new Date(h.clock.now().getTime() - 30 * 86_400_000).toISOString();
+    g.put(ME, { ...invite("design", "Design review", BOSS), created: monthAgo });
+    await syncCalendar();
+    await h.settle();
+    expect(await cards()).toMatchObject([{ reason: `${FROM} You're free then.` }]);
+    expect(await accepted()).toEqual([]);
+    expect(patches()).toEqual([]);
+  });
+
+  it("becomes the card when accepting it fails", async () => {
+    g.put(ME, invite("design", "Design review", BOSS));
+    await syncCalendar();
+    g.failCalendar(1, 404);
+    await h.settle();
+    expect(await cards()).toMatchObject([{ reason: `${FROM} You're free then.` }]);
+    expect(await accepted()).toEqual([]);
+    expect(patches()).toEqual([]);
   });
 
   it("names what it overlaps", async () => {
@@ -213,6 +263,7 @@ describe("new invitations", () => {
     await syncCalendar();
     await h.settle();
     expect(await cards()).toMatchObject([{ reason: `${FROM} It overlaps "Lunch with Ana".` }]);
+    expect(patches()).toEqual([]);
   });
 
   it("checks a whole day for an all-day invitation, and not the meeting's own copies", async () => {
@@ -235,8 +286,9 @@ describe("new invitations", () => {
     });
     await syncCalendar();
     await h.settle();
-    const reasons = (await cards()).map((c) => c.reason).sort();
-    expect(reasons).toEqual([`${FROM} It overlaps "Lunch with Ana".`, `${FROM} You're free then.`]);
+    // The all-day one overlaps lunch; the other's copy on Family doesn't count against it.
+    expect((await cards()).map((c) => c.reason)).toEqual([`${FROM} It overlaps "Lunch with Ana".`]);
+    expect(await accepted()).toMatchObject([{ title: expect.stringContaining('"Design review"') }]);
   });
 
   it("makes no card for an invitation on a calendar shared with you", async () => {
@@ -256,33 +308,59 @@ describe("new invitations", () => {
     await syncCalendar();
     await h.settle();
     expect(await cards()).toEqual([]);
+    expect(patches()).toEqual([]);
   });
 
-  it("makes no card for a stranger's invitation", async () => {
+  it("does nothing with a stranger's invitation", async () => {
     g.put(ME, invite("spam", "Claim your prize", "promo@prizes.example"));
     await syncCalendar();
     await h.settle();
     expect(await cards()).toEqual([]);
+    expect(patches()).toEqual([]);
   });
 
-  it("asks once for a repeating meeting, for every time", async () => {
-    g.put(ME, { ...invite("wk_1", "Weekly sync", BOSS), recurringEventId: "wk" });
-    g.put(ME, { ...invite("wk_2", "Weekly sync", BOSS, "2026-10-09"), recurringEventId: "wk" });
-    await syncCalendar();
-    await h.settle();
-    const all = await cards();
-    expect(all).toHaveLength(1);
-    expect(all[0]).toMatchObject({
-      input: { response: "accepted", scope: "all" },
-      reason: `${FROM} It repeats; you're free the next 2 times.`,
+  describe("a repeating meeting", () => {
+    beforeEach(() => {
+      // Google has the series itself, from before the window sync reads; sync sees its times.
+      g.put(ME, invite("wk", "Weekly sync", BOSS, "2026-09-03"));
+      g.put(ME, { ...invite("wk_1", "Weekly sync", BOSS), recurringEventId: "wk" });
+      g.put(ME, { ...invite("wk_2", "Weekly sync", BOSS, "2026-10-09"), recurringEventId: "wk" });
+    });
+
+    it("is accepted once, for every time, when you're free every time", async () => {
+      await syncCalendar();
+      await h.settle();
+      expect(await cards()).toEqual([]);
+      expect(await accepted()).toMatchObject([{ undo: { before: { scope: "all" } } }]);
+      expect(patches()).toMatchObject([{ path: expect.stringMatching(/\/events\/wk$/) }]);
+    });
+
+    it("asks once, for every time, when one of them overlaps", async () => {
+      g.put(ME, {
+        id: "lunch",
+        summary: "Lunch with Ana",
+        start: { dateTime: "2026-10-09T18:30:00Z" },
+        end: { dateTime: "2026-10-09T19:30:00Z" },
+      });
+      await syncCalendar();
+      await h.settle();
+      const all = await cards();
+      expect(all).toHaveLength(1);
+      expect(all[0]).toMatchObject({
+        input: { response: "accepted", scope: "all" },
+        reason: `${FROM} It repeats; 1 of the next 2 times overlap, first "Lunch with Ana".`,
+      });
+      expect(patches()).toEqual([]);
     });
   });
 
-  it("makes no card while Jarvis is paused", async () => {
+  it("neither accepts nor asks while Jarvis is paused", async () => {
     await ok("jarvis.pause", {});
     g.put(ME, invite("design", "Design review", BOSS));
     await syncCalendar();
     await h.settle();
     expect(await cards()).toEqual([]);
+    expect(await accepted()).toEqual([]);
+    expect(patches()).toEqual([]);
   });
 });

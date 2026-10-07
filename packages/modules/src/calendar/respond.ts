@@ -3,15 +3,23 @@
 // meeting is answered for this time only or for every time, as you say (6.7). Only invitations on
 // your own calendars: on one someone shared with you, the answer would go out as them.
 import { calendarEvent, type DbOrTx } from "@hearth/db";
-import { type ActionContext, ActionError, defineAction, type ReadContext } from "@hearth/kernel";
+import {
+  type ActionContext,
+  ActionError,
+  defineAction,
+  getSetting,
+  type ReadContext,
+} from "@hearth/kernel";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+import type { GEvent } from "../google/calendar-api.ts";
+import { cleanDeep } from "../google/clean.ts";
 import { id } from "../shared.ts";
 import { api, meetingText, save } from "./actions.ts";
 import { isOwnCalendar, writableCalendar } from "./calendars.ts";
-import { type EventView, loadEvent } from "./store.ts";
+import { type EventView, loadEvent, mapEvent } from "./store.ts";
 
-type Response = "accepted" | "declined" | "tentative";
+type Response = "accepted" | "declined" | "tentative" | "needsAction";
 
 /** Every time of a series Hearth knows of takes your answer, until the next sync says more. */
 async function answerSeries(ctx: ActionContext, calendarId: string, series: string, r: Response) {
@@ -31,8 +39,76 @@ async function answerSeries(ctx: ActionContext, calendarId: string, series: stri
       .where(eq(calendarEvent.entityId, row.id));
 }
 
+/**
+ * Sends an answer to Google and keeps it: this time, or with scope "all" every time of the series.
+ * `byJarvis` marks a yes Jarvis gave on its own (D71), before saving, so that meeting's guests
+ * don't become people; any other answer clears it.
+ */
+export async function answer(
+  ctx: ActionContext,
+  ev: EventView,
+  response: Response,
+  scope: "this" | "all" | undefined,
+  byJarvis = false,
+): Promise<EventView | null> {
+  const cal = await writableCalendar(ctx, ev.calendarId);
+  const series = scope === "all" ? ev.recurringEventId : null;
+  const target = series ?? ev.googleId;
+  const calendarApi = api(ctx);
+  // Google's guest list as it is now, not Hearth's copy of it.
+  const fresh = await calendarApi.get(cal.account, cal.googleId, target);
+  if (!fresh || fresh.status === "cancelled")
+    throw new ActionError("not_found", "Google Calendar no longer has this meeting.");
+  if (byJarvis) await asChecked(ctx, cal, ev, fresh);
+  const guests = fresh.attendees ?? [];
+  if (!guests.some((a) => a.self))
+    throw new ActionError("invalid_input", "You're not a guest on this event.");
+  const attendees = guests.map((a) => (a.self ? { ...a, responseStatus: response } : a));
+  await ctx.tx
+    .update(calendarEvent)
+    .set({ jarvisAccepted: byJarvis })
+    .where(
+      series
+        ? and(eq(calendarEvent.calendarId, cal.id), eq(calendarEvent.recurringEventId, series))
+        : eq(calendarEvent.entityId, ev.id),
+    );
+  const g = await calendarApi.patch(cal.account, cal.googleId, target, { attendees }, "all");
+  if (!series) return save(ctx, cal.id, g);
+  await answerSeries(ctx, cal.id, series, response);
+  return loadEvent(ctx.tx, ev.id);
+}
+
+/**
+ * Jarvis's own yes goes only to the invitation it checked: still unanswered at Google (you may
+ * have said no on your phone since the last sync) and still when it found you free.
+ */
+async function asChecked(
+  ctx: ActionContext,
+  cal: { id: string; account: string; googleId: string },
+  ev: EventView,
+  fresh: GEvent,
+) {
+  const mine = (g: GEvent) => g.attendees?.find((a) => a.self)?.responseStatus;
+  const one = ev.recurringEventId
+    ? await api(ctx).get(cal.account, cal.googleId, ev.googleId)
+    : fresh;
+  const { timeZone } = await getSetting(ctx.tx, "owner.dayRules");
+  const now = one ? mapEvent(cal.id, cleanDeep(one), timeZone) : null;
+  if (
+    mine(fresh) !== "needsAction" ||
+    !one ||
+    mine(one) !== "needsAction" ||
+    now?.startsAt.getTime() !== ev.startsAt.getTime() ||
+    now?.endsAt.getTime() !== ev.endsAt.getTime()
+  )
+    throw new ActionError(
+      "conflict",
+      "The invitation changed at Google since Hearth last looked (answered, or moved), so Jarvis didn't answer it.",
+    );
+}
+
 /** On a calendar someone shared with you, Google's "you" is its owner: never answer as them. */
-async function mustBeYours(db: DbOrTx, ev: EventView) {
+export async function mustBeYours(db: DbOrTx, ev: EventView) {
   if (!(await isOwnCalendar(db, ev.calendarId)))
     throw new ActionError(
       "forbidden",
@@ -46,7 +122,7 @@ const scopeText = (scope?: "this" | "all") =>
 export const respondAction = defineAction({
   name: "calendar.respond",
   description:
-    'Answer an invitation: accepted, declined or tentative. The organizer sees it. For a repeating meeting, give scope "this" (this time only) or "all" (every time).',
+    'Answer an invitation: accepted, declined or tentative. The organizer sees it, and the owner says yes first. For a repeating meeting, give scope "this" (this time only) or "all" (every time). An invitation Hearth can tell is safe to accept, calendar_accept_invite accepts without asking.',
   input: z.object({
     id,
     response: z.enum(["accepted", "declined", "tentative"]),
@@ -88,21 +164,6 @@ export const respondAction = defineAction({
         "invalid_input",
         'This meeting repeats. Answer for this time only (scope "this") or every time (scope "all").',
       );
-    const cal = await writableCalendar(ctx, ev.calendarId);
-    const series = i.scope === "all" ? ev.recurringEventId : null;
-    const target = series ?? ev.googleId;
-    const calendarApi = api(ctx);
-    // Google's guest list as it is now, not Hearth's copy of it.
-    const fresh = await calendarApi.get(cal.account, cal.googleId, target);
-    if (!fresh || fresh.status === "cancelled")
-      throw new ActionError("not_found", "Google Calendar no longer has this meeting.");
-    const guests = fresh.attendees ?? [];
-    if (!guests.some((a) => a.self))
-      throw new ActionError("invalid_input", "You're not a guest on this event.");
-    const attendees = guests.map((a) => (a.self ? { ...a, responseStatus: i.response } : a));
-    const g = await calendarApi.patch(cal.account, cal.googleId, target, { attendees }, "all");
-    if (!series) return save(ctx, cal.id, g);
-    await answerSeries(ctx, cal.id, series, i.response);
-    return loadEvent(ctx.tx, ev.id);
+    return answer(ctx, ev, i.response, i.scope);
   },
 });

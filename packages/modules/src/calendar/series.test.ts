@@ -154,12 +154,20 @@ describe("a repeating meeting edited at Google", () => {
     const told = (await t.events("calendar.event_changed")).slice(seen);
     expect(told.map((e) => e.payload.change)).toEqual(["added", "added"]);
     const first = told.find((e) => e.entityId === at(before, "12").id)!;
+    // From Sam, whom you know, and you're free: Jarvis says yes again (D71), and the invitation
+    // card goes out instead should it find it can't.
+    const card = {
+      kind: "act",
+      action: "calendar.respond",
+      input: { id: at(before, "12").id, response: "accepted", scope: "all" },
+      ask: expect.stringContaining(`From ${SAM}.`),
+    };
     expect(await newInvite.run(first, read())).toMatchObject([
       {
         kind: "act",
-        action: "calendar.respond",
-        input: { id: at(before, "12").id, response: "accepted", scope: "all" },
-        ask: expect.stringContaining(`From ${SAM}.`),
+        action: "calendar.accept_invite",
+        input: { id: at(before, "12").id },
+        fallback: [card],
       },
     ]);
   });

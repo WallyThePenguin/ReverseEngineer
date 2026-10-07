@@ -178,8 +178,13 @@ export async function applyOutcomes(
           o.input,
           o.ask ? { ...caller, askFirst: o.ask } : caller,
         );
-        if (res.status !== "ok" && !(o.ask && res.status === "pending_approval"))
+        if (res.status !== "ok" && !(o.ask && res.status === "pending_approval")) {
           log(`${src.name}: ${o.action} -> ${JSON.stringify(res)}`);
+          if (o.fallback?.length) {
+            const inner = await applyOutcomes(kernel, o.fallback, src, log);
+            result.skipped.push(...inner.skipped);
+          }
+        }
         break;
       }
       case "batch":

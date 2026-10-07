@@ -10,6 +10,7 @@ import { Badge, Button, Kbd } from "../../components/ui.tsx";
 import { ago, snoozeOptions, who } from "../../lib/format.ts";
 import { approvalParts, type InboxView, itemDue, rowMenu, wholeBody } from "../../lib/inbox.ts";
 import type { InboxRow } from "../../lib/types.ts";
+import { UndoButton } from "./UndoButton.tsx";
 
 export function InboxItem(props: {
   row: InboxRow;
@@ -90,6 +91,7 @@ export function InboxItem(props: {
                   <Body text={n().body} />
                 </div>
               </Show>
+              <UndoButton row={props.row} />
               {snoozes()}
             </div>
             <div class="shrink-0 text-right text-xs text-faint">

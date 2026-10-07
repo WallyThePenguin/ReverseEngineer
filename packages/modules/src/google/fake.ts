@@ -130,7 +130,15 @@ export class FakeGoogle {
   put(calendarId: string, ev: Partial<GEvent> & Pick<GEvent, "start" | "end">): GEvent {
     const cal = this.calendar(calendarId);
     const id = ev.id ?? `ev${++this.seq}`;
-    const full: GEvent = { status: "confirmed", summary: "", ...ev, id, etag: `"${++this.seq}"` };
+    const full: GEvent = {
+      status: "confirmed",
+      summary: "",
+      // Google stamps when it was made, and keeps it.
+      created: cal.events.get(id)?.created ?? this.clock.now().toISOString(),
+      ...ev,
+      id,
+      etag: `"${++this.seq}"`,
+    };
     cal.events.set(id, full);
     return full;
   }

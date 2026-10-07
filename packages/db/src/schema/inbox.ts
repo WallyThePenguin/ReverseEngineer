@@ -79,7 +79,30 @@ export const notification = pgTable("notification", {
   outside: boolean("outside").notNull().default(false),
   createdAt: ts("created_at").notNull().defaultNow(),
   updatedAt: ts("updated_at").notNull().defaultNow(),
+  /** What Jarvis did on its own, and how to put it back (0042_jarvis_undo). */
+  undo: jsonb("undo").$type<NotificationUndo>(),
 });
+
+/**
+ * Putting back what Jarvis did to your calendar on its own (D71, D72). A closed shape: the server
+ * maps each kind to one exact action, so a stored row can never run anything else as you.
+ */
+export type NotificationUndo =
+  | { kind: "unaccept"; eventId: string; before: { scope: "this" | "all" } }
+  | { kind: "unmove"; eventId: string; before: { start: string; end: string; when: string } }
+  | {
+      kind: "unremove";
+      eventId: string;
+      before: {
+        calendarId: string;
+        title: string;
+        start: string;
+        end: string;
+        when: string;
+        description?: string;
+        location?: string;
+      };
+    };
 
 export const audit = pgTable("audit", {
   id: uuid("id").primaryKey(),

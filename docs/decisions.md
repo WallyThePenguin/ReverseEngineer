@@ -2161,3 +2161,71 @@ for `mail.send` from a card (one tap would let every later email go unread by yo
 
 **Why:** The owner chose it on 2026-10-07: "Yes, add Always allow". The same yes for the same
 channel or person, card after card, is part of why Jarvis "feels very manual".
+
+## D71. Jarvis accepts an invitation when you're free and it's from someone you know (2026-10-07)
+
+*This loosens D25 for one answer: a yes, never a no.*
+
+**Decision:** A new invitation on your own calendar is accepted without a card when all of these
+hold, checked by the reflex and again by `calendar.accept_invite` as it runs:
+- it's from a person you know (not one in the trash) or a colleague (their address's company
+  domain is one of your Google accounts'). Free mail never makes a colleague, and a role address
+  (events@, noreply@) never counts at all;
+- nothing of yours overlaps it on your selected calendars (a meeting you haven't answered or said
+  maybe to counts as busy);
+- for a repeating meeting, that holds for every time in the next 4 weeks it would answer. Times
+  further out aren't checked; if any time in the 4 weeks clashes, it's a card.
+
+The action only accepts and has no input but the event. Only a new invitation: one Google made
+in the last day, so a calendar's first sync or a reconnect doesn't accept the ones you left
+unanswered (those are cards). The action itself refuses a turn that read outside content, and
+outside a turn it keeps to 10 a day (counted by its own Undo) and nothing while Jarvis is paused;
+past that, and for any invitation that doesn't qualify, it's the card as before. Its yes goes
+only to the invitation as checked: if Google's copy says you've answered it since, or it moved,
+it's the card. Each one leaves a line in the inbox, "Accepted "Standup", Tue 2026-10-13, 10
+a.m." with "From sam@partner.example ("Sam Lee")", with an Undo that sets your answer back to
+unanswered, unless you've answered it yourself since. `calendar.respond` is unchanged: it still asks, and an
+untrusted turn's answer is still a card. A meeting Jarvis accepted doesn't make its guests people
+(`calendar_event.jarvis_accepted`, 0042): "someone you know" grows only through your own yes or
+your own mail, so one accept can't vouch for the next. An invitation forged to look like it's
+from someone you know (an .ics file in an email, which Gmail can add to your calendar) is
+accepted too, where before it was a card naming that address; the note and its Undo are the
+backstop, and Google Calendar's "only if the sender is known" setting is the defense.
+
+**Alternatives:** Make `calendar.respond` internal for "accepted" (a model could accept anything
+it was told to). Any invitation when you're free (anyone can put one on your calendar). Check
+only the first time of a series (a weekly clash would be accepted for months).
+
+**Why:** The owner chose it on 2026-10-07, after "it feels very manual": most invitations from
+people they work with are a yes when they're free, and the card for each was a tap they didn't
+need to make.
+
+## D72. Jarvis moves or removes an event it added from an email, without asking (2026-10-07)
+
+*This loosens D67's "moving and removing events still ask" for Jarvis's own events.*
+
+**Decision:** `calendar.create_event` takes a `threadId`, the email thread or conversation the
+turn is about, and ties the event to it (a `derived_from` link). `calendar.move_own_event` and
+`calendar.remove_own_event` are internal, and their handlers refuse unless all three hold: Jarvis
+added the event, it has no guests, and it's tied to the one thing this turn is about (the turn's
+subject and its conversation's, or the one item a heartbeat turn took). Only the tie
+`calendar.create_event` made as it added the event counts: not one `link.add` made, nor one from a
+create that found the event already there. A refusal names
+`calendar_update_event` or `calendar_delete_event`, which still ask as before. Each change leaves
+a line in the inbox with an Undo that says exactly what it does: "Undo: move "Dentist" back to Mon
+2026-10-12, 10 a.m.", or puts a removed event back. A heartbeat turn about several items asks,
+so an email in one of them can't move an event tied to another.
+
+The Undo is stored as a closed shape, `notification.undo = {kind, eventId, before}` with kind
+"unaccept", "unmove" or "unremove" (0042). The server maps each kind to one change, made as you
+by `calendar.undo`, which only you can press. Only the calendar's own code writes it: neither
+`inbox.notify` nor any other action's input can set it.
+
+**Alternatives:** A kernel hook that lowers an action's risk per call (a power the next feature
+would reuse loosely). Store a whole action and its input to run on Undo (anything that could
+write that column could run any action as you). Keep the card (the owner's "Jarvis can't do
+things").
+
+**Why:** The owner chose it on 2026-10-07. When the dentist's office emails a new time, the
+event Jarvis added from their first email should follow without a card; anything Jarvis didn't
+make from that conversation still waits for a yes.
