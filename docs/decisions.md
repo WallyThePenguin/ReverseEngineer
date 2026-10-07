@@ -2085,11 +2085,16 @@ can offer "Always allow …" beside Approve. Pressing it approves the card and w
 rule as narrow as the card: the action, and the one place or person it reaches (`target`):
 "Always allow posting in #eng", "Always allow messaging Eve on Slack". An action offers it only
 if it says what its target is (`alwaysAllow`); today that's `slack.post_in_channel` (the channel,
-its threads too) and `slack.dm` (the person). `mail.send` never offers it, and Always allow
-refuses it whatever the card says: an email waits for your yes, card after card. The rule shows
-in Settings, where Remove takes it back. A card from a turn that read outside content (an email,
-a page, a Slack message) never offers it, and no rule applies to such a turn (policy.ts,
-unchanged), so nothing from outside can make or use one. Rules written before (the whole action) keep working.
+its threads too) and `slack.dm` (the person); `calendar.respond` doesn't, as D71 covers
+invitations. The rule shows in Settings, where Remove takes it back. A card from a turn that read
+outside content (an email, a page, a Slack message) never offers it, and no rule applies to such
+a turn (policy.ts, unchanged), so nothing from outside can make or use one.
+
+Only the card's Always allow refuses `mail.send`: a card never offers it for an email, and
+`standing_rule.always_allow` turns it down whatever the card says. Rules you make yourself in
+Settings (`standing_rule.create`, `target` NULL: any target) are unchanged, `mail.send` included,
+and keep covering every target. Migration 0040 adds the nullable `target`, unique per action and
+principal with NULLS NOT DISTINCT.
 
 **Alternatives:** A rule for the whole action (one yes for #eng would allow every channel).
 Offering it on every card (an injected email could put "Always allow" in front of you). A rule
