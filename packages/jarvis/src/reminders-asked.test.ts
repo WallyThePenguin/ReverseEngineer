@@ -144,6 +144,29 @@ describe("a reminder set in a turn you started", () => {
     ]);
   });
 
+  it("rings marked as outside content's words, though you asked, after the email was read", async () => {
+    const cid = await chat("go through my email", [read()]);
+    await chat("remind me at 3 to pay it", SET_ALL.slice(0, 1), { conversationId: cid });
+    expect(await made()).toEqual([yours]);
+    // Jarvis still wrote its words in a conversation that read the email: its clock's event says so.
+    const rows = await h.tdb.db.select({ payload: schedule.payload }).from(schedule);
+    const set = rows.map((r) => r.payload as { reminder?: string }).filter((p) => p.reminder);
+    expect(set).toEqual([expect.objectContaining({ outside: true })]);
+    h.clock.set("2026-10-01T19:00:30Z");
+    await h.settle();
+    const rang = await h.tdb.db
+      .select()
+      .from(notification)
+      .where(eq(notification.kind, "reminder"));
+    expect(rang.map((n) => [n.title, n.outside, n.body])).toEqual([
+      [
+        "Pay now 0",
+        true,
+        "You asked for this in a conversation that had read an email or a message, so it can't wake you.",
+      ],
+    ]);
+  });
+
   it("is capped when a paired device sent the words on its own", async () => {
     await chat("remind me at 3", SET_ALL, {
       heard: true,

@@ -8,7 +8,8 @@
 // quiet line in the inbox. What outside content set is still its words wherever it's read back:
 // reading it makes the turn untrusted, and an untrusted turn cancels only what its own
 // conversation set. What the owner asks for in a conversation that read outside content earlier,
-// or says to the chat mic, still can't wake them, but isn't counted against outside content.
+// or says to the chat mic, still can't wake them, and its words (Jarvis wrote them there) are
+// still marked as outside content's, but it isn't counted against outside content.
 import {
   addLocalDays,
   asUntrusted,
@@ -227,8 +228,9 @@ export const reminderActions = [
             from,
             asked,
             ...(heard ? { heard } : {}),
-            // Set after reading outside content: its clock's event carries those words, and says so.
-            ...(vouched || asked ? {} : { outside: true }),
+            // Set after reading outside content, though you asked: Jarvis still wrote its words, so
+            // its clock's event carries them as that content's, and says so.
+            ...(vouched ? {} : { outside: true }),
           },
         },
         ctx.now,
@@ -352,8 +354,9 @@ export const ringReminder: ReflexDef = {
           ...(said.length ? { body: said.join("\n") } : {}),
           urgency: lateBy > STALE_MS ? "normal" : "interrupt",
           ...(vouched ? { deadline: due } : {}),
-          // Set after reading an email or a message: its words are still that content's.
-          ...(p.vouched !== true && p.asked !== true ? { outside: true } : {}),
+          // Set after reading an email or a message, though you asked: its words are still that
+          // content's, as Jarvis wrote them there.
+          ...(p.vouched !== true ? { outside: true } : {}),
           dedupeKey: `reminder:${String(p.reminder)}`,
         },
       },
