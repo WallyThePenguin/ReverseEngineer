@@ -2,12 +2,12 @@
 // keeps everything read in so far (D61): only disconnecting removes it.
 import { entity, slackBot, slackMessage, slackUser, slackWorkspace } from "@hearth/db";
 import { type ActionContext, ActionError, defineAction } from "@hearth/kernel";
-import { eq, inArray, ne, not } from "drizzle-orm";
+import { and, eq, inArray, ne, not } from "drizzle-orm";
 import { z } from "zod";
 import { closeAlerts } from "../connector-health.ts";
 import { SlackError } from "./api.ts";
 import { slackManifest, USER_SCOPES } from "./bot/manifest.ts";
-import { settleUnsent } from "./bot/not-sent.ts";
+import { settleUnsent, waitForTakeRounds } from "./bot/not-sent.ts";
 import { decidedAbout } from "./member/people.ts";
 import { sealToken, slackApi, type WorkspaceRow } from "./save.ts";
 
@@ -76,9 +76,6 @@ export const connectActions = [
       // One workspace. The same one again just takes the new token and keeps what's read in.
       const ws = await current(ctx);
       if (ws) return replace(ctx, ws, me, i.token);
-      // What you decided about people in another workspace isn't about anyone here: a kept
-      // person with the same Slack id mustn't come back with their tier or VIP (D62).
-      await ctx.tx.delete(slackUser).where(ne(slackUser.teamId, me.teamId));
       await ctx.tx.insert(slackWorkspace).values({
         teamId: me.teamId,
         teamName: me.team,
@@ -86,6 +83,16 @@ export const connectActions = [
         userId: me.userId,
         token: sealToken(ctx, me.teamId, i.token),
       });
+      // What you decided about people in another workspace isn't about anyone here: a kept
+      // person with the same Slack id mustn't come back with their tier or VIP (D62). Someone you
+      // blocked stays blocked, though, and only that: in an Enterprise Grid org, their id is the
+      // same here.
+      const elsewhere = ne(slackUser.teamId, me.teamId);
+      await ctx.tx
+        .update(slackUser)
+        .set({ teamId: me.teamId, replies: "auto", vip: false })
+        .where(and(elsewhere, eq(slackUser.tier, "blocked")));
+      await ctx.tx.delete(slackUser).where(elsewhere);
       return { team: me.team, url: me.url };
     },
   }),
@@ -142,6 +149,7 @@ export const connectActions = [
     risk: "internal",
     callers: ["owner"],
     async handler(_i, ctx) {
+      await waitForTakeRounds(ctx);
       const ws = await current(ctx);
       // Jarvis's bot goes too: what it hadn't sent is settled first, and you're told about each,
       // before its outbox goes with the workspace (D62).

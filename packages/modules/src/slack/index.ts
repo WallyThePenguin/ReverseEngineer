@@ -83,7 +83,7 @@ export { CHANNEL_CHECK_MS } from "./member/channels.ts";
 export { THREAD_LINES, type ThreadLine } from "./member/in-channel.ts";
 export { MEMBER_TIERS, memberModule } from "./member/index.ts";
 export { plainOf, SLOW_MS, writtenAt } from "./member/messages.ts";
-export { reaches } from "./member/people.ts";
+export { memberNow, reaches } from "./member/people.ts";
 export { expireHeldReplies, replaceHeldReplies } from "./member/reply.ts";
 export { SETTLE_MS, type TakeRound } from "./member/take.ts";
 export {

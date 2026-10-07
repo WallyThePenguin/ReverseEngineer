@@ -150,6 +150,7 @@ export {
   type MemberBrief,
   memberBrief,
   memberGate,
+  memberNow,
   OUTBOX_CHANNEL,
   OUTBOX_POLL_MS,
   type Ours,

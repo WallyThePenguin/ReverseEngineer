@@ -162,6 +162,15 @@ describe("what you set in Settings", () => {
     t.s.teamId = "T2";
     await t.ok("slack.connect", { token: t.s.token });
     expect(await t.ok("slack.members")).toEqual([]);
+    // Except that someone you blocked stays blocked (an Enterprise Grid org's ids are the same in
+    // each workspace), and nothing else you'd decided about them comes along.
+    await t.setSam({ tier: "blocked", replies: "review", vip: true });
+    await t.ok("slack.disconnect");
+    t.s.teamId = "T3";
+    await t.ok("slack.connect", { token: t.s.token });
+    expect(await t.ok("slack.members")).toEqual([
+      expect.objectContaining({ id: SAM, tier: "blocked", replies: "auto", vip: false }),
+    ]);
   });
 
   it("never gives a guest more than blocked", async () => {
