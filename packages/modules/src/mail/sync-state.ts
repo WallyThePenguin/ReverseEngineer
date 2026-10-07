@@ -88,6 +88,12 @@ export async function recordOutcome(
     });
     if (account.failures > 0) await closeMailAlerts(ctx, account.id);
   };
+  if (work.held) {
+    // Mail waits to be tried again and nothing came in: the account hasn't synced, nor failed,
+    // so a run of failures (timeouts, say) still alerts on time (6.2).
+    await set({ syncState: account.syncState === "failing" ? "failing" : busy, pausedUntil: null });
+    return { status: "ok", ...base };
+  }
   if (!work.stopped) {
     await succeeded(busy);
     return { status: "ok", ...base };

@@ -159,24 +159,44 @@ describe("sync safety", () => {
     const huge = g.gmail.deliver({ from: ANA, subject: "Huge", text: "." });
     g.gmail.deliver({ from: ANA, subject: "Next", text: "." });
     g.gmail.hangIds.add(huge);
-    // A timeout may be the line, so the sync stops there; the message waits ten minutes aside.
+    // A timeout may be the line, so the sync stops there; the message is tried again next round.
     expect(await sync()).toMatchObject({ added: 0, transient: true });
-    expect(await sync()).toMatchObject({ added: 1, transient: false });
+    expect(await sync()).toMatchObject({ added: 1, transient: true });
     expect(await subjects()).toEqual(["Next"]);
-    expect(g.gmail.hung).toBe(1);
+    expect(g.gmail.hung).toBe(2);
     // Timeouts close together count once: a few bad minutes don't set a message aside.
     const attempts = async () => (await t.tdb.db.select().from(mailQuarantine))[0]?.attempts;
     expect(await attempts()).toBe(1);
+    // From then on it waits ten minutes aside, so new mail doesn't wait behind it.
+    expect(await sync()).toMatchObject({ added: 0, failed: [] });
+    expect(g.gmail.hung).toBe(2);
     t.clock.advance(10 * 60_000);
     await sync();
     t.clock.advance(10 * 60_000);
     await sync();
     expect(await attempts()).toBe(3);
-    expect(g.gmail.hung).toBe(3);
+    expect(g.gmail.hung).toBe(4);
     expect(await sync()).toMatchObject({ failed: [], more: false });
-    expect(g.gmail.hung).toBe(3);
+    expect(g.gmail.hung).toBe(4);
     expect(await account()).toMatchObject({ setAside: 1, waiting: 0, state: "ok" });
     expect(await t.events("mail.sync_failed")).toEqual([]);
+  });
+
+  it("still alerts on time when every download times out", async () => {
+    t.kernel.services[GOOGLE_SERVICE] = g.client(t.tdb.db, { timeoutMs: 50 });
+    await sync();
+    let alertedAt = 0;
+    for (let minute = 1; minute <= 40; minute++) {
+      t.clock.advance(60_000);
+      // New mail every few minutes, and none of it arrives in time.
+      if (minute % 4 === 1)
+        g.gmail.hangIds.add(g.gmail.deliver({ from: ANA, subject: `${minute}`, text: "." }));
+      await sync();
+      if (!alertedAt && (await t.events("mail.sync_failed")).length) alertedAt = minute;
+    }
+    // At half an hour, as when every sync stopped on it: the minutes mail waits aside don't
+    // count as synced.
+    expect(alertedAt).toBe(30);
   });
 
   it("keeps new mail coming while Gmail fails on one message, and sets it aside later", async () => {
@@ -185,39 +205,116 @@ describe("sync safety", () => {
     g.gmail.deliver({ from: ANA, subject: "First", text: "." });
     g.gmail.brokenIds.set(bad, 500);
     // Before, it went back in the queue, and Gmail's list of changes is read only once the queue
-    // is empty: no new mail came in for as long as Gmail kept failing on it.
-    expect(await sync()).toMatchObject({ added: 1, failed: [], transient: false, more: false });
+    // is empty: no new mail came in for as long as Gmail kept failing on it. Now, as the next
+    // message downloads fine, the failure is the message's own: it's tried again next round.
+    expect(await sync()).toMatchObject({ added: 1, failed: [], transient: false, more: true });
     g.gmail.deliver({ from: ANA, subject: "Second", text: "." });
     expect(await sync()).toMatchObject({ added: 1, failed: [] });
     expect(await subjects()).toEqual(["First", "Second"]);
-    expect(g.gmail.gets.get(bad)).toBe(1);
+    expect(g.gmail.gets.get(bad)).toBe(2);
     expect(await account()).toMatchObject({ waiting: 1, setAside: 0, state: "ok" });
-    // It's tried again every ten minutes, after any new mail, and set aside on the third failure.
+    // Then every ten minutes, after any new mail, and it's set aside on the third failure. With
+    // no new mail, a look-up of mail Hearth has shows Gmail's servers work.
     t.clock.advance(10 * 60_000);
     expect(await sync()).toMatchObject({ added: 0, failed: [] });
+    expect(g.gmail.gets.get(bad)).toBe(3);
     t.clock.advance(10 * 60_000);
     g.gmail.deliver({ from: ANA, subject: "Third", text: "." });
     expect(await sync()).toMatchObject({ added: 1, failed: [], more: false });
-    expect(g.gmail.gets.get(bad)).toBe(3);
+    expect(g.gmail.gets.get(bad)).toBe(4);
     t.clock.advance(10 * 60_000);
     await sync();
-    expect(g.gmail.gets.get(bad)).toBe(3);
+    expect(g.gmail.gets.get(bad)).toBe(4);
     expect(await account()).toMatchObject({ waiting: 0, setAside: 1, state: "ok" });
     expect(await t.events("mail.sync_failed")).toEqual([]);
   });
 
-  it("brings in a message Gmail failed on once it downloads, as new mail", async () => {
+  it("brings in a message Gmail failed on once, a round later, as new mail", async () => {
+    await sync();
+    g.gmail.deliver({ from: ANA, subject: "Earlier", text: "." });
     await sync();
     const late = g.gmail.deliver({ from: ANA, subject: "Late", text: "." });
     g.gmail.brokenIds.set(late, 503);
-    expect(await sync()).toMatchObject({ added: 0, failed: [], more: false });
+    expect(await sync()).toMatchObject({ added: 0, failed: [], more: true });
+    // A one-off: the next round brings it in, not ten minutes later.
     g.gmail.brokenIds.delete(late);
-    expect(await sync()).toMatchObject({ added: 0 });
-    t.clock.advance(10 * 60_000);
     expect(await sync()).toMatchObject({ added: 1, failed: [], more: false });
     expect(await account()).toMatchObject({ waiting: 0, setAside: 0 });
+    expect(await t.tdb.db.select().from(mailQuarantine)).toEqual([]);
     const received = await t.events("mail.received");
-    expect(received.map((e) => (e.payload as { subject: string }).subject)).toEqual(["Late"]);
+    const said = received.map((e) => (e.payload as { subject: string }).subject);
+    expect(said).toEqual(["Earlier", "Late"]);
+  });
+
+  it("stops and alerts while Gmail fails on every download, and loses nothing", async () => {
+    await sync();
+    g.gmail.deliver({ from: ANA, subject: "Before", text: "." });
+    await sync();
+    // For 40 minutes Gmail's servers fail on every message, though its list of changes works.
+    g.gmail.getsFail = 500;
+    let alertedAt = 0;
+    for (let minute = 1; minute <= 40; minute++) {
+      t.clock.advance(60_000);
+      g.gmail.deliver({ from: ANA, subject: `${minute}`, text: "." });
+      expect(await sync()).toMatchObject({ added: 0, transient: true });
+      if (!alertedAt && (await t.events("mail.sync_failed")).length) alertedAt = minute;
+    }
+    expect(alertedAt).toBe(30);
+    expect(await t.tdb.db.select().from(mailQuarantine)).toEqual([]);
+    expect(await account()).toMatchObject({ setAside: 0, state: "failing" });
+    // Once they're back, every message comes in.
+    g.gmail.getsFail = null;
+    for (let i = 0; i < 5; i++) if (!(await sync()).more) break;
+    expect(await subjects()).toHaveLength(41);
+    expect(await account()).toMatchObject({ setAside: 0, waiting: 0, state: "ok" });
+  });
+
+  it("tries set-aside mail again a day after it failed, or at once when you ask", async () => {
+    await sync();
+    const stuck = g.gmail.deliver({ from: ANA, subject: "Stuck", text: "." });
+    g.gmail.brokenIds.set(stuck, 400);
+    for (let i = 0; i < 3; i++) await sync();
+    expect(await account()).toMatchObject({ setAside: 1, waiting: 0 });
+    // Gmail would hand it over now, but it isn't asked for again at once...
+    g.gmail.brokenIds.delete(stuck);
+    t.clock.advance(3600_000);
+    expect(await sync()).toMatchObject({ added: 0 });
+    // ...only a day after it last failed. It comes in as old news, not as new mail.
+    t.clock.advance(24 * 3600_000);
+    expect(await sync()).toMatchObject({ added: 1, failed: [] });
+    expect(await subjects()).toEqual(["Stuck"]);
+    expect(await account()).toMatchObject({ setAside: 0, waiting: 0 });
+    expect(await t.tdb.db.select().from(mailQuarantine)).toEqual([]);
+    expect(await t.events("mail.received")).toEqual([]);
+
+    // "Try again" in Settings puts it back at once; if it still fails, it's set aside again.
+    const again = g.gmail.deliver({ from: ANA, subject: "Again", text: "." });
+    g.gmail.brokenIds.set(again, 400);
+    for (let i = 0; i < 3; i++) await sync();
+    expect(await account()).toMatchObject({ setAside: 1 });
+    expect(await ok("mail.retry_set_aside", { account: ME })).toEqual({ released: 1 });
+    expect(await account()).toMatchObject({ setAside: 0, waiting: 1 });
+    expect(await sync()).toMatchObject({ added: 0, failed: [] });
+    expect(g.gmail.gets.get(again)).toBe(4);
+    expect(await account()).toMatchObject({ setAside: 1, waiting: 0 });
+    g.gmail.brokenIds.delete(again);
+    await ok("mail.retry_set_aside", { account: ME });
+    expect(await sync()).toMatchObject({ added: 1, failed: [] });
+    expect(await subjects()).toEqual(["Again", "Stuck"]);
+  });
+
+  it("keeps a flag change Gmail's servers failed to look up, for the next sync", async () => {
+    g.gmail.historyLabels = false;
+    await sync();
+    const m = g.gmail.deliver({ from: ANA, subject: "Flagged", text: "." });
+    await sync();
+    g.gmail.label(m, ["STARRED"], []);
+    g.gmail.brokenIds.set(m, 500);
+    expect(await sync()).toMatchObject({ transient: true });
+    g.gmail.brokenIds.delete(m);
+    await sync();
+    const [row] = await t.tdb.db.select().from(mailMessage);
+    expect(row?.labels).toContain("STARRED");
   });
 
   it("carries on when saving one message fails outside the database", async () => {
