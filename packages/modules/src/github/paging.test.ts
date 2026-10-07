@@ -184,8 +184,10 @@ describe("when GitHub stops working", () => {
     expect(warned[0]?.payload).toMatchObject({ login: "wally", expiresAt: expires.toISOString() });
     const reflex = githubModule.reflexes.find((r) => r.name === "github.token_expiring")!;
     const [out] = await reflex.run(warned[0]!, { db: t.tdb.db, now: t.clock.now() });
+    // GitHub's sync told it, but the card is only Hearth's words: reading it back stays trusted.
+    expect(warned[0]?.origin).toBe("untrusted");
     expect(out).toMatchObject({
-      notification: { title: "Your GitHub token is about to stop working" },
+      notification: { title: "Your GitHub token is about to stop working", outside: false },
     });
   });
 });

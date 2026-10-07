@@ -26,6 +26,12 @@ export function day(d: Date, now = timeNow()): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+/** "2:40 p.m.", or "2:40 p.m. tomorrow": a time that can be past midnight, like a pause's end. */
+export function timeOn(d: Date, now = timeNow()): string {
+  const on = day(d, now);
+  return on === "today" ? time(d) : `${time(d)} ${on}`;
+}
+
 /**
  * "Wed, Oct 7", with the year when it isn't this one: a day that stays right however long it
  * waits to be read, as an approval may. English, like the rest of Hearth's words.

@@ -2146,8 +2146,11 @@ invitations. The rule shows in Settings, where Remove takes it back. A card from
 outside content (an email, a page, a Slack message) never offers it, and no rule applies to such
 a turn (policy.ts, unchanged), so nothing from outside can make or use one.
 
-Only the card's Always allow refuses `mail.send`: a card never offers it for an email, and
-`standing_rule.always_allow` turns it down whatever the card says. Rules you make yourself in
+The rule is written in the same transaction as the yes (`alwaysAllow` on the approve call), so
+a yes that's refused, runs out or fails leaves no rule, and you're told no rule was saved.
+
+Only the card's Always allow refuses `mail.send`: a card never offers it for an email, and the
+approve call turns it down whatever the card says. Rules you make yourself in
 Settings (`standing_rule.create`, `target` NULL: any target) are unchanged, `mail.send` included,
 and keep covering every target. Migration 0040 adds the nullable `target`, unique per action and
 principal with NULLS NOT DISTINCT.

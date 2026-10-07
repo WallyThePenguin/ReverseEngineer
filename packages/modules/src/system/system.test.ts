@@ -1,6 +1,7 @@
 // system.status: what's set up so far, for the "Set up Hearth" checklist; and system alerts.
+import { atLocal, localDate } from "@hearth/core";
 import { audit, googleAccount, notification, pushSubscription, session } from "@hearth/db";
-import { ownerCaller, setSetting, systemCaller } from "@hearth/kernel";
+import { getSetting, ownerCaller, setSetting, systemCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -86,16 +87,18 @@ describe("system alerts", () => {
     expect(await alerts()).toHaveLength(2);
   });
 
-  it("closes the alert once the component isn't failing, whatever day it began", async () => {
+  it("closes the alert once the component is ok again, whatever day it began", async () => {
     await report("sync.google", "failing", "owner@example.com mail: failing");
     await report("disk", "failing", "1 GB left");
     await report("backup", "failing", "No backup since Monday");
     const states = async () =>
       Object.fromEntries((await alerts()).map((a) => [a.dedupeKey?.split(":")[1], a.state]));
-    // Past midnight, Google syncs again and the disk has some room: both close.
+    // Past midnight, Google syncs again: its alert closes. A disk with a little room isn't ok yet.
     t.clock.advance(20 * 3_600_000);
     await report("sync.google", "ok");
     await report("disk", "degraded", "4 GB left");
+    expect(await states()).toEqual({ "sync.google": "done", disk: "unseen", backup: "unseen" });
+    await report("disk", "ok");
     expect(await states()).toEqual({ "sync.google": "done", disk: "done", backup: "unseen" });
     expect(await t.events("notification.updated")).toHaveLength(2);
   });
@@ -103,8 +106,9 @@ describe("system alerts", () => {
   it("opens the day's alert again when the component fails again after it closed, no second buzz", async () => {
     await report("sync.google", "failing", "owner@example.com mail: fetch failed");
     const [first] = await alerts();
+    await t.tdb.db.update(notification).set({ snoozedUntil: new Date(0) });
     await report("sync.google", "ok");
-    // That afternoon, Google signs Hearth out.
+    // That afternoon, Google signs Hearth out: the alert is new again, at the top.
     t.clock.advance(4 * 3_600_000);
     await report("sync.google", "failing", "owner@example.com: invalid_grant");
     expect(await alerts()).toMatchObject([
@@ -112,12 +116,65 @@ describe("system alerts", () => {
         state: "unseen",
         body: "owner@example.com: invalid_grant",
         deliveredAt: first!.deliveredAt,
+        createdAt: t.clock.now(),
+        snoozedUntil: null,
       },
     ]);
     expect(await t.events("notification.updated")).toMatchObject([
       { payload: { state: "done" } },
       { payload: { state: "unseen" } },
     ]);
+  });
+
+  it("stays as you left it while the component only wavers between failing and degraded", async () => {
+    // Ok this morning; the slowdown began later.
+    await report("sync.google", "ok");
+    t.clock.advance(60 * 60_000);
+    await report("sync.google", "failing", "Gmail keeps asking Hearth to slow down");
+    const [n] = await alerts();
+    await t.kernel.execute("inbox.mark", { ids: [n!.id], state: "done" }, ownerCaller("ui"));
+    // A slowdown of hours: degraded while Gmail lets a little through, failing between.
+    for (const s of ["degraded", "failing", "degraded", "failing"]) {
+      t.clock.advance(5 * 60_000);
+      await report("sync.google", s, "Gmail keeps asking Hearth to slow down");
+    }
+    expect(await alerts()).toMatchObject([{ state: "done" }]);
+    // Once it's ok, failing again is news again.
+    await report("sync.google", "ok");
+    t.clock.advance(60 * 60_000);
+    await report("sync.google", "failing", "owner@example.com: invalid_grant");
+    expect(await alerts()).toMatchObject([{ state: "unseen" }]);
+  });
+
+  it("sends an alert that opens again if it never went out, held through quiet hours", async () => {
+    const { timeZone } = await getSetting(t.tdb.db, "owner.dayRules");
+    const day = localDate(t.clock.now(), timeZone);
+    const at = (hour: number) => t.clock.set(atLocal(day, hour * 60, timeZone));
+    // 1 a.m.: held for the morning. Ok again at 2, failing again at 3: still held, until then.
+    at(1);
+    await report("sync.google", "failing", "fetch failed");
+    expect(await alerts()).toMatchObject([{ deliveredAt: null }]);
+    at(2);
+    await report("sync.google", "ok");
+    at(3);
+    await report("sync.google", "failing", "fetch failed");
+    expect(await alerts()).toMatchObject([{ state: "unseen", deliveredAt: null }]);
+    const [held] = (await t.events("notification.updated")).filter(
+      (e) => e.payload.state === "unseen",
+    );
+    expect(held?.payload.retryAt).toEqual(expect.any(String));
+    const deliver = ALL_MODULES.flatMap((m) => m.reflexes).find(
+      (r) => r.name === "inbox.deliver_held",
+    );
+    expect(deliver?.on).toContain("notification.updated");
+    expect(await deliver!.run(held!, {} as never)).toMatchObject([{ kind: "check_later" }]);
+    // Ok before the morning, failing again that afternoon: it goes out now.
+    at(4);
+    await report("sync.google", "ok");
+    at(14);
+    await report("sync.google", "failing", "owner@example.com: invalid_grant");
+    expect(await alerts()).toMatchObject([{ state: "unseen", deliveredAt: t.clock.now() }]);
+    expect(await t.events("notification.delivered")).toHaveLength(1);
   });
 
   it("closes the alert that no backup has run once one does", async () => {

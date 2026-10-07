@@ -105,7 +105,8 @@ export const remindAction = defineAction({
         kind: "reminder",
         runAt: at,
         timeZone,
-        payload: { reminder: id, text, vouched },
+        // Set after reading outside content: its clock's event carries those words, and says so.
+        payload: { reminder: id, text, vouched, ...(vouched ? {} : { outside: true }) },
       },
       ctx.now,
     );
@@ -150,6 +151,8 @@ export const ringReminder: ReflexDef = {
           ...(said.length ? { body: said.join("\n") } : {}),
           urgency: "interrupt",
           ...(vouched ? { deadline: due } : {}),
+          // Set after reading an email or a message: its words are still that content's.
+          ...(vouched ? {} : { outside: true }),
           dedupeKey: `reminder:${String(p.reminder)}`,
         },
       },

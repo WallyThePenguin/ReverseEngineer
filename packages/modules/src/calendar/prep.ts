@@ -39,7 +39,7 @@ import {
 import { z } from "zod";
 import { id, preview } from "../shared.ts";
 import { inSelectedCalendar } from "./calendars.ts";
-import { type EventView, guests, NOT_MEETINGS, toEventView, whenText } from "./store.ts";
+import { type EventView, guests, NOT_MEETINGS, prepTitle, toEventView, whenText } from "./store.ts";
 
 const HOUR_MS = 3600_000;
 
@@ -282,7 +282,7 @@ export const prepPublish = defineAction({
     }
     const row = await createEntity(ctx, {
       type: "prep",
-      title: `Prep: ${ev.title} (${localDate(ev.startsAt, rules.timeZone)})`,
+      title: prepTitle(ev.title, ev.startsAt, rules.timeZone),
       body: i.markdown,
     });
     await addLink(ctx, { fromId: row.id, toId: i.eventId, kind: "derived_from" });
@@ -294,7 +294,8 @@ export const prepRoutine: RoutineDef = {
   name: "calendar.prep",
   description: "At 6 a.m., a prep packet for each meeting in the next 48 hours.",
   cron: "0 6 * * *",
-  staleAfterSeconds: 3 * 3600,
+  // Woken at 9, the PC still preps the day's meetings; woken that night, it waits for the morning.
+  staleAfterSeconds: 12 * 3600,
   async run(firing, ctx) {
     const rules = await getSetting(ctx.db, "owner.dayRules");
     const todo: { ev: EventView; facts: string; outside: boolean }[] = [];

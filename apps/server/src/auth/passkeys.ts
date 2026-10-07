@@ -323,9 +323,15 @@ async function checkLogin(
     if (result) authFailed("sign-in", "the passkey's signature didn't verify");
     return null;
   }
-  await db
+  const still = await db
     .update(credential)
     .set({ counter: result.authenticationInfo.newCounter, lastUsedAt: new Date() })
-    .where(eq(credential.id, cred.id));
+    .where(eq(credential.id, cred.id))
+    .returning({ id: credential.id });
+  // Removed while it was signing in (a lost phone, say): it doesn't get in.
+  if (still.length === 0) {
+    authFailed("sign-in", "the passkey was removed while it signed in");
+    return null;
+  }
   return cred.principal;
 }

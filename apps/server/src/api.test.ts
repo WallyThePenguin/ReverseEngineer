@@ -1,4 +1,5 @@
-import { latestSeq } from "@hearth/kernel";
+import { approval, standingRule } from "@hearth/db";
+import { latestSeq, newId, stableHash } from "@hearth/kernel";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createApiToken, revokeApiTokens } from "./auth/tokens.ts";
 import { createTestServer, type TestServer } from "./testing/server.ts";
@@ -47,6 +48,35 @@ describe("action API", () => {
     };
     const create = list.actions.find((a) => a.name === "task.create");
     expect(create?.input).toMatchObject({ type: "object" });
+  });
+
+  it("passes Always allow through with your yes, and says which field was wrong", async () => {
+    const input = { title: "Water the plants" };
+    const id = newId();
+    await t.kernel.db.insert(approval).values({
+      id,
+      action: "task.create",
+      input,
+      inputHash: stableHash(input),
+      risk: "internal",
+      summary: "Add a task",
+      reason: "Asks",
+      requestedBy: "jarvis",
+      origin: "owner",
+      alwaysAllow: { target: "home", says: "adding tasks at home" },
+    });
+    const decide = (json: unknown) => t.browser(`/api/approvals/${id}`, { method: "POST", json });
+    const bad = await decide({ decision: "approve", alwaysAllow: "yes" });
+    expect(bad.status).toBe(400);
+    expect(await bad.json()).toMatchObject({ message: "alwaysAllow must be true or false" });
+    expect(await (await decide({ decision: "maybe" })).json()).toMatchObject({
+      message: "decision must be approve or deny",
+    });
+    const res = await decide({ decision: "approve", alwaysAllow: true });
+    expect(res.status).toBe(200);
+    const rule = { action: "task.create", target: "home", note: "adding tasks at home" };
+    expect(await res.json()).toEqual({ status: "ok", result: { rule } });
+    expect(await t.kernel.db.select().from(standingRule)).toMatchObject([rule]);
   });
 });
 

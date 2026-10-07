@@ -6,6 +6,7 @@ import { mailAccount, mailMessage, mailQuarantine } from "@hearth/db";
 import { type ActionContext, ActionError, savepoint } from "@hearth/kernel";
 import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import { setFlags } from "./flags.ts";
+import { accountAddresses, addressKey } from "./mine.ts";
 import { type MailChange, type MailProvider, MailProviderError, type RawMail } from "./provider.ts";
 import { type AccountRow, leftOut, removeMail, type Saved, saveMail } from "./store.ts";
 import { forget, LOOK_ASIDE_MS, QUARANTINE_AFTER, quarantine, release } from "./sync-aside.ts";
@@ -83,7 +84,9 @@ export async function bringIn(
     .filter(([, p]) => p.at <= now)
     .sort(([, a], [, b]) => a.at - b.at)
     .map(([id]) => id);
-  const one: One = { ctx, provider, account, c, work, doubts: [] };
+  let mine: Promise<Set<string>> | undefined;
+  const yours = () => (mine ??= accountAddresses(ctx.tx));
+  const one: One = { ctx, provider, account, c, work, doubts: [], yours };
   try {
     if (c.pending.length + c.relabel.length === 0) {
       const changes = await provider.changes(
@@ -169,6 +172,8 @@ interface One {
    */
   serving?: boolean | null;
   doubts: Doubt[];
+  /** Your addresses, looked up once a sync needs them (mine.ts). */
+  yours: () => Promise<Set<string>>;
 }
 
 /**
@@ -211,7 +216,9 @@ async function bringOne(one: One, id: string, quiet: boolean, done: () => void, 
   if (again) await forget(ctx, account.id, id);
   if (!saved?.added) return;
   work.added++;
-  if (!quiet && !saved.outbound)
+  // Your own email cc'd to this account, saved before its copy in Sent, isn't news either.
+  const from = addressKey(saved.parsed?.from?.address ?? "");
+  if (!quiet && !saved.outbound && !(await one.yours()).has(from))
     ctx.emit({
       kind: "mail.received",
       entityId: saved.id,
