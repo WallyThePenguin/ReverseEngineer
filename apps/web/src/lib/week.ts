@@ -7,12 +7,15 @@ import { type Accessor, createMemo } from "solid-js";
 import { createToday } from "./clock.ts";
 import type { CalEvent } from "./types.ts";
 
-const DAY_MS = 86_400_000;
+/** The start of the day `weeks` weeks on from `day`: by the calendar, so a week the clocks
+ *  change in still starts at midnight, not an hour either side of it. */
+export const weeksOn = (day: Date, weeks: number) =>
+  new Date(day.getFullYear(), day.getMonth(), day.getDate() + 7 * weeks);
 
 /** Where the week shown starts: the start of today, `offset` weeks on. */
 export function createWeekStart(offset: Accessor<number>): Accessor<Date> {
   const today = createToday();
-  return createMemo(() => new Date(today() + offset() * 7 * DAY_MS));
+  return createMemo(() => weeksOn(new Date(today()), offset()));
 }
 
 /**

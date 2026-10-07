@@ -1,19 +1,21 @@
 // How a connector that polls with your token (Slack, GitHub) is syncing, saved after each round
 // the way mail does it (D55, D61). A token that stops working stops the polling until you give
 // Hearth a new one. Other failures alert only when they won't pass by themselves or keep
-// happening (3 rounds in a row and nothing read for 30 minutes). Each run of failures is told
-// once, when it starts, and the first good round closes the notice again.
+// happening (3 rounds in a row and nothing read for 30 minutes of them). Each run of failures is
+// told once, when it starts, and the first good round closes the notice again.
 import { localDate } from "@hearth/core";
 import { type ConnectorSyncState, notification } from "@hearth/db";
 import { type ActionContext, getSetting, type ReadContext, type ReflexDef } from "@hearth/kernel";
 import { and, ne, sql } from "drizzle-orm";
-import { FAILING_AFTER_MS, FAILURES_BEFORE_ALERT } from "./mail/sync-state.ts";
+import {
+  FAILING_AFTER_MS,
+  FAILURES_BEFORE_ALERT,
+  type RunState,
+  runOfFailures,
+} from "./mail/sync-state.ts";
 
-export interface Health {
+export interface Health extends RunState {
   syncState: ConnectorSyncState;
-  failures: number;
-  failingSince: Date | null;
-  syncedAt: Date | null;
 }
 
 /**
@@ -62,12 +64,11 @@ export function nextHealth(
       alert: null,
       recovered: h.failures > 0 || h.syncState !== "ok",
     };
-  const failures = h.failures + 1;
-  const since = h.failingSince ?? now;
-  const quietFor = progressed ? 0 : now.getTime() - (h.syncedAt?.getTime() ?? 0);
+  const run = runOfFailures(h, now);
+  const { failures, since } = run;
   const failing =
     trouble.kind !== "transient" ||
-    (failures >= FAILURES_BEFORE_ALERT && quietFor >= FAILING_AFTER_MS);
+    (failures >= FAILURES_BEFORE_ALERT && !progressed && run.quietFor >= FAILING_AFTER_MS);
   const syncState: ConnectorSyncState =
     trouble.kind === "revoked"
       ? "revoked"

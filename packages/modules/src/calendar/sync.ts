@@ -32,6 +32,7 @@ export interface SyncResult {
 }
 
 const slowDown = (err: unknown) => err instanceof GoogleApiError && err.slowDown;
+const notFound = (err: unknown) => err instanceof GoogleApiError && err.kind === "not_found";
 const messageOf = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 export function syncWindow(now: Date, tz: string): { from: Date; to: Date } {
@@ -83,6 +84,7 @@ export async function syncCalendars(ctx: ActionContext): Promise<SyncResult> {
   };
   for (const acct of accounts) {
     const troubles: Trouble[] = [];
+    const gone: Trouble[] = [];
     let progressed = false;
     let paused = false;
     const cals = () =>
@@ -106,7 +108,8 @@ export async function syncCalendars(ctx: ActionContext): Promise<SyncResult> {
       await recordCalendarHealth(ctx, acct, troubles, false, false);
       continue;
     }
-    for (const cal of await cals()) {
+    const selected = await cals();
+    for (const cal of selected) {
       let items: Awaited<ReturnType<CalendarApi["events"]>>;
       try {
         items = await api.events(acct.email, cal.googleId, from, to);
@@ -119,7 +122,7 @@ export async function syncCalendars(ctx: ActionContext): Promise<SyncResult> {
         }
         const message = messageOf(err);
         result.failed.push(`${cal.title}: ${message}`);
-        troubles.push(troubleOf(err, cal.title));
+        (notFound(err) ? gone : troubles).push(troubleOf(err, cal.title));
         await ctx.tx.update(calendar).set({ lastError: message }).where(eq(calendar.id, cal.id));
         continue;
       }
@@ -175,6 +178,11 @@ export async function syncCalendars(ctx: ActionContext): Promise<SyncResult> {
         .set({ lastSyncedAt: ctx.now, lastError: null })
         .where(eq(calendar.id, cal.id));
     }
+    // A calendar Google says isn't there (deleted, or no longer shared) is that one calendar while
+    // the account has others: Settings names it (its lastError), and the account is judged by the
+    // others, so a failing one recovers, whichever calendar was read first. With none but such
+    // calendars selected, the account is failing: told at once, as before.
+    if (gone.length === selected.length) troubles.push(...gone);
     await recordCalendarHealth(ctx, acct, troubles, progressed, paused);
   }
   return result;

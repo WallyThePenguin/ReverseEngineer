@@ -163,10 +163,11 @@ export function Today(props: { pane: number }) {
                 })}
               </p>
               <h2 class="mt-1 font-serif text-hero">{greeting(now())}</h2>
-              {/* Each part counts what its section shows, and takes you to it. */}
+              {/* Each part counts what its section shows, and takes you to it. Kept by its words:
+                  the minute moving on doesn't draw it again, and the focus stays on it. */}
               <p class="mt-1 flex flex-wrap gap-x-1.5 text-sm text-muted">
-                <For each={line()}>
-                  {(part, i) => (
+                <For each={line().map((part) => part.text)}>
+                  {(text, i) => (
                     <>
                       <Show when={i() > 0}>
                         <span aria-hidden="true">·</span>
@@ -174,9 +175,12 @@ export function Today(props: { pane: number }) {
                       <button
                         type="button"
                         class="rounded-sm underline-offset-2 hover:text-ink hover:underline"
-                        onClick={() => jump(part.to)}
+                        onClick={() => {
+                          const to = line().find((part) => part.text === text)?.to;
+                          if (to) jump(to);
+                        }}
                       >
-                        {part.text}
+                        {text}
                       </button>
                     </>
                   )}

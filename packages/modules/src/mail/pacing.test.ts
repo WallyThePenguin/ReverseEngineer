@@ -236,13 +236,13 @@ describe("what it fetches", () => {
 });
 
 describe("alerts", () => {
-  /** A sync that fails because Gmail's servers are having trouble, then fifteen minutes pass. */
+  /** A sync that fails because Gmail's servers are having trouble, then ten minutes pass. */
   const outage = async () => {
     g.gmail.failNext(1, 503);
     const r = await sync();
     expect(r).toMatchObject({ transient: true });
     expect(r.failed).toHaveLength(1);
-    t.clock.advance(15 * 60_000);
+    t.clock.advance(10 * 60_000);
   };
   const notice = async (e: HearthEvent) => {
     const reflex = mailModule.reflexes!.find((r) => r.name === "mail.sync_failed")!;
@@ -265,7 +265,8 @@ describe("alerts", () => {
     await sync();
     await outage();
     await outage();
-    // Two failures in half an hour are left alone.
+    await outage();
+    // Three failures in twenty minutes are left alone.
     expect(await t.events("mail.sync_failed")).toEqual([]);
     expect(await account()).toMatchObject({ state: "ok" });
     await outage();
@@ -279,9 +280,7 @@ describe("alerts", () => {
     expect(await account()).toMatchObject({ state: "ok", lastError: null });
 
     // A second outage the same day gets a notice of its own.
-    await outage();
-    await outage();
-    await outage();
+    for (let i = 0; i < 4; i++) await outage();
     const second = (await t.events("mail.sync_failed"))[1];
     expect(second).toBeDefined();
     const again = await notice(second!);
@@ -289,11 +288,46 @@ describe("alerts", () => {
     expect(await stateOf(again)).toBe("unseen");
   });
 
+  it("counts half an hour from when the PC woke, quick retries and all", async () => {
+    await sync();
+    // One failure as the PC went to sleep.
+    g.gmail.failNext(1, 503);
+    await sync();
+    t.clock.advance(8 * 3600_000);
+    // The Wi-Fi isn't back yet: the mail loop's quick retries fail seconds apart.
+    for (let i = 0; i < 3; i++) {
+      g.gmail.failNext(1, 503);
+      expect((await sync()).failed).toHaveLength(1);
+      t.clock.advance(2_000);
+    }
+    expect(await t.events("mail.sync_failed")).toEqual([]);
+    expect(await account()).toMatchObject({ state: "ok" });
+    // Still failing half an hour after the wake: that's news.
+    for (let i = 0; i < 3; i++) await outage();
+    expect(await t.events("mail.sync_failed")).toEqual([]);
+    await outage();
+    expect(await t.events("mail.sync_failed")).toHaveLength(1);
+  });
+
+  it("stays failing, notice and all, when Gmail asks it to slow down partway through", async () => {
+    await sync();
+    for (let i = 0; i < 4; i++) await outage();
+    const [e] = await t.events("mail.sync_failed");
+    const key = await notice(e!);
+    // Still down, and Gmail turns the next try away: failing, and paused as well.
+    g.gmail.failNext(1, 429);
+    expect(await sync()).toMatchObject({ paused: [ME] });
+    expect(await account()).toMatchObject({ state: "failing" });
+    expect(await stateOf(key)).toBe("unseen");
+    t.clock.advance(61_000);
+    expect(await sync()).toMatchObject({ failed: [] });
+    expect(await stateOf(key)).toBe("done");
+    expect(await account()).toMatchObject({ state: "ok" });
+  });
+
   it("says nothing if mail synced again before Jarvis got to the alert", async () => {
     await sync();
-    await outage();
-    await outage();
-    await outage();
+    for (let i = 0; i < 4; i++) await outage();
     const [e] = await t.events("mail.sync_failed");
     // Jarvis was busy or down; meanwhile mail synced again.
     expect(await sync()).toMatchObject({ failed: [] });
