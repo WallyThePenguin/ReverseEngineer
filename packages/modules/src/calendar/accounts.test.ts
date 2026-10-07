@@ -5,6 +5,7 @@ import { integrationCaller, ownerCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { and, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { GAttendee } from "../google/calendar-api.ts";
 import { GOOGLE_SERVICE, SCOPES } from "../google/client.ts";
 import { FakeGoogle } from "../google/fake.ts";
 import { ALL_MODULES } from "../index.ts";
@@ -187,13 +188,13 @@ describe("two Google accounts", () => {
   });
 
   it("lists a meeting you're invited to at both addresses once, as the copy you said yes to", async () => {
-    const planning = (self: string, response: string, day: string) => ({
+    const planning = (self: string, response: GAttendee["responseStatus"], day: string) => ({
       summary: "Planning",
       iCalUID: "planning-1@google.com",
       start: at(`2026-10-${day}T16:00:00Z`),
       end: at(`2026-10-${day}T17:00:00Z`),
       attendees: [
-        { email: "ana@example.com", organizer: true, responseStatus: "accepted" },
+        { email: "ana@example.com", organizer: true, responseStatus: "accepted" as const },
         { email: self, self: true, responseStatus: response },
       ],
     });
