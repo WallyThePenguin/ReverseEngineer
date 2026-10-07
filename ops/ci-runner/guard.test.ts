@@ -314,6 +314,7 @@ describe("the CI guard", () => {
     const run = spawnSync(process.execPath, [guard], {
       env: { PATH: process.env.PATH ?? "", SystemRoot: process.env.SystemRoot ?? "" },
       encoding: "utf8",
+      windowsHide: true,
     });
     expect(run.status).toBe(1);
     expect(run.stderr).toContain("RUNNER_TEMP isn't set");

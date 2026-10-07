@@ -10,6 +10,7 @@ import { request } from "../lib/api.ts";
 import { inDesktopApp } from "../lib/desktop.ts";
 import { ago } from "../lib/format.ts";
 import { queryClient, reportError, toast } from "../lib/live.ts";
+import { windowAsked } from "../lib/settingsNav.ts";
 
 interface Device {
   name: string;
@@ -48,6 +49,7 @@ export function DesktopSettings() {
 
   const connect = async () => {
     try {
+      windowAsked.set(false);
       setAsked(await connectThisPc());
       // The app pairs itself again; show it once it has.
       window.setTimeout(refresh, 15_000);
@@ -81,6 +83,14 @@ export function DesktopSettings() {
         Hearth for Windows: Hearth in its own window, notifications, dictation into any app, and
         Jarvis a hotkey away. Install it on your PC, then connect it here.
       </p>
+      {/* Its sign-in page sends you here (D69), but so could any page: it's an if, and connecting is
+          still your click. */}
+      <Show when={windowAsked.get()}>
+        <p class="rounded-md bg-accent-soft px-3 py-2 text-sm">
+          If Hearth's window on this PC asked you to sign in again, choose Connect Hearth on this
+          PC.
+        </p>
+      </Show>
       <QueryView query={devices} what="the desktop app's connection">
         {(list) => {
           const desktop = () => list().find((d) => d.name === "desktop");

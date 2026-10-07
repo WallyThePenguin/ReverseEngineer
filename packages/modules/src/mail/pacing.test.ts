@@ -136,7 +136,10 @@ describe("when Gmail says slow down", () => {
 
 describe("a first sync", () => {
   it("says how far it has got, and doesn't announce old mail as new", async () => {
-    for (let i = 0; i < 250; i++)
+    // Its time is all database work, about 25 queries a message, so it pages through little mail
+    // in small pages rather than a lot of it in Gmail's usual hundreds.
+    g.gmail.pageSize = 20;
+    for (let i = 0; i < 50; i++)
       g.gmail.seed({ from: ANA, subject: `Old ${i}`, text: "." }, ["INBOX"]);
     const progress = async () =>
       (await ok<(AccountView & Record<string, unknown>)[]>("mail.accounts"))[0]!;
@@ -144,15 +147,16 @@ describe("a first sync", () => {
     expect(await progress()).toMatchObject({
       state: "catching_up",
       firstSyncDone: false,
-      backfill: { fetched: 50, target: 250 },
-      waiting: 50,
+      backfill: { fetched: 20, target: 50 },
     });
     for (let i = 0; i < 40; i++) {
       const r = await sync();
       if (r.retryAt) t.clock.advance(60_000);
       else if (!r.more) break;
     }
-    expect(await stored()).toBe(250);
+    expect(await stored()).toBe(50);
+    // Three pages, and none of them announced.
+    expect(g.gmail.count("GET /messages")).toBe(3);
     expect(await progress()).toMatchObject({
       state: "ok",
       firstSyncDone: true,

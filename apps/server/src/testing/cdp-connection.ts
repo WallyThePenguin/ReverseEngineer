@@ -144,7 +144,7 @@ export class CdpConnection {
         ...(process.platform === "linux" ? ["--no-sandbox"] : []),
         "about:blank",
       ],
-      { stdio: ["ignore", "ignore", "pipe"] },
+      { stdio: ["ignore", "ignore", "pipe"], windowsHide: true },
     );
     const url = await new Promise<string>((resolve, reject) => {
       let err = "";
