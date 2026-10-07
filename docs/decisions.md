@@ -2166,7 +2166,8 @@ channel or person, card after card, is part of why Jarvis "feels very manual".
 
 **Decision:** In Settings, you connect a Convex deployment with its URL and a deploy key. Hearth
 seals the key with the vault key, and audit keeps none of it. Each source is a `data_source` row
-with a `kind` (`convex` for now) and a `mode`: `read`, or later `approve_writes`.
+with a `kind` (`convex` for now) and a `mode`: `read`, or `approve_writes`, which you turn on
+for a source in Settings.
 
 Hearth calls the deployment's HTTP API with plain fetch, not Convex's npm package. Jarvis, and
 MCP clients, read with:
@@ -2189,8 +2190,19 @@ URL's is refused. The URL is https, or plain http on this PC only (a self-hosted
 redirect isn't followed, so the key goes nowhere else.
 
 What a read returns is outside content (`external`). It makes the rest of Jarvis's turn
-untrusted, so anything outward after it asks you first (D25). Mutations and actions come next as
-`outward` calls, each on your yes, with the function, its args and the deployment on the card.
+untrusted, so anything outward after it asks you first (D25).
+
+On a source in `approve_writes`, `data.functions` also lists its mutations and actions, and
+`data.change` runs one through `/api/mutation` or `/api/action`. It's `outward` with no Always
+allow, so every change waits for your yes:
+
+- the card names the function, the source, the deployment and the key's kind, then shows the args
+  in full;
+- the source as you saw it is part of the call, so a source that changed or went read-only since
+  changes nothing;
+- a change Convex didn't answer about is never "try again", only "look first", so it isn't made
+  twice.
+
 MongoDB and other hosted sources follow.
 
 **Alternatives:** Convex's npm client (a dependency for two HTTP calls). Arbitrary one-off
