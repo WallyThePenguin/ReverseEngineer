@@ -42,16 +42,20 @@ it("exits when the server can't have its port", async () => {
   let output = "";
   child.stdout.on("data", (d) => (output += d));
   child.stderr.on("data", (d) => (output += d));
+  // A busy PC (CI beside other tests) can take a minute just to load the CLI.
   const exit = await new Promise<number | "still running">((resolve) => {
     const timer = setTimeout(() => {
       child.kill();
       resolve("still running");
-    }, 30_000);
+    }, 90_000);
     child.on("exit", (code) => {
       clearTimeout(timer);
       resolve(code ?? -1);
     });
   });
+  expect(exit, `still running after 90 s, having said: ${output || "nothing"}`).not.toBe(
+    "still running",
+  );
   expect(output).toContain("Hearth's serve couldn't start");
   expect(exit).toBe(1);
-}, 60_000);
+}, 120_000);
