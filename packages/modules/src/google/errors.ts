@@ -102,13 +102,12 @@ export function retryAfterText(message: string, now: number): number | null {
   return Number.isNaN(at) ? null : Math.min(LONGEST_WAIT_MS, Math.max(0, at - now));
 }
 
-/** Seconds or an HTTP date, as Retry-After allows. */
+/** Seconds or an HTTP date, as Retry-After allows, at most LONGEST_WAIT_MS. */
 export function retryAfter(header: string | null, now: number): number | null {
   if (!header) return null;
   const seconds = Number(header);
-  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
-  const at = Date.parse(header);
-  return Number.isNaN(at) ? null : Math.max(0, at - now);
+  const at = Number.isFinite(seconds) ? now + seconds * 1000 : Date.parse(header);
+  return Number.isNaN(at) ? null : Math.min(LONGEST_WAIT_MS, Math.max(0, at - now));
 }
 
 /** Reads Google's error reply: its message, reason, quota details and when to try again. */

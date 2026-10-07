@@ -3,7 +3,7 @@
 // draft's Message-ID was chosen when it was written, and Sent is checked for it first, so a send
 // that went out while Hearth didn't hear back (Gmail didn't answer, or Hearth stopped mid-way)
 // isn't sent again when you press Send a second time (D61).
-import { formatTime } from "@hearth/core";
+import { addLocalDays, formatTime, localDate } from "@hearth/core";
 import { type DbOrTx, entity, mailAccount, mailDraft, mailMessage } from "@hearth/db";
 import {
   ActionError,
@@ -145,6 +145,14 @@ async function answering(db: DbOrTx, accountId: string, inReplyTo: string | null
  * Why a send didn't go, in words for the owner. The draft stays either way. `sending`: the
  * message itself was on its way, so it may have gone out.
  */
+/** Gmail can shut sending out for hours: the time it said, in yours, and the day if not today. */
+function laterOn(at: Date, now: Date, timeZone: string): string {
+  const day = localDate(at, timeZone);
+  const today = localDate(now, timeZone);
+  const on = day === today ? "" : day === addLocalDays(today, 1) ? " tomorrow" : ` on ${day}`;
+  return `${formatTime(at, timeZone)}${on}`;
+}
+
 function whyNotSent(
   err: unknown,
   from: string,
@@ -155,19 +163,20 @@ function whyNotSent(
   if (!(err instanceof MailProviderError)) return err;
   if (err.slowDown) {
     const seconds = Math.max(5, Math.ceil((err.retryAfterMs ?? 60_000) / 1000));
-    // Gmail can shut an account out for hours: then the time it said, in yours.
     const when =
       seconds < 90
         ? `in about ${seconds} seconds`
         : seconds < 90 * 60
           ? `in ${Math.ceil(seconds / 60)} minutes`
-          : `after ${formatTime(new Date(now.getTime() + seconds * 1000), timeZone)}`;
+          : `after ${laterOn(new Date(now.getTime() + seconds * 1000), now, timeZone)}`;
     // "paced": Hearth held it back itself, to keep Gmail from turning it away.
     const why =
       err.kind === "paced"
         ? "Hearth is spacing out its Gmail calls"
         : "Gmail asked Hearth to slow down";
-    return new ActionError("unavailable", `${why}, so nothing was sent. Try again ${when}.`);
+    // "p.m." ends the sentence too.
+    const end = when.endsWith(".") ? "" : ".";
+    return new ActionError("unavailable", `${why}, so nothing was sent. Try again ${when}${end}`);
   }
   if (err.kind === "auth")
     return new ActionError(

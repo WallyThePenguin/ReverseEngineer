@@ -46,11 +46,11 @@ const json = (status: number, data: unknown, headers: Record<string, string> = {
 
 /**
  * Google's error replies, as Gmail sends them. `until`: Gmail shuts the account out until then,
- * saying so only in the message, with no Retry-After header.
+ * saying so only in the message, with no Retry-After header, and which limit (`which`) if not all.
  */
-export function errorReply(status: number, limit?: number, until?: Date): Response {
+export function errorReply(status: number, limit?: number, until?: Date, which?: string): Response {
   if (status === 429 && until) {
-    const message = `User-rate limit exceeded.  Retry after ${until.toISOString()}`;
+    const message = `User-rate limit exceeded.  Retry after ${until.toISOString()}${which ? ` (${which})` : ""}`;
     return json(429, {
       error: {
         code: 429,
@@ -209,6 +209,9 @@ export class FakeGmail {
     this.failures.push({ status: 429, after: 0, until });
   }
 
+  /** Gmail's sending limit, which Gmail on the phone counts too: sends turned away until then. */
+  sendingLimitUntil: Date | null = null;
+
   /** Calls made to one path, e.g. "POST /messages/batchModify". */
   count(request: string): number {
     return this.requests.filter((r) => r === request).length;
@@ -275,6 +278,8 @@ export class FakeGmail {
       return json(204, null);
     }
     if (path === "/messages/send" && method === "POST") {
+      if (this.sendingLimitUntil && this.now() < this.sendingLimitUntil.getTime())
+        return errorReply(429, undefined, this.sendingLimitUntil, "Mail sending");
       let raw = Buffer.from(String(body?.raw ?? ""), "base64url");
       const id = `m${++this.seq}`;
       if (this.rewriteMessageIds)

@@ -193,6 +193,8 @@ describe("calls", () => {
     expect(retryAfter("Sun, 04 Oct 2026 12:01:30 GMT", now)).toBe(90_000);
     expect(retryAfter(null, now)).toBeNull();
     expect(retryAfter("soon", now)).toBeNull();
+    // Never longer than a day, in case one is nonsense.
+    expect(retryAfter(String(3 * 24 * 3600), now)).toBe(LONGEST_WAIT_MS);
   });
 
   it("reads Gmail's own 'Retry after' time in an error's text", () => {

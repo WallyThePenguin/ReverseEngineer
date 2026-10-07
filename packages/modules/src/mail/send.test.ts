@@ -130,7 +130,32 @@ describe("sending once", () => {
     const res = await run("mail.send", { id: d.id });
     expect(res).toMatchObject({ status: "error", code: "unavailable" });
     const { timeZone } = await getSetting(t.tdb.db, "owner.dayRules");
-    expect(JSON.stringify(res)).toContain(`Try again after ${formatTime(until, timeZone)}.`);
+    expect(res).toMatchObject({
+      message: `Gmail asked Hearth to slow down, so nothing was sent. Try again after ${formatTime(until, timeZone)}`,
+    });
+    expect(g.gmail.sent).toEqual([]);
+  });
+
+  it("waits for Gmail's sending limit only to send, and says the day when it's tomorrow", async () => {
+    const d = await draft();
+    // Gmail on the phone counts toward the same limit: sending is shut out until 6 a.m.
+    const until = new Date(t.clock.now().getTime() + 20 * 3600_000);
+    g.gmail.sendingLimitUntil = until;
+    const { timeZone } = await getSetting(t.tdb.db, "owner.dayRules");
+    expect(await run("mail.send", { id: d.id })).toMatchObject({
+      status: "error",
+      message: `Gmail asked Hearth to slow down, so nothing was sent. Try again after ${formatTime(until, timeZone)} tomorrow.`,
+    });
+    // An hour later the rest of Gmail goes on: mail syncs.
+    t.clock.advance(3600_000);
+    const calls = g.gmail.requests.length;
+    expect(await run("mail.sync", {}, integrationCaller("google"))).toMatchObject({ status: "ok" });
+    expect(g.gmail.requests.length).toBeGreaterThan(calls);
+    // Sending still waits for Gmail's time, without trying Gmail again.
+    expect(await run("mail.send", { id: d.id })).toMatchObject({
+      message: expect.stringContaining("tomorrow."),
+    });
+    expect(g.gmail.count("POST /messages/send")).toBe(1);
     expect(g.gmail.sent).toEqual([]);
   });
 });
