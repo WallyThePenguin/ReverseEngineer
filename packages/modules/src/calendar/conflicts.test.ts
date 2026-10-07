@@ -1,14 +1,17 @@
 // Overlap notices: the same meeting on two of your accounts isn't one, a clash weeks away is told
-// once it's two weeks out, two repeating meetings that clash are told once, not every week, and
-// one that's over by the time Jarvis gets to it isn't told at all.
+// once it's two weeks out, two repeating meetings that clash are told once, not every week, a
+// one-off that moves onto another week's meeting is told again, and one that's over by the time
+// Jarvis gets to it isn't told at all.
+import { calendar, entity } from "@hearth/db";
 import { integrationCaller, type ReflexOutcome } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { GEvent } from "../google/calendar-api.ts";
 import { GOOGLE_SERVICE, SCOPES } from "../google/client.ts";
 import { FakeGoogle } from "../google/fake.ts";
 import { ALL_MODULES } from "../index.ts";
-import { conflicts, WARN_DAYS } from "./conflicts.ts";
+import { overlaps, WARN_DAYS } from "./conflicts.ts";
 
 const ME = "owner@example.com";
 const WORK = "work@example.com";
@@ -58,15 +61,27 @@ const ctx = () => ({ db: t.tdb.db, now: t.clock.now() }) as never;
 async function outcomes() {
   const out: ReflexOutcome[] = [];
   for (const e of await t.events("calendar.event_changed"))
-    out.push(...(await conflicts.run(e, ctx())));
+    out.push(...(await overlaps.run(e, ctx())));
   return out;
 }
 /** The notices those come to, one per dedupe key, as the inbox keeps them. */
 const told = (out: ReflexOutcome[]) => [
   ...new Set(out.flatMap((o) => (o.kind === "tell" ? [o.notification.dedupeKey] : []))),
 ];
+const bodies = (out: ReflexOutcome[]) =>
+  out.flatMap((o) => (o.kind === "tell" ? [o.notification.body] : []));
 
 describe("overlap notices", () => {
+  it("say when both are, ending on the time", async () => {
+    meeting(ME, "Review", 2);
+    meeting(ME, "Gym", 2);
+    await sync();
+    const out = await outcomes();
+    expect(bodies(out)[0]).toMatch(/ to 12 p\.m\. and .* to 12 p\.m\.$/);
+    // Hashed, however long Google's ids are.
+    expect(told(out)).toEqual([expect.stringMatching(/^conflict:[0-9a-f]{32}$/)]);
+  });
+
   it("don't call the same meeting on two of your accounts an overlap", async () => {
     const invite = { iCalUID: "planning-1@acme.example" };
     meeting(ME, "Planning", 2, invite);
@@ -89,7 +104,7 @@ describe("overlap notices", () => {
     expect(check).toMatchObject({ at: new Date(start.getTime() - WARN_DAYS * DAY_MS) });
     if (check?.kind !== "check_later") throw new Error("no check");
     t.clock.set(check.at);
-    expect(told(await conflicts.onCheck!(check.payload, ctx()))).toHaveLength(1);
+    expect(told(await overlaps.onCheck!(check.payload, ctx()))).toHaveLength(1);
   });
 
   it("let a check go for a meeting that moved since", async () => {
@@ -101,7 +116,7 @@ describe("overlap notices", () => {
     meeting(ME, "Review", 31, { id: "review" });
     await sync();
     t.clock.set(check.at);
-    expect(await conflicts.onCheck!(check.payload, ctx())).toEqual([]);
+    expect(await overlaps.onCheck!(check.payload, ctx())).toEqual([]);
   });
 
   it("tell two repeating meetings that clash once, not every week", async () => {
@@ -116,7 +131,54 @@ describe("overlap notices", () => {
       });
     }
     await sync();
-    expect(told(await outcomes())).toHaveLength(1);
+    const out = await outcomes();
+    expect(told(out)).toHaveLength(1);
+    // 3 p.m. UTC is 11 a.m. at home.
+    expect(bodies(out)[0]).toMatch(/^Both repeat: every \w+day at 11 a\.m\.$/);
+  });
+
+  it("tell a one-off again when it moves onto another week's meeting", async () => {
+    const weekly = { iCalUID: "sam@acme.example", recurringEventId: "sam" };
+    meeting(ME, "1:1 with Sam", 2, weekly);
+    meeting(ME, "1:1 with Sam", 9, weekly);
+    meeting(ME, "Dentist", 2, { id: "dentist" });
+    await sync();
+    const first = told(await outcomes());
+    expect(first).toHaveLength(1);
+    meeting(ME, "Dentist", 9, { id: "dentist" });
+    await sync();
+    expect(told(await outcomes()).filter((k) => !first.includes(k))).toHaveLength(1);
+  });
+
+  it("let a check go for a meeting on a calendar you've turned off since", async () => {
+    const team = "team@group.calendar.google.com";
+    g.addCalendar({ id: team, summary: "Team", accessRole: "owner" });
+    meeting(team, "Review", 30);
+    meeting(ME, "Gym", 30);
+    await sync();
+    const [review] = await t.tdb.db.select().from(entity).where(eq(entity.title, "Review"));
+    const check = (await outcomes()).find(
+      (o) => o.kind === "check_later" && o.payload.eventId === review?.id,
+    );
+    if (check?.kind !== "check_later") throw new Error("no check");
+    await t.tdb.db.update(calendar).set({ selected: false }).where(eq(calendar.googleId, team));
+    t.clock.set(check.at);
+    expect(await overlaps.onCheck!(check.payload, ctx())).toEqual([]);
+  });
+
+  it("leave out a clash that's over, though the longer meeting goes on", async () => {
+    const day = new Date(t.clock.now().getTime() + DAY_MS).toISOString().slice(0, 10);
+    const span = (summary: string, from: string, to: string) =>
+      g.put(ME, {
+        summary,
+        start: { dateTime: `${day}T${from}:00Z` },
+        end: { dateTime: `${day}T${to}:00Z` },
+      });
+    span("Offsite", "13:00", "22:00");
+    span("Standup", "14:00", "14:30");
+    await sync();
+    t.clock.set(`${day}T16:00:00Z`);
+    expect(told(await outcomes())).toEqual([]);
   });
 
   it("let a clash go that's over by the time Jarvis gets to it", async () => {

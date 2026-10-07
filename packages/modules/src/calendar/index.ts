@@ -18,7 +18,7 @@ import { describeRow, id, isOutside, isoDateTime, liveEntity } from "../shared.t
 import { calendarWriteActions } from "./actions.ts";
 import { blockAction, blockReflex, blockRoutine } from "./blocks.ts";
 import { calendarSetupActions, isOwnCalendar, ownAccount } from "./calendars.ts";
-import { conflicts } from "./conflicts.ts";
+import { conflicts, overlaps } from "./conflicts.ts";
 import { freeSlots } from "./free.ts";
 import { newInvite } from "./invites.ts";
 import { meetingActions } from "./meetings.ts";
@@ -222,7 +222,7 @@ export const calendarModule = defineModule({
     blockAction,
     prepPublish,
   ],
-  reflexes: [conflicts, syncFailed, noRoom, blockReflex, newInvite, meetingSoon],
+  reflexes: [conflicts, overlaps, syncFailed, noRoom, blockReflex, newInvite, meetingSoon],
   async digest(ctx): Promise<DigestItem[]> {
     const rules = await getSetting(ctx.db, "owner.dayRules");
     const today = localDate(ctx.now, rules.timeZone);
