@@ -251,8 +251,8 @@ export interface DigestSection {
 export interface RoutineFiring {
   scheduledFor: Date;
   event: HearthEvent;
-  /** Every module's digest since a time, gathered by the engine. */
-  digest(since: Date): Promise<DigestSection[]>;
+  /** Every module's digest since a time, gathered by the engine: as of `at` if given, else now. */
+  digest(since: Date, at?: Date): Promise<DigestSection[]>;
 }
 
 /** Work that runs on a schedule (the brief, prep, sweeps). Fired by the scheduler as clock.fired. */
