@@ -2,10 +2,14 @@
 // reached), and shows notifications. The API is never cached; everything you see comes live from
 // your PC.
 
-// The page itself, and the built files of the build it comes from. When a new build's page
-// arrives, the old build's files are dropped, so the cache holds one build, not every one since.
+// The page itself, and the built files of each build, a cache per build. When a new build's page
+// arrives, the files of builds before the last go (the last may still be open), so the cache
+// holds two builds, not every one since.
 const SHELL = "hearth-shell-v2";
 const ASSETS = "hearth-assets";
+const assetsOf = (build) => `${ASSETS}:${build}`;
+/** Where SHELL notes the last build whose page started (main.tsx says so once it has). */
+const STARTED = "/.started";
 /** How long a page may take from the PC before the last one seen opens instead. */
 const NAVIGATE_TIMEOUT_MS = 3000;
 
@@ -20,7 +24,11 @@ self.addEventListener("activate", (e) => {
     caches
       .keys()
       .then((keys) =>
-        Promise.all(keys.filter((k) => !keep.includes(k)).map((k) => caches.delete(k))),
+        Promise.all(
+          keys
+            .filter((k) => !keep.includes(k) && !k.startsWith(`${ASSETS}:`))
+            .map((k) => caches.delete(k)),
+        ),
       )
       .then(() => self.clients.claim()),
   );
@@ -35,12 +43,18 @@ const isPage = (res) => (res.headers.get("content-type") ?? "").startsWith("text
 /** A place in the app (/today, /mail+thread/…), as opposed to one of its files (/version.json). */
 const inApp = (url) => !url.pathname.split("/").pop().includes(".");
 
+/** The build of the page kept, which files fetched now are kept with. */
+const keptBuild = async () => {
+  const kept = await caches.match("/");
+  return kept ? buildOf(await kept.text()) : null;
+};
+
 /**
- * Saves the newest page. If it's from a new build, the old build's files go, unless the old
- * page is the one open right now (it opened from the cache) and may still ask for them; those
- * go with the next new build. A page that isn't the app (no main script) isn't saved.
+ * Saves the newest page. If it's from a new build, the files of builds before the one it replaces
+ * go: that one's page may still be open (it may have opened from here) and ask for them. A page
+ * that isn't the app (no main script) isn't saved.
  */
-async function rememberPage(res, oldPageOpen) {
+async function rememberPage(res) {
   const shell = await caches.open(SHELL);
   const old = await shell.match("/");
   const [before, now] = await Promise.all([
@@ -49,8 +63,19 @@ async function rememberPage(res, oldPageOpen) {
   ]);
   if (!now) return;
   await shell.put("/", res);
-  if (before && before !== now && !oldPageOpen) await caches.delete(ASSETS);
+  if (before === now) return;
+  const keep = [assetsOf(now), assetsOf(before)];
+  const names = await caches.keys();
+  await Promise.all(
+    names.filter((k) => k.startsWith(ASSETS) && !keep.includes(k)).map((k) => caches.delete(k)),
+  );
 }
+
+self.addEventListener("message", (e) => {
+  const build = e.data?.started;
+  if (typeof build === "string" && /^\/assets\/index-[\w-]+\.js$/.test(build))
+    e.waitUntil(caches.open(SHELL).then((c) => c.put(STARTED, new Response(build))));
+});
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -62,14 +87,17 @@ let refreshing = null;
  * still being reached; the newest page is fetched meanwhile and kept for next time. A new build
  * reaches the open page through its update check, which reloads into it when that loses nothing
  * (UpdateNotice). A page asked for while the newest is still on its way, as that reload is, waits
- * for it to be kept (a few seconds at most), so it opens the new build.
+ * for it to be kept (a few seconds at most), so it opens the new build. Only a build whose page
+ * has started opens this way: one that hasn't (a broken update, which can't move itself on) is
+ * asked of the PC each time, so the update that fixes it arrives as soon as there is one.
  */
 async function openSaved(e) {
   await Promise.race([refreshing, wait(NAVIGATE_TIMEOUT_MS)]);
-  const saved = await caches.match("/");
-  if (!saved) return navigate(e);
+  const [saved, started] = await Promise.all([caches.match("/"), caches.match(STARTED)]);
+  if (!saved || !started) return navigate(e);
+  if (buildOf(await saved.clone().text()) !== (await started.text())) return navigate(e);
   const fresh = fetch(e.request)
-    .then((res) => (res.ok && isPage(res) ? rememberPage(res, true) : undefined))
+    .then((res) => (res.ok && isPage(res) ? rememberPage(res) : undefined))
     .catch(() => {});
   refreshing = fresh;
   e.waitUntil(
@@ -81,24 +109,19 @@ async function openSaved(e) {
 }
 
 /**
- * The newest page from the PC: the first time, before any is kept, and for its files opened as
- * pages. If it's out of reach, answers with an error (Hearth restarting behind a proxy) or takes
+ * The newest page from the PC: before any is kept, while the one kept hasn't started, and for its
+ * files opened as pages. If it's out of reach, answers with an error (Hearth restarting behind a proxy) or takes
  * more than a few seconds, the last page seen opens instead, and the app inside it waits for
  * Hearth to come back.
  */
 function navigate(e) {
   const network = fetch(e.request);
   let answered = false;
-  let openedSaved = false;
-  const saved = async () => {
-    const hit = await caches.match("/");
-    if (hit) openedSaved = true;
-    return hit;
-  };
+  const saved = () => caches.match("/");
   // Saved even when it arrives after the saved page has opened. (Copied before the page reads it.)
   e.waitUntil(
     network
-      .then((res) => (res.ok && isPage(res) ? rememberPage(res.clone(), openedSaved) : undefined))
+      .then((res) => (res.ok && isPage(res) ? rememberPage(res.clone()) : undefined))
       .catch(() => {}),
   );
   const fromNetwork = network.then(
@@ -129,7 +152,11 @@ self.addEventListener("fetch", (e) => {
           fetch(e.request).then((res) => {
             if (res.ok) {
               const copy = res.clone();
-              e.waitUntil(caches.open(ASSETS).then((c) => c.put(e.request, copy)));
+              e.waitUntil(
+                keptBuild()
+                  .then((build) => caches.open(assetsOf(build)))
+                  .then((c) => c.put(e.request, copy)),
+              );
             }
             return res;
           }),

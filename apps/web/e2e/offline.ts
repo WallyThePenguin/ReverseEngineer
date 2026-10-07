@@ -108,7 +108,8 @@ try {
       return out;
     })()`)) as Record<string, string[]>;
     if (!cached["hearth-shell-v2"]?.includes("/")) throw new Error("the page isn't kept");
-    if (!cached["hearth-assets"]?.some((p) => p.startsWith("/assets/index-")))
+    const files = Object.entries(cached).find(([k]) => k.startsWith("hearth-assets:"))?.[1];
+    if (!files?.some((p) => p.startsWith("/assets/index-")))
       throw new Error("the build's files aren't kept");
   });
 
@@ -157,6 +158,34 @@ try {
       if (loads !== 2) throw new Error(`the page loaded ${loads} times`);
       if (await page.getByText("Hearth was updated.").isVisible())
         throw new Error("it said so instead of reloading");
+    },
+  );
+
+  await step(
+    "a kept page whose build never started isn't opened; files of old builds go",
+    async () => {
+      // Say an update's page was kept but its code never ran (a broken build): it can't move itself
+      // on, so Hearth's own page opens instead. And files are kept for a build long gone.
+      await page.evaluate(`(async () => {
+      const main = document.querySelector('script[src^="/assets/index-"]').getAttribute("src");
+      const shell = await caches.open("hearth-shell-v2");
+      const kept = await shell.match("/");
+      const html = (await kept.text()).replace(main, "/assets/index-broken.js");
+      await shell.put("/", new Response(html, { headers: kept.headers }));
+      const gone = await caches.open("hearth-assets:/assets/index-ancient.js");
+      await gone.put("/assets/index-ancient.js", new Response(""));
+    })()`);
+      await page.goto(base);
+      await home(page).waitFor({ timeout: 15_000 });
+      // Hearth's page replaces the kept one after it shows; give it the time that takes.
+      await page.waitForTimeout(1_000);
+      const names = (await page.evaluate("caches.keys()")) as string[];
+      if (names.includes("hearth-assets:/assets/index-ancient.js"))
+        throw new Error("a build long gone keeps its files");
+      const main = await page.evaluate(
+        `document.querySelector('script[src^="/assets/index-"]').getAttribute("src")`,
+      );
+      if (!names.includes(`hearth-assets:${main}`)) throw new Error("this build's files went");
     },
   );
 
