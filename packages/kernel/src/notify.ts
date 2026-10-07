@@ -74,6 +74,8 @@ export async function createNotification(
   sourceEventSeq?: number,
 ): Promise<NotificationRow | null> {
   const urgency = input.urgency ?? "normal";
+  // Only ever more careful: a caller that read outside content can't say its words are its own.
+  const outside = input.outside === true || ctx.caller.origin === "untrusted";
   let deliveredAt: Date | null = null;
   let deferredReason: string | null = null;
   let retryAt: Date | null = null;
@@ -105,6 +107,7 @@ export async function createNotification(
       dedupeKey: input.dedupeKey ?? null,
       sourceEventSeq: sourceEventSeq ?? null,
       createdBy: ctx.caller.principal,
+      outside,
       createdAt: ctx.now,
       updatedAt: ctx.now,
     })
@@ -123,6 +126,8 @@ export async function createNotification(
       delivered: deliveredAt !== null,
       deferredReason,
       ...(retryAt ? { retryAt: retryAt.toISOString() } : {}),
+      // Its title is outside content's words: whatever reacts to it reads them as such.
+      ...(outside ? { outside } : {}),
     },
   });
   return created;

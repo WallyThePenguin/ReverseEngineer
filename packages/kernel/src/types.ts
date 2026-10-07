@@ -163,6 +163,13 @@ export interface NewNotification {
   lane?: "signal" | "noise";
   deadline?: Date | null;
   dedupeKey?: string | null;
+  /**
+   * Its words came from outside content, though its caller is trusted: a reminder set after
+   * reading an email, rung by Hearth itself. Anything an untrusted caller makes is outside anyway.
+   * A tell set off by outside content is marked too, unless it says false: only Hearth's own words
+   * ("Your GitHub token is about to stop working"). Only an "always" reflex can say so.
+   */
+  outside?: boolean;
 }
 
 export interface NewObservation {
