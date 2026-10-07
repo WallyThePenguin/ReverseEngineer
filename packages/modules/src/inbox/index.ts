@@ -43,7 +43,7 @@ export const inboxModule = defineModule({
     {
       kind: "notification.delivered",
       description:
-        "An interrupt held for quiet hours went out. Payload: notificationId, kind, title, urgency, delivered, and outside when its words are outside content's.",
+        "An interrupt went out after it was made: one held for quiet hours, or a failing alert that never went out, opened again. Payload: notificationId, kind, title, urgency, delivered, and outside when its words are outside content's.",
     },
   ],
   kernelEvents: ["notification.created", "notification.updated"],

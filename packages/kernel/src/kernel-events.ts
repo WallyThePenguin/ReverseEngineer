@@ -34,7 +34,7 @@ export const KERNEL_EVENTS: EventDef[] = [
   {
     kind: "notification.updated",
     description:
-      "An inbox item was seen, done or snoozed. Payload: notificationId, state, snoozedUntil.",
+      "An inbox item was seen, done or snoozed, or a failing alert opened again. Payload: notificationId, state, snoozedUntil, and retryAt for a reopened alert held for quiet hours.",
   },
   {
     kind: "clock.fired",
