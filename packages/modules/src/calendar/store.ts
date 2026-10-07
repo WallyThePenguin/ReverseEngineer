@@ -190,9 +190,8 @@ export async function saveEvent(
   m: Mapped,
   extra: { taskId?: string | null; replaces?: string } = {},
 ): Promise<{ id: string; change: Change }> {
-  const existing =
-    (await findEvent(ctx.tx, m.calendarId, m.googleId)) ??
-    (extra.replaces ? await eventRow(ctx.tx, extra.replaces) : null);
+  const found = await findEvent(ctx.tx, m.calendarId, m.googleId);
+  const existing = found ?? (extra.replaces ? await eventRow(ctx.tx, extra.replaces) : null);
   const { title, body, ...fields } = m;
   if (!existing) {
     if (m.status === "cancelled") return { id: "", change: null };
@@ -216,14 +215,18 @@ export async function saveEvent(
     return { id: e.id, change: null };
   const moved =
     r.startsAt.getTime() !== m.startsAt.getTime() || r.endsAt.getTime() !== m.endsAt.getTime();
+  // The organizer changed the series and asks you again: new to you, as an invitation is.
+  const askedAgain = !found && r.selfResponse !== "needsAction" && m.selfResponse === "needsAction";
   const change: Change =
     m.status === "cancelled"
       ? r.status === "cancelled"
         ? null
         : "cancelled"
-      : moved || r.status !== m.status || e.title !== title
-        ? "updated"
-        : null;
+      : askedAgain
+        ? "added"
+        : moved || r.status !== m.status || e.title !== title
+          ? "updated"
+          : null;
   if (!e.deletedAt) await updateEntity(ctx, e.id, { title, body });
   await ctx.tx
     .update(calendarEvent)
