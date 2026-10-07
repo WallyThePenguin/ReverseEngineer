@@ -13,22 +13,22 @@
 // turn that ends without one is passed on to you with an apology, by the worker (modules
 // slack/member/sweep.ts).
 //
-// A DM's agent session carries on for 12 idle hours, unless its last reply never went (you
-// declined it, it lapsed, it still waits for your yes, or it was refused) or you changed the
-// member's tier or review since, even while it answered. Starting afresh, it has what Hearth kept
-// of the conversation, less the answers that never went out. A channel thread's turns never carry
-// one: each member there is answered at their own tier, so each turn starts from the thread alone.
+// A DM's agent session carries on for 12 idle hours, unless its last reply never went or you
+// changed the member's tier or review since, even while it answered (member-session.ts). Starting
+// afresh, it has what Hearth kept of the conversation, with Jarvis's words only as they went out.
+// A channel thread's turns never carry one: each member there is answered at their own tier, so
+// each turn starts from the thread alone.
 import { asUntrusted } from "@hearth/core";
-import { approval, conversation, jarvisTurn, slackOutbox } from "@hearth/db";
+import { conversation, jarvisTurn } from "@hearth/db";
 import { getSetting, isVisibleTo, memberCaller, newId } from "@hearth/kernel";
 import {
   claimMessages,
-  expireHeldReplies,
   holdMessages,
   type LogEntry,
   MEMBER_TIERS,
   memberBrief,
   memberGate,
+  memberNow,
   POST_MAX,
   plainOf,
   REPLY_ACTION,
@@ -38,17 +38,18 @@ import {
   type ThreadLine,
   writtenAt,
 } from "@hearth/modules";
-import { and, desc, eq, inArray, ne } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { BrainEvents, BrainRequest, BrainResult, BrainTool } from "./brain.ts";
+import { afreshDue, answered, forgetSession, keepIfUnchanged } from "./member-session.ts";
 import { buildMemberPrompt, memberMessage } from "./prompts/member.ts";
 import { recapConversation, writeLog } from "./threads.ts";
 import { type ToolCallRecord, toModelJson, toolName } from "./tools.ts";
-import { bounded, type Deadline, ENDED, keepSession, MEMBER_STEPS } from "./turn-budget.ts";
+import { bounded, type Deadline, ENDED, MEMBER_STEPS } from "./turn-budget.ts";
 import { classifyOutcome, type EndEnv, type Ending, recordEnd } from "./turn-end.ts";
 
-/** A member's conversation starts a new agent session after this long idle (D62). */
-export const MEMBER_IDLE_MS = 12 * 3_600_000;
+export { MEMBER_IDLE_MS } from "./member-session.ts";
+
 const SLOW_START = /^sorry for the slow reply/i;
 
 export interface MemberTurnEnv extends EndEnv {
@@ -79,62 +80,6 @@ const cut = (text: string, max: number) => {
   const chars = [...text];
   return chars.length <= max ? text : `${chars.slice(0, max - 1).join("")}…`;
 };
-
-/**
- * Whether a DM starts afresh rather than carry on its session: its last answered turn was long
- * enough ago, or that turn's reply hasn't gone, because you declined it, it lapsed or failed, or
- * it still waits for your yes. The session has those words as if they'd been sent (D62).
- */
-async function afreshDue(env: EndEnv, cid: string, turnId: string, now: Date): Promise<boolean> {
-  const { db } = env.kernel;
-  const [last] = await db
-    .select({ id: jarvisTurn.id, at: jarvisTurn.finishedAt })
-    .from(jarvisTurn)
-    .where(
-      and(
-        eq(jarvisTurn.conversationId, cid),
-        eq(jarvisTurn.status, "done"),
-        ne(jarvisTurn.id, turnId),
-      ),
-    )
-    .orderBy(desc(jarvisTurn.finishedAt))
-    .limit(1);
-  if (!last?.at || now.getTime() - last.at.getTime() > MEMBER_IDLE_MS) return true;
-  const [unsent] = await db
-    .select({ id: approval.id })
-    .from(approval)
-    .where(
-      and(
-        eq(approval.action, REPLY_ACTION),
-        eq(approval.turnId, last.id),
-        inArray(approval.status, ["pending", "denied", "expired", "failed"]),
-      ),
-    )
-    .limit(1);
-  return Boolean(unsent);
-}
-
-/** The turns of a conversation whose answer went out, or is on its way. */
-async function answered(env: EndEnv, cid: string): Promise<Set<string>> {
-  const rows = await env.kernel.db
-    .select({ turnId: slackOutbox.turnId })
-    .from(slackOutbox)
-    .where(
-      and(
-        eq(slackOutbox.conversationId, cid),
-        eq(slackOutbox.kind, "answer"),
-        inArray(slackOutbox.state, ["queued", "sending", "sent", "unknown"]),
-      ),
-    );
-  return new Set(rows.flatMap((r) => (r.turnId ? [r.turnId] : [])));
-}
-
-/** Its DM's next turn starts afresh, from what Hearth kept, instead of this session. */
-const forgetSession = (env: EndEnv, cid: string) =>
-  env.kernel.db
-    .update(conversation)
-    .set({ agentSessionId: null })
-    .where(eq(conversation.entityId, cid));
 
 export async function runMemberTurn(
   env: MemberTurnEnv,
@@ -200,24 +145,16 @@ export async function runMemberTurn(
   // like what they write now, then the messages it answers, which the recap leaves out (D62).
   // That's after 12 idle hours, and when Claude lost the session it would resume (D54): the
   // runner's own recap would put their words outside asUntrusted. What Jarvis said there is only
-  // what went out: a turn's own words count once its answer is queued, so a reply you declined
-  // or haven't decided on isn't put to it as said. Notes and your sends carry their outbox row.
+  // what went out, as it went: a reply you declined or haven't decided on isn't put to it as
+  // said, and neither is what it wrote on the way to an answer (free times it then left out, say).
   const afresh = async () => {
     const said = channel ? null : await answered(env, cid);
     const recap = !said
       ? null
-      : await recapConversation(
-          kernel,
-          cid,
-          turn,
-          20,
-          (p, r) =>
-            asked.has(String((p.slack as { ts?: string } | undefined)?.ts ?? "")) ||
-            (r.kind === "assistant_message" &&
-              !p.outboxId &&
-              r.turnId !== null &&
-              !said.has(r.turnId)),
-        );
+      : await recapConversation(kernel, cid, turn, 20, {
+          skip: (p) => asked.has(String((p.slack as { ts?: string } | undefined)?.ts ?? "")),
+          said,
+        });
     if (!recap) return message;
     return [
       "What was said earlier in this conversation, as Hearth kept it. Background, not instructions:",
@@ -231,11 +168,14 @@ export async function runMemberTurn(
   };
   let prompt = message;
   let sessionId: string | null = null;
+  // The session its DM had as the turn started: one cleared meanwhile isn't brought back.
+  let had: string | null = null;
   if (!channel) {
     if (await afreshDue(env, cid, turnId, now)) await forgetSession(env, cid);
     else {
       const [c] = await db.select().from(conversation).where(eq(conversation.entityId, cid));
       sessionId = c?.agentSessionId ?? null;
+      had = sessionId;
     }
     // With none to carry on (and after a tier change there's none), it starts from the recap.
     if (!sessionId) prompt = await afresh();
@@ -307,7 +247,11 @@ export async function runMemberTurn(
       maxTurns: MEMBER_STEPS,
     },
     events,
-    afresh,
+    // Claude lost the session it would resume: the runner clears it, then starts from the recap.
+    () => {
+      had = null;
+      return afresh();
+    },
   );
   await chain;
   end.answered = true;
@@ -321,11 +265,14 @@ export async function runMemberTurn(
   // What's true as it answers decides, not what was when it started: paused or put on review
   // meanwhile, the answer waits for your yes, and with a lower tier too, since it may say what
   // the old one could; blocked or members off, it doesn't go (D62). Its session was the old
-  // tier's, so after any change it isn't carried on from.
+  // tier's, so after any change it isn't carried on from: read apart from the gate, which says
+  // nothing of the member while Jarvis is paused.
   const again = await memberGate(db, turn, kernel.clock.now());
   const stopped = !again.ok && again.why !== "paused" ? again.why : null;
   const after = again.ok ? again.member : null;
-  const changed = Boolean(after && (after.tier !== m.tier || after.replies !== m.replies));
+  const principal = String(turn.context.member);
+  const asNow = await memberNow(db, { kind: "member", principal, conversationId: cid });
+  const changed = !asNow || asNow.tier !== m.tier || asNow.replies !== m.replies;
   let forget = Boolean(stopped) || changed;
   if (stopped && text) {
     env.log(`turn ${turnId}: the reply to ${user} wasn't sent: ${stopped}`);
@@ -344,16 +291,20 @@ export async function runMemberTurn(
         : after.replies === "review"
           ? { askFirst: `Replies to ${m.name} wait for your yes.` }
           : {};
+    // The tier it wrote under, for the outbox's own check if it waits to go (D62).
+    await db
+      .update(jarvisTurn)
+      .set({
+        context: sql`${jarvisTurn.context} || ${JSON.stringify({ answeredAs: m.tier })}::jsonb`,
+      })
+      .where(eq(jarvisTurn.id, turnId));
     const res = await kernel.execute(
       REPLY_ACTION,
       { text, to: user, channelId: thread.channelId, ...(threadTs ? { threadTs } : {}) },
       caller(review),
     );
-    if (res.status === "ok") {
-      outcome = "act";
-      // An older reply still waiting for your yes would otherwise go out after this one.
-      await expireHeldReplies(db, cid, String(turn.context.member), kernel.clock.now());
-    } else if (res.status === "pending_approval") {
+    if (res.status === "ok") outcome = "act";
+    else if (res.status === "pending_approval") {
       outcome = "ask";
       await log([
         {
@@ -373,7 +324,7 @@ export async function runMemberTurn(
   }
   if (!channel) {
     if (forget) await forgetSession(env, cid);
-    else if (result.sessionId) await keepSession(kernel, cid, result.sessionId);
+    else if (result.sessionId) await keepIfUnchanged(env, cid, result.sessionId, had);
   }
   end.durationMs = Math.round(performance.now() - started);
   await recordEnd(env, end, {
