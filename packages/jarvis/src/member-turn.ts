@@ -14,13 +14,16 @@
 // slack/member/sweep.ts).
 //
 // A DM's agent session carries on for 12 idle hours, unless its last reply never went (you
-// declined it, it lapsed, or it was refused) or you changed the member's tier or review since. A channel thread's turns never carry one:
-// each member there is answered at their own tier, so each turn starts from the thread alone.
+// declined it, it lapsed, it still waits for your yes, or it was refused) or you changed the
+// member's tier or review since, even while it answered. Starting afresh, it has what Hearth kept
+// of the conversation, less the answers that never went out. A channel thread's turns never carry
+// one: each member there is answered at their own tier, so each turn starts from the thread alone.
 import { asUntrusted } from "@hearth/core";
-import { approval, conversation, jarvisTurn } from "@hearth/db";
+import { approval, conversation, jarvisTurn, slackOutbox } from "@hearth/db";
 import { getSetting, isVisibleTo, memberCaller, newId } from "@hearth/kernel";
 import {
   claimMessages,
+  expireHeldReplies,
   holdMessages,
   type LogEntry,
   MEMBER_TIERS,
@@ -29,6 +32,7 @@ import {
   POST_MAX,
   plainOf,
   REPLY_ACTION,
+  reaches,
   replaceHeldReplies,
   SLOW_MS,
   type ThreadLine,
@@ -78,8 +82,8 @@ const cut = (text: string, max: number) => {
 
 /**
  * Whether a DM starts afresh rather than carry on its session: its last answered turn was long
- * enough ago, or that turn's reply never went, because you declined it or it lapsed. The session
- * has those words as if they'd been sent (D62).
+ * enough ago, or that turn's reply hasn't gone, because you declined it, it lapsed or failed, or
+ * it still waits for your yes. The session has those words as if they'd been sent (D62).
  */
 async function afreshDue(env: EndEnv, cid: string, turnId: string, now: Date): Promise<boolean> {
   const { db } = env.kernel;
@@ -103,11 +107,26 @@ async function afreshDue(env: EndEnv, cid: string, turnId: string, now: Date): P
       and(
         eq(approval.action, REPLY_ACTION),
         eq(approval.turnId, last.id),
-        inArray(approval.status, ["denied", "expired"]),
+        inArray(approval.status, ["pending", "denied", "expired", "failed"]),
       ),
     )
     .limit(1);
   return Boolean(unsent);
+}
+
+/** The turns of a conversation whose answer went out, or is on its way. */
+async function answered(env: EndEnv, cid: string): Promise<Set<string>> {
+  const rows = await env.kernel.db
+    .select({ turnId: slackOutbox.turnId })
+    .from(slackOutbox)
+    .where(
+      and(
+        eq(slackOutbox.conversationId, cid),
+        eq(slackOutbox.kind, "answer"),
+        inArray(slackOutbox.state, ["queued", "sending", "sent", "unknown"]),
+      ),
+    );
+  return new Set(rows.flatMap((r) => (r.turnId ? [r.turnId] : [])));
 }
 
 /** Its DM's next turn starts afresh, from what Hearth kept, instead of this session. */
@@ -180,12 +199,24 @@ export async function runMemberTurn(
   // A DM's new session starts from what Hearth kept of the conversation, wrapped as their words
   // like what they write now, then the messages it answers, which the recap leaves out (D62).
   // That's after 12 idle hours, and when Claude lost the session it would resume (D54): the
-  // runner's own recap would put their words outside asUntrusted.
+  // runner's own recap would put their words outside asUntrusted. What Jarvis said there is only
+  // what went out: a turn's own words count once its answer is queued, so a reply you declined
+  // or haven't decided on isn't put to it as said. Notes and your sends carry their outbox row.
   const afresh = async () => {
-    const recap = channel
+    const said = channel ? null : await answered(env, cid);
+    const recap = !said
       ? null
-      : await recapConversation(kernel, cid, turn, 20, (p) =>
-          asked.has(String((p.slack as { ts?: string } | undefined)?.ts ?? "")),
+      : await recapConversation(
+          kernel,
+          cid,
+          turn,
+          20,
+          (p, r) =>
+            asked.has(String((p.slack as { ts?: string } | undefined)?.ts ?? "")) ||
+            (r.kind === "assistant_message" &&
+              !p.outboxId &&
+              r.turnId !== null &&
+              !said.has(r.turnId)),
         );
     if (!recap) return message;
     return [
@@ -278,7 +309,6 @@ export async function runMemberTurn(
     events,
     afresh,
   );
-  if (result.sessionId && !channel) await keepSession(kernel, cid, result.sessionId);
   await chain;
   end.answered = true;
   end.firstTokenMs = result.firstTokenMs;
@@ -289,22 +319,29 @@ export async function runMemberTurn(
   text = cut(text, POST_MAX);
   let outcome = classifyOutcome(end.calls as ToolCallRecord[]);
   // What's true as it answers decides, not what was when it started: paused or put on review
-  // meanwhile, the answer waits for your yes; blocked or members off, it doesn't go (D62).
-  const again = text ? await memberGate(db, turn, kernel.clock.now()) : null;
-  const stopped = again && !again.ok && again.why !== "paused" ? again.why : null;
-  if (stopped) {
+  // meanwhile, the answer waits for your yes, and with a lower tier too, since it may say what
+  // the old one could; blocked or members off, it doesn't go (D62). Its session was the old
+  // tier's, so after any change it isn't carried on from.
+  const again = await memberGate(db, turn, kernel.clock.now());
+  const stopped = !again.ok && again.why !== "paused" ? again.why : null;
+  const after = again.ok ? again.member : null;
+  const changed = Boolean(after && (after.tier !== m.tier || after.replies !== m.replies));
+  let forget = Boolean(stopped) || changed;
+  if (stopped && text) {
     env.log(`turn ${turnId}: the reply to ${user} wasn't sent: ${stopped}`);
     await log([{ kind: "notice", payload: { text: `The reply wasn't sent: ${stopped}` }, turnId }]);
-    if (!channel) await forgetSession(env, cid);
   }
   if (text && !stopped) {
     // Where it goes is the conversation's, never the model's: their DM (in the thread they wrote
     // in, if they did) or the channel thread they asked in.
     const threadTs = thread.audience === "member" ? heard.at(-1)!.threadTs : thread.threadTs;
-    const review =
-      again && !again.ok
-        ? { askFirst: "Jarvis was paused while it answered, so this waits for your yes." }
-        : (again?.ok ? again.member : m).replies === "review"
+    const review = !after
+      ? { askFirst: "Jarvis was paused while it answered, so this waits for your yes." }
+      : !reaches(after.tier, m.tier)
+        ? {
+            askFirst: `You changed what ${m.name} may be told while it answered, so this waits for your yes.`,
+          }
+        : after.replies === "review"
           ? { askFirst: `Replies to ${m.name} wait for your yes.` }
           : {};
     const res = await kernel.execute(
@@ -312,8 +349,11 @@ export async function runMemberTurn(
       { text, to: user, channelId: thread.channelId, ...(threadTs ? { threadTs } : {}) },
       caller(review),
     );
-    if (res.status === "ok") outcome = "act";
-    else if (res.status === "pending_approval") {
+    if (res.status === "ok") {
+      outcome = "act";
+      // An older reply still waiting for your yes would otherwise go out after this one.
+      await expireHeldReplies(db, cid, String(turn.context.member), kernel.clock.now());
+    } else if (res.status === "pending_approval") {
       outcome = "ask";
       await log([
         {
@@ -328,8 +368,12 @@ export async function runMemberTurn(
       const why = res.status === "denied" ? res.reason : res.message;
       env.log(`turn ${turnId}: the reply to ${user} wasn't sent: ${why}`);
       await log([{ kind: "notice", payload: { text: `The reply wasn't sent: ${why}` }, turnId }]);
-      if (!channel) await forgetSession(env, cid);
+      forget = true;
     }
+  }
+  if (!channel) {
+    if (forget) await forgetSession(env, cid);
+    else if (result.sessionId) await keepSession(kernel, cid, result.sessionId);
   }
   end.durationMs = Math.round(performance.now() - started);
   await recordEnd(env, end, {

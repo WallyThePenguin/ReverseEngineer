@@ -196,6 +196,20 @@ describe("who's answered", () => {
     expect((await t.inbound()).map((r) => r.outcome)).toEqual(["relayed"]);
   });
 
+  it("but not from someone you've blocked, though Slack can't say who's writing", async () => {
+    await t.setSam({ tier: "blocked" });
+    t.s.failWith = "ratelimited";
+    // What Slack said of Sam is two days old, and it can't be asked again.
+    t.h.clock.advance(2 * 86_400_000);
+    await t.write(SAM, "Hello?");
+    await t.tick();
+    t.h.clock.advance(86_400_000 + 60_000);
+    await t.tick();
+    expect(await t.cards()).toEqual([]);
+    expect(await t.outbox()).toEqual([]);
+    expect((await t.inbound()).map((r) => r.outcome)).toEqual(["blocked"]);
+  });
+
   it("not someone you've blocked: one note a day, and nothing passed on", async () => {
     await t.setSam({ tier: "blocked" });
     await t.write(SAM, "Hello");

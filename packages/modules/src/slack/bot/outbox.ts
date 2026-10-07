@@ -12,32 +12,17 @@
 // - Nothing goes while Slack has the bot revoked: rows wait for new tokens, and a row still
 //   waiting after a day expires, and you're told. Your own token failing a read-back is never
 //   taken for the bot's.
-import { PRINCIPAL } from "@hearth/core";
-import {
-  type Db,
-  type DbOrTx,
-  slackAnswer,
-  slackBot,
-  slackChannel,
-  slackThread,
-  slackUser,
-  slackWorkspace,
-} from "@hearth/db";
-import {
-  type ActionContext,
-  appendEvents,
-  createNotification,
-  type EmitEvent,
-  type Kernel,
-  newId,
-  systemCaller,
-} from "@hearth/kernel";
-import { and, eq } from "drizzle-orm";
-import { preview } from "../../shared.ts";
+// - A member's answer is checked once more as it goes, since it may have waited: to someone you
+//   blocked since, with members off, or (unless you approved it) with Jarvis paused, it doesn't.
+import { type Db, slackAnswer, slackBot, slackWorkspace } from "@hearth/db";
+import type { Kernel } from "@hearth/kernel";
+import { eq } from "drizzle-orm";
 import { SlackError, type SlackMessage } from "../api.ts";
-import { named, openToken, slackApi } from "../save.ts";
+import { answerStopped } from "../member/recheck.ts";
+import { openToken, slackApi } from "../save.ts";
 import { linksIn, slackText } from "./filter.ts";
 import { botTrouble, REVOKED_CODES, saveBotHealth } from "./health.ts";
+import { isUser, tell } from "./not-sent.ts";
 import {
   claimNext,
   expireWaiting,
@@ -93,8 +78,6 @@ function servicesOf(kernel: Kernel): Services {
     },
   };
 }
-
-const isUser = (channel: string) => /^[UW]/.test(channel);
 
 /** One round of sending, for the bot connected in this workspace. */
 export async function sendOutbox(kernel: Kernel, max = ROUND_MAX): Promise<OutboxRound> {
@@ -189,6 +172,11 @@ async function deliver(
     if (row.attempts > MAX_ATTEMPTS) {
       await tell(kernel, row, "didn't go out", `Slack kept failing: ${row.error ?? "no answer"}.`);
       return done({ state: "failed", error: row.error ?? "Slack kept failing." }, "failed");
+    }
+    const stopped = await answerStopped(kernel.db, row, now);
+    if (stopped) {
+      await tell(kernel, row, "didn't go out", stopped);
+      return done({ state: "failed", error: stopped }, "failed");
     }
     const text = slackText(
       row.text,
@@ -339,59 +327,4 @@ async function sharedLinks(db: Db, teamId: string): Promise<Set<string>> {
     .from(slackAnswer)
     .where(eq(slackAnswer.teamId, teamId));
   return new Set(rows.flatMap((r) => linksIn(r.body)));
-}
-
-/** Where a post was going, in words: a member's name, or a channel's. */
-async function placeName(db: DbOrTx, row: OutboxRow): Promise<string> {
-  const id = row.channelId;
-  let user: string | null = isUser(id) ? id : null;
-  if (id.startsWith("D")) {
-    const [t] = await db
-      .select({ member: slackThread.member })
-      .from(slackThread)
-      .where(and(eq(slackThread.channelId, id), eq(slackThread.threadTs, "")));
-    const [u] = t?.member
-      ? await db
-          .select({ id: slackUser.id })
-          .from(slackUser)
-          .where(eq(slackUser.principal, t.member))
-      : [];
-    user = u?.id ?? null;
-  }
-  if (user) {
-    const [u] = await db
-      .select({ name: slackUser.name })
-      .from(slackUser)
-      .where(eq(slackUser.id, user));
-    return u ? named(u.name) : user;
-  }
-  if (id.startsWith("D")) return "a direct message";
-  const [c] = await db
-    .select({ name: slackChannel.name })
-    .from(slackChannel)
-    .where(eq(slackChannel.id, id));
-  return `#${named(c?.name ?? id)}`;
-}
-
-/** Tells you about a post that didn't go out, or may not have: one card per post. */
-async function tell(kernel: Kernel, row: OutboxRow, what: string, why: string) {
-  const now = kernel.clock.now();
-  await kernel.db.transaction(async (tx) => {
-    const buffered: EmitEvent[] = [];
-    const ctx = kernel.context(tx, { ...systemCaller(), correlationId: newId() }, now, buffered);
-    await tellNotSent(ctx, row, what, why);
-    await appendEvents(tx, buffered, { actor: PRINCIPAL.system, origin: "system", at: now });
-  });
-}
-
-/** The card for one post, in a transaction of the caller's (disconnecting the bot uses it too). */
-export async function tellNotSent(ctx: ActionContext, row: OutboxRow, what: string, why: string) {
-  const where = await placeName(ctx.tx, row);
-  await createNotification(ctx, {
-    kind: "slack.not_sent",
-    title: `Jarvis's Slack message to ${where} ${what}`,
-    body: `${why}\n\n${preview(row.text, 300)}`,
-    urgency: "normal",
-    dedupeKey: `slack.outbox:${row.id}`,
-  });
 }
