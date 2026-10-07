@@ -15,6 +15,7 @@ import {
   type GoogleService,
   MemoryQuotaStore,
   MIN_PAUSE_MS,
+  SEND_PAUSE,
 } from "./budget.ts";
 import { GoogleApiError, networkError, parseGoogleError } from "./errors.ts";
 import { GoogleTokens } from "./tokens.ts";
@@ -292,7 +293,11 @@ export class GoogleClient {
     opts: CallOptions = {},
   ): Promise<T> {
     const service = serviceOf(url);
-    const what = `${method} ${new URL(url).pathname}`;
+    const path = new URL(url).pathname;
+    const what = `${method} ${path}`;
+    // Gmail's sending limit is a pause of its own (SEND_PAUSE), which only a send waits for.
+    const sending = method === "POST" && path.endsWith("/messages/send");
+    if (sending) await this.budget.maySend(email, this.now().getTime());
     await this.budget.spend(
       email,
       service,
@@ -326,18 +331,33 @@ export class GoogleClient {
     });
     if (res.ok) return (text ? JSON.parse(text) : null) as T;
     const err = parseGoogleError(res, text, what, this.now().getTime());
-    if (err.kind === "rate_limited") throw await this.slowDown(email, service, err);
+    if (err.kind === "rate_limited") throw await this.slowDown(email, service, err, sending);
     if (err.kind === "auth") await this.needsReconnect(db, email);
     throw err;
   }
 
-  /** Google said slow down: pause this account's service for every process, a minute at least. */
-  private async slowDown(email: string, service: GoogleService, err: GoogleApiError) {
+  /**
+   * Google said slow down: pause this account's service for every process, a minute at least.
+   * Gmail's sending limit ("Retry after <time> (Mail sending)") holds sending alone, for as long
+   * as Gmail says: the rest of Gmail waits the minute.
+   */
+  private async slowDown(
+    email: string,
+    service: GoogleService,
+    err: GoogleApiError,
+    send: boolean,
+  ) {
     const pauseMs = Math.max(MIN_PAUSE_MS, err.retryAfterMs ?? 0);
-    const until = this.now().getTime() + pauseMs;
+    const sendLimit = send || /\(mail sending\)/i.test(err.message);
+    const now = this.now().getTime();
     const reason = `${err.message}${err.quotaLimit ? ` (quota limit: ${err.quotaLimit})` : ""}`;
-    await this.budget.pause(email, service, until, reason.slice(0, 500));
-    this.log(`${service} for ${email} paused until ${new Date(until).toISOString()}: ${reason}`);
+    const said = reason.slice(0, 500);
+    await this.budget.pause(email, service, now + (sendLimit ? MIN_PAUSE_MS : pauseMs), said);
+    if (sendLimit) await this.budget.pause(email, SEND_PAUSE, now + pauseMs, said);
+    const what = sendLimit ? "sending" : service;
+    this.log(
+      `${what} for ${email} paused until ${new Date(now + pauseMs).toISOString()}: ${reason}`,
+    );
     return new GoogleApiError(err.status, err.message, {
       kind: "rate_limited",
       reason: err.reason,

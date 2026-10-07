@@ -1,21 +1,14 @@
 // The window on this PC signs in with a Windows Hello passkey of its own (D69): made and used only
 // at http://localhost:<port>, only for requests straight from the app's page, only while the app
 // is connected, and only as the window.
-import { session } from "@hearth/db";
-import { and, eq, isNull } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DESKTOP_WINDOW, pairDevice, unpairDevice } from "./auth/devices.ts";
+import { unpairDevice } from "./auth/devices.ts";
 import { SESSION_COOKIE } from "./auth/middleware.ts";
 import { createSetupCode } from "./auth/passkeys.ts";
 import { windowRelyingParty } from "./auth/relying-party.ts";
 import { SoftAuthenticator } from "./testing/authenticator.ts";
+import { CHROME_UA, direct, type Options, passkeyRig, TS_NET, WINDOW } from "./testing/passkeys.ts";
 import { createTestServer, type TestServer } from "./testing/server.ts";
-
-const TS_NET = "https://pc.example.ts.net";
-const WINDOW = "http://localhost:4400";
-const CHROME_UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
-const APP_UA = `${CHROME_UA} HearthDesktop/1.0.21`;
 
 let t: TestServer;
 beforeEach(async () => {
@@ -23,79 +16,18 @@ beforeEach(async () => {
 });
 afterEach(() => t.destroy());
 
-type Init = { method?: string; json?: unknown };
-type Options = {
-  challenge: string;
-  rp?: { id: string };
-  rpId?: string;
-  allowCredentials?: { id: string }[];
-  authenticatorSelection?: { userVerification?: string; authenticatorAttachment?: string };
-};
-
-/** A browser at Hearth's own address, through Tailscale Serve as it really comes. */
-const browser = (path: string, init: Init = {}) =>
-  t.browser(path, {
-    ...init,
-    from: "127.0.0.1",
-    headers: { origin: TS_NET, host: "pc.example.ts.net", "x-forwarded-host": "pc.example.ts.net" },
-  });
-/** Hearth's window on this PC: the app's page, straight to Hearth's address here. */
-const direct = { origin: WINDOW, host: "localhost:4400", "user-agent": APP_UA };
-const window = (path: string, init: Init = {}) =>
-  t.browser(path, { ...init, from: "127.0.0.1", headers: direct });
-
-const options = async (res: Promise<Response>) => (await (await res).json()) as Options;
-const me = async (via = window) =>
-  (await (await via("/api/auth/me")).json()) as {
-    signedIn: boolean;
-    needsSetup: boolean;
-    origin: string;
-    localPasskey: boolean;
-  };
-const windowSessions = () =>
-  t.kernel.db
-    .select()
-    .from(session)
-    .where(and(eq(session.label, DESKTOP_WINDOW), isNull(session.revokedAt)));
-/** The desktop app connected, as a hand-off pairs it. */
-const connect = () => pairDevice(t.kernel.db, "desktop");
-
-async function firstPasskey() {
-  const passkey = new SoftAuthenticator(TS_NET);
-  const code = await createSetupCode(t.kernel.db);
-  const opts = await options(
-    browser("/api/auth/register/options", { method: "POST", json: { setupCode: code } }),
-  );
-  const res = await browser("/api/auth/register/verify", {
-    method: "POST",
-    json: { response: passkey.register(opts), label: "Laptop", setupCode: code },
-  });
-  expect(res.status).toBe(200);
-  return passkey;
-}
-
-/** Signed in, adds a passkey from the window: its own, unless it's refused. */
-async function addFromWindow(hello: SoftAuthenticator) {
-  const opts = await options(window("/api/auth/register/options", { method: "POST", json: {} }));
-  expect(opts.rp?.id).toBe("localhost");
-  return window("/api/auth/register/verify", {
-    method: "POST",
-    json: { response: hello.register(opts), label: "This PC's Hearth window" },
-  });
-}
-async function windowPasskey() {
-  const hello = new SoftAuthenticator(WINDOW);
-  expect((await addFromWindow(hello)).status).toBe(200);
-  return hello;
-}
-
-async function signInWindow(hello: SoftAuthenticator) {
-  const opts = await options(window("/api/auth/login/options", { method: "POST" }));
-  return window("/api/auth/login/verify", {
-    method: "POST",
-    json: { response: hello.login(opts) },
-  });
-}
+const {
+  browser,
+  window,
+  options,
+  me,
+  windowSessions,
+  connect,
+  firstPasskey,
+  addFromWindow,
+  windowPasskey,
+  signInWindow,
+} = passkeyRig(() => t);
 
 describe("the window's own passkey", () => {
   it("is Windows Hello, made only once signed in, and listed with where it works", async () => {
@@ -299,52 +231,5 @@ describe("which address a request is for", () => {
     expect(windowRelyingParty(base)).toEqual({ origin: WINDOW, rpID: "localhost", local: true });
     expect(windowRelyingParty({ ...base, origin: WINDOW })).toBeNull();
     expect(windowRelyingParty({ ...base, localOrigin: "http://127.0.0.1:4400" })).toBeNull();
-  });
-});
-
-describe("removing a passkey", () => {
-  const list = async () =>
-    (
-      (await (await browser("/api/auth/passkeys")).json()) as {
-        passkeys: { id: string; label: string }[];
-      }
-    ).passkeys;
-  const remove = (id: string) =>
-    browser(`/api/auth/passkeys/${encodeURIComponent(id)}`, { method: "DELETE" });
-  const signIn = async (passkey: SoftAuthenticator) => {
-    const opts = await options(browser("/api/auth/login/options", { method: "POST" }));
-    return browser("/api/auth/login/verify", {
-      method: "POST",
-      json: { response: passkey.login(opts) },
-    });
-  };
-
-  it("stops it signing in, and never takes the last one for Hearth's own address", async () => {
-    const laptop = await firstPasskey();
-    const phone = new SoftAuthenticator(TS_NET);
-    const opts = await options(browser("/api/auth/register/options", { method: "POST", json: {} }));
-    const added = await browser("/api/auth/register/verify", {
-      method: "POST",
-      json: { response: phone.register(opts), label: "Phone" },
-    });
-    expect(added.status).toBe(200);
-    await connect();
-    await windowPasskey();
-    const [, ofPhone, ofWindow] = await list();
-
-    expect((await remove(ofPhone!.id)).status).toBe(200);
-    expect((await remove(ofPhone!.id)).status).toBe(404);
-    expect((await remove(ofWindow!.id)).status).toBe(200);
-    expect(await me()).toMatchObject({ localPasskey: false });
-    // The laptop's is the last for Hearth's own address now: it stays.
-    const last = await remove((await list())[0]!.id);
-    expect(last.status).toBe(409);
-    expect(((await last.json()) as { error: string }).error).toContain("pc.example.ts.net");
-    expect((await list()).map((p) => p.label)).toEqual(["Laptop"]);
-
-    t.cookies.clear();
-    expect((await remove(ofPhone!.id)).status).toBe(401);
-    expect((await signIn(phone)).status).not.toBe(200);
-    expect((await signIn(laptop)).status).toBe(200);
   });
 });

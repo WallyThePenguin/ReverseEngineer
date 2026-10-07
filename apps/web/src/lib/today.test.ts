@@ -3,6 +3,8 @@
 // are read the way you'd say them. What needs your yes is in needsYou.test.ts.
 import { describe, expect, it } from "vitest";
 import {
+  blankDraft,
+  briefHeadline,
   dayPlan,
   draftSnapshot,
   greeting,
@@ -249,5 +251,107 @@ describe("The Ask box", () => {
   it("offers nothing when no time is named, or nothing is typed", () => {
     expect(offerAsTask("plan my week", now)).toBeNull();
     expect(offerAsTask("   ", now)).toBeNull();
+  });
+
+  it("leaves a question without its question mark for Jarvis", () => {
+    for (const q of ["what's on at 3", "when is the dentist friday", "is Sam free at 3pm"])
+      expect(offerAsTask(q, now), q).toBeNull();
+    expect(offerAsTask("Can we meet tomorrow at 10", now)).toBeNull();
+  });
+
+  it("leaves asking Jarvis by name, to remind you or to move your things, for Jarvis", () => {
+    for (const q of [
+      "remind me to call Sam at 3",
+      "move my 3pm to 4",
+      "cancel my lunch tomorrow",
+      "reschedule my dentist to fri 3pm",
+      "please move my 3pm",
+      "Jarvis, remind me at 5pm",
+      "hey jarvis book lunch fri 1pm",
+      "does Sam need the deck by friday",
+    ])
+      expect(offerAsTask(q, now), q).toBeNull();
+  });
+
+  it("offers a to-do that starts like a request, since Enter is there to ask", () => {
+    // A chip offered wrongly is one you don't tap; one missed is a task typed again.
+    for (const q of [
+      "do taxes by friday",
+      "Will's party saturday 7pm",
+      "email Sam the deck by Friday",
+      "schedule vet appointment tomorrow",
+      "plan Sam's party saturday",
+      "reply to landlord by friday",
+    ])
+      expect(offerAsTask(q, now), q).not.toBeNull();
+    expect(offerAsTask("Will's party saturday 7pm", now)?.title).toBe("Will's party");
+    expect(offerAsTask("call Sam at 3", now)?.title).toBe("call Sam");
+    expect(offerAsTask("pick up the cake tomorrow 5pm", now)?.title).toBe("pick up the cake");
+  });
+
+  it("opens a new email of yours with nothing in it, rather than start another", () => {
+    const blank: Partial<MailDraft> = {
+      by: "owner",
+      threadId: null,
+      to: [],
+      subject: "",
+      text: " ",
+    };
+    const kept = draft({ id: "d4", ...blank });
+    const drafts = [
+      draft({ id: "d1", ...blank, by: "jarvis" }),
+      draft({ id: "d2", ...blank, threadId: "t1" }),
+      draft({ id: "d3", ...blank, subject: "Lease" }),
+      kept,
+    ];
+    const from = "sam@x.example";
+    expect(blankDraft(drafts, from)).toBe(kept);
+    expect(blankDraft(drafts.slice(0, 3), from)).toBeUndefined();
+    expect(blankDraft(undefined, from)).toBeUndefined();
+    // One from another of your accounts would go from the wrong address: a new one is started.
+    expect(blankDraft([draft({ ...blank, account: "sam@work.example" })], from)).toBeUndefined();
+    // Your accounts not read yet: a new one too, as Hearth picks its account itself.
+    expect(blankDraft(drafts, undefined)).toBeUndefined();
+  });
+});
+
+describe("The brief, folded", () => {
+  it("is its first sentence that says something", () => {
+    const brief = "Two meetings today and six replies waiting on you. Lunch is free.\n\nToday\n- x";
+    expect(briefHeadline(brief)).toBe("Two meetings today and six replies waiting on you.");
+  });
+
+  it("skips its title, headings and labels", () => {
+    const brief =
+      "# Brief for 2026-10-07\n\n## Handled\nPrepared:\n- **Drafted** a reply to Dana about the lease.";
+    expect(briefHeadline(brief)).toBe("Drafted a reply to Dana about the lease.");
+    expect(briefHeadline("Brief for Oct 7\nHandled\nNotes for the design review at 2")).toBe(
+      "Notes for the design review at 2",
+    );
+    expect(briefHeadline("")).toBe("Your brief");
+  });
+
+  it("takes a short item from a list, as Hearth's own brief writes them", () => {
+    const brief =
+      "Brief for 2026-10-07 7:30 a.m.\n\n## Handled\n- Archived 4 newsletters\n- Filed 2";
+    expect(briefHeadline(brief)).toBe("Archived 4 newsletters");
+  });
+
+  it("doesn't stop at a time's a.m. or p.m., a title or e.g.", () => {
+    const fallback =
+      "Brief for 2026-10-07 7:30 a.m.\n\n## Today\n- 9:30 a.m. Standup\n- 2 p.m. Review";
+    expect(briefHeadline(fallback)).toBe("9:30 a.m. Standup");
+    expect(briefHeadline("Moved your 3 p.m. with Dana to 4 p.m.")).toBe(
+      "Moved your 3 p.m. with Dana to 4 p.m.",
+    );
+    expect(briefHeadline("Dentist with Dr. Patel at 3. Bring the forms.")).toBe(
+      "Dentist with Dr. Patel at 3.",
+    );
+    expect(briefHeadline("Mrs. Hale asked about Sunday lunch. Ruth too.")).toBe(
+      "Mrs. Hale asked about Sunday lunch.",
+    );
+    expect(briefHeadline("Pick a venue, e.g. the diner, by Friday. Leo asked.")).toBe(
+      "Pick a venue, e.g. the diner, by Friday.",
+    );
   });
 });

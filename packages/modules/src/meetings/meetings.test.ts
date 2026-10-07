@@ -270,4 +270,18 @@ describe("meeting notes", () => {
     expect(fresh).toMatchObject({ title: "Quick sync", offsetMs: 0 });
     expect(fresh.id).not.toBe(opened);
   });
+
+  it("doesn't record into Google's entry saying where you work", async () => {
+    await meetingWithCarol("Budget", "2026-10-01T13:00:00Z", "2026-10-01T14:00:00Z");
+    // "Office" from 1:30 on: on now too, and it started later.
+    g.put(ME, {
+      summary: "Office",
+      eventType: "workingLocation",
+      start: { dateTime: "2026-10-01T13:30:00Z" },
+      end: { dateTime: "2026-10-01T21:00:00Z" },
+    });
+    await ok("calendar.sync", {}, integrationCaller("google"));
+    t.clock.set("2026-10-01T13:40:00Z");
+    expect(await ok("meeting.record", {})).toMatchObject({ title: "Budget" });
+  });
 });

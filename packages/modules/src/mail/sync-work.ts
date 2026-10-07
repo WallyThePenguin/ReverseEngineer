@@ -5,6 +5,7 @@ import { mailAccount, mailMessage, mailQuarantine } from "@hearth/db";
 import { type ActionContext, ActionError, savepoint } from "@hearth/kernel";
 import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import { setFlags } from "./flags.ts";
+import { accountAddresses, addressKey } from "./mine.ts";
 import { type MailChange, type MailProvider, MailProviderError, type RawMail } from "./provider.ts";
 import { type AccountRow, leftOut, removeMail, saveMail } from "./store.ts";
 
@@ -120,6 +121,8 @@ export async function bringIn(
       work.removed += await removeMail(ctx, account.id, changes.removed);
       await sort(ctx, account, changes.changed, c, work);
     } else work.more = true;
+    let mine: Promise<Set<string>> | undefined;
+    const yours = () => (mine ??= accountAddresses(ctx.tx));
     let calls = CALLS_PER_SYNC;
     while (c.pending.length && calls-- > 0) {
       const id = c.pending[0]!;
@@ -148,7 +151,9 @@ export async function bringIn(
         const saved = await savepoint(ctx, (sp) => saveMail(sp, account, raw));
         if (!saved?.added) continue;
         work.added++;
-        if (!c.quiet && !saved.outbound)
+        // Your own email cc'd to this account, saved before its copy in Sent, isn't news either.
+        const from = addressKey(saved.parsed?.from?.address ?? "");
+        if (!c.quiet && !saved.outbound && !(await yours()).has(from))
           ctx.emit({
             kind: "mail.received",
             entityId: saved.id,

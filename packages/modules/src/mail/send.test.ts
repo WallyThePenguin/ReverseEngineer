@@ -1,10 +1,12 @@
 // A send goes out once (D61): when Gmail sent it but Hearth didn't hear back, pressing Send again
-// finds it in Sent instead of sending a second copy.
+// finds it in Sent instead of sending a second copy. A reply goes into its conversation in your
+// Gmail too, and a send Gmail won't take for hours says until when.
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { formatTime } from "@hearth/core";
 import { mailDraft } from "@hearth/db";
-import { type Caller, integrationCaller, ownerCaller } from "@hearth/kernel";
+import { type Caller, getSetting, integrationCaller, ownerCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -14,7 +16,7 @@ import { ALL_MODULES } from "../index.ts";
 import { BLOB_SERVICE, BlobStore } from "./blobs.ts";
 import type { DraftView } from "./drafts.ts";
 import { parseMail } from "./mime.ts";
-import type { ThreadView } from "./views.ts";
+import type { ThreadSummary, ThreadView } from "./views.ts";
 
 const ME = "owner@example.com";
 
@@ -119,5 +121,72 @@ describe("sending once", () => {
     expect(g.gmail.sent).toHaveLength(0);
     expect(await ok("mail.send", { id: d.id })).not.toHaveProperty("alreadySent");
     expect(g.gmail.sent).toHaveLength(1);
+  });
+
+  it("says when Gmail will take it again, in your time, when it's shut out for hours", async () => {
+    const d = await draft();
+    const until = new Date(t.clock.now().getTime() + 2 * 3600_000);
+    g.gmail.shutOut(until);
+    const res = await run("mail.send", { id: d.id });
+    expect(res).toMatchObject({ status: "error", code: "unavailable" });
+    const { timeZone } = await getSetting(t.tdb.db, "owner.dayRules");
+    expect(res).toMatchObject({
+      message: `Gmail asked Hearth to slow down, so nothing was sent. Try again after ${formatTime(until, timeZone)}`,
+    });
+    expect(g.gmail.sent).toEqual([]);
+  });
+
+  it("waits for Gmail's sending limit only to send, and says the day when it's tomorrow", async () => {
+    const d = await draft();
+    // Gmail on the phone counts toward the same limit: sending is shut out until 6 a.m.
+    const until = new Date(t.clock.now().getTime() + 20 * 3600_000);
+    g.gmail.sendingLimitUntil = until;
+    const { timeZone } = await getSetting(t.tdb.db, "owner.dayRules");
+    expect(await run("mail.send", { id: d.id })).toMatchObject({
+      status: "error",
+      message: `Gmail asked Hearth to slow down, so nothing was sent. Try again after ${formatTime(until, timeZone)} tomorrow.`,
+    });
+    // An hour later the rest of Gmail goes on: mail syncs.
+    t.clock.advance(3600_000);
+    const calls = g.gmail.requests.length;
+    expect(await run("mail.sync", {}, integrationCaller("google"))).toMatchObject({ status: "ok" });
+    expect(g.gmail.requests.length).toBeGreaterThan(calls);
+    // Sending still waits for Gmail's time, without trying Gmail again.
+    expect(await run("mail.send", { id: d.id })).toMatchObject({
+      message: expect.stringContaining("tomorrow."),
+    });
+    expect(g.gmail.count("POST /messages/send")).toBe(1);
+    expect(g.gmail.sent).toEqual([]);
+  });
+});
+
+describe("a reply", () => {
+  /** Ana's email, synced, and a reply to it written in Hearth. */
+  async function reply() {
+    const original = g.gmail.deliver({
+      from: { address: "ana@friends.example" },
+      subject: "Dinner?",
+      text: "Friday at 7?",
+    });
+    await run("mail.sync", {}, integrationCaller("google"));
+    const [thread] = await ok<ThreadSummary[]>("mail.threads");
+    const d = await ok<DraftView>("mail.draft", { threadId: thread!.id, text: "Friday works." });
+    return { original, d };
+  }
+  const sentThread = () =>
+    [...g.gmail.messages.values()].find((m) => m.labelIds.includes("SENT"))?.threadId;
+
+  it("goes into the conversation in your Gmail, not one of its own", async () => {
+    const { original, d } = await reply();
+    await ok("mail.send", { id: d.id });
+    expect(sentThread()).toBe(original);
+  });
+
+  it("still goes, as before, when Gmail can't say which conversation it's in", async () => {
+    const { original, d } = await reply();
+    g.gmail.brokenIds.set(original, 500);
+    await ok("mail.send", { id: d.id });
+    expect(g.gmail.sent).toHaveLength(1);
+    expect(sentThread()).not.toBe(original);
   });
 });
