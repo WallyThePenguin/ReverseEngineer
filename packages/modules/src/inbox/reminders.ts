@@ -7,7 +7,8 @@
 // late, because Hearth wasn't running at the minute, can't wake you either, and a day late it's a
 // quiet line in the inbox. What outside content set is still its words wherever it's read back:
 // reading it makes the turn untrusted, and an untrusted turn cancels only what its own
-// conversation set.
+// conversation set. What the owner asks for in a conversation that read outside content earlier,
+// or says to the chat mic, still can't wake them, but isn't counted against outside content.
 import {
   addLocalDays,
   asUntrusted,
@@ -21,7 +22,7 @@ import {
   nextLocalTime,
   PRINCIPAL,
 } from "@hearth/core";
-import { jarvisTurn, schedule } from "@hearth/db";
+import { schedule } from "@hearth/db";
 import {
   type ActionContext,
   ActionError,
@@ -124,24 +125,17 @@ const oneLine = (text: string) =>
 /** Reminders still to ring, with what they say. */
 const waiting = (...where: SQL[]) =>
   and(eq(schedule.kind, "reminder"), isNotNull(schedule.nextRunAt), ...where);
-/** Set by Jarvis after reading outside content, in a turn the owner didn't start by asking. */
+/** Set after reading outside content, not by the owner's own ask (#89's reminders included). */
 const setOutside = sql`${schedule.payload}->>'vouched' = 'false'
-  AND ${schedule.payload}->>'by' = ${PRINCIPAL.jarvis}
-  AND ${schedule.payload}->>'origin' = 'untrusted'
   AND coalesce(${schedule.payload}->>'asked', 'false') <> 'true'`;
 
 /**
- * The owner asked in this turn, though its conversation read outside content earlier (chat or
- * voice): the turn itself is theirs, so the reminder isn't one an email planted.
+ * Jarvis's turn says the owner's own ask still drives it, though it runs untrusted (Caller.asked):
+ * nothing was read in it, and it isn't about an outside record. Decided as the turn runs, never
+ * from its stored row, which keeps the origin it was asked with after it reads an email.
  */
-async function ownerAsked(ctx: ActionContext): Promise<boolean> {
-  if (ctx.caller.kind !== "agent" || !ctx.caller.turnId) return false;
-  const [turn] = await ctx.tx
-    .select({ origin: jarvisTurn.origin })
-    .from(jarvisTurn)
-    .where(eq(jarvisTurn.id, ctx.caller.turnId));
-  return turn?.origin === "owner";
-}
+const ownerAsked = (ctx: ActionContext) =>
+  ctx.caller.principal === PRINCIPAL.jarvis && ctx.caller.asked === true;
 
 /**
  * One set after reading outside content can't be one too many: an email can't plant dozens. The
@@ -212,7 +206,7 @@ export const reminderActions = [
         throw new ActionError("invalid_input", "A reminder can be at most a year ahead.");
       const vouched = vouchesForDeadline(ctx.caller);
       const from = ctx.caller.conversationId ?? ctx.caller.turnId ?? null;
-      const asked = !vouched && (await ownerAsked(ctx));
+      const asked = !vouched && ownerAsked(ctx);
       if (!vouched && !asked) await roomOutside(ctx, from);
       const id = newId();
       const { principal: by, origin } = ctx.caller;
@@ -256,13 +250,21 @@ export const reminderActions = [
         .where(waiting())
         .orderBy(asc(schedule.nextRunAt));
       return rows.map((r) => {
-        const p = r.payload as { reminder: string; text: string; vouched?: boolean };
+        const p = r.payload as {
+          reminder: string;
+          text: string;
+          vouched?: boolean;
+          asked?: boolean;
+        };
         return {
           id: p.reminder,
           // One an email or a message led to is still its words: reading it lowers trust.
           text: p.vouched === false ? asUntrusted(p.text, "reminder") : p.text,
+          at: r.at!.toISOString(),
           when: formatDateTime(r.at!, timeZone),
           setAfterOutsideContent: p.vouched === false,
+          // Asked for in a conversation that had read outside content: Jarvis still wrote its words.
+          ...(p.vouched === false && p.asked === true ? { asked: true } : {}),
           ...(p.vouched === false ? { outside: true } : {}),
         };
       });
@@ -283,9 +285,10 @@ export const reminderActions = [
       if (!r) throw new ActionError("not_found", "No reminder like that is waiting to ring.");
       // An email can't call off what you asked for, nor what another conversation set: only
       // what outside content set from this same conversation.
-      const p = r.payload as { vouched?: boolean; from?: string | null };
+      const p = r.payload as { vouched?: boolean; asked?: boolean; from?: string | null };
       const here = ctx.caller.conversationId ?? ctx.caller.turnId ?? null;
-      if (!vouchesForDeadline(ctx.caller) && (p.vouched !== false || !here || p.from !== here))
+      const outsideHere = p.vouched === false && p.asked !== true && !!here && p.from === here;
+      if (!vouchesForDeadline(ctx.caller) && !outsideHere)
         throw new ActionError(
           "forbidden",
           "After reading outside content, Jarvis can cancel only a reminder it set from this conversation after reading it. The owner can cancel any in Settings, under Coming up.",
@@ -315,7 +318,11 @@ export const ringReminder: ReflexDef = {
         ? [`For ${whenFor(due, ctx.now, timeZone)}; Hearth wasn't running then.`]
         : []),
       ...(p.vouched !== true
-        ? ["Jarvis set this after reading an email or a message, so it can't wake you."]
+        ? [
+            p.asked === true
+              ? "You asked for this in a conversation that had read an email or a message, so it can't wake you."
+              : "Jarvis set this after reading an email or a message, so it can't wake you.",
+          ]
         : p.by === PRINCIPAL.jarvis && p.origin !== "owner"
           ? ["Jarvis set this."]
           : []),

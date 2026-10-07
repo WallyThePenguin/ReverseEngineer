@@ -231,6 +231,11 @@ export class TurnRunner {
     const record = turn.subjectId ? await readRecord(this.kernel, turn.subjectId) : null;
     // A turn about something an outside tool wrote starts untrusted.
     if (record?.fromOutside) readFrom(state, record.source, record.text);
+    // Still the owner's own ask, though it may run untrusted: because this conversation read
+    // outside content before, or because they said it to the chat mic (D46). Not one about an
+    // outside record, and not once it reads anything (readFrom).
+    state.asked =
+      !record?.fromOutside && (turn.origin !== "untrusted" || turn.context.spoken === true);
     const subject = record?.text ?? null;
     // A tool-less turn's answer leaves Hearth unseen, so it gets no memory either.
     const bare = NO_TOOLS.has(turn.trigger);

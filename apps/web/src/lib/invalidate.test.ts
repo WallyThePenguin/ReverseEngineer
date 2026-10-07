@@ -56,6 +56,13 @@ describe("what a change you make refreshes", () => {
     expect(hits(google, "calendar.calendars")).toBe(true);
   });
 
+  it("refreshes Coming up after you cancel a reminder there, and when one rings", () => {
+    const cancel = affectedByChange("reminder.cancel");
+    expect(hits(cancel, "reminder.list")).toBe(true);
+    expect(hits(cancel, "system.status")).toBe(true);
+    expect(hits(affectedBy({ kind: "clock.fired" }), "reminder.list")).toBe(true);
+  });
+
   it("refreshes everything after trashing a record, whose type it can't see", () => {
     expect(affectedByChange("entity.trash")).toBeNull();
   });

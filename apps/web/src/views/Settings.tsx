@@ -18,14 +18,15 @@ import { GoogleSettings } from "./GoogleSettings.tsx";
 import { ImportSettings } from "./ImportSettings.tsx";
 import { NotionSettings } from "./NotionSettings.tsx";
 import { PhoneSettings } from "./PhoneSettings.tsx";
+import { ReminderSettings } from "./ReminderSettings.tsx";
 import { RoutineSettings } from "./RoutineSettings.tsx";
 import { Anchor, SettingsNav } from "./SettingsNav.tsx";
 import { SignInSettings } from "./SignInSettings.tsx";
 import { SlackSettings } from "./SlackSettings.tsx";
 
 const TONE = { ok: "ok", degraded: "warn", failing: "bad" } as const;
-/** A reminder's schedule id, before its own id. */
-const REMINDER = "reminder:";
+/** A reminder's schedule: Coming up lists those apart, every one of them (ReminderSettings). */
+const isReminder = (s: { id: string }) => s.id.startsWith("reminder:");
 /** Health components by a name you'd use; any other goes by its own. */
 const PART: Record<string, string> = {
   "sync.google": "Google",
@@ -207,7 +208,7 @@ export function Settings() {
           <section class="space-y-2">
             <h2 class="font-semibold">Coming up</h2>
             <ul class="space-y-1 text-sm">
-              <For each={status.data?.schedules ?? []}>
+              <For each={(status.data?.schedules ?? []).filter((s) => !isReminder(s))}>
                 {(s) => (
                   <li class="flex gap-3">
                     <Show
@@ -219,22 +220,11 @@ export function Settings() {
                     <span class="text-muted">
                       {s.nextRunAt ? new Date(s.nextRunAt).toLocaleString() : ""}
                     </span>
-                    <Show when={s.id.startsWith(REMINDER)}>
-                      <Button
-                        small
-                        kind="quiet"
-                        label={`Cancel ${s.label ?? "this reminder"}`}
-                        onClick={() =>
-                          void act("reminder.cancel", { id: s.id.slice(REMINDER.length) })
-                        }
-                      >
-                        Cancel
-                      </Button>
-                    </Show>
                   </li>
                 )}
               </For>
             </ul>
+            <ReminderSettings />
           </section>
         </Anchor>
       </div>

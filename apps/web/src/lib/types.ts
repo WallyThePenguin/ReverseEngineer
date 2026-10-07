@@ -177,6 +177,19 @@ export interface SystemStatus {
   schedules: { id: string; label?: string | null; nextRunAt: string | null; outside?: boolean }[];
 }
 
+/** A reminder still to ring, as reminder.list gives it. */
+export interface Reminder {
+  id: string;
+  /** Its words; wrapped as outside content when set after reading an email or a message. */
+  text: string;
+  at: string;
+  /** When, in your time zone: "Thu 2026-10-08, 3:00 p.m.". */
+  when: string;
+  setAfterOutsideContent: boolean;
+  /** You asked for it, in a conversation that had read an email or a message. */
+  asked?: boolean;
+}
+
 export interface LastContact {
   at: string;
   kind: "email" | "meeting";

@@ -21,6 +21,12 @@ export interface Caller {
    */
   askFirst?: string;
   /**
+   * Set by Jarvis's runtime on an untrusted turn the owner still drives: untrusted only because
+   * its conversation read outside content earlier, or because they said it to the chat mic (D46),
+   * and nothing read since. Only a reminder's cap reads it; it vouches for nothing else.
+   */
+  asked?: boolean;
+  /**
    * What Jarvis's turn knows for D25/D30: the addresses outside content showed it, the sites it
    * opened while still trusted, and the site lists it started with. A call made as Jarvis without
    * these (a reflex, a self-test) is checked as a turn that has seen no addresses (D58).

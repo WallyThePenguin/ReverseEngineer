@@ -86,9 +86,12 @@ export const systemModule = defineModule({
         const schedules = await ctx.tx
           .select({
             id: schedule.id,
-            // A reminder says what it's for, not its id; one outside content set says only
-            // that, and still marks the result as holding outside content.
+            // A reminder says what it's for, not its id. One set after reading outside content
+            // says only who it was for, and still marks the result as holding outside content.
             label: sql<string | null>`CASE WHEN ${schedule.kind} <> 'reminder' THEN NULL
+              WHEN ${schedule.payload}->>'vouched' = 'false'
+                AND ${schedule.payload}->>'asked' = 'true'
+              THEN 'Reminder you asked for'
               WHEN ${schedule.payload}->>'vouched' = 'false'
               THEN 'Reminder (set from an email or a message)'
               ELSE 'Reminder: ' || (${schedule.payload}->>'text') END`,

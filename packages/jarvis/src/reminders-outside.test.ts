@@ -1,8 +1,9 @@
 // A reminder outside content set is still its words wherever it's read back: listing reminders
 // or reading Hearth's status makes the turn untrusted, and the status never repeats them. An
 // untrusted turn calls off only what its own conversation set, and what the owner asks for in a
-// conversation that read an email is never counted against outside content's cap.
-import { conversation, jarvisTurn } from "@hearth/db";
+// conversation that read an email is never counted against outside content's cap (whether a turn
+// is the owner asking is decided as it runs: reminders-asked.test.ts).
+import { conversation, schedule } from "@hearth/db";
 import { type Caller, jarvisCaller, newId, ownerCaller } from "@hearth/kernel";
 import { OUTSIDE_REMINDERS } from "@hearth/modules";
 import { eq } from "drizzle-orm";
@@ -83,35 +84,23 @@ describe("calling one off after reading outside content", () => {
     expect(await cancel(planted.id, fromMail(here))).toMatchObject({ status: "ok" });
   });
 
-  it("never reaches what you asked for in another conversation that read an email", async () => {
-    const turnId = await yourTurn();
-    const yours = await remind(
-      { text: "Call Sam", at: "15:00" },
-      jarvisCaller("untrusted", { turnId, conversationId: newId() }),
-    );
+  it("never reaches what you asked for, even from the conversation you asked in", async () => {
+    const here = newId();
+    const yours = await remind({ text: "Call Sam", at: "15:00" }, asking(here));
     expect(await cancel(yours.id, fromMail())).toMatchObject({ code: "forbidden" });
+    expect(await cancel(yours.id, fromMail(here))).toMatchObject({ code: "forbidden" });
     expect(await cancel(yours.id, ownerCaller())).toMatchObject({ status: "ok" });
   });
 });
 
-/** A turn you started by asking, in a conversation that had read an email: the turn is yours. */
-async function yourTurn() {
-  const id = newId();
-  await h.tdb.db.insert(jarvisTurn).values({
-    id,
-    trigger: "chat",
-    mode: "reactive",
-    lane: "fast",
-    origin: "owner",
-    prompt: "remind me at 3 to call Sam",
-  });
-  return id;
-}
+/** Your ask, in a conversation that had read an email: Jarvis's turn says so as it runs. */
+const asking = (conversationId = newId()) =>
+  jarvisCaller("untrusted", { conversationId, asked: true });
 
 describe("the cap on what outside content sets", () => {
   it("never counts or refuses what you asked for in a conversation that read an email", async () => {
     for (let n = 0; n < OUTSIDE_REMINDERS.all - 1; n++) await plant();
-    const asked = jarvisCaller("untrusted", { turnId: await yourTurn(), conversationId: newId() });
+    const asked = asking();
     for (let n = 0; n <= OUTSIDE_REMINDERS.each; n++)
       await remind({ text: `Call Sam ${n}`, at: "15:00" }, asked);
     // Yours took none of outside content's places: its last one is still there.
@@ -120,14 +109,46 @@ describe("the cap on what outside content sets", () => {
   });
 
   it("still counts what Jarvis set on its own from outside content", async () => {
-    const heartbeat = await yourTurn();
-    await h.tdb.db
-      .update(jarvisTurn)
-      .set({ origin: "untrusted", trigger: "routine" })
-      .where(eq(jarvisTurn.id, heartbeat));
-    const caller = jarvisCaller("untrusted", { turnId: heartbeat });
+    const caller = jarvisCaller("untrusted", { turnId: newId() });
     for (let n = 0; n < OUTSIDE_REMINDERS.each; n++) await plant(caller);
     await expect(plant(caller)).rejects.toThrow(/Enough reminders/);
+  });
+
+  it("takes an outside agent's word for nothing: only Jarvis's turn says you asked", async () => {
+    const mcp = { ...asking(), principal: "mcp:claude" };
+    for (let n = 0; n < OUTSIDE_REMINDERS.each; n++) await plant(mcp);
+    await expect(plant(mcp)).rejects.toThrow(/Enough reminders/);
+  });
+
+  it("counts the ones set from outside content before this, which didn't say who set them", async () => {
+    const here = newId();
+    // As the first reminders (#89) were kept: vouched false, no by, origin or asked.
+    for (let n = 0; n < OUTSIDE_REMINDERS.each; n++)
+      await h.tdb.db.insert(schedule).values({
+        id: `reminder:${newId()}`,
+        kind: "reminder",
+        nextRunAt: new Date("2026-10-01T19:00:00Z"),
+        timeZone: "America/New_York",
+        payload: { reminder: newId(), text: "Pay now", vouched: false, from: here },
+      });
+    await expect(plant(fromMail(here))).rejects.toThrow(/Enough reminders/);
+  });
+});
+
+describe("one you asked for in a conversation that read an email", () => {
+  it("says so, and still doesn't show its words, which Jarvis wrote after reading it", async () => {
+    await remind({ text: "Pay https://pay.example", at: "15:00" }, asking());
+    const status = await h.kernel.execute<{ schedules: { label?: string | null }[] }>(
+      "system.status",
+      {},
+      ownerCaller(),
+    );
+    if (status.status !== "ok") throw new Error(JSON.stringify(status));
+    expect(status.result.schedules.filter((s) => s.label)).toMatchObject([
+      { label: "Reminder you asked for" },
+    ]);
+    const list = await h.kernel.execute("reminder.list", {}, ownerCaller());
+    expect(list).toMatchObject({ result: [{ asked: true, setAfterOutsideContent: true }] });
   });
 });
 

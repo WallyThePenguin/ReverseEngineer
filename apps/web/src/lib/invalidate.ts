@@ -31,8 +31,6 @@ const BY_MODULE: Record<string, Rule> = {
   chat: ["conversation.", "jarvis.activity"],
   jarvis: ["jarvis.", "observation.list", "system.status", "conversation."],
   system: ["system.status"],
-  // Settings → Coming up lists them.
-  reminder: ["reminder.", "system.status"],
   memory: ["memory."],
   page_watch: ["page_watch."],
   browser: ["browser.", "vault.logins"],
@@ -42,8 +40,8 @@ const BY_MODULE: Record<string, Rule> = {
   notion: ["notion."],
   voice: ["dictation.", "dictionary.", "voice.", "snippet."],
   meeting: ["meeting."],
-  // A schedule firing moves a routine's "last ran".
-  clock: ["routine.list", "system.status"],
+  // A schedule firing moves a routine's "last ran", and a reminder that rang leaves the list.
+  clock: ["routine.list", "system.status", "reminder.list"],
 };
 
 /**
@@ -97,6 +95,8 @@ const AFTER_CHANGE: Record<string, Rule> = {
   company: ["person."],
   doc: ["note.list", "entity."],
   routine: ["system.status"],
+  // Settings → Coming up lists them.
+  reminder: ["system.status"],
   approval: ["inbox.list", "conversation."],
   standing_rule: ["approval.list"],
   // Jarvis's Slack bot holds the standing rule that lets its replies to members go out (D62).
