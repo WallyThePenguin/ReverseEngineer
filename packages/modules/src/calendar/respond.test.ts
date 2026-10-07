@@ -62,6 +62,54 @@ const respond = (input: Record<string, unknown>) =>
   t.kernel.execute("calendar.respond", input, ownerCaller());
 const lastPatch = () => g.calls.filter((c) => c.method === "PATCH").at(-1)!;
 
+describe("an invitation on a calendar someone shared with you", () => {
+  // Ana shared her calendar with you to manage, so it's synced; on it, Google's "you" is Ana.
+  const ANA = "ana@work.example";
+  const onAnas = async () => {
+    g.shareCalendar({ id: ANA, summary: "Ana" }, { [ME]: "owner" });
+    g.put(ANA, {
+      id: "anas",
+      summary: "Ana's interview",
+      organizer: { email: BOSS },
+      attendees: [
+        { email: BOSS, organizer: true },
+        { email: ANA, self: true, responseStatus: "needsAction" },
+      ],
+      start: { dateTime: "2026-10-06T15:00:00Z" },
+      end: { dateTime: "2026-10-06T16:00:00Z" },
+    });
+    await t.kernel.execute("calendar.sync", {}, integrationCaller("google"));
+    return (await times()).find((x) => x.googleId === "anas")!.id;
+  };
+
+  it("says which events are on your own calendars", async () => {
+    const id = await onAnas();
+    const res = await t.kernel.execute<{ id: string; ownCalendar: boolean }[]>(
+      "calendar.events",
+      { from: "2026-10-01T00:00:00Z", to: "2026-10-20T00:00:00Z" },
+      ownerCaller(),
+    );
+    if (res.status !== "ok") throw new Error(JSON.stringify(res));
+    const own = Object.fromEntries(res.result.map((e) => [e.id, e.ownCalendar]));
+    expect(Object.values(own).filter(Boolean)).toHaveLength(2);
+    expect(own[id]).toBe(false);
+    const one = await t.kernel.execute("calendar.get", { id }, ownerCaller());
+    expect(one).toMatchObject({ status: "ok", result: { ownCalendar: false } });
+  });
+
+  it("won't answer it, which would answer as Ana", async () => {
+    const id = await onAnas();
+    const res = await respond({ id, response: "accepted" });
+    expect(res).toMatchObject({ status: "error", code: "forbidden" });
+    expect(g.calls.some((c) => c.method === "PATCH")).toBe(false);
+    // Nor will Jarvis be let to ask you for it.
+    const action = t.kernel.registry.action("calendar.respond")!;
+    await expect(action.snapshot!({ id }, { db: t.tdb.db, now: t.clock.now() })).rejects.toThrow(
+      /shared with you/,
+    );
+  });
+});
+
 describe("answering a repeating meeting", () => {
   it("asks whether the answer is for this time or every time", async () => {
     const [first] = await times();

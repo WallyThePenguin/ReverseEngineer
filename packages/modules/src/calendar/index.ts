@@ -17,7 +17,12 @@ import { disconnectAction } from "../google/disconnect.ts";
 import { describeRow, id, isOutside, isoDateTime, liveEntity } from "../shared.ts";
 import { calendarWriteActions } from "./actions.ts";
 import { blockAction, blockReflex, blockRoutine } from "./blocks.ts";
-import { calendarSetupActions, inSelectedCalendar } from "./calendars.ts";
+import {
+  calendarSetupActions,
+  inSelectedCalendar,
+  isOwnCalendar,
+  ownAccount,
+} from "./calendars.ts";
 import { freeSlots } from "./free.ts";
 import { newInvite } from "./invites.ts";
 import { prepPublish, prepRoutine, prepsFor } from "./prep.ts";
@@ -198,10 +203,11 @@ export const calendarModule = defineModule({
         const from = i.from ? new Date(i.from) : ctx.now;
         const to = i.to ? new Date(i.to) : new Date(from.getTime() + 2 * DAY_MS);
         const rows = await ctx.tx
-          .select({ e: entity, r: calendarEvent })
+          .select({ e: entity, r: calendarEvent, own: googleAccount.email })
           .from(calendarEvent)
           .innerJoin(entity, eq(entity.id, calendarEvent.entityId))
           .innerJoin(calendar, eq(calendar.id, calendarEvent.calendarId))
+          .leftJoin(googleAccount, ownAccount)
           .where(
             and(
               isNull(entity.deletedAt),
@@ -220,7 +226,11 @@ export const calendarModule = defineModule({
         );
         return rows.map((x) => {
           const prep = preps.get(x.e.id);
-          return { ...toEventView(x.e, x.r), ...(prep ? { prepId: prep.id } : {}) };
+          return {
+            ...toEventView(x.e, x.r),
+            ownCalendar: x.own !== null,
+            ...(prep ? { prepId: prep.id } : {}),
+          };
         });
       },
     }),
@@ -231,9 +241,11 @@ export const calendarModule = defineModule({
       risk: "read",
       async handler(i, ctx) {
         const ev = await loadEvent(ctx.tx, i.id);
+        if (!ev) return null;
         // Its prep packet, so the event's page can open with it.
-        const prep = ev && (await prepsFor(ctx.tx, [ev.id])).get(ev.id);
-        return ev && prep ? { ...ev, prepId: prep.id } : ev;
+        const prep = (await prepsFor(ctx.tx, [ev.id])).get(ev.id);
+        const ownCalendar = await isOwnCalendar(ctx.tx, ev.calendarId);
+        return { ...ev, ownCalendar, ...(prep ? { prepId: prep.id } : {}) };
       },
     }),
     defineAction({

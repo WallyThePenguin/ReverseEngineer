@@ -106,6 +106,7 @@ const event = (id: string, startsAt: string, endsAt: string, extra: Partial<CalE
     status: "confirmed",
     selfResponse: "accepted",
     selfOrganizer: false,
+    ownCalendar: true,
     recurringEventId: null,
     attendees: [],
     meetUrl: null,
@@ -123,6 +124,8 @@ describe("Your day", () => {
     event("offsite", at(8, 9, 30), at(8, 16), { selfResponse: "needsAction" }),
     event("review", at(6, 14), at(6, 15), { selfResponse: "needsAction" }),
     event("mine", at(7, 14), at(7, 15), { selfResponse: "needsAction", selfOrganizer: true }),
+    // A colleague's invitation, on their calendar shared with you: not yours to answer.
+    event("ana's", at(6, 10), at(6, 11), { selfResponse: "needsAction", ownCalendar: false }),
   ];
 
   it("lists today's meetings in time order, and the invitations after today to answer", () => {

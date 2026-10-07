@@ -1,14 +1,15 @@
 // Answering an invitation. Only your own answer changes: the guest list goes back to Google as
 // Google has it right now, so nobody else's answer, note or extra guests are touched. A repeating
-// meeting is answered for this time only or for every time, as you say (6.7).
-import { calendarEvent } from "@hearth/db";
+// meeting is answered for this time only or for every time, as you say (6.7). Only invitations on
+// your own calendars: on one someone shared with you, the answer would go out as them.
+import { calendarEvent, type DbOrTx } from "@hearth/db";
 import { type ActionContext, ActionError, defineAction, type ReadContext } from "@hearth/kernel";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { id } from "../shared.ts";
 import { api, meetingText, save } from "./actions.ts";
-import { writableCalendar } from "./calendars.ts";
-import { loadEvent } from "./store.ts";
+import { isOwnCalendar, writableCalendar } from "./calendars.ts";
+import { type EventView, loadEvent } from "./store.ts";
 
 type Response = "accepted" | "declined" | "tentative";
 
@@ -28,6 +29,15 @@ async function answerSeries(ctx: ActionContext, calendarId: string, series: stri
         attendees: row.attendees.map((a) => (a.self ? { ...a, response: r } : a)),
       })
       .where(eq(calendarEvent.entityId, row.id));
+}
+
+/** On a calendar someone shared with you, Google's "you" is its owner: never answer as them. */
+async function mustBeYours(db: DbOrTx, ev: EventView) {
+  if (!(await isOwnCalendar(db, ev.calendarId)))
+    throw new ActionError(
+      "forbidden",
+      "This invitation is on a calendar someone shared with you, so answering it would answer as them. Only invitations on your own calendars can be answered.",
+    );
 }
 
 const scopeText = (scope?: "this" | "all") =>
@@ -55,6 +65,7 @@ export const respondAction = defineAction({
   async snapshot(i: { id: string }, ctx: ReadContext) {
     const ev = await loadEvent(ctx.db, i.id);
     if (!ev) throw new Error("No event with that id.");
+    await mustBeYours(ctx.db, ev);
     return { snapshot: { event: await meetingText(ctx.db, ev) } };
   },
   summarize: (i) =>
@@ -62,6 +73,7 @@ export const respondAction = defineAction({
   async handler(i, ctx) {
     const ev = await loadEvent(ctx.tx, i.id);
     if (!ev) throw new ActionError("not_found", "Event not found");
+    await mustBeYours(ctx.tx, ev);
     if (
       i.snapshot
         ? i.snapshot.event !== (await meetingText(ctx.tx, ev))

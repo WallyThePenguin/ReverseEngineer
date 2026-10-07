@@ -180,6 +180,38 @@ describe("calendar invitations in mail", () => {
     expect([answer(WORK), answer(ME)]).toEqual(["accepted", "needsAction"]);
   });
 
+  it("never matches a colleague's copy of the meeting, which would answer as them", async () => {
+    // Ana shared her calendar with you to manage, so it's synced, and the meeting is on it too.
+    const ANA = "ana@work.example";
+    g.shareCalendar({ id: ANA, summary: "Ana" }, { [ME]: "owner" });
+    const meeting = (self: string) => ({
+      summary: "Planning",
+      iCalUID: "planning-2@work.example",
+      start: { dateTime: "2026-10-05T15:00:00Z" },
+      end: { dateTime: "2026-10-05T16:00:00Z" },
+      organizer: { email: BOSS },
+      attendees: [
+        { email: BOSS, organizer: true },
+        { email: self, self: true, responseStatus: "needsAction" as const },
+      ],
+    });
+    g.put(ANA, meeting(ANA));
+    const view = await deliver(
+      invitation(BOSS, ics({ uid: "planning-2@work.example", organizer: BOSS })),
+    );
+    expect(view.messages[0]!.invite).toMatchObject({ event: null });
+    g.put(ME, meeting(ME));
+    await ok("calendar.sync", {}, integrationCaller("google"));
+    const again = await ok<ThreadView>("mail.thread", { id: view.id });
+    await ok("calendar.respond", {
+      id: again.messages[0]!.invite!.event!.id,
+      response: "accepted",
+    });
+    const answer = (cal: string) =>
+      [...g.calendars.get(cal)!.events.values()][0]!.attendees!.find((a) => a.self)!.responseStatus;
+    expect([answer(ME), answer(ANA)]).toEqual(["accepted", "needsAction"]);
+  });
+
   it("won't match an invitation to an event someone else organizes", async () => {
     const ev = g.put(ME, {
       summary: "Board meeting",

@@ -32,6 +32,11 @@ export interface EventView {
   taskId: string | null;
   /** Its prep packet's record, when calendar.events lists it. */
   prepId?: string;
+  /**
+   * On a calendar of your own (calendar.events and calendar.get say), so its invitation is yours
+   * to answer. On one someone shared with you, "you" (self) is its owner.
+   */
+  ownCalendar?: boolean;
 }
 
 export function toEventView(e: EntityRow, r: EventRow): EventView {
