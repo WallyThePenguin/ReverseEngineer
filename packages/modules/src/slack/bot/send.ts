@@ -165,6 +165,11 @@ export const sendActions = [
       // All of it: the card shows exactly what goes out.
       return `Message ${s.name} (${who}) on Slack as Jarvis${where(i.threadTs)}\n\n${i.text}`;
     },
+    // Always allow covers this one person (D70).
+    alwaysAllow: (i: { to: string; snapshot?: DmSnapshot }) => ({
+      target: i.snapshot?.user ?? i.to,
+      says: `messaging ${i.snapshot?.name ?? i.to} on Slack`,
+    }),
     async handler(i, ctx) {
       const { ws } = await postingBot(ctx.tx);
       const now = await dmRecipient(readerOf(ctx), i.to);
@@ -212,6 +217,11 @@ export const sendActions = [
       const shared = s.shared ? ", shared with another org" : "";
       return `Post in #${s.name} (${s.members} people, ${guests}${shared}) on Slack as Jarvis${where(i.threadTs)}\n\n${i.text}`;
     },
+    // Always allow covers this one channel, its threads too (D70).
+    alwaysAllow: (i: { channelId: string; snapshot?: ChannelSnapshot }) => ({
+      target: i.channelId,
+      says: `posting in #${i.snapshot?.name ?? i.channelId}`,
+    }),
     async handler(i, ctx) {
       const now = await channelPlace(readerOf(ctx), i.channelId);
       same(i.snapshot, now, ctx.caller);

@@ -91,11 +91,11 @@ export function Mail(props: { pane: number }) {
   const sel = createSelection(list, (t) => t.id);
   const current = sel.current;
   // A search's top row is next once typing pauses and it goes out, not at each key: until then
-  // the list shown is still the one before.
-  let searched = untrack(term);
+  // the list shown is still the one before. A space typed is the same search.
+  let searched = untrack(term).trim();
   createEffect(() => {
-    if (term() === searched) return;
-    searched = term();
+    if (term().trim() === searched) return;
+    searched = term().trim();
     untrack(sel.reset);
   });
   // Moving down with j: the next page comes before you reach the end.

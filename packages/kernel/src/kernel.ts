@@ -2,9 +2,9 @@
 // an audit row and its events (PLAN.md section 5.4).
 import { memberWildcard } from "@hearth/core";
 import { type Db, principal, standingRule, type Tx } from "@hearth/db";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { z } from "zod";
-import { requestApproval, resolveApproval } from "./approvals.ts";
+import { alwaysAllowOf, requestApproval, resolveApproval } from "./approvals.ts";
 import { isAudited, writeAudit } from "./audit.ts";
 import { normalizeCaller } from "./callers.ts";
 import { type Clock, systemClock } from "./clock.ts";
@@ -86,9 +86,9 @@ export class Kernel {
     // snapshot or pin runs. Those read your data (a draft, a meeting, the open tab), and a caller
     // that's refused, a Slack member above all, mustn't set them off or get their errors back
     // instead of a refusal (D62). The guard below only adds an askFirst, so the decision after it
-    // can turn an allow into an ask but can't let through what this refuses.
-    const standing = await this.hasStandingRule(def.name, caller);
-    const refused = decide(def, caller, standing);
+    // can turn an allow into an ask but can't let through what this refuses. A standing rule
+    // never turns a refusal around, so it's looked up after, for what the call reaches (D70).
+    const refused = decide(def, caller, false);
     if (refused.kind === "deny")
       return this.refuse(def, caller, raw, refused.reason, correlationId);
     const parsed = def.input.safeParse(raw);
@@ -109,6 +109,7 @@ export class Kernel {
       input = g.input;
       if (g.askFirst) caller = { ...caller, askFirst: caller.askFirst ?? g.askFirst };
     }
+    const standing = await this.hasStandingRule(def.name, caller, this.db, ruleTarget(def, input));
     const decision = decide(def, caller, standing);
     if (decision.kind === "deny")
       return this.refuse(def, caller, input, decision.reason, correlationId);
@@ -264,7 +265,8 @@ export class Kernel {
           throw new ActionError("forbidden", `${name} runs only as a step of its own.`);
         const parsed = def.input.safeParse(rawInput ?? {});
         if (!parsed.success) throw new ActionError("invalid_input", z.prettifyError(parsed.error));
-        const d = decide(def, caller, await this.hasStandingRule(def.name, caller, tx));
+        const target = ruleTarget(def, parsed.data);
+        const d = decide(def, caller, await this.hasStandingRule(def.name, caller, tx, target));
         if (d.kind !== "allow") throw new ActionError("forbidden", `${name}: ${d.reason}`);
         const started = performance.now();
         const result = (await def.handler(parsed.data, ctx)) as T;
@@ -286,17 +288,32 @@ export class Kernel {
   }
 
   /**
-   * Whether you've let this caller do this action without asking. A Slack member also has the
-   * rule you hold for every member of their team, member:slack:<team>:* (D62).
+   * Whether you've let this caller do this action without asking: anywhere, or in the one place
+   * or to the one person this call reaches (`target`, D70). A Slack member also has the rule you
+   * hold for every member of their team, member:slack:<team>:* (D62).
    */
-  async hasStandingRule(action: string, caller: Caller, db: Db | Tx = this.db): Promise<boolean> {
+  async hasStandingRule(
+    action: string,
+    caller: Caller,
+    db: Db | Tx = this.db,
+    target: string | null = null,
+  ): Promise<boolean> {
     if (caller.kind !== "agent" && caller.kind !== "member") return false;
     const team = caller.kind === "member" ? memberWildcard(caller.principal) : null;
     const holders = team ? [caller.principal, team] : [caller.principal];
     const rows = await db
       .select({ id: standingRule.id })
       .from(standingRule)
-      .where(and(eq(standingRule.action, action), inArray(standingRule.principal, holders)));
+      .where(
+        and(
+          eq(standingRule.action, action),
+          inArray(standingRule.principal, holders),
+          // Any target (every rule written before D70), or this call's own.
+          target
+            ? or(isNull(standingRule.target), eq(standingRule.target, target))
+            : isNull(standingRule.target),
+        ),
+      );
     return rows.length > 0;
   }
 
@@ -309,3 +326,7 @@ export class Kernel {
     return row.kind;
   }
 }
+
+/** The one place or person a call reaches, which a narrow standing rule names (D70). */
+const ruleTarget = (def: ActionDef, input: unknown): string | null =>
+  alwaysAllowOf(def, input)?.target ?? null;

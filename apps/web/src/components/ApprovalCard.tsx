@@ -16,6 +16,7 @@ import {
   Show,
 } from "solid-js";
 import {
+  alwaysAllow,
   approvalStateText,
   decide,
   decidedAs,
@@ -64,6 +65,11 @@ export function ApprovalCard(props: {
   meta?: JSX.Element;
   /** Shows a and d on its buttons, where the list's keys decide it (not on a touch screen). */
   keys?: boolean;
+  /**
+   * Always allow's words ("posting in #eng"), when the card can offer it: Jarvis asked in a
+   * conversation you started (D70).
+   */
+  always?: string | null;
   /** h2 by default; h3 inside a section that has a heading of its own. */
   level?: 2 | 3;
   /** Its exact text shown in full from the start, as under Today's "Approve all", which covers it. */
@@ -133,7 +139,12 @@ export function ApprovalCard(props: {
             <span class="tabular-nums">{meta()}</span>
           </Show>
           <Show when={waiting()}>
-            <Decide approvalId={props.approvalId} keys={props.keys} class="ml-auto" />
+            <Decide
+              approvalId={props.approvalId}
+              keys={props.keys}
+              always={props.always}
+              class="ml-auto"
+            />
           </Show>
         </div>
       </Show>
@@ -143,18 +154,24 @@ export function ApprovalCard(props: {
 
 /**
  * Deny and Approve, for an approval still waiting: off while a decision is on its way. Approve is
- * the one filled button; Deny, which leaves everything as it is, stays quiet beside it.
+ * the one filled button; Deny, which leaves everything as it is, stays quiet beside it, as does
+ * Always allow, where the card offers it: yes now, and from now on in that one place (D70).
  */
 export function Decide(props: {
   approvalId: string;
   /** Shows a and d on them, where the list's keys decide it. */
   keys?: boolean;
+  /** Always allow's words, where the card offers it. */
+  always?: string | null;
   /** What the yes says once it's done, rather than "Approved and done." */
   said?: Said;
   class?: string;
 }) {
   return (
-    <div class={`flex gap-1 ${props.class ?? ""}`} onClick={(e) => e.stopPropagation()}>
+    <div
+      class={`flex flex-wrap justify-end gap-1 ${props.class ?? ""}`}
+      onClick={(e) => e.stopPropagation()}
+    >
       <Button
         kind="quiet"
         small
@@ -167,6 +184,19 @@ export function Decide(props: {
           <Kbd hint>d</Kbd>
         </Show>
       </Button>
+      <Show when={props.always}>
+        {(says) => (
+          <Button
+            kind="quiet"
+            small
+            icon="check"
+            disabled={deciding(props.approvalId)}
+            onClick={() => alwaysAllow(props.approvalId, says())}
+          >
+            Always allow {says()}
+          </Button>
+        )}
+      </Show>
       <Button
         kind="primary"
         small
