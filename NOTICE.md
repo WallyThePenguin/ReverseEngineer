@@ -1,6 +1,6 @@
 # Notices
 
-Hearth is licensed under the GNU Affero General Public License v3.0 (see [LICENSE](LICENSE)).
+Hearth is licensed under the MIT License (see [LICENSE](LICENSE)).
 
 Some files are copied or adapted from other open-source projects. Each such file keeps its
 original notice at the top, and is listed here with where it came from.
@@ -11,5 +11,4 @@ original notice at the top, and is listed here with where it came from.
 | `apps/web/src/components/icons.tsx` (the icons' SVG markup) | [Lucide](https://github.com/lucide-icons/lucide) v0.548.0 | `icons/*.svg` | ISC, with MIT for the parts from Feather (both in the file's header) |
 | `apps/web/src/components/brands.tsx` (the marks' paths) | [Simple Icons](https://github.com/simple-icons/simple-icons) | `icons/*.svg` | CC0 1.0; the marks are their owners' trademarks |
 
-Projects Hearth borrows ideas from without copying code: Macro (macro-inc/macro, AGPLv3),
-Twenty (twentyhq/twenty, AGPLv3 and MIT parts).
+Projects that inspired Hearth's design paradigms without copying code: Macro, Twenty.
