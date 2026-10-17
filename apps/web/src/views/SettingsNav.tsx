@@ -102,7 +102,7 @@ export function SettingsNav(props: { root: () => HTMLElement | undefined }) {
           <button
             ref={(el) => chips.set(s.id, el)}
             type="button"
-            class={`min-h-11 shrink-0 rounded-md px-2.5 text-sm whitespace-nowrap md:min-h-0 md:py-1 ${active() === s.id ? "bg-sunk font-medium text-ink" : "text-muted hover:text-ink"}`}
+            class={`min-h-11 min-w-11 shrink-0 rounded-md px-2.5 text-sm whitespace-nowrap md:min-h-0 md:min-w-0 md:py-1 ${active() === s.id ? "bg-sunk font-medium text-ink" : "text-muted hover:text-ink"}`}
             aria-current={active() === s.id ? "true" : undefined}
             onClick={() => go(s.id, true)}
           >

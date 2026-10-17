@@ -178,7 +178,7 @@ export function Tasks(props: { pane: number }) {
           {(f) => (
             <button
               type="button"
-              class={`min-h-11 rounded-md px-2 py-1 text-sm md:min-h-0 ${filter() === f.id ? "bg-sunk font-medium" : "text-muted hover:text-ink"}`}
+              class={`min-h-11 min-w-11 rounded-md px-2 py-1 text-sm md:min-h-0 md:min-w-0 ${filter() === f.id ? "bg-sunk font-medium" : "text-muted hover:text-ink"}`}
               aria-pressed={filter() === f.id}
               onClick={() => {
                 setFilter(f.id);
