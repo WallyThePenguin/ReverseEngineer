@@ -63,7 +63,7 @@ async function digest(ctx: ReadContext & { since: Date }): Promise<DigestItem[]>
 }
 
 const TASK_PAYLOAD =
-  'Payload: title, status, dueAt ("2026-10-10" for a day, or an ISO time), dueIsDate, url, database, backfill (the first read of the board)';
+  'Payload: title, status, dueAt ("2026-10-10" for a day, or an ISO time), dueIsDate, url, database, backfill (the first read of the board), caughtUp (told again because its task never came, or is still open)';
 
 /** Uploads waiting for notion.import, by id (the server's import route puts them here). */
 export const UPLOADS_SERVICE = "uploads";

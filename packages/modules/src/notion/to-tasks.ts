@@ -1,7 +1,8 @@
 // Your Notion tickets as Hearth tasks, kept in step without a model turn: a ticket newly yours
 // becomes a task (or reopens the one it had), a done ticket closes its task, and a new title or
 // due date carries over. One handed to someone else (or deleted) cancels its task. The task links
-// to its ticket in its body; that link is how they find each other, so nothing is made twice.
+// to its ticket in its body; that link is how they find each other, so nothing is made twice,
+// even when a round tells a ticket's news again (catch-up.ts).
 import { atLocal, renderMention } from "@hearth/core";
 import { type DbOrTx, entity, link, task } from "@hearth/db";
 import { getSetting, type ReflexDef, type ReflexOutcome } from "@hearth/kernel";
@@ -13,7 +14,7 @@ const CLOSED = ["completed", "canceled"];
 /** The task linked to this ticket, if one is still around. */
 async function taskFor(db: DbOrTx, ticketId: string) {
   const [t] = await db
-    .select({ id: entity.id, status: task.status })
+    .select({ id: entity.id, status: task.status, outside: entity.outside })
     .from(link)
     .innerJoin(entity, eq(entity.id, link.fromId))
     .innerJoin(task, eq(task.entityId, entity.id))
@@ -34,7 +35,10 @@ export const notionToTasks: ReflexDef = {
   name: "notion.to_tasks",
   description:
     "Tickets assigned to you on your Notion board become Hearth tasks, closed when the ticket is done or goes to someone else, and kept in step with its title and due date.",
-  mode: "proactive",
+  // It makes no model turn, so it keeps your tasks in step while Jarvis is paused too. It acts as
+  // Hearth rather than as Jarvis on the ticket's untrusted news, so it marks the ticket's words as
+  // outside content itself (D58).
+  mode: "always",
   on: ["notion.task_assigned", "notion.task_done", "notion.task_changed", "notion.task_unassigned"],
   async run(ev, ctx) {
     const ticketId = ev.entityId;
@@ -55,18 +59,20 @@ export const notionToTasks: ReflexDef = {
     if (ev.kind === "notion.task_changed" && mine) {
       if (!open) return [];
       const changed = Array.isArray(p.changed) ? p.changed : [];
-      return act("task.update", {
-        id: mine.id,
-        ...(changed.includes("title") ? { title: ticket.title } : {}),
+      const patch = {
+        // Only a task made from the ticket takes its new title: one you wrote keeps your words.
+        ...(changed.includes("title") && mine.outside ? { title: ticket.title } : {}),
         ...(changed.includes("due") ? await dueOf(ctx.db, p) : {}),
-      });
+      };
+      return Object.keys(patch).length ? act("task.update", { id: mine.id, ...patch }) : [];
     }
-    // Newly yours, or changed before it ever had a task (it came while Jarvis was paused).
+    // Newly yours, or changed before it ever had a task (its news was lost: catch-up.ts).
     const ref = renderMention({ type: "notion_task", id: ticketId, label: "Notion ticket" });
     const due = await dueOf(ctx.db, p);
     return act("task.create", {
       title: ticket.title,
       body: `From ${ref}.`,
+      outside: true,
       ...(due.dueAt ? due : {}),
     });
   },

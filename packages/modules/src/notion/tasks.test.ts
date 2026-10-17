@@ -111,9 +111,13 @@ describe("notion tasks", () => {
       ]),
     );
     expect(await kinds()).toEqual(["notion.task_assigned", "notion.task_assigned"]);
-    // Nothing changed: nothing to say.
+    // Nothing changed: no news, but no task was made here, so both are told again (catch-up.ts).
     await sync();
-    expect(await kinds()).toHaveLength(2);
+    const again = (await t.events("notion.task_assigned")).slice(2);
+    expect(again.map((e) => [e.payload.caughtUp, e.payload.backfill])).toEqual([
+      [true, false],
+      [true, false],
+    ]);
     expect(await ok("notion.status")).toMatchObject({
       connected: true,
       board: "Otopair",
