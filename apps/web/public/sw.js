@@ -16,6 +16,11 @@ const assetsOf = (build) => `${ASSETS}:${build}`;
  * comes from the PC (lib/version.ts).
  */
 const STARTED = "/.started";
+/**
+ * The page's first script, which puts on its theme. The page doesn't draw until it has run, so it
+ * comes from SHELL at once and is fetched again behind it; it's never awaited from the PC.
+ */
+const BOOT = "/theme-boot.js";
 /** How long a page may take from the PC before the last one seen opens instead. */
 const NAVIGATE_TIMEOUT_MS = 3000;
 
@@ -27,7 +32,7 @@ self.addEventListener("install", (e) => {
         .catch(() => {}),
       caches
         .open(SHELL)
-        .then((c) => c.add("/manifest.webmanifest"))
+        .then((c) => c.addAll(["/manifest.webmanifest", BOOT]))
         .catch(() => {}),
     ]),
   );
@@ -182,6 +187,15 @@ self.addEventListener("fetch", (e) => {
           }),
       ),
     );
+    return;
+  }
+  if (url.pathname === BOOT) {
+    const fresh = fetch(e.request).then(async (res) => {
+      if (res.ok) await (await caches.open(SHELL)).put(BOOT, res.clone());
+      return res;
+    });
+    e.waitUntil(fresh.catch(() => {}));
+    e.respondWith(caches.match(BOOT).then((hit) => hit || fresh));
     return;
   }
   if (e.request.mode === "navigate")

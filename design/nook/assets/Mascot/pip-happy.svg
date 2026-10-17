@@ -1,0 +1,4 @@
+<svg class="pip pip--happy " viewBox="-4 -4 128 128" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Pip, happy"><rect class="pip-glow" x="8" y="16" width="104" height="100" rx="44" fill="#8fd4ff66" opacity=".6"></rect><g class="pip-body">
+<rect x="22" y="28" width="76" height="76" rx="26" fill="#dcefff"></rect>
+<path d="M38 62 q8 -8 16 0" fill="none" stroke="#1e2a3a" stroke-width="4.5" stroke-linecap="round"></path><path d="M66 62 q8 -8 16 0" fill="none" stroke="#1e2a3a" stroke-width="4.5" stroke-linecap="round"></path><path d="M53 72 q7 8 14 0" fill="none" stroke="#1e2a3a" stroke-width="3" stroke-linecap="round"></path>
+</g><g class="pip-sparks" fill="#8fd4ff"><circle cx="14" cy="40" r="3"></circle><circle cx="108" cy="28" r="2.5"></circle><circle cx="104" cy="98" r="2"></circle></g></svg>

@@ -1,0 +1,1 @@
+Menus and popovers are `glass-strong` with `shadow-menu`. Menu rows are `callout` size; the highlighted row is solid `accent`. Dividers are `hairline`. Destructive items use `danger` text, sit last under a divider and say what they do in words. Popovers (`radius-lg`) carry short status or settings. The consumer provides items, shortcuts and handlers.

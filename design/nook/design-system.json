@@ -1,0 +1,94 @@
+{
+ "v": 3,
+ "assetGroups": {
+  "Logos": {
+   "name": "Logos",
+   "tile": "m",
+   "order": [
+    "nook-mark.svg",
+    "nook-wordmark.svg"
+   ],
+   "files": {
+    "nook-mark.svg": {
+     "name": "nook-mark.svg",
+     "blob": "350c29febb1d949061253546f2da76b9",
+     "size": 530,
+     "type": "image/svg+xml"
+    },
+    "nook-wordmark.svg": {
+     "name": "nook-wordmark.svg",
+     "blob": "de07af0c42a71f4910be952467831398",
+     "size": 863,
+     "type": "image/svg+xml"
+    }
+   }
+  },
+  "Mascot": {
+   "name": "Mascot",
+   "tile": "l",
+   "order": [
+    "pip-idle.svg",
+    "pip-listening.svg",
+    "pip-thinking.svg",
+    "pip-happy.svg",
+    "pip-asleep.svg"
+   ],
+   "files": {
+    "pip-idle.svg": {
+     "name": "pip-idle.svg",
+     "blob": "4a43a0577749985cf0092432251be5bf",
+     "size": 669,
+     "type": "image/svg+xml"
+    },
+    "pip-listening.svg": {
+     "name": "pip-listening.svg",
+     "blob": "8a4794b45341e9f1562b6c197f643b69",
+     "size": 648,
+     "type": "image/svg+xml"
+    },
+    "pip-thinking.svg": {
+     "name": "pip-thinking.svg",
+     "blob": "8bfe10519ded051ded44d88b7d1a45de",
+     "size": 865,
+     "type": "image/svg+xml"
+    },
+    "pip-asleep.svg": {
+     "name": "pip-asleep.svg",
+     "blob": "0b0d301d47cd3dcd5ac221ab15e15335",
+     "size": 799,
+     "type": "image/svg+xml"
+    },
+    "pip-happy.svg": {
+     "name": "pip-happy.svg",
+     "blob": "1a4e1c39321661cc304b88e3650ffcfb",
+     "size": 812,
+     "type": "image/svg+xml"
+    }
+   }
+  }
+ },
+ "blobs": {},
+ "createdOnFiles": {
+  "at": "2026-10-13T07:33:21Z",
+  "v": 1
+ },
+ "docs": {
+  "readme": "project/README.md",
+  "sections": []
+ },
+ "groups": [
+  "Logos",
+  "Mascot"
+ ],
+ "lastChange": {
+  "by": "Waleed",
+  "at": "2026-10-13T08:13:22Z",
+  "via": "Claude Cowork",
+  "note": "Pip simplified to one cube, two eyes, a mouth and a glow"
+ },
+ "layout": "files",
+ "libraries": [],
+ "namespace": "Nook",
+ "sections": {},
+ "title": "Nook"
+}

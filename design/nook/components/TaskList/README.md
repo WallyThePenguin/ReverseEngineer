@@ -1,0 +1,1 @@
+Rows list tasks, mail or people in a `surface-1` group with `radius-lg`. Left: a 20px circle (done is green with a check); centre: bold title and a `caption` line; right: a Badge. Rows separate with `hairline`.

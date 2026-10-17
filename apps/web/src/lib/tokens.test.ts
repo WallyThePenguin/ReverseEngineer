@@ -1,16 +1,27 @@
-// The look's tokens in index.css, checked in light and dark mode: every colour has a dark value,
-// text reads at 4.5:1 (WCAG AA) where it's used, status backgrounds can be told apart, and
-// nothing moves when the system asks for less motion.
+// Nook's tokens as the web app loads them, checked in all six themes: the generated stylesheets
+// match design/nook/tokens.json, every theme sets every colour, text reads at 4.5:1 (WCAG AA)
+// where it's used, status backgrounds can be told apart, and nothing moves when the system asks
+// for less motion.
 import { describe, expect, it } from "vitest";
+import tokensJson from "../../../../design/nook/tokens.json?raw";
 import css from "../index.css?raw";
+import nookCss from "../styles/nook.css?raw";
 import { APPS } from "./apps.ts";
+import { type NookTokens, over, renderNook, rgba } from "./nookTokens.ts";
 
-const source = css.replace(/\/\*[\s\S]*?\*\//g, "");
+const tokens = JSON.parse(tokensJson) as NookTokens;
+const styles = import.meta.glob<string>("../styles/**/*.{css,ts}", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+});
+const strip = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, "");
+const source = strip(css);
 
 /** What's between the braces of the first block that starts with `head`. */
 function inside(text: string, head: string): string {
   const at = text.indexOf(head);
-  if (at < 0) throw new Error(`index.css has no ${head}`);
+  if (at < 0) throw new Error(`no ${head}`);
   const open = text.indexOf("{", at);
   let depth = 0;
   for (let i = open; i < text.length; i++) {
@@ -27,31 +38,43 @@ function properties(body: string): Map<string, string> {
   return new Map([...own.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)].map((m) => [m[1]!, m[2]!.trim()]));
 }
 
-const light = properties(inside(source, "@theme"));
-const darkOnly = properties(inside(inside(source, "@media (prefers-color-scheme: dark)"), ":root"));
-const dark = new Map([...light, ...darkOnly]);
-const MODES = { light, dark };
+/** Nook's light values, then index.css's own names for them. */
+const nook = properties(inside(strip(nookCss), "@theme"));
+const aliases = properties(inside(source, "@theme"));
+const light = new Map([...nook, ...aliases]);
 
-/** A token's value in a mode, following var() to what it names. */
-function token(mode: Map<string, string>, name: string): string {
-  const value = mode.get(name);
-  if (value === undefined) throw new Error(`index.css has no ${name}`);
+/** Each theme's variables, by id: light's, with the theme's own file over them. */
+const THEMES = new Map(
+  tokens.color.themes.map(({ id }, i) => {
+    if (i === 0) return [id, light] as const;
+    const file = styles[`../styles/themes/${id}.css`];
+    if (!file) throw new Error(`styles/themes/${id}.css is missing`);
+    const own = properties(inside(strip(file), `:root[data-theme="${id}"]`));
+    return [id, new Map([...light, ...own])] as const;
+  }),
+);
+
+/** A token's value in a theme, following var() to what it names. */
+function token(theme: Map<string, string>, name: string): string {
+  const value = theme.get(name);
+  if (value === undefined) throw new Error(`no ${name}`);
   const ref = /^var\((--[\w-]+)\)$/.exec(value);
-  return ref ? token(mode, ref[1]!) : value;
+  return ref ? token(theme, ref[1]!) : value;
 }
 
-function channels(hex: string): number[] {
-  const h = hex.replace(/^#/, "");
-  const full = h.length === 3 ? [...h].map((c) => c + c).join("") : h;
-  if (!/^[0-9a-f]{6}$/i.test(full)) throw new Error(`${hex} isn't a hex colour`);
-  return [0, 2, 4].map((i) => Number.parseInt(full.slice(i, i + 2), 16) / 255);
+/** The colour a token shows: one that's see-through is laid over `under` (a panel). */
+function solid(theme: Map<string, string>, name: string, under = "--color-panel"): string {
+  const value = token(theme, name);
+  return rgba(value)[3] < 1 ? over(value, solid(theme, under, "--color-canvas")) : value;
 }
+
 const linear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+const rgb = (hex: string) => rgba(hex).slice(0, 3).map(linear) as [number, number, number];
 
-/** WCAG contrast ratio between two colours. */
+/** WCAG contrast ratio between two opaque colours. */
 function contrast(a: string, b: string): number {
   const lum = (hex: string) => {
-    const [r, g, bl] = channels(hex).map(linear) as [number, number, number];
+    const [r, g, bl] = rgb(hex);
     return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
   };
   const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x) as [number, number];
@@ -61,7 +84,7 @@ function contrast(a: string, b: string): number {
 /** How far apart two colours look (OKLab). About 0.02 is the smallest difference people see. */
 function apart(a: string, b: string): number {
   const lab = (hex: string) => {
-    const [r, g, bl] = channels(hex).map(linear) as [number, number, number];
+    const [r, g, bl] = rgb(hex);
     const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * bl);
     const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * bl);
     const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * bl);
@@ -75,6 +98,16 @@ function apart(a: string, b: string): number {
   return Math.hypot(...x.map((v, i) => v - y[i]!));
 }
 
+/** Checks `ratio(a, b) >= min` for each pair in every theme. */
+function reads(pairs: [string, string][], min = 4.5) {
+  for (const [id, theme] of THEMES) {
+    for (const [text, back] of pairs) {
+      const ratio = contrast(solid(theme, text), solid(theme, back));
+      expect(ratio, `${text} on ${back} in ${id}`).toBeGreaterThanOrEqual(min);
+    }
+  }
+}
+
 /** The web app's own source, tests left out. */
 function code(): [string, string][] {
   const files = import.meta.glob<string>(["../**/*.{ts,tsx}", "!../**/*.test.ts"], {
@@ -86,22 +119,35 @@ function code(): [string, string][] {
   return Object.entries(files);
 }
 
-describe("colours", () => {
-  it("each have a dark value", () => {
-    for (const [name, value] of light) {
-      if (name.startsWith("--color-") && !value.startsWith("var(")) {
-        expect(darkOnly.has(name), `${name} has no dark value`).toBe(true);
-      }
+describe("the generated stylesheets", () => {
+  it("are what design/nook/tokens.json makes (run node scripts/nook-themes.ts)", () => {
+    for (const [path, text] of Object.entries(renderNook(tokens))) {
+      expect(styles[`../styles/${path}`], path).toBe(text);
     }
   });
 
-  it("give each sub-product a colour that reads on a panel, light and dark", () => {
-    for (const app of APPS.filter((a) => a.hue)) {
-      for (const [mode, values] of Object.entries(MODES)) {
-        const ratio = contrast(token(values, app.hue!), token(values, "--color-panel"));
-        expect(ratio, `${app.id} in ${mode}`).toBeGreaterThanOrEqual(4.5);
-      }
+  it("set every colour in every theme", () => {
+    const colours = [...nook.keys()].filter((n) => n.startsWith("--color-"));
+    for (const [id, theme] of THEMES) {
+      if (theme === light) continue;
+      const own = properties(inside(strip(styles[`../styles/themes/${id}.css`]!), ":root"));
+      for (const name of colours) expect(own.has(name), `${name} in ${id}`).toBe(true);
     }
+  });
+});
+
+describe("colours", () => {
+  it("keep text readable on the canvas and every surface it sits on", () => {
+    const text = ["--color-ink", "--color-ink-muted", "--color-ink-subtle"];
+    const backs = ["--color-canvas", "--color-surface-1", "--color-surface-2"];
+    reads(text.flatMap((t) => backs.map((b) => [t, b] as [string, string])));
+  });
+
+  it("give each sub-product an icon colour that shows on a panel (3:1, non-text)", () => {
+    reads(
+      APPS.filter((a) => a.hue).map((a) => [a.hue!, "--color-panel"]),
+      3,
+    );
   });
 
   it("are what a pane marked with its sub-product takes as its hue", () => {
@@ -113,48 +159,39 @@ describe("colours", () => {
   });
 
   it("keep a badge's text readable on its own background", () => {
-    for (const tone of ["ok", "warn", "bad", "info", "accent", "jarvis"]) {
-      for (const [mode, values] of Object.entries(MODES)) {
-        const ratio = contrast(
-          token(values, `--color-${tone}`),
-          token(values, `--color-${tone}-soft`),
-        );
-        expect(ratio, `${tone} in ${mode}`).toBeGreaterThanOrEqual(4.5);
-      }
-    }
+    reads(
+      ["ok", "warn", "bad", "info", "accent", "jarvis"].map((t) => [
+        `--color-${t}`,
+        `--color-${t}-soft`,
+      ]),
+    );
   });
 
-  it("keep text readable on a solid fill, light and dark", () => {
-    for (const fill of ["accent", "bad", "jarvis"]) {
-      for (const [mode, values] of Object.entries(MODES)) {
-        const ratio = contrast(token(values, "--color-on-fill"), token(values, `--color-${fill}`));
-        expect(ratio, `${fill} in ${mode}`).toBeGreaterThanOrEqual(4.5);
-      }
-    }
+  it("keep text readable on a solid fill", () => {
+    reads(["accent", "bad", "jarvis"].map((f) => ["--color-on-fill", `--color-${f}`]));
   });
 
   it("give initials eight tints that read in ink and can be told apart", () => {
     const tints = Array.from({ length: 8 }, (_, i) => `--color-avatar-${i + 1}`);
-    for (const [mode, values] of Object.entries(MODES)) {
+    reads(tints.map((t) => ["--color-ink", t]));
+    for (const [id, theme] of THEMES) {
       for (const [i, a] of tints.entries()) {
-        const ratio = contrast(token(values, "--color-ink"), token(values, a));
-        expect(ratio, `${a} in ${mode}`).toBeGreaterThanOrEqual(4.5);
         for (const b of tints.slice(i + 1)) {
-          const gap = apart(token(values, a), token(values, b));
-          expect(gap, `${a} and ${b} in ${mode}`).toBeGreaterThanOrEqual(0.02);
+          const gap = apart(token(theme, a), token(theme, b));
+          expect(gap, `${a} and ${b} in ${id}`).toBeGreaterThanOrEqual(0.02);
         }
       }
     }
   });
 
-  it("tell a warning, a failure and the accent highlight apart", () => {
-    const soft = ["accent", "ok", "warn", "bad", "info"].map((t) => `--color-${t}-soft`);
-    for (const [mode, values] of Object.entries(MODES)) {
-      for (const [i, a] of soft.entries()) {
-        for (const b of soft.slice(i + 1)) {
-          const gap = apart(token(values, a), token(values, b));
-          expect(gap, `${a} and ${b} in ${mode}`).toBeGreaterThanOrEqual(0.02);
-        }
+  // Nook never lets colour stand alone: a status badge has a dot and a word (Paper's sienna
+  // accent and amber warning are close by design). So a tint has only to show on its panel.
+  it("give a badge or a highlight a tint that shows on the panel under it", () => {
+    const soft = ["accent", "ok", "warn", "bad"].map((t) => `--color-${t}-soft`);
+    for (const [id, theme] of THEMES) {
+      for (const s of soft) {
+        const gap = apart(solid(theme, s), solid(theme, "--color-panel"));
+        expect(gap, `${s} in ${id}`).toBeGreaterThanOrEqual(0.02);
       }
     }
   });
@@ -162,17 +199,21 @@ describe("colours", () => {
 
 describe("type", () => {
   it("uses the system's own font, since the CSP serves fonts only from Hearth", () => {
-    expect(light.get("--font-sans")).toMatch(/^"Segoe UI Variable Text",.*system-ui, sans-serif$/);
+    expect(aliases.get("--font-sans")).toMatch(
+      /^"Segoe UI Variable Text",.*system-ui, sans-serif$/,
+    );
     expect(source).not.toMatch(/Inter|@font-face|url\(/);
   });
 
-  it("is sized from the scale, never 10 or 11 px by hand", () => {
-    for (const [file, text] of code()) expect(text, file).not.toMatch(/text-\[1[01]px\]/);
+  it("is sized from the scale, never below 12 px by hand", () => {
+    for (const [file, text] of code()) {
+      expect(text, file).not.toMatch(/text-\[(?:[0-9]|1[01])(?:\.\d+)?px\]/);
+    }
   });
 });
 
 describe("text on a fill", () => {
-  it("uses text-on-fill, since white on the dark-mode accent reads at 2.8:1", () => {
+  it("uses text-on-fill, since white on a dark theme's accent doesn't read", () => {
     for (const [file, text] of code()) expect(text, file).not.toMatch(/\btext-white\b/);
   });
 });

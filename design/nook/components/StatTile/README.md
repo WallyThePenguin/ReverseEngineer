@@ -1,0 +1,1 @@
+Stat tiles (widgets) show one number: label in `ink-muted`, value in 28px bold, a delta in `positive`, `warning` or `accent-ink` with a ▼ ▲ ● symbol and a sentence, and a 32px sparkline. Meaning of the delta colour depends on the metric (fewer open tasks is positive). The consumer provides label, value, delta text, direction and series.

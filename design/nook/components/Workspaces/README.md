@@ -1,0 +1,1 @@
+Workspaces are a pill track. The active one is solid `accent` with `on-accent` text; the others `ink-muted` on `surface-3`. A dot marks a workspace where Pip is working or something awaits approval. Numbers by default, user names later; Win+1 to Win+9 switch, with Kbd in the tooltip.

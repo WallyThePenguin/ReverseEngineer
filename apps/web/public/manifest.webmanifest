@@ -1,13 +1,13 @@
 {
-  "name": "Hearth",
-  "short_name": "Hearth",
-  "description": "Your workspace, with Jarvis.",
+  "name": "Nook",
+  "short_name": "Nook",
+  "description": "Your workspace, with Pip.",
   "id": "/",
   "start_url": "/today",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#faf8f5",
-  "theme_color": "#c2410c",
+  "background_color": "#e8e8ed",
+  "theme_color": "#e8e8ed",
   "icons": [
     { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
     { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
@@ -19,7 +19,7 @@
     }
   ],
   "shortcuts": [
-    { "name": "Talk to Jarvis", "url": "/today?jarvis=1" },
+    { "name": "Talk to Pip", "url": "/today?jarvis=1" },
     { "name": "Tasks", "url": "/tasks" }
   ]
 }

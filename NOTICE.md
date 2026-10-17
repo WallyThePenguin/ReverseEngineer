@@ -1,6 +1,7 @@
 # Notices
 
-Hearth is licensed under the GNU Affero General Public License v3.0 (see [LICENSE](LICENSE)).
+Hearth (shown to you as Nook) is licensed under the MIT License (see [LICENSE](LICENSE)). Its
+look, `design/nook/`, is Hearth's own and under the same license.
 
 Some files are copied or adapted from other open-source projects. Each such file keeps its
 original notice at the top, and is listed here with where it came from.
@@ -12,4 +13,6 @@ original notice at the top, and is listed here with where it came from.
 | `apps/web/src/components/brands.tsx` (the marks' paths) | [Simple Icons](https://github.com/simple-icons/simple-icons) | `icons/*.svg` | CC0 1.0; the marks are their owners' trademarks |
 
 Projects Hearth borrows ideas from without copying code: Macro (macro-inc/macro, AGPLv3),
-Twenty (twentyhq/twenty, AGPLv3 and MIT parts).
+Twenty (twentyhq/twenty, AGPLv3 and MIT parts). The canvas's data shape
+(`packages/core/src/canvas.ts`) and its arrows' side and curve rules
+(`apps/web/src/canvas/geometry.ts`) follow Macro's block-canvas, written anew.

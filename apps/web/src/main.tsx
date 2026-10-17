@@ -1,6 +1,8 @@
 import { render } from "solid-js/web";
 import "./index.css";
 import { miniPage } from "./lib/desktop.ts";
+// Keeps the page on this device's theme (public/theme-boot.js set it before the first paint).
+import "./lib/theme.ts";
 import { App } from "./shell/App.tsx";
 import { MiniApp } from "./shell/Mini.tsx";
 

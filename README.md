@@ -1,8 +1,10 @@
 # Hearth
 
-A personal, self-hosted workspace modeled on [Macro](https://macro.com), with Jarvis rebuilt as
-its native agent. One graph of tasks, notes, people and conversations, one inbox, split panes,
-and an agent that both answers you and acts on its own.
+A personal, self-hosted workspace with its own agent. One graph of tasks, notes, people and
+conversations, one inbox, split panes, and an agent that both answers you and acts on its own.
+
+You see it as **Nook**, and its agent as **Pip** (D74); the code, services and data keep the names
+Hearth and Jarvis. Nook's look is the design system in [design/nook/](design/nook/README.md).
 
 ## Status
 
@@ -103,4 +105,5 @@ On a slower machine, set `HEARTH_PERF_SLACK` to how many times slower it is: CI 
 | `apps/extension` | The Hearth extension for Chrome (Jarvis's browser) |
 | `ops/windows` | Windows services and tasks, updates (`update.ps1`) and restarts |
 
-Hearth is AGPLv3; it borrows from Macro (see [NOTICE.md](NOTICE.md)).
+Hearth is MIT-licensed; what it copies from other projects, and their licenses, is in
+[NOTICE.md](NOTICE.md).

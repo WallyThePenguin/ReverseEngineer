@@ -1,0 +1,1 @@
+The island is a `glass-strong` pill that grows from the menu bar while Pip works: Pip at 24px on the left, one short phrase, and the stop key as Kbd. Pip's state matches the phrase (listening, thinking, asleep). The compact chip shows Pip idle in the bar when nothing is happening. The consumer provides the state and the phrase.

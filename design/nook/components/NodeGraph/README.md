@@ -1,0 +1,3 @@
+The graph shows how tasks, notes, people, events and mail link together. Nodes are filled circles coloured by type (`node-task`, `node-note`, `node-person`, `node-event`, `node-mail`) with a 2px `surface-1` ring; radius scales with link count (12 to 22). Edges are 1.25px `edge` at 55% opacity.
+
+The selected node gets a 2px `focus` ring, its edges turn `accent` at 2px, and a `glass-strong` info tooltip appears bottom left. Labels use `ink` with a `surface-1` halo. Hover dims unrelated nodes to 25%. Pan with drag, zoom with pinch or scroll, Enter opens the node's window. The consumer provides nodes (id, type, label, links) and the layout.

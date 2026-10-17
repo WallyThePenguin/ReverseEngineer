@@ -1,32 +1,38 @@
-// Hearth's own marks: the flame, which stands for Hearth itself as on its app icon
-// (public/icon.svg), and Jarvis's mark, an ember circle that shows how Jarvis is doing.
+// Nook's own marks: the Nook mark, which stands for Nook itself as on its app icon
+// (public/icon.svg, design/nook/assets/Logos), and the agent's mark, a circle that shows how the
+// agent is doing.
 
 import { Show } from "solid-js";
 
-/** The flame of public/icon.svg, in its 32 by 32 box. */
-const FLAME =
-  "M16 7c3 4 6 6.5 6 11a6 6 0 0 1-12 0c0-2.5 1.2-4.3 2.6-5.6.2 1.8 1 3 2.4 3.6-.4-3.3.4-6.3 1-9z";
+/** The Light theme's accent, which Nook's mark keeps in every theme. */
+const MARK_BLUE = "#0a60c8";
 
 /**
- * Hearth's flame. On its ember tile it's the app icon, the same in light and dark mode; without
- * the tile it's drawn in the text's colour.
+ * Nook's mark: two windows, the front one Pip's face, on the accent tile. It's baked to the Light
+ * theme's accent and stays blue on dark surfaces; never recoloured or outlined.
  */
-export function Flame(props: { size?: number; tile?: boolean; class?: string }) {
-  const tile = () => props.tile !== false;
+export function NookMark(props: { size?: number; class?: string }) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
-      // The bare flame fills its box; on the tile it sits as on the app icon.
-      viewBox={tile() ? "0 0 32 32" : "6.5 6 19 19"}
+      viewBox="0 0 64 64"
       width={props.size ?? 20}
       height={props.size ?? 20}
       class={`shrink-0 ${props.class ?? ""}`}
       aria-hidden="true"
     >
-      <Show when={tile()} fallback={<path d={FLAME} fill="currentColor" />}>
-        <rect width="32" height="32" rx="8" fill="#c2410c" />
-        <path d={FLAME} fill="#fff" />
-      </Show>
+      <rect width="64" height="64" rx="16" fill={MARK_BLUE} />
+      <rect x="10" y="12" width="30" height="26" rx="7" fill="#fff" opacity=".4" />
+      <rect x="22" y="24" width="32" height="28" rx="8" fill="#fff" />
+      <circle cx="33" cy="37" r="3.5" fill={MARK_BLUE} />
+      <circle cx="43" cy="37" r="3.5" fill={MARK_BLUE} />
+      <path
+        d="M36 44q2 2 4 0"
+        fill="none"
+        stroke={MARK_BLUE}
+        stroke-width="2"
+        stroke-linecap="round"
+      />
     </svg>
   );
 }
