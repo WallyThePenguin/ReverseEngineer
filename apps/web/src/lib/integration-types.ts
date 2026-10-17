@@ -8,6 +8,8 @@ export interface CalendarSetup {
     status: "ok" | "failing" | "revoked";
     lastError: string | null;
     connectedAt: string;
+    /** What Google let Hearth use: calendar, mail. */
+    scopes: string[];
   }[];
   /** One row per account that sees the calendar; a shared one is in each, synced through one. */
   calendars: {

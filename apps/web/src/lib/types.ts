@@ -324,6 +324,10 @@ export interface CalEvent {
   taskId: string | null;
   /** Its prep packet's record, once Jarvis has written one. */
   prepId?: string;
+  /** Google's eventType: "default", "workingLocation", "birthday", "outOfOffice"... */
+  kind: string;
+  /** Its calendar's colour in Google ("#9fe1e7"), where calendar.events lists it. */
+  calendarColor?: string | null;
 }
 
 /** One thing Jarvis made (jarvis.did): read from the record itself, never from what it said. */

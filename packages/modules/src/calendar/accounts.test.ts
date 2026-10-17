@@ -5,6 +5,7 @@ import { integrationCaller, ownerCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
 import { and, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { GAttendee } from "../google/calendar-api.ts";
 import { GOOGLE_SERVICE, SCOPES } from "../google/client.ts";
 import { FakeGoogle } from "../google/fake.ts";
 import { ALL_MODULES } from "../index.ts";
@@ -184,6 +185,36 @@ describe("two Google accounts", () => {
     // Turned off, its events stay on this PC, but they aren't your time any more.
     await run("calendar.choose", { id: ana.id, selected: false });
     expect(await busyTimes(t.tdb.db, ...window)).toEqual([]);
+  });
+
+  it("lists a meeting you're invited to at both addresses once, as the copy you said yes to", async () => {
+    const planning = (self: string, response: GAttendee["responseStatus"], day: string) => ({
+      summary: "Planning",
+      iCalUID: "planning-1@google.com",
+      start: at(`2026-10-${day}T16:00:00Z`),
+      end: at(`2026-10-${day}T17:00:00Z`),
+      attendees: [
+        { email: "ana@example.com", organizer: true, responseStatus: "accepted" as const },
+        { email: self, self: true, responseStatus: response },
+      ],
+    });
+    g.put(ME, planning(ME, "declined", "02"));
+    g.put(WORK, planning(WORK, "accepted", "02"));
+    // A later time of the same repeating meeting has its iCalUID, but not its start.
+    g.put(ME, planning(ME, "needsAction", "09"));
+    await sync();
+    const listed = await run<{ title: string; startsAt: Date; selfResponse: string | null }[]>(
+      "calendar.events",
+      { from: "2026-10-01T00:00:00Z", to: "2026-10-12T00:00:00Z" },
+    );
+    expect(
+      listed
+        .filter((e) => e.title === "Planning")
+        .map((e) => [new Date(e.startsAt).toISOString(), e.selfResponse]),
+    ).toEqual([
+      ["2026-10-02T16:00:00.000Z", "accepted"],
+      ["2026-10-09T16:00:00.000Z", "needsAction"],
+    ]);
   });
 
   it("puts new events on the calendar you chose", async () => {

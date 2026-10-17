@@ -9,15 +9,18 @@ import { InviteAnswers } from "../components/InviteAnswers.tsx";
 import { Icon } from "../components/icons.tsx";
 import { Pill } from "../components/kit/Pill.tsx";
 import { OutsideMark } from "../components/OutsideMark.tsx";
+import { QueryView } from "../components/QueryView.tsx";
 import { Badge, Button, Empty, PaneHeader } from "../components/ui.tsx";
+import { createToday } from "../lib/clock.ts";
+import { emptyWeek, pastKept } from "../lib/emptyWeek.ts";
 import { hours, plural, span, time } from "../lib/format.ts";
 import { toast } from "../lib/live.ts";
 import { layout, routeFor } from "../lib/panes.ts";
 import { act, useAction } from "../lib/query.ts";
 import { quickAdd } from "../lib/quickadd.ts";
-import { unanswered } from "../lib/today.ts";
-import type { CalEvent, Entity } from "../lib/types.ts";
-import { byDay, createWeekStart, weeksOn } from "../lib/week.ts";
+import { isPlan, unanswered } from "../lib/today.ts";
+import type { CalEvent, CalendarSetup, Entity } from "../lib/types.ts";
+import { byDay, createWeekStart, syncedUntil, weeksOn } from "../lib/week.ts";
 import { type EventDraft, readEvent } from "../lib/when.ts";
 import { takeNotes } from "./Meeting.tsx";
 
@@ -35,6 +38,21 @@ const planned = (ev: EventDraft) =>
   ev.allDay
     ? `${dayLabel(new Date(`${ev.start}T00:00`))}, all day`
     : when(new Date(ev.start), new Date(ev.end));
+
+/** A calendar's colour as Google gives it, or none if it isn't one ("#9fe1e7"). */
+const colour = (c: string | null | undefined) => (c && /^#[0-9a-f]{3,8}$/i.test(c) ? c : undefined);
+
+/** A week with nothing on, in words that don't call it free when Hearth wouldn't know. */
+function NoEvents(props: { from: Date; until: Date }) {
+  const setup = useAction<CalendarSetup>("calendar.calendars");
+  return (
+    <Show when={props.from < props.until} fallback={<Empty>{pastKept(props.until)}</Empty>}>
+      <Show when={setup.data}>
+        {(s) => <Empty>{emptyWeek(props.from, props.until, s())}</Empty>}
+      </Show>
+    </Show>
+  );
+}
 
 /** The box that adds an event from a line of text. */
 function NewEvent() {
@@ -76,6 +94,72 @@ function NewEvent() {
   );
 }
 
+/** One event in the week: when, its calendar's colour, what, where, and Join for a video call. */
+function Row(props: { event: CalEvent; pane: number }) {
+  const e = () => props.event;
+  const guests = () => e().attendees.filter((a) => !a.self).length;
+  return (
+    <li
+      class="flex cursor-pointer flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line px-4 py-2"
+      onClick={() =>
+        layout.open({ view: "record", id: e().id }, { beside: true, pane: props.pane })
+      }
+    >
+      <span class="w-20 shrink-0 text-xs text-muted tabular-nums">
+        {e().allDay ? "all day" : time(new Date(e().startsAt))}
+      </span>
+      <span
+        class="size-2 shrink-0 self-center rounded-full bg-line"
+        style={{ "background-color": colour(e().calendarColor) }}
+        aria-hidden="true"
+      />
+      <span class="min-w-0 flex-1">
+        <span
+          class={`block truncate ${e().selfResponse === "declined" ? "line-through opacity-60" : ""}`}
+        >
+          {e().title}
+        </span>
+        <span class="block truncate text-xs text-faint">
+          {[e().allDay ? null : `until ${time(new Date(e().endsAt))}`, e().location]
+            .filter(Boolean)
+            .join(" · ")}
+        </span>
+      </span>
+      <Show when={e().taskId}>
+        <Badge tone="jarvis">focus</Badge>
+      </Show>
+      <Show when={e().prepId}>
+        <Pill tone="ok">Prep ready</Pill>
+      </Show>
+      <Show when={guests() > 0}>
+        <span class="text-xs text-faint">{plural(guests(), "guest")}</span>
+      </Show>
+      <Show when={e().meetUrl}>
+        {(url) => (
+          <a
+            class="text-xs text-jarvis underline"
+            href={url()}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(ev) => ev.stopPropagation()}
+          >
+            Join
+          </a>
+        )}
+      </Show>
+      {/* Not answered yet: answered right here, under its name on a phone. */}
+      <Show when={unanswered(e())}>
+        <InviteAnswers
+          eventId={e().id}
+          response={e().selfResponse}
+          recurring={e().recurringEventId !== null}
+          class="w-full pl-23 md:w-auto md:pl-0"
+        />
+      </Show>
+    </li>
+  );
+}
+
 export function Calendar(props: { pane: number }) {
   const [offset, setOffset] = createSignal(0);
   // Starts on the day, and a day's section is kept by its date (lib/week.ts): the minute moving
@@ -86,6 +170,8 @@ export function Calendar(props: { pane: number }) {
     to: weeksOn(from(), 1).toISOString(),
   }));
   const week = byDay(() => events.data, from);
+  const today = createToday();
+  const until = createMemo(() => syncedUntil(new Date(today())));
   return (
     <div class="flex h-full flex-col">
       <PaneHeader title="Calendar">
@@ -103,68 +189,33 @@ export function Calendar(props: { pane: number }) {
       </PaneHeader>
       <NewEvent />
       <div class="flex-1 overflow-auto">
-        <Show
-          when={week.days().length > 0}
-          fallback={
-            <Empty>
-              Nothing on your calendar this week, or Google isn't connected yet (Settings).
-            </Empty>
-          }
+        <QueryView
+          query={events}
+          what="your calendar"
+          isEmpty={(list) => !list.some(isPlan)}
+          empty={<NoEvents from={from()} until={until()} />}
         >
-          <For each={week.days()}>
-            {(day) => (
-              <section>
-                <h2 class="sticky top-0 bg-panel px-4 pt-3 pb-1 text-xs font-semibold text-muted uppercase">
-                  {dayLabel(new Date(day))}
-                </h2>
-                <ul>
-                  <For each={week.on(day)}>
-                    {(e) => (
-                      <li
-                        class="flex cursor-pointer flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line px-4 py-2"
-                        onClick={() =>
-                          layout.open(
-                            { view: "record", id: e.id },
-                            { beside: true, pane: props.pane },
-                          )
-                        }
-                      >
-                        <span class="w-20 shrink-0 text-xs text-muted tabular-nums">
-                          {e.allDay ? "all day" : time(new Date(e.startsAt))}
-                        </span>
-                        <span
-                          class={`flex-1 truncate ${e.selfResponse === "declined" ? "line-through opacity-60" : ""}`}
-                        >
-                          {e.title}
-                        </span>
-                        <Show when={e.taskId}>
-                          <Badge tone="jarvis">focus</Badge>
-                        </Show>
-                        <Show when={e.prepId}>
-                          <Pill tone="ok">Prep ready</Pill>
-                        </Show>
-                        <Show when={e.attendees.filter((a) => !a.self).length > 0}>
-                          <span class="text-xs text-faint">
-                            {plural(e.attendees.filter((a) => !a.self).length, "guest")}
-                          </span>
-                        </Show>
-                        {/* Not answered yet: answered right here, under its name on a phone. */}
-                        <Show when={unanswered(e)}>
-                          <InviteAnswers
-                            eventId={e.id}
-                            response={e.selfResponse}
-                            recurring={e.recurringEventId !== null}
-                            class="w-full pl-23 md:w-auto md:pl-0"
-                          />
-                        </Show>
-                      </li>
-                    )}
-                  </For>
-                </ul>
-              </section>
-            )}
-          </For>
-        </Show>
+          {() => (
+            <>
+              <For each={week.days()}>
+                {(day) => (
+                  <section>
+                    <h2 class="sticky top-0 bg-panel px-4 pt-3 pb-1 text-xs font-semibold text-muted uppercase">
+                      {dayLabel(new Date(day))}
+                    </h2>
+                    <ul>
+                      <For each={week.on(day)}>{(e) => <Row event={e} pane={props.pane} />}</For>
+                    </ul>
+                  </section>
+                )}
+              </For>
+              {/* A week that runs past the last day Hearth keeps says so under what it has. */}
+              <Show when={weeksOn(from(), 1) > until()}>
+                <p class="px-4 py-3 text-sm text-muted">{pastKept(until())}</p>
+              </Show>
+            </>
+          )}
+        </QueryView>
       </div>
     </div>
   );

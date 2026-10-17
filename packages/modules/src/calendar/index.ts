@@ -19,6 +19,7 @@ import { calendarWriteActions } from "./actions.ts";
 import { blockAction, blockReflex, blockRoutine } from "./blocks.ts";
 import { calendarSetupActions, isOwnCalendar, ownAccount } from "./calendars.ts";
 import { conflicts, overlaps } from "./conflicts.ts";
+import { copiesOf, oneEach } from "./copies.ts";
 import { freeSlots } from "./free.ts";
 import { newInvite } from "./invites.ts";
 import { meetingActions } from "./meetings.ts";
@@ -127,7 +128,7 @@ export const calendarModule = defineModule({
     defineAction({
       name: "calendar.events",
       description:
-        "Events between two times (default: today and tomorrow), earliest first, with guests and ids.",
+        "Events between two times (default: today and tomorrow), earliest first, with guests and ids. A meeting on more than one of your calendars is listed once.",
       input: z.object({
         from: isoDateTime.optional(),
         to: isoDateTime.optional(),
@@ -138,7 +139,13 @@ export const calendarModule = defineModule({
         const from = i.from ? new Date(i.from) : ctx.now;
         const to = i.to ? new Date(i.to) : new Date(from.getTime() + 2 * DAY_MS);
         const rows = await ctx.tx
-          .select({ e: entity, r: calendarEvent, own: googleAccount.email })
+          .select({
+            e: entity,
+            r: calendarEvent,
+            own: googleAccount.email,
+            writeDefault: calendar.writeDefault,
+            color: calendar.color,
+          })
           .from(calendarEvent)
           .innerJoin(entity, eq(entity.id, calendarEvent.entityId))
           .innerJoin(calendar, eq(calendar.id, calendarEvent.calendarId))
@@ -159,11 +166,13 @@ export const calendarModule = defineModule({
           ctx.tx,
           rows.map((x) => x.e.id),
         );
-        return rows.map((x) => {
-          const prep = preps.get(x.e.id);
+        return oneEach(rows).map(({ shown: x, copies }) => {
+          // The shown copy's own prep first, else one written for another copy.
+          const prep = preps.get(x.e.id) ?? copies.map((c) => preps.get(c.e.id)).find(Boolean);
           return {
             ...toEventView(x.e, x.r),
             ownCalendar: x.own !== null,
+            calendarColor: x.color,
             ...(prep ? { prepId: prep.id } : {}),
           };
         });
@@ -177,8 +186,10 @@ export const calendarModule = defineModule({
       async handler(i, ctx) {
         const ev = await loadEvent(ctx.tx, i.id);
         if (!ev) return null;
-        // Its prep packet, so the event's page can open with it.
-        const prep = (await prepsFor(ctx.tx, [ev.id])).get(ev.id);
+        // Its prep packet, so the event's page can open with it: its own, else another copy's.
+        const ids = await copiesOf(ctx.tx, ev.id);
+        const preps = await prepsFor(ctx.tx, ids);
+        const prep = ids.map((x) => preps.get(x)).find(Boolean);
         const ownCalendar = await isOwnCalendar(ctx.tx, ev.calendarId);
         return { ...ev, ownCalendar, ...(prep ? { prepId: prep.id } : {}) };
       },

@@ -17,6 +17,7 @@ import {
   type EntityRow,
 } from "@hearth/kernel";
 import { and, asc, desc, eq, gt, gte, inArray, isNull, lte, ne, notInArray } from "drizzle-orm";
+import { copiesOf } from "../calendar/copies.ts";
 import { NOT_MEETINGS } from "../calendar/store.ts";
 
 export interface MeetingView {
@@ -69,11 +70,16 @@ export async function startMeeting(
   let title = i.title ?? "Meeting";
   let startedAt = ctx.now;
   if (i.eventId) {
+    // Notes started on another copy of the same meeting (an invitation to your other address).
     const [known] = await ctx.tx
       .select({ id: meeting.entityId })
       .from(meeting)
       .innerJoin(entity, eq(entity.id, meeting.entityId))
-      .where(and(eq(meeting.eventId, i.eventId), isNull(entity.deletedAt)));
+      .where(
+        and(inArray(meeting.eventId, await copiesOf(ctx.tx, i.eventId)), isNull(entity.deletedAt)),
+      )
+      .orderBy(asc(entity.createdAt))
+      .limit(1);
     if (known) return known.id;
     const [ev] = await ctx.tx
       .select({ title: entity.title, startsAt: calendarEvent.startsAt })
