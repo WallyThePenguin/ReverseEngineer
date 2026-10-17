@@ -2226,3 +2226,28 @@ none was copied, NOTICE.md lists what was).
 
 **Why:** The owner, 2026-10-17, after another agent's rework broke the live install: rebuild the
 look from the ground up on the Nook design system, call it Nook with Pip, and keep MIT.
+
+## D75. Nook arranges your windows: in the desktop app, off by default, hiding by minimizing (2026-10-17)
+
+**Decision:** Nook's desktop app gets a window manager that can tile, group into workspaces and
+focus every top-level window on the PC (docs/nook-wm.md). It's a module of the Tauri app
+(`src/nook/`), plus `crates/nook-restore` and a separate `nook-guard.exe` whose only job is to put
+windows back. It's off until the owner turns it on, one capability at a time; while off it hooks,
+registers and draws nothing. A window on another workspace is minimized, so it stays in the
+taskbar if every part of Nook fails. Every change is journaled before it's made, and a crash, a
+kill, an update, an uninstall or Panic (Ctrl+Win+Alt+Esc) restores it. Games, anti-cheat,
+Wallpaper Engine and the shell are never touched or opened. Keys use RegisterHotKey only, in the
+Ctrl+Win+Alt family. It ships in phases P0–P6, each gated on 200 forced crashes leaving no window
+stranded and on its CPU budget.
+
+**Alternatives:** Running komorebi or GlazeWM beside Nook (their own config and bar, and komorebi's
+license doesn't allow reuse in Nook). Cloaking or moving windows off-screen to hide them (faster,
+but a crash can strand them; cloaking is a later opt-in only on verified Windows builds). A
+keyboard hook to take over Win+1..9 (risky with games and anti-cheat). Drawing the bar from the
+server's pages on 127.0.0.1:4400 (blank when the server restarts; it's bundled into the app).
+
+**Why:** The owner, 2026-10-17: "I want it to manage my windows, i know its scary, do research into
+a highly reputable open sourced windows manager and do research as to how to approach this the
+best way possible." The first attempt, by another agent, ran an unguarded daemon on port 4401;
+this design puts safety first. The owner's 13 open choices are collected on the design page, with
+a proposed default for each.
