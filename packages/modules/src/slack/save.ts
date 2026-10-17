@@ -1,15 +1,10 @@
 // Saving what Slack says: messages are records written by Slack (outside content), and one that
 // @mentions you or is a direct message lands in the inbox when `announce` says so.
-import {
-  personEmail,
-  type slackChannel,
-  slackMessage,
-  slackUser,
-  type slackWorkspace,
-} from "@hearth/db";
+import { type slackChannel, slackMessage, slackUser, type slackWorkspace } from "@hearth/db";
 import { type ActionContext, addLink, createEntity, createNotification } from "@hearth/kernel";
 import { and, eq, sql } from "drizzle-orm";
 import { VAULT_SERVICE, type Vault } from "../browser/vault.ts";
+import { personFor } from "../people/store.ts";
 import { SLACK_SERVICE, type SlackApi, type SlackMessage } from "./api.ts";
 
 /**
@@ -92,22 +87,28 @@ export function plainText(text: string, names: Map<string, string>): string {
 /** A name someone else chose (a person, a channel), safe to put in Hearth's text. */
 export const named = (s: string) => s.replace(/<(\/?m-ref)/gi, "‹$1");
 
-/** A Slack user's name, asked of Slack once and kept (with the person they are, by email). */
+/**
+ * A Slack user's name, asked of Slack once and kept, with the person they are by email. Who they
+ * are is looked up each time: someone you meet or write to later becomes theirs, and someone you
+ * put in the trash stops being.
+ */
 export async function userName(ctx: ActionContext, ws: WorkspaceRow, token: string, id: string) {
   const [known] = await ctx.tx.select().from(slackUser).where(eq(slackUser.id, id));
-  if (known) return known;
+  if (known) {
+    const personId = known.email ? await personFor(ctx.tx, known.email) : null;
+    if (personId === known.personId) return known;
+    await ctx.tx.update(slackUser).set({ personId }).where(eq(slackUser.id, id));
+    return { ...known, personId };
+  }
   const u = await slackApi(ctx).user(token, id);
   const email = u?.email?.toLowerCase() ?? null;
-  const [person] = email
-    ? await ctx.tx.select().from(personEmail).where(eq(personEmail.address, email))
-    : [];
   const row = {
     id,
     teamId: ws.teamId,
     name: (u?.name ?? id).slice(0, 200),
     email,
     bot: u?.bot ?? false,
-    personId: person?.personId ?? null,
+    personId: email ? await personFor(ctx.tx, email) : null,
   };
   await ctx.tx.insert(slackUser).values(row).onConflictDoNothing();
   return row;

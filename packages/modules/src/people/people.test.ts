@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { entity, personEmail } from "@hearth/db";
 import { type Caller, integrationCaller, jarvisCaller, ownerCaller } from "@hearth/kernel";
 import { createTestKernel, type TestKernel } from "@hearth/kernel/testing";
+import { isNotNull } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GOOGLE_SERVICE, SCOPES } from "../google/client.ts";
 import { FakeGoogle } from "../google/fake.ts";
@@ -220,6 +221,85 @@ describe("people and companies", () => {
       fields: { Birthday: "May 2" },
       emails: ["eve@gamma.example"],
     });
+  });
+});
+
+describe("who isn't a person", () => {
+  it("makes none of a desk's address, and leaves someone you put in the trash there", async () => {
+    write([
+      { address: "support@acme.example", name: "Acme Support" },
+      { address: "ana@acme.example", name: "Ana Silva" },
+    ]);
+    await sync();
+    expect((await people()).map((p) => p.name)).toEqual(["Ana Silva"]);
+    await ok("entity.trash", { id: (await byName("Ana Silva")).id });
+    write([{ address: "ana@acme.example", name: "Ana Silva" }], "Again");
+    g.gmail.deliver({ from: { address: "ana@acme.example" }, subject: "Re: Again", text: "Hi" });
+    await sync();
+    expect(await people()).toEqual([]);
+    // Nor is she counted at Acme any more.
+    expect(await ok("company.list")).toMatchObject([{ name: "Acme", people: 0 }]);
+  });
+
+  it("makes none of your own address on a meeting's guest list", async () => {
+    g.put(ME, {
+      summary: "Planning",
+      start: { dateTime: "2026-09-29T15:00:00Z" },
+      end: { dateTime: "2026-09-29T16:00:00Z" },
+      attendees: [
+        { email: ME, self: true, responseStatus: "accepted" },
+        { email: "Owner+cal@example.com", displayName: "Me again" },
+        { email: "carol@beta.example", displayName: "Carol" },
+      ],
+    });
+    await sync();
+    expect((await people()).map((p) => p.name)).toEqual(["Carol"]);
+  });
+
+  it("names someone known by their address with what they first call themselves", async () => {
+    write([{ address: "cy@acme.example" }]);
+    await sync();
+    expect((await people()).map((p) => p.name)).toEqual(["cy@acme.example"]);
+    const from = (name: string) =>
+      g.gmail.deliver({ from: { address: "cy@acme.example", name }, subject: "Re", text: "Hi" });
+    from("Cy Young");
+    await sync();
+    from("C. Y.");
+    await sync();
+    expect((await people()).map((p) => p.name)).toEqual(["Cy Young"]);
+  });
+
+  it("trashes the people Hearth made for your own or a desk's address, unless you kept them", async () => {
+    let n = 0;
+    const made = async (address: string, extra: Partial<typeof entity.$inferInsert> = {}) => {
+      const id = `00000000-0000-7000-8000-0000000001${String(++n).padStart(2, "0")}`;
+      await t.tdb.db.insert(entity).values({
+        id,
+        type: "person",
+        title: address,
+        body: `Email: ${address}`,
+        createdBy: "integration:google",
+        updatedBy: "integration:google",
+        ...extra,
+      });
+      await t.tdb.db.insert(personEmail).values({ address, personId: id });
+      return id;
+    };
+    const self = await made("owner+lists@example.com");
+    // Made when you wrote to them from Hearth.
+    const desk = await made("billing@vendor.example", { createdBy: "owner", updatedBy: "owner" });
+    await made("help@vendor.example", { body: "Their desk: ask for Sam" });
+    const kept = await made("sales@vendor.example");
+    await ok("person.update", { id: kept, fields: { Rep: "Sam" } });
+    const renamed = await made("orders@vendor.example");
+    await ok("person.update", { id: renamed, name: "Vendor orders" });
+    await made("ana@vendor.example");
+    expect(await ok("people.tidy")).toMatchObject({ trashed: 2 });
+    const gone = await t.tdb.db
+      .select({ id: entity.id })
+      .from(entity)
+      .where(isNotNull(entity.deletedAt));
+    expect(gone.map((r) => r.id).sort()).toEqual([self, desk].sort());
   });
 });
 

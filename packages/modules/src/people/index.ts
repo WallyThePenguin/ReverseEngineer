@@ -14,12 +14,16 @@ import {
   updateEntity,
 } from "@hearth/kernel";
 import { and, asc, count, eq, isNotNull, isNull } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { body, describeRow, id, isOutside, liveEntity } from "../shared.ts";
 import { companyDomain } from "./domains.ts";
-import { ensureCompany, ensureProfile, lastContacts, personFor } from "./store.ts";
+import { ensureCompany, ensureProfile, lastContacts, personFor, trashedFor } from "./store.ts";
+import { trashNotPeople } from "./tidy.ts";
 import { listPeople, overdue, personFacts, personView } from "./views.ts";
 
+/** A company's people as records, to leave out the ones in the trash. */
+const member = alias(entity, "member");
 const name = z.string().trim().min(1).max(200);
 const email = z.string().trim().toLowerCase().email().max(320);
 const fields = z
@@ -40,6 +44,12 @@ async function addEmail(
   const owner = await personFor(ctx.tx, address);
   if (owner && owner !== personId)
     throw new ActionError("conflict", `${address} already belongs to another person (${owner})`);
+  const trashed = await trashedFor(ctx.tx, address);
+  if (trashed)
+    throw new ActionError(
+      "conflict",
+      `${address} belongs to a person in the trash (${trashed}). Restore them, or empty the trash first.`,
+    );
   await ctx.tx.insert(personEmail).values({ address, personId }).onConflictDoNothing();
 }
 
@@ -151,11 +161,13 @@ const companyActions = [
           id: entity.id,
           name: entity.title,
           domain: company.domain,
-          people: count(person.entityId),
+          people: count(member.id),
         })
         .from(company)
         .innerJoin(entity, eq(entity.id, company.entityId))
         .leftJoin(person, eq(person.companyId, company.entityId))
+        // Someone in the trash isn't someone you know there.
+        .leftJoin(member, and(eq(member.id, person.entityId), isNull(member.deletedAt)))
         .where(isNull(entity.deletedAt))
         .groupBy(entity.id, entity.title, company.domain)
         .orderBy(asc(entity.title))
@@ -190,7 +202,7 @@ const companyActions = [
   defineAction({
     name: "people.tidy",
     description:
-      "Housekeeping: gives people added before companies existed their profile and company.",
+      "Housekeeping: gives people added before companies existed their profile and company, and puts in the trash people Hearth made for your own addresses or a desk's (support@…) that you haven't touched.",
     input: z.object({}),
     risk: "internal",
     async handler(_i, ctx) {
@@ -201,7 +213,7 @@ const companyActions = [
         .where(and(eq(entity.type, "person"), isNull(entity.deletedAt), isNull(person.entityId)))
         .limit(500);
       for (const r of rows) await ensureProfile(ctx, r.id);
-      return { profiles: rows.length };
+      return { profiles: rows.length, trashed: await trashNotPeople(ctx) };
     },
   }),
 ];
@@ -243,7 +255,8 @@ export const peopleModule = defineModule({
   routines: [
     {
       name: "people.tidy",
-      description: "Each night, gives people without a company profile one.",
+      description:
+        "Each night, gives people without a company profile one, and trashes untouched ones for your own or a desk's address.",
       cron: "15 4 * * *",
       staleAfterSeconds: null,
       run: async () => [{ kind: "act", action: "people.tidy", input: {} }],

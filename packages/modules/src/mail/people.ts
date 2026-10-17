@@ -3,7 +3,7 @@
 import { type DbOrTx, type MailAddress, type MailLane, mailSenderRule } from "@hearth/db";
 import type { ActionContext } from "@hearth/kernel";
 import { inArray } from "drizzle-orm";
-import { ensurePerson, linkPerson, personFor } from "../people/store.ts";
+import { ensurePerson, linkPerson, nameFrom, personFor } from "../people/store.ts";
 import { addressKey } from "./mine.ts";
 
 /** Gmail's tabs other than Primary. Mail there starts out as Noise. */
@@ -74,13 +74,17 @@ export async function linkPeople(
   const others = (list: MailAddress[]) => list.filter((a) => !mine.has(addressKey(a.address)));
   if (m.outbound) {
     for (const who of others([...m.to, ...m.cc]).slice(0, 20)) {
+      // None for a desk's address, or someone you put in the trash.
       const personId = await ensurePerson(ctx, who);
-      await linkPerson(ctx, messageId, personId);
+      if (personId) await linkPerson(ctx, messageId, personId);
     }
     return;
   }
   for (const who of others([...(m.from ? [m.from] : []), ...m.to, ...m.cc]).slice(0, 20)) {
     const personId = await personFor(ctx.tx, who.address);
-    if (personId) await linkPerson(ctx, messageId, personId);
+    if (!personId) continue;
+    await linkPerson(ctx, messageId, personId);
+    // What they call themselves, for someone known only by their address so far.
+    if (who === m.from) await nameFrom(ctx, personId, who);
   }
 }
