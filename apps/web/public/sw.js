@@ -74,7 +74,9 @@ const inApp = (url) => !url.pathname.split("/").pop().includes(".");
  * The desktop app's small windows (/capture, /chat?compact=1: lib/desktop.ts). They're opened to
  * type into at once, so they come from the PC: one opened from a page kept from before an update
  * would move itself on to the new one as you start typing. The app opens them once the PC has
- * answered (offline::load), so this costs no wait.
+ * answered (offline::load), so this costs no wait, and a slow answer is waited for: only a PC out
+ * of reach, or answering with an error, opens the kept page (and Ask, which has no notice, would
+ * stay on it).
  */
 const smallWindow = (url) => {
   const path = url.pathname.replace(/\/+$/, "");
@@ -134,10 +136,10 @@ async function openSaved(e) {
 /**
  * The newest page from the PC: before any is kept, while the one kept hasn't started, on a reload
  * (lib/version.ts), and for its files opened as pages. If it's out of reach, answers with an error
- * (Hearth restarting behind a proxy) or takes more than a few seconds, the last page seen opens
- * instead, and the app inside it waits for Hearth to come back.
+ * (Hearth restarting behind a proxy) or takes more than a few seconds (unless `patient`: the small
+ * windows), the last page seen opens instead, and the app inside it waits for Hearth to come back.
  */
-function navigate(e) {
+function navigate(e, patient = false) {
   const network = fetch(e.request);
   let answered = false;
   const saved = () => caches.match("/");
@@ -153,6 +155,7 @@ function navigate(e) {
     async (res) => (res.status >= 500 && (await saved())) || res,
     async () => (await saved()) || Response.error(),
   );
+  if (patient) return fromNetwork;
   // Too slow: the saved page if there is one, else keep waiting.
   const slow = wait(NAVIGATE_TIMEOUT_MS).then(
     async () => (!answered && (await saved())) || fromNetwork,
@@ -199,7 +202,7 @@ self.addEventListener("fetch", (e) => {
     return;
   }
   if (e.request.mode === "navigate")
-    e.respondWith(inApp(url) && !smallWindow(url) ? openSaved(e) : navigate(e));
+    e.respondWith(smallWindow(url) ? navigate(e, true) : inApp(url) ? openSaved(e) : navigate(e));
 });
 
 self.addEventListener("push", (e) => {

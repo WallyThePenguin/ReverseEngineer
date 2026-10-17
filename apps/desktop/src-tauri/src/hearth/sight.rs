@@ -9,7 +9,7 @@
 // again when you're back. Hiding the window alone doesn't tell it: WebView2 keeps the page
 // "visible" until it's told.
 
-use super::window::MAIN;
+use super::window::{ASK, MAIN};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -168,9 +168,11 @@ pub(super) fn out_of_sight(window: &WebviewWindow) {
 }
 
 /// A window was closed to the tray (lib.rs). Hearth's main window's page rests until it's back.
+/// The Ask window's, put away with Alt+F4, is told too, as when it's put away otherwise
+/// (window.rs): it moves itself on to a new Hearth then.
 pub fn hidden(window: &tauri::Window) {
-    if window.label() == MAIN {
-        if let Some(w) = window.app_handle().get_webview_window(MAIN) {
+    if matches!(window.label(), MAIN | ASK) {
+        if let Some(w) = window.app_handle().get_webview_window(window.label()) {
             out_of_sight(&w);
         }
     }

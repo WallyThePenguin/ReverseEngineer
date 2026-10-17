@@ -92,6 +92,44 @@ export function whenHidden(
   return () => doc.removeEventListener("visibilitychange", hidden);
 }
 
+/** What the Ask window's put-away check reads and does; tests give their own. */
+export interface PutAway {
+  /** The build running on the PC, or null when it didn't answer. */
+  server: () => Promise<ServerBuild | null>;
+  /** Something a reload would cut off: you talking, or an answer still to be read aloud. */
+  busy: () => boolean;
+  page?: () => string | null;
+  loses?: () => boolean;
+  reloaded?: () => string | null;
+  reload?: (build: string) => void;
+}
+
+/**
+ * The desktop app's Ask window keeps its page between uses, and is opened to type into at once,
+ * so it never reloads as it opens or comes back: as it's put away (window.rs tells it), it asks
+ * which build is running and moves on to a newer one when that loses and cuts off nothing. One
+ * skipped then waits for the next time it's put away, as does one brought back meanwhile.
+ * Returns the cleanup.
+ */
+export function moveOnWhenHidden(
+  o: PutAway,
+  doc: EventTarget & { visibilityState: DocumentVisibilityState } = document,
+): () => void {
+  const {
+    page = () => pageBuild(),
+    loses = () => wouldLoseWork(),
+    reloaded = () => reloadedFor(),
+    reload = (build: string) => reloadInto(build),
+  } = o;
+  return whenHidden(async () => {
+    const server = await o.server();
+    if (!server) return;
+    const now = noticeFor(page(), server);
+    const into = reloadOnReturn(now, server, reloaded(), () => loses() || o.busy());
+    if (into && doc.visibilityState === "hidden") reload(into);
+  }, doc);
+}
+
 /**
  * The build a page that's just come back into view should reload into now, or null to show the
  * notice instead. Only when it's out of date and reloading loses nothing, and not when it already
