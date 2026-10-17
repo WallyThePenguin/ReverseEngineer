@@ -116,15 +116,15 @@ export function jarvisWatchdog(kernel: Kernel, opts: WatchdogOptions = {}) {
       stuck
         ? {
             kind: "system.alert",
-            title: "Jarvis won't stay running",
-            body: `Jarvis hasn't checked in since ${since}, and Hearth couldn't bring it back. Its log is hearth-jarvis.log in Hearth's services folder.`,
+            title: "Pip won't stay running",
+            body: `Pip hasn't checked in since ${since}, and Nook couldn't bring it back. Its log is hearth-jarvis.log in Nook's services folder.`,
             urgency: "interrupt",
             dedupeKey: `jarvis_stuck:${alive.at}`,
           }
         : {
             kind: "system.alert",
-            title: "Jarvis stopped, so Hearth restarted it",
-            body: `Jarvis hadn't checked in since ${since}. If it doesn't come back in a few minutes, you'll hear about it again.`,
+            title: "Pip stopped, so Nook restarted it",
+            body: `Pip hadn't checked in since ${since}. If it doesn't come back in a few minutes, you'll hear about it again.`,
             urgency: "normal",
             dedupeKey: `jarvis_restarted:${alive.at}`,
           },

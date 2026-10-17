@@ -65,7 +65,7 @@ export function ImportSettings() {
       <p class="text-sm text-muted">
         Bring your Notion pages in as notes. In Notion, choose Export, pick "Markdown & CSV" with
         subpages included, and upload the zip here. Links between pages become @mentions; images and
-        files stay in Notion. Jarvis treats imported pages as outside content.
+        files stay in Notion. Pip treats imported pages as outside content.
       </p>
       <label class="inline-flex cursor-pointer items-center gap-2 rounded-md bg-sunk px-3 py-2 text-sm">
         <input

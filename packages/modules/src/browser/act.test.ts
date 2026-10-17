@@ -211,7 +211,7 @@ describe.skipIf(!hasChromium)("Jarvis's hands in Chrome", () => {
     );
     // Stopped at the first look after: on Hearth's own page, or one that can't say mid-change.
     expect(pressed).toMatchObject({ status: "error" });
-    expect(JSON.stringify(pressed)).toMatch(/Hearth's own page|couldn't tell what page/);
+    expect(JSON.stringify(pressed)).toMatch(/Nook's own page|couldn't tell what page/);
     await expect.poll(() => chrome.page(tabId).url(), { timeout: 10_000 }).toBe(HEARTH);
     // A key already on its way as the page changed may land; none after it does.
     const now = await chrome.page(tabId).title();

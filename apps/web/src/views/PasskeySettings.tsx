@@ -23,7 +23,7 @@ interface Passkey {
   lastUsedAt: string | null;
 }
 
-const WINDOW_LABEL = "This PC's Hearth window";
+const WINDOW_LABEL = "This PC's Nook window";
 
 /** Adds a passkey where you are: another of yours, or Windows Hello for the window. */
 async function addPasskey(forWindow: boolean): Promise<void> {
@@ -45,7 +45,7 @@ async function addPasskey(forWindow: boolean): Promise<void> {
     // Whether Windows Hello opens inside the app's window isn't known for every PC: say so.
     const why = forWindow
       ? e.name === "NotAllowedError"
-        ? "Windows Hello was closed, or couldn't open in this window. If it never opens here, this window signs in from your browser instead: Settings, Desktop app, Connect Hearth on this PC."
+        ? "Windows Hello was closed, or couldn't open in this window. If it never opens here, this window signs in from your browser instead: Settings, Desktop app, Connect Nook on this PC."
         : `Windows Hello couldn't add a passkey in this window: ${e.message}`
       : e.name === "NotAllowedError"
         ? "The passkey prompt was closed."
@@ -57,14 +57,14 @@ async function addPasskey(forWindow: boolean): Promise<void> {
 /** Which passkey, said so it can't be taken for another: the Remove button and its question. */
 function named(p: Passkey): string {
   return p.window
-    ? "the Windows Hello passkey for this PC's Hearth window"
+    ? "the Windows Hello passkey for this PC's Nook window"
     : `the passkey "${p.label || "Passkey"}"`;
 }
 
 /** Removes a passkey once you've said yes. Hearth refuses the last one for its own address. */
 async function removePasskey(p: Passkey): Promise<void> {
   const sure = confirm(
-    `Remove ${named(p)}, added ${date(new Date(p.createdAt))}? It can't sign in to Hearth after this. Anywhere it's signed in already stays signed in.`,
+    `Remove ${named(p)}, added ${date(new Date(p.createdAt))}? It can't sign in to Nook after this. Anywhere it's signed in already stays signed in.`,
   );
   if (!sure) return;
   try {
@@ -111,7 +111,7 @@ export function PasskeySettings() {
                     <li class="flex flex-wrap items-center gap-x-3 rounded-md bg-sunk px-3 py-2 text-sm">
                       <span class="font-medium">{p.label || "Passkey"}</span>
                       <span class="flex-1 text-muted">
-                        {p.window ? "Works in Hearth's window on this PC" : `Works at ${host()}`}
+                        {p.window ? "Works in Nook's window on this PC" : `Works at ${host()}`}
                       </span>
                       <span class="text-xs text-faint">
                         {p.lastUsedAt ? `Used ${ago(p.lastUsedAt)}` : `Added ${ago(p.createdAt)}`}
@@ -133,9 +133,7 @@ export function PasskeySettings() {
               <Show
                 when={where() !== "elsewhere"}
                 fallback={
-                  <p class="text-sm text-muted">
-                    Passkeys are added at Hearth's address, {host()}.
-                  </p>
+                  <p class="text-sm text-muted">Passkeys are added at Nook's address, {host()}.</p>
                 }
               >
                 <div class="flex items-center gap-3">
@@ -146,7 +144,7 @@ export function PasskeySettings() {
                   </p>
                   <Button onClick={() => void add()}>
                     {where() === "window"
-                      ? "Add a passkey for this PC's Hearth window"
+                      ? "Add a passkey for this PC's Nook window"
                       : "Add a passkey"}
                   </Button>
                 </div>

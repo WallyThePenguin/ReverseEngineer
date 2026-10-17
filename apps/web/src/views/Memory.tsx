@@ -46,7 +46,7 @@ export function Memory(props: { pane: number }) {
 
   return (
     <div class="flex h-full flex-col">
-      <PaneHeader title="Memory" sub="What Jarvis remembers about you" />
+      <PaneHeader title="Memory" sub="What Pip remembers about you" />
       <form
         class="border-b border-line px-4 py-2"
         onSubmit={async (e) => {
@@ -59,7 +59,7 @@ export function Memory(props: { pane: number }) {
       >
         <input
           class="w-full bg-transparent py-1 outline-none placeholder:text-faint"
-          placeholder="Add something for Jarvis to remember…"
+          placeholder="Add something for Pip to remember…"
           value={title()}
           onInput={(e) => setTitle(e.currentTarget.value)}
         />
@@ -68,8 +68,8 @@ export function Memory(props: { pane: number }) {
         <Show
           when={list().length > 0}
           fallback={
-            <NoRows query={notes} what="what Jarvis remembers">
-              Nothing yet. Tell Jarvis about yourself in chat and it will keep notes here.
+            <NoRows query={notes} what="what Pip remembers">
+              Nothing yet. Tell Pip about yourself in chat and it will keep notes here.
             </NoRows>
           }
         >
@@ -122,7 +122,7 @@ export function MemoryPanel(props: { id: string }) {
         <div class="space-y-5">
           <div class="space-y-2 rounded-md bg-sunk px-3 py-3 text-sm">
             <div class="flex flex-wrap items-center gap-2">
-              <span class="text-muted">Jarvis uses this</span>
+              <span class="text-muted">Pip uses this</span>
               <Button
                 small
                 kind={n().scope === "always" ? "jarvis" : "plain"}
@@ -161,7 +161,7 @@ export function MemoryPanel(props: { id: string }) {
               </label>
             </Show>
           </div>
-          <DocEditor id={n().id} placeholder="What should Jarvis remember?" />
+          <DocEditor id={n().id} placeholder="What should Pip remember?" />
           <Show when={(history.data ?? []).length > 1}>
             <section class="space-y-1">
               <h2 class="text-sm font-semibold">Earlier versions</h2>

@@ -185,12 +185,12 @@ export class GoogleBudget {
     if (r.ok) return;
     const retryAfterMs = Math.max(0, r.retryAt - now);
     if (r.paused)
-      throw new GoogleApiError(0, `Google asked Hearth to slow down ${service} for ${account}.`, {
+      throw new GoogleApiError(0, `Google asked Nook to slow down ${service} for ${account}.`, {
         kind: "rate_limited",
         reason: "paused",
         retryAfterMs,
       });
-    throw new GoogleApiError(0, `Hearth is pacing ${service} for ${account} this minute.`, {
+    throw new GoogleApiError(0, `Nook is pacing ${service} for ${account} this minute.`, {
       kind: "paced",
       reason: "budget",
       retryAfterMs,

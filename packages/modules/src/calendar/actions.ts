@@ -52,7 +52,7 @@ export async function save(
 ) {
   const rules = await getSetting(ctx.tx, "owner.dayRules");
   const m = mapEvent(calendarId, cleanDeep(g), rules.timeZone);
-  if (!m) throw new ActionError("failed", "Google returned an event Hearth can't read.");
+  if (!m) throw new ActionError("failed", "Google returned an event Nook can't read.");
   const { id: eid, change } = await saveEvent(ctx, m, taskId === undefined ? {} : { taskId });
   emitChange(ctx, eid, change, m);
   return (await loadEvent(ctx.tx, eid)) as EventView;

@@ -54,7 +54,7 @@ export const ownerMemberActions = [
   defineAction({
     name: "slack.members",
     description:
-      "The people in your Slack Jarvis knows of: who has written to it, and anyone you've set. Each with their full name, email, Slack id, tier, whether replies wait for you, and VIP.",
+      "The people in your Slack the Jarvis bot knows of: who has written to it, and anyone you've set. Each with their full name, email, Slack id, tier, whether replies wait for you, and VIP.",
     input: z.object({}),
     risk: "read",
     // Names and emails of people in your workspace: Settings is the only reader.
@@ -84,7 +84,7 @@ export const ownerMemberActions = [
   defineAction({
     name: "slack.member_set",
     description:
-      "Set what Jarvis does for someone in your Slack: their tier (blocked, relay, or schedule to share your free time), whether its replies to them wait for your yes, and VIP.",
+      "Set what the Jarvis bot does for someone in your Slack: their tier (blocked, relay, or schedule to share your free time), whether its replies to them wait for your yes, and VIP.",
     input: z.object({
       user: userId,
       tier: z.enum(["blocked", "relay", "schedule"]).optional(),
@@ -99,7 +99,7 @@ export const ownerMemberActions = [
       if (why && i.tier && i.tier !== "blocked")
         throw new ActionError(
           "invalid_input",
-          `Jarvis never answers ${cleanName(u.name, u.id)}: they're ${why === "bot" ? "a bot" : why === "external" ? "in another org" : why === "guest" ? "a guest" : "deactivated"}.`,
+          `The Jarvis bot never answers ${cleanName(u.name, u.id)}: they're ${why === "bot" ? "a bot" : why === "external" ? "in another org" : why === "guest" ? "a guest" : "deactivated"}.`,
         );
       const patch = {
         ...(i.tier ? { tier: i.tier } : {}),
@@ -151,7 +151,7 @@ export const ownerMemberActions = [
   defineAction({
     name: "slack.answers",
     description:
-      "The answers you've written for Jarvis to share with people in your Slack: office hours, status, how to reach you. Each is for everyone or for named people.",
+      "The answers you've written for the Jarvis bot to share with people in your Slack: office hours, status, how to reach you. Each is for everyone or for named people.",
     input: z.object({}),
     risk: "read",
     callers: ["owner"],
@@ -160,7 +160,7 @@ export const ownerMemberActions = [
   defineAction({
     name: "slack.answer_save",
     description:
-      "Write or change an answer Jarvis may share with people in your Slack. `users` names who it's for by Slack id; leave it out for everyone.",
+      "Write or change an answer the Jarvis bot may share with people in your Slack. `users` names who it's for by Slack id; leave it out for everyone.",
     input: z.object({
       id: z.string().uuid().optional(),
       title: z.string().trim().max(200).default(""),

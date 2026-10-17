@@ -70,7 +70,7 @@ describe("sending as Jarvis", () => {
       "Message Sam Lee (sam@acme.example, USAM) on Slack as Jarvis\n\nThe build is fixed.\n\nShip it when you're ready.",
     );
     expect(card.title).toBe(
-      "Jarvis asks: Message Sam Lee (sam@acme.example, USAM) on Slack as Jarvis",
+      "Pip asks: Message Sam Lee (sam@acme.example, USAM) on Slack as Jarvis",
     );
     expect(card.body?.startsWith(tellSam.text)).toBe(true);
     const gus = await ask("slack.dm", { to: "UGUS", text: "hi", threadTs: "1700000000.000100" });

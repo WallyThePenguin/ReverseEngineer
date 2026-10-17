@@ -211,9 +211,7 @@ describe("drafts and sending", () => {
     g.gmail.failNext(1, 429);
     const slowed = await send();
     expect(slowed).toMatchObject({ status: "error", code: "unavailable" });
-    expect(JSON.stringify(slowed)).toContain(
-      "Gmail asked Hearth to slow down, so nothing was sent",
-    );
+    expect(JSON.stringify(slowed)).toContain("Gmail asked Nook to slow down, so nothing was sent");
     // Hearth's own pacing holds it back: no room left this minute, even with the headroom.
     t.kernel.services[GOOGLE_SERVICE] = g.client(undefined, {
       allowances: { gmail: { units: 0, headroom: 50 } },

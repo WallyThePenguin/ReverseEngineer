@@ -83,7 +83,7 @@ try {
     await p.keyboard.type(`Pay rent ${tag}`);
     await keys("Enter");
     await p.getByText(`Pay rent ${tag}`).first().waitFor();
-    await p.getByLabel("For Jarvis").check();
+    await p.getByLabel("For Pip").check();
     await p.getByPlaceholder("New task… (press c)").fill(`Pack for the trip ${tag}`);
     await keys("Enter");
     await p.getByText(`Pack for the trip ${tag}`).waitFor();
@@ -164,7 +164,7 @@ try {
 
   await step("Cmd+K finds the note and opens it beside", async (p) => {
     await keys("Control+k");
-    await p.getByPlaceholder("Search, run a command, or ask Jarvis…").fill(`monthly money ${tag}`);
+    await p.getByPlaceholder("Search, run a command, or ask Pip…").fill(`monthly money ${tag}`);
     await p.locator("[data-active=true]", { hasText: `Monthly money ${tag}` }).waitFor();
     await keys("Shift+Enter");
     await p.locator("section").nth(1).waitFor();
@@ -182,7 +182,7 @@ try {
     await p.getByRole("navigation", { name: "Places" }).click({ position: { x: 100, y: 600 } });
     await keys("g", "m");
     await p.getByRole("heading", { name: "Memory" }).waitFor();
-    await p.getByPlaceholder("Add something for Jarvis to remember…").fill(`Coffee ${tag}`);
+    await p.getByPlaceholder("Add something for Pip to remember…").fill(`Coffee ${tag}`);
     await keys("Enter");
     // The text is a live doc, saved as you type.
     const editor = p.locator(".cm-content");
@@ -356,9 +356,9 @@ try {
       // The task fills the screen; closing it goes back to the list.
       await p.getByTitle("Close pane (Alt+W)").click();
       await p.getByRole("heading", { name: "Tasks" }).waitFor();
-      const jarvisTab = tabs.getByRole("button", { name: "Jarvis", exact: true });
+      const jarvisTab = tabs.getByRole("button", { name: "Pip", exact: true });
       await jarvisTab.click();
-      await p.locator("aside").getByText("Jarvis", { exact: true }).waitFor();
+      await p.locator("aside").getByText("Pip", { exact: true }).waitFor();
       // Talk from the tab bar: holding Jarvis's tab listens; a tap sends what the PC heard.
       await p.route("**/api/voice/transcribe", (r) =>
         r.fulfill({ json: { text: `What is on today ${tag}` } }),

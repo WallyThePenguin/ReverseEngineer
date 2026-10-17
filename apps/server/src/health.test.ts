@@ -150,7 +150,7 @@ describe("deep health", () => {
     // The worker reports Jarvis failing when it hasn't checked in: that's no sign of Jarvis.
     await t.kernel.execute(
       "system.report",
-      { component: "jarvis", status: "failing", detail: "Jarvis hasn't checked in since 9:14." },
+      { component: "jarvis", status: "failing", detail: "Pip hasn't checked in since 9:14." },
       systemCaller(),
     );
     const quiet = (await (await local(t)).json()) as DeepHealth;

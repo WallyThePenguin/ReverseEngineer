@@ -82,7 +82,7 @@ impl Hearth {
                 .or(body["reason"].as_str())
                 .or(body["error"].as_str())
                 .unwrap_or("unknown error");
-            return Err(format!("Hearth refused {name}: {why}"));
+            return Err(format!("Nook refused {name}: {why}"));
         }
         Ok(body["result"].clone())
     }
@@ -182,7 +182,7 @@ impl Hearth {
                 Duration::from_secs(5),
             )
             .await?;
-        serde_json::from_value(out).map_err(|e| format!("odd answer from Hearth: {e}"))
+        serde_json::from_value(out).map_err(|e| format!("odd answer from Nook: {e}"))
     }
 
     pub async fn send(&self, text: &str, conversation: Option<&str>) -> Result<Sent, String> {
@@ -193,7 +193,7 @@ impl Hearth {
         let out = self
             .call("chat.send", input, Duration::from_secs(5))
             .await?;
-        serde_json::from_value(out).map_err(|e| format!("odd answer from Hearth: {e}"))
+        serde_json::from_value(out).map_err(|e| format!("odd answer from Nook: {e}"))
     }
 
     pub async fn log_after(&self, conversation: &str, idx: i64) -> Result<Vec<LogEntry>, String> {
@@ -204,8 +204,7 @@ impl Hearth {
                 Duration::from_secs(5),
             )
             .await?;
-        serde_json::from_value(out["log"].clone())
-            .map_err(|e| format!("odd answer from Hearth: {e}"))
+        serde_json::from_value(out["log"].clone()).map_err(|e| format!("odd answer from Nook: {e}"))
     }
 
     /// Hearth's notifications for this PC, as a live stream of server-sent events (D53).
@@ -230,15 +229,15 @@ impl Hearth {
 }
 
 /// What a 401 from Hearth means for this app: its token was signed out (D53).
-const SIGNED_OUT: &str = "Hearth signed this PC out. In Hearth's Settings, under Desktop app, \
-                          choose Connect Hearth on this PC.";
+const SIGNED_OUT: &str = "Nook signed this PC out. In Nook's Settings, under Desktop app, \
+                          choose Connect Nook on this PC.";
 
 /// A request that never got an answer, said plainly.
 fn unreachable(e: &reqwest::Error) -> String {
     if e.is_timeout() {
-        "Hearth took too long to answer. Try again in a moment.".into()
+        "Nook took too long to answer. Try again in a moment.".into()
     } else {
-        "Couldn't reach Hearth. Is it running?".into()
+        "Couldn't reach Nook. Is it running?".into()
     }
 }
 
@@ -277,18 +276,18 @@ pub async fn redeem(base: &str, nonce: &str) -> Result<Connected, String> {
         .timeout(Duration::from_secs(10))
         .send()
         .await
-        .map_err(|_| "Couldn't reach Hearth to connect this PC. Is it running?".to_string())?;
+        .map_err(|_| "Couldn't reach Nook to connect this PC. Is it running?".to_string())?;
     match res.status().as_u16() {
         200 => res
             .json()
             .await
-            .map_err(|_| "Hearth's answer didn't make sense. Try connecting again.".into()),
+            .map_err(|_| "Nook's answer didn't make sense. Try connecting again.".into()),
         400 | 404 | 410 => Err(
-            "That connect link has run out or was used already. In Hearth's Settings, choose \
-             Connect Hearth on this PC again."
+            "That connect link has run out or was used already. In Nook's Settings, choose \
+             Connect Nook on this PC again."
                 .into(),
         ),
-        _ => Err("Hearth couldn't connect this PC. Try again in a minute.".into()),
+        _ => Err("Nook couldn't connect this PC. Try again in a minute.".into()),
     }
 }
 
@@ -351,7 +350,7 @@ mod tests {
             .call("voice.clean", json!({}), Duration::from_secs(5))
             .await
             .unwrap_err();
-        assert_eq!(err, "Couldn't reach Hearth. Is it running?");
+        assert_eq!(err, "Couldn't reach Nook. Is it running?");
     }
 
     #[test]

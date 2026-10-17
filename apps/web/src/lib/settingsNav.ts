@@ -4,7 +4,7 @@ import { createRoot, createSignal } from "solid-js";
 import { layout } from "./panes.ts";
 
 export const SETTINGS_SECTIONS = [
-  { id: "jarvis", label: "Jarvis" },
+  { id: "jarvis", label: "Pip" },
   { id: "rules", label: "Rules" },
   { id: "appearance", label: "Appearance" },
   { id: "chrome", label: "Chrome" },

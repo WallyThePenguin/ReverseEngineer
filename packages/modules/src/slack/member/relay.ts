@@ -31,7 +31,7 @@ export interface Relay {
 const TITLES: Record<RelayKind, (name: string) => string> = {
   message: (n) => `${n} left you a message on Slack`,
   meeting: (n) => `${n} asked to meet, on Slack`,
-  unanswered: (n) => `${n} wrote to Jarvis on Slack, and it couldn't answer`,
+  unanswered: (n) => `${n} wrote to the Jarvis bot on Slack, and it couldn't answer`,
 };
 
 /** The hour a card is for, in your time zone: "2026-10-05T14". */

@@ -47,12 +47,12 @@ const WRAP_FROM = 19 * 60 + 30;
 
 export const assistantModule = defineModule({
   name: "assistant",
-  description: "Jarvis's own records: observations, watches, briefs, journals and its activity.",
+  description: "Pip's own records: observations, watches, briefs, journals and its activity.",
   entityTypes: ["brief", "journal"],
   events: [
     {
       kind: "jarvis.observed",
-      description: "Jarvis noted something for the brief. Payload: observationId, kind, aboutId.",
+      description: "Pip noted something for the brief. Payload: observationId, kind, aboutId.",
     },
     {
       kind: "jarvis.watch_changed",
@@ -193,7 +193,7 @@ export const assistantModule = defineModule({
     }),
     defineAction({
       name: "jarvis.activity",
-      description: "Jarvis's recent turns: what triggered each, what it did, and how it ended.",
+      description: "Pip's recent turns: what triggered each, what it did, and how it ended.",
       input: z.object({ limit: z.number().int().min(1).max(200).default(50) }),
       risk: "read",
       handler: (i, ctx) =>
@@ -269,7 +269,7 @@ export const assistantModule = defineModule({
   reflexes: [
     {
       name: "jarvis.watches",
-      description: "When something Jarvis was asked to watch for happens, it acts on it.",
+      description: "When something Pip was asked to watch for happens, it acts on it.",
       mode: "reactive",
       on: ["*"],
       async run(event, ctx) {

@@ -127,6 +127,6 @@ describe("how Hearth opens Chrome", () => {
     await expect(nowhere.open()).rejects.toThrow("Set HEARTH_CHROME_PATH");
 
     const broken = directLauncher({ chromePath: "/nope/chrome", profile: null, args: [] });
-    await expect(broken.open()).rejects.toThrow("Hearth couldn't start Chrome at /nope/chrome");
+    await expect(broken.open()).rejects.toThrow("Nook couldn't start Chrome at /nope/chrome");
   });
 });

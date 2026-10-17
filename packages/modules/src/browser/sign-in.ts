@@ -40,7 +40,7 @@ async function siteLogin(
   const url = new URL(await assertAllowed(ctx, tab.url));
   assertNotHearth(ctx, url.href);
   if (url.protocol !== "https:")
-    throw new ActionError("forbidden", `${url.host} isn't using HTTPS, so Hearth won't sign in.`);
+    throw new ActionError("forbidden", `${url.host} isn't using HTTPS, so Nook won't sign in.`);
   const [row] = await loginsFor(ctx.tx, url.hostname, username);
   return { host: url.hostname, row: row ?? null };
 }

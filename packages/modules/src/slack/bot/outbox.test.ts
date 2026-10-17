@@ -102,8 +102,8 @@ describe("sending Jarvis's posts", () => {
     expect((await k.rows())[0]).toMatchObject({ state: "unknown" });
     expect(await k.told()).toEqual([
       {
-        title: "Jarvis's Slack message to #general may not have gone out",
-        body: "You aren't in that channel, so Hearth couldn't look.\n\nHello all",
+        title: "The Jarvis bot's Slack message to #general may not have gone out",
+        body: "You aren't in that channel, so Nook couldn't look.\n\nHello all",
       },
     ]);
   });
@@ -159,7 +159,7 @@ describe("sending Jarvis's posts", () => {
     });
     expect(await k.told()).toEqual([
       {
-        title: "Jarvis's Slack message to #random didn't go out",
+        title: "The Jarvis bot's Slack message to #random didn't go out",
         body: "Slack said not_in_channel.\n\nLunch?",
       },
     ]);
@@ -181,8 +181,8 @@ describe("sending Jarvis's posts", () => {
     expect(k.s.posts).toEqual([]);
     expect(await k.told()).toEqual([
       {
-        title: "Jarvis's Slack message to Sam Lee didn't go out",
-        body: "It waited a day: Jarvis's Slack bot couldn't post.\n\nSee you at 3",
+        title: "The Jarvis bot's Slack message to Sam Lee didn't go out",
+        body: "It waited a day: the Jarvis bot couldn't post.\n\nSee you at 3",
       },
     ]);
   });
@@ -239,8 +239,8 @@ describe("a post that may have gone out", () => {
     expect((await k.rows())[0]).toMatchObject({ state: "unknown" });
     expect(await k.told()).toEqual([
       {
-        title: "Jarvis's Slack message to #general may not have gone out",
-        body: "Your own Slack token isn't working, so Hearth couldn't look.\n\nHello all",
+        title: "The Jarvis bot's Slack message to #general may not have gone out",
+        body: "Your own Slack token isn't working, so Nook couldn't look.\n\nHello all",
       },
     ]);
   });
@@ -251,12 +251,12 @@ describe("a post that may have gone out", () => {
     expect(await k.round()).toMatchObject({ unknown: 1, failed: 0 });
     expect((await k.rows())[0]).toMatchObject({
       state: "unknown",
-      error: "Slack said missing_scope. Hearth couldn't look for it.",
+      error: "Slack said missing_scope. Nook couldn't look for it.",
     });
     expect(await k.told()).toEqual([
       {
-        title: "Jarvis's Slack message to Sam Lee may not have gone out",
-        body: "Slack said missing_scope. Hearth couldn't look for it.\n\nSee you at 3",
+        title: "The Jarvis bot's Slack message to Sam Lee may not have gone out",
+        body: "Slack said missing_scope. Nook couldn't look for it.\n\nSee you at 3",
       },
     ]);
     expect(texts()).toEqual(["See you at 3"]);
@@ -282,8 +282,8 @@ describe("a post that may have gone out", () => {
     expect((await k.rows())[0]).toMatchObject({ state: "unknown", attempts: 6 });
     expect(await k.told()).toEqual([
       {
-        title: "Jarvis's Slack message to Sam Lee may not have gone out",
-        body: "Hearth couldn't look for it: Slack answered internal_error.\n\nSee you at 3",
+        title: "The Jarvis bot's Slack message to Sam Lee may not have gone out",
+        body: "Nook couldn't look for it: Slack answered internal_error.\n\nSee you at 3",
       },
     ]);
     expect(texts()).toEqual(["See you at 3"]);
@@ -302,8 +302,8 @@ describe("a post that may have gone out", () => {
     expect((await k.rows())[0]).toMatchObject({ state: "unknown" });
     expect(await k.told()).toEqual([
       {
-        title: "Jarvis's Slack message to Sam Lee may not have gone out",
-        body: "It waited a day: Jarvis's Slack bot couldn't look for it.\n\nSee you at 3",
+        title: "The Jarvis bot's Slack message to Sam Lee may not have gone out",
+        body: "It waited a day: the Jarvis bot couldn't look for it.\n\nSee you at 3",
       },
     ]);
     expect(texts()).toEqual(["See you at 3"]);

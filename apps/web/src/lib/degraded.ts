@@ -10,7 +10,8 @@ import { createRoot, createSignal } from "solid-js";
  */
 export function meansDegraded(error: unknown): boolean {
   const message = (error as { message?: unknown } | null)?.message;
-  return typeof message === "string" && message.startsWith("Hearth's database isn't reachable");
+  // A server from before the rename (D74) says "Hearth's"; one after may say "Nook's".
+  return typeof message === "string" && /^(?:Hearth|Nook)'s database isn't reachable/.test(message);
 }
 
 export const degraded = createRoot(() => {

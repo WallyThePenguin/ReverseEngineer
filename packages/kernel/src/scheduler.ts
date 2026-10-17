@@ -28,7 +28,7 @@ export interface ScheduleSpec {
 export async function upsertSchedule(db: DbOrTx, spec: ScheduleSpec, now: Date): Promise<void> {
   const timeZone = spec.timeZone ?? "America/New_York";
   if (!isValidTimeZone(timeZone))
-    throw new ActionError("invalid_input", `"${timeZone}" isn't a time zone Hearth knows.`);
+    throw new ActionError("invalid_input", `"${timeZone}" isn't a time zone Nook knows.`);
   const next = spec.runAt ?? (spec.cron ? nextCronRun(spec.cron, timeZone, now) : null);
   const values = {
     id: spec.id,

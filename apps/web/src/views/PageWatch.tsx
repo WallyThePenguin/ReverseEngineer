@@ -70,7 +70,7 @@ export function PageWatchPanel(props: { id: string }) {
             </p>
             <Show when={d().onChange}>
               <p>
-                <span class="text-muted">When it changes, Jarvis will:</span> {d().onChange}
+                <span class="text-muted">When it changes, Pip will:</span> {d().onChange}
               </p>
             </Show>
             <Show when={d().lastError}>
@@ -145,9 +145,7 @@ export function WatchList() {
     <Show
       when={(watches.data ?? []).length > 0}
       fallback={
-        <Empty>
-          No page watches. Ask Jarvis to watch a page, or use Watch in the Browser pane.
-        </Empty>
+        <Empty>No page watches. Ask Pip to watch a page, or use Watch in the Browser pane.</Empty>
       }
     >
       <ul class="space-y-1">

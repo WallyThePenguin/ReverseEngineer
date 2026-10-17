@@ -74,14 +74,14 @@ fn connect(app: &AppHandle, nonce: String) {
 async fn connect_now(app: &AppHandle, nonce: &str) -> Result<(), String> {
     // The address in this app's settings: a link can't say where to connect.
     let home = check_address(get_settings(app).hearth_url.trim_end_matches('/'))
-        .map_err(|_| "Set Hearth's address in voice settings, then connect again.".to_string())?;
+        .map_err(|_| "Set Nook's address in voice settings, then connect again.".to_string())?;
     let base = home.origin().ascii_serialization();
     if !confirm(app, &base).await {
         return Ok(());
     }
     let connected = redeem(&base, nonce).await?;
     if connected.token.trim().is_empty() || !links::is_code(&connected.code) {
-        return Err("Hearth's answer didn't make sense. Try connecting again.".into());
+        return Err("Nook's answer didn't make sense. Try connecting again.".into());
     }
     let mut s = get_settings(app);
     s.hearth_keys
@@ -95,7 +95,7 @@ async fn connect_now(app: &AppHandle, nonce: &str) -> Result<(), String> {
     toast::show(
         app,
         "This PC is connected",
-        "Hearth's window, notifications and voice now work here.",
+        "Nook's window, notifications and voice now work here.",
         None,
     );
     Ok(())
@@ -107,10 +107,10 @@ async fn confirm(app: &AppHandle, base: &str) -> bool {
     let (tx, rx) = tokio::sync::oneshot::channel();
     app.dialog()
         .message(format!(
-            "Connect this PC to your Hearth at {base}?\n\nChoose Connect only if you just \
-             clicked \"Connect Hearth on this PC\" in Hearth's Settings."
+            "Connect this PC to Nook at {base}?\n\nChoose Connect only if you just \
+             clicked \"Connect Nook on this PC\" in Nook's Settings."
         ))
-        .title("Connect Hearth")
+        .title("Connect Nook")
         .kind(MessageDialogKind::Info)
         .buttons(MessageDialogButtons::OkCancelCustom(
             "Connect".into(),

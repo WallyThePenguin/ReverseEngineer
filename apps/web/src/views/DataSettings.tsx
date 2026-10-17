@@ -44,8 +44,8 @@ export function DataSettings() {
     setKey("");
     toast.show(
       r.production
-        ? `${r.label} is connected with a production key. Jarvis only reads it, but a dev or preview key would be safer.`
-        : `${r.label} is connected. Jarvis can read it when you ask.`,
+        ? `${r.label} is connected with a production key. Pip only reads it, but a dev or preview key would be safer.`
+        : `${r.label} is connected. Pip can read it when you ask.`,
     );
   };
   const check = async (s: Source) => {
@@ -56,7 +56,7 @@ export function DataSettings() {
     const on = box.checked;
     if (on && s.keyKind.startsWith("production")) {
       const sure = confirm(
-        `${s.label} is a production deployment. Jarvis will still ask before each change, showing exactly what it would run. Allow it to ask?`,
+        `${s.label} is a production deployment. Pip will still ask before each change, showing exactly what it would run. Allow it to ask?`,
       );
       if (!sure) {
         box.checked = false;
@@ -70,7 +70,7 @@ export function DataSettings() {
     );
   };
   const forget = async (s: Source) => {
-    if (!confirm(`Forget ${s.label}? Jarvis stops reading it; nothing changes in Convex.`)) return;
+    if (!confirm(`Forget ${s.label}? Pip stops reading it; nothing changes in Convex.`)) return;
     if (await act("data.disconnect", { source: s.id })) toast.show(`${s.label} is forgotten.`);
   };
 
@@ -78,11 +78,11 @@ export function DataSettings() {
     <section class="space-y-3">
       <h2 class="font-semibold">Data sources</h2>
       <p class="text-sm text-muted">
-        Jarvis can read a Convex deployment when you ask: its tables, their documents, and its own
-        query functions, which only read. What Jarvis reads is treated like mail from outside, so
-        anything it would send after reading it asks you first. Where you allow it, Jarvis can also
-        ask to run one of the deployment's mutations or actions, and shows you exactly which one,
-        with what, before it does.
+        Pip can read a Convex deployment when you ask: its tables, their documents, and its own
+        query functions, which only read. What Pip reads is treated like mail from outside, so
+        anything it would send after reading it asks you first. Where you allow it, Pip can also ask
+        to run one of the deployment's mutations or actions, and shows you exactly which one, with
+        what, before it does.
       </p>
       <Show when={sources.data?.length}>
         <ul class="space-y-2">
@@ -105,7 +105,7 @@ export function DataSettings() {
                       checked={s.mode === "approve_writes"}
                       onChange={(e) => allow(e.currentTarget, s)}
                     />
-                    <span>Jarvis may ask to make changes here, each one on my yes</span>
+                    <span>Pip may ask to make changes here, each one on my yes</span>
                   </label>
                 </div>
                 <Button onClick={() => void check(s)}>Check</Button>
@@ -119,7 +119,7 @@ export function DataSettings() {
       </Show>
       <form class="space-y-2 rounded-md bg-sunk px-3 py-3 text-sm" onSubmit={connect}>
         <label class="block">
-          <span class="text-muted">Name, as you'll call it to Jarvis</span>
+          <span class="text-muted">Name, as you'll call it to Pip</span>
           <input
             class={field}
             placeholder="Shop"
@@ -150,8 +150,8 @@ export function DataSettings() {
           />
         </label>
         <p class="text-muted">
-          A deploy key is an admin key: it could change anything in that deployment. Hearth keeps it
-          sealed and only reads with it, unless you let Jarvis ask to make changes, but give it a
+          A deploy key is an admin key: it could change anything in that deployment. Nook keeps it
+          sealed and only reads with it, unless you let Pip ask to make changes, but give it a
           development or preview deployment's key where you can. Make one in the Convex dashboard,
           under the deployment's Settings.
         </p>

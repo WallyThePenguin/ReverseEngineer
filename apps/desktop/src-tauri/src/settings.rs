@@ -939,10 +939,9 @@ pub fn get_default_settings() -> AppSettings {
         crate::hearth::COMMAND_BINDING.to_string(),
         ShortcutBinding {
             id: crate::hearth::COMMAND_BINDING.to_string(),
-            name: "Command Jarvis".to_string(),
-            description:
-                "Select text, hold and say what to do with it; Jarvis's answer replaces it."
-                    .to_string(),
+            name: "Command Pip".to_string(),
+            description: "Select text, hold and say what to do with it; Pip's answer replaces it."
+                .to_string(),
             default_binding: "ctrl+alt+space".to_string(),
             current_binding: "ctrl+alt+space".to_string(),
         },
@@ -951,8 +950,8 @@ pub fn get_default_settings() -> AppSettings {
         crate::hearth::TALK_BINDING.to_string(),
         ShortcutBinding {
             id: crate::hearth::TALK_BINDING.to_string(),
-            name: "Talk to Jarvis".to_string(),
-            description: "Hold and ask Jarvis anything; it answers out loud.".to_string(),
+            name: "Talk to Pip".to_string(),
+            description: "Hold and ask Pip anything; it answers out loud.".to_string(),
             default_binding: "ctrl+alt+j".to_string(),
             current_binding: "ctrl+alt+j".to_string(),
         },
@@ -961,8 +960,8 @@ pub fn get_default_settings() -> AppSettings {
     for (id, name, description, keys) in [
         (
             crate::hearth::OPEN_BINDING,
-            "Open Hearth",
-            "Brings up Hearth's window.",
+            "Open Nook",
+            "Brings up Nook's window.",
             "ctrl+alt+h",
         ),
         (
@@ -973,8 +972,8 @@ pub fn get_default_settings() -> AppSettings {
         ),
         (
             crate::hearth::ASK_BINDING,
-            "Ask Jarvis",
-            "A small window to ask Jarvis by typing.",
+            "Ask Pip",
+            "A small window to ask Pip by typing.",
             "ctrl+alt+k",
         ),
     ] {

@@ -44,7 +44,7 @@ const syncFailed = syncFailedReflex(
   },
   {
     reconnect:
-      "Google signed Hearth out of your calendar. Connect the account again in Settings > Google; your calendar waits until then.",
+      "Google signed Nook out of your calendar. Connect the account again in Settings > Google; your calendar waits until then.",
     perAccount: true,
   },
 );

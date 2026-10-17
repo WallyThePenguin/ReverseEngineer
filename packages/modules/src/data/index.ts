@@ -60,7 +60,7 @@ function pageOf(value: unknown): Page {
   if (!p || !Array.isArray(p.page))
     throw new ActionError(
       "failed",
-      "Convex answered in a shape Hearth doesn't know. Its API may have changed.",
+      "Convex answered in a shape Nook doesn't know. Its API may have changed.",
     );
   return {
     page: p.page,
@@ -118,7 +118,7 @@ async function listTables(ctx: ActionContext, s: Source) {
 export const dataModule: HearthModule = {
   name: "data",
   description:
-    "Outside data Jarvis can read when asked, and change with your yes where you allow it: a Convex deployment, with its key.",
+    "Outside data Pip can read when asked, and change with your yes where you allow it: a Convex deployment, with its key.",
   entityTypes: [],
   events: [
     {
@@ -130,12 +130,12 @@ export const dataModule: HearthModule = {
   knowledge: {},
   reflexes: [],
   noReflexesBecause:
-    "A data source is read when you or Jarvis ask; nothing in it is watched for changes.",
+    "A data source is read when you or Pip ask; nothing in it is watched for changes.",
   actions: [
     defineAction({
       name: "data.connect",
       description:
-        "Connect a Convex deployment for Jarvis to read, with its URL and a deploy key, which is sealed.",
+        "Connect a Convex deployment for Pip to read, with its URL and a deploy key, which is sealed.",
       input: z.object({
         label: z.string().trim().min(1).max(60),
         address: z.string().trim().min(1).max(300),

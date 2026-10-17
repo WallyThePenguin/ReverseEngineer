@@ -22,7 +22,7 @@ export const originOf = (env: NodeJS.ProcessEnv) =>
 
 function readId(file: string): string {
   const id = readFileSync(file, "utf8").trim();
-  if (!id) throw new Error(`${file} is empty. Delete it and Hearth makes a new one.`);
+  if (!id) throw new Error(`${file} is empty. Delete it and Nook makes a new one.`);
   return id;
 }
 

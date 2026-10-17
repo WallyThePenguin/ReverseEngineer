@@ -131,7 +131,7 @@ describe("sending once", () => {
     expect(res).toMatchObject({ status: "error", code: "unavailable" });
     const { timeZone } = await getSetting(t.tdb.db, "owner.dayRules");
     expect(res).toMatchObject({
-      message: `Gmail asked Hearth to slow down, so nothing was sent. Try again after ${formatTime(until, timeZone)}`,
+      message: `Gmail asked Nook to slow down, so nothing was sent. Try again after ${formatTime(until, timeZone)}`,
     });
     expect(g.gmail.sent).toEqual([]);
   });
@@ -144,7 +144,7 @@ describe("sending once", () => {
     const { timeZone } = await getSetting(t.tdb.db, "owner.dayRules");
     expect(await run("mail.send", { id: d.id })).toMatchObject({
       status: "error",
-      message: `Gmail asked Hearth to slow down, so nothing was sent. Try again after ${formatTime(until, timeZone)} tomorrow.`,
+      message: `Gmail asked Nook to slow down, so nothing was sent. Try again after ${formatTime(until, timeZone)} tomorrow.`,
     });
     // An hour later the rest of Gmail goes on: mail syncs.
     t.clock.advance(3600_000);

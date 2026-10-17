@@ -171,9 +171,9 @@ export class BrowserBridge implements BrowserClient {
     const hello = this.hello;
     if (!hello) return null;
     if (hello.protocol < BRIDGE_PROTOCOL)
-      return "Chrome's Hearth extension is out of date. It reloads itself; if this stays, open chrome://extensions and press reload on Hearth.";
+      return "Chrome's Nook extension is out of date. It reloads itself; if this stays, open chrome://extensions and press reload on Nook.";
     if (hello.extensionId && hello.extensionId !== EXTENSION_ID)
-      return "A Hearth extension with a different ID is connected. Load the extension from Hearth's own folder, then pair it again.";
+      return "A Nook extension with a different ID is connected. Load the extension from Nook's own folder, then pair it again.";
     return null;
   }
 
@@ -248,8 +248,8 @@ export class BrowserBridge implements BrowserClient {
   /** Hearth is stopping: drop the link and stop waiting for Chrome. */
   close(): void {
     this.opener.stop();
-    this.socket?.close(1001, "Hearth is stopping");
-    this.drop("Hearth is stopping.");
+    this.socket?.close(1001, "Nook is stopping");
+    this.drop("Nook is stopping.");
   }
 
   private pingOnce(ws: WebSocket): void {

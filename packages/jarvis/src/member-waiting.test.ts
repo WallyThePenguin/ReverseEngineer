@@ -34,7 +34,7 @@ describe("an answer waiting to go", () => {
     expect(await t.outbox()).toMatchObject([{ kind: "answer", state: "failed", error: why }]);
     const [card] = await t.cards("slack.not_sent");
     expect(card).toMatchObject({
-      title: "Jarvis's Slack message to Sam Lee didn't go out",
+      title: "The Jarvis bot's Slack message to Sam Lee didn't go out",
       body: `${why}\n\nAna's free Tuesday at 3.`,
     });
   });
@@ -60,7 +60,7 @@ describe("an answer waiting to go", () => {
     expect(await t.outbox()).toMatchObject([
       {
         state: "failed",
-        error: "They're at relay now, and Hearth can't tell whether this says more than that.",
+        error: "They're at relay now, and Nook can't tell whether this says more than that.",
       },
     ]);
     // Whatever it was written at, schedule allows it.

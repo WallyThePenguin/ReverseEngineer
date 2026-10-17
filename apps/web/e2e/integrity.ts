@@ -280,7 +280,7 @@ try {
     await act(p, "entity.trash", { id: note.id });
     await editor.click();
     await p.keyboard.type("typed after it went");
-    await p.getByText("This was deleted before your last changes reached Hearth").waitFor();
+    await p.getByText("This was deleted before your last changes reached Nook").waitFor();
     await p.getByRole("button", { name: "Copy text" }).waitFor();
     if ((await editor.getAttribute("contenteditable")) !== "false")
       throw new Error("the deleted note can still be edited");
@@ -341,7 +341,7 @@ try {
     await p.locator(".cm-content").click();
     await p.keyboard.press("End");
     await p.keyboard.type(" and visas");
-    await p.getByText("This was deleted before your last changes reached Hearth").waitFor();
+    await p.getByText("This was deleted before your last changes reached Nook").waitFor();
     await box.click();
     await p.waitForTimeout(500);
     if (await box.isChecked()) throw new Error("a box in a deleted note was ticked");

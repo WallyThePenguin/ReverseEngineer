@@ -29,7 +29,7 @@ export function Replies(props: {
 }) {
   // "3 more have a reply Jarvis drafted", or without "more" when they're all there is.
   const draftedLine = () =>
-    `${props.drafted} ${props.threads.length ? "more " : ""}${props.drafted === 1 ? "has" : "have"} a reply Jarvis drafted`;
+    `${props.drafted} ${props.threads.length ? "more " : ""}${props.drafted === 1 ? "has" : "have"} a reply Pip drafted`;
   const open = (t: MailThread, beside: boolean) => {
     if (t.unread) void act("mail.mark_read", { ids: [t.id] });
     props.go({ view: "thread", id: t.id }, beside);

@@ -15,7 +15,7 @@ export function JarvisSays(props: { text: string; streaming?: boolean }) {
     <div class="mr-2">
       <p class="mb-0.5 flex items-center gap-1.5 text-xs font-medium text-jarvis">
         <JarvisMark size={12} state={props.streaming ? "thinking" : "idle"} />
-        Jarvis
+        Pip
       </p>
       <Body text={props.text} />
     </div>
@@ -83,8 +83,8 @@ export function Starter(props: {
   return (
     <div class="space-y-3 py-6">
       <p class="text-muted">
-        Ask for anything in Hearth. Jarvis can read and change your tasks, notes and people, search
-        the web, and set up watches. Anything other people would see waits for your yes.
+        Ask for anything in Nook. Pip can read and change your tasks, notes and people, search the
+        web, and set up watches. Anything other people would see waits for your yes.
       </p>
       <div class="space-y-1">
         <For each={props.about ?? STARTERS}>

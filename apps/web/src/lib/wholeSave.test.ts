@@ -178,7 +178,7 @@ describe("saving a board whole", () => {
     down = true;
     edit((b) => b.nodes.push(card("b", "two")));
     await vi.advanceTimersByTimeAsync(700);
-    expect(saver.problem()).toMatch(/can't reach Hearth/);
+    expect(saver.problem()).toMatch(/can't reach Nook/);
     down = false;
     await vi.advanceTimersByTimeAsync(2_000);
     expect(texts(server.board)).toEqual(["one", "two"]);
@@ -205,7 +205,7 @@ describe("saving a board whole", () => {
     edit((b) => b.nodes.push(card("b", "two")));
     await vi.advanceTimersByTimeAsync(700);
     // Hearth's own text for a failure is its internals: not shown.
-    expect(saver.problem()).toBe("Not saved yet: Hearth hit a problem saving it. Trying again…");
+    expect(saver.problem()).toBe("Not saved yet: Nook hit a problem saving it. Trying again…");
     failing = false;
     await vi.advanceTimersByTimeAsync(2_000);
     expect(texts(server.board)).toEqual(["one", "two"]);
@@ -217,9 +217,7 @@ describe("saving a board whole", () => {
     refuse = "A card can hold up to 10,000 characters.";
     edit((b) => b.nodes.push(card("b", "x")));
     await vi.advanceTimersByTimeAsync(700);
-    expect(saver.problem()).toBe(
-      "Hearth didn't save this: A card can hold up to 10,000 characters.",
-    );
+    expect(saver.problem()).toBe("Nook didn't save this: A card can hold up to 10,000 characters.");
     // Not tried again by itself: it would only be turned down again.
     await vi.advanceTimersByTimeAsync(60_000);
     expect(sent).toHaveLength(1);

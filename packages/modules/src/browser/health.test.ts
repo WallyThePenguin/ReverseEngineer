@@ -11,7 +11,7 @@ describe("Chrome's health", () => {
     [{ connected: true, problem: "out of date" }, "degraded", "out of date"],
     [{ openError: "Chrome isn't installed." }, "failing", "Chrome isn't installed."],
     [{ opening: true }, "ok", "Opening Chrome"],
-    [{ canOpen: true }, "ok", "Hearth opens it when Jarvis needs it"],
+    [{ canOpen: true }, "ok", "Nook opens it when Pip needs it"],
     [{}, "degraded", "Chrome isn't connected"],
   ] as const)("%o is %s", (s, status, detail) => {
     const h = browserHealth({ ...base, ...s });

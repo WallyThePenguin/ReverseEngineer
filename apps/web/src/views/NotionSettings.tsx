@@ -34,7 +34,7 @@ const field = "w-full rounded border border-line bg-panel px-2 py-1";
 /** How syncing is going, in a line. */
 function line(s: Status): string {
   if (s.state === "revoked")
-    return "Notion stopped accepting Hearth's secret, so nothing new comes in.";
+    return "Notion stopped accepting Nook's secret, so nothing new comes in.";
   if (s.lastError) return s.lastError;
   const open = `${s.open ?? 0} open ticket${s.open === 1 ? "" : "s"} for you`;
   return `${open}${s.syncedAt ? ` · read ${ago(s.syncedAt)}` : " · reading soon"}`;
@@ -68,8 +68,8 @@ function Chooser(props: { current: Status; onDone: () => void }) {
             when={c().boards.length}
             fallback={
               <p>
-                Notion shows Hearth no databases yet. In Notion, open your task board, then ••• →
-                Connections, and add your Hearth integration.
+                Notion shows Nook no databases yet. In Notion, open your task board, then ••• →
+                Connections, and add your Nook integration.
               </p>
             }
           >
@@ -117,8 +117,7 @@ export function NotionSettings() {
     );
   };
   const disconnect = async () => {
-    if (!confirm("Disconnect Notion? Its tickets leave Hearth; your tasks stay as they are."))
-      return;
+    if (!confirm("Disconnect Notion? Its tickets leave Nook; your tasks stay as they are.")) return;
     if (await act("notion.disconnect")) toast.show("Notion is disconnected.");
   };
 
@@ -126,8 +125,8 @@ export function NotionSettings() {
     <section class="space-y-3">
       <h2 class="font-semibold">Notion</h2>
       <p class="text-sm text-muted">
-        The tickets assigned to you on your Notion task board come in every few minutes, and Jarvis
-        keeps a task for each open one, closed when the ticket is done. Hearth only reads Notion.
+        The tickets assigned to you on your Notion task board come in every few minutes, and Pip
+        keeps a task for each open one, closed when the ticket is done. Nook only reads Notion.
       </p>
       <Show when={status.data}>
         {(s) => (
@@ -146,10 +145,10 @@ export function NotionSettings() {
                     >
                       Notion's integrations
                     </a>
-                    , make a new internal integration named Hearth. Give it Read content and Read
-                    user information including email addresses, nothing else.
+                    , make a new internal integration named Nook. Give it Read content and Read user
+                    information including email addresses, nothing else.
                   </li>
-                  <li>In Notion, open your task board, then ••• → Connections, and add Hearth.</li>
+                  <li>In Notion, open your task board, then ••• → Connections, and add Nook.</li>
                   <li>Copy the integration's secret and paste it here.</li>
                 </ol>
                 <input
@@ -193,7 +192,7 @@ export function NotionSettings() {
                 action="notion.replace_token"
                 label="Notion"
                 placeholder="ntn_…"
-                why="Paste the Hearth integration's secret again (Notion shows it under the integration). The board and tickets read in stay."
+                why="Paste the Nook integration's secret again (Notion shows it under the integration). The board and tickets read in stay."
                 onDone={() => setReplacing(false)}
               />
             </Show>

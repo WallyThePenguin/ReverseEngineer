@@ -53,7 +53,7 @@ export function GithubSettings() {
   const [replacing, setReplacing] = createSignal(false);
 
   const disconnect = async () => {
-    if (!confirm("Disconnect GitHub? Its pull requests leave Hearth; your tasks stay as they are."))
+    if (!confirm("Disconnect GitHub? Its pull requests leave Nook; your tasks stay as they are."))
       return;
     if (await act("github.disconnect")) toast.show("GitHub is disconnected.");
   };
@@ -82,7 +82,7 @@ export function GithubSettings() {
       <p class="text-sm text-muted">
         A pull request that names a task (like T-12, in its title, branch or description) is linked
         to it. The task moves to In Review when you open the pull request and to Completed when it
-        merges. Hearth only reads GitHub.
+        merges. Nook only reads GitHub.
       </p>
       <Show when={status.data}>
         {(s) => (
@@ -128,7 +128,7 @@ export function GithubSettings() {
                 <p class="font-medium">{s().login}</p>
                 <p class="text-sm text-muted">
                   {s().state === "revoked"
-                    ? "GitHub stopped accepting Hearth's token, so nothing new comes in."
+                    ? "GitHub stopped accepting Nook's token, so nothing new comes in."
                     : s().lastError ||
                       `${s().repos.join(", ")}${s().syncedAt ? ` · read ${ago(s().syncedAt!)}` : ""}`}
                 </p>

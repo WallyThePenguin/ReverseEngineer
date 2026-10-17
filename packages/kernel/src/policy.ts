@@ -50,7 +50,7 @@ export function decide(
       if (risk === "outward" || risk === "destructive") return ask("Started by an automatic job.");
       return allow;
     case "agent": {
-      if (risk === "secret") return deny("Jarvis never touches credentials.");
+      if (risk === "secret") return deny("Pip never touches credentials.");
       if (caller.askFirst) return ask(caller.askFirst);
       const untrusted = caller.origin === "untrusted";
       if (risk === "read" || risk === "internal") return allow;
@@ -74,7 +74,7 @@ export function decide(
       return ask("An outside agent asked for this.");
     case "integration":
       if (risk === "read" || risk === "internal") return allow;
-      return deny("Integrations only sync records into Hearth.");
+      return deny("Integrations only sync records into Nook.");
     case "member":
       // A Slack member's turn, on an action that names members (D62). A member's turn is always
       // outside content, so its standing rule is the one you hold for members ("Jarvis answers

@@ -86,7 +86,7 @@ fn take_pressed() -> (Target, Duration) {
 fn tell(app: &AppHandle, message: &str) {
     log::warn!("{message}");
     let _ = app.emit("transcription-error", message.to_string());
-    toast::show(app, "Hearth", message, Some("hearth://settings"));
+    toast::show(app, "Nook", message, Some("hearth://settings"));
 }
 
 fn nothing() -> ProcessedTranscription {
@@ -141,7 +141,7 @@ pub(crate) async fn finish(
             process_transcription_output(app, transcription, post_process).await
         }
         (_, None) => {
-            tell(app, "Pair the app with Hearth in Settings to use Jarvis.");
+            tell(app, "Pair the app with Nook in Settings to use Pip.");
             nothing()
         }
         (Mode::Command, Some(h)) => match command(app, &h, transcription, &target).await {
@@ -152,7 +152,7 @@ pub(crate) async fn finish(
                 let _ = app.clipboard().write_text(plain(&text));
                 tell(
                     app,
-                    "You switched windows, so Jarvis's answer is on the clipboard.",
+                    "You switched windows, so Pip's answer is on the clipboard.",
                 );
                 nothing()
             }
@@ -197,10 +197,10 @@ async fn command(
         match h.command_result(&id).await? {
             CommandResult::Working => continue,
             CommandResult::Done { text } => return Ok(text),
-            CommandResult::Failed { reason } => return Err(format!("Jarvis: {reason}")),
+            CommandResult::Failed { reason } => return Err(format!("Pip: {reason}")),
         }
     }
-    Err("Jarvis took too long; nothing was pasted.".into())
+    Err("Pip took too long; nothing was pasted.".into())
 }
 
 /// Sends what you said, then reads Jarvis's answer aloud as it arrives.
@@ -272,15 +272,14 @@ pub async fn change_hearth_settings(
             .insert(DESKTOP_KEY.to_string(), code.trim().to_string());
     }
     write_settings(&app, s);
-    let h =
-        link(&app).ok_or("Enter the pairing code from Hearth's Settings, under Desktop app.")?;
+    let h = link(&app).ok_or("Enter the pairing code from Nook's Settings, under Desktop app.")?;
     h.call(
         "voice.styles",
         serde_json::json!({}),
         Duration::from_secs(5),
     )
     .await
-    .map(|_| "Connected to Hearth.".to_string())
+    .map(|_| "Connected to Nook.".to_string())
 }
 
 /// Hearth's address: plain http only on this PC, https anywhere else.
@@ -293,7 +292,7 @@ fn check_address(url: &str) -> Result<tauri::Url, String> {
         "https" => Ok(parsed),
         "http" if local => Ok(parsed),
         _ => Err(
-            "Use https:// for a Hearth on another computer (http:// only works for localhost)."
+            "Use https:// when Nook runs on another computer (http:// only works for localhost)."
                 .into(),
         ),
     }

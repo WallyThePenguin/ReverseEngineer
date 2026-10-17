@@ -26,7 +26,7 @@ export function readExport(zip: Uint8Array): ImportFile[] {
           // A stored entry is copied at its stored size whatever size it claims, so both count,
           // and one that claims a different size isn't a real export.
           if (f.compression === 0 && f.size !== f.originalSize)
-            throw new ExportError("That isn't a zip file Hearth can open.");
+            throw new ExportError("That isn't a zip file Nook can open.");
           const size = Math.max(f.size, f.originalSize);
           if (!name.endsWith(".zip") && size > MAX_FILE) return false;
           total += size;
@@ -38,7 +38,7 @@ export function readExport(zip: Uint8Array): ImportFile[] {
       });
     } catch (err) {
       if (err instanceof ExportError) throw err;
-      throw new ExportError("That isn't a zip file Hearth can open.");
+      throw new ExportError("That isn't a zip file Nook can open.");
     }
     for (const [name, data] of Object.entries(entries)) {
       if (name.toLowerCase().endsWith(".zip")) open(data, depth + 1);

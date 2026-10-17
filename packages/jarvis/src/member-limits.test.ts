@@ -87,7 +87,7 @@ describe("no turn", () => {
     ]);
     const [card] = await t.cards("slack.member");
     expect(card).toMatchObject({
-      title: "Sam Lee wrote to Jarvis on Slack, and it couldn't answer",
+      title: "Sam Lee wrote to the Jarvis bot on Slack, and it couldn't answer",
     });
     expect(card!.body).toContain("Are you there?");
   });
@@ -191,7 +191,7 @@ describe("who's answered", () => {
     expect(await t.turns()).toEqual([]);
     expect(await t.outbox()).toEqual([]);
     const [card] = await t.cards("slack.member");
-    expect(card!.title).toBe("UNEW wrote to Jarvis on Slack, and it couldn't answer");
+    expect(card!.title).toBe("UNEW wrote to the Jarvis bot on Slack, and it couldn't answer");
     expect(card!.body).toContain("Can someone call me back?");
     expect((await t.inbound()).map((r) => r.outcome)).toEqual(["relayed"]);
   });

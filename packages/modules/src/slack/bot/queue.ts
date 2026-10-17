@@ -54,7 +54,7 @@ export async function enqueue(
     .from(slackBot)
     .where(eq(slackBot.teamId, post.teamId))
     .for("key share");
-  if (!bot) throw new ActionError("unavailable", "Jarvis's Slack bot isn't connected.");
+  if (!bot) throw new ActionError("unavailable", "The Jarvis bot in Slack isn't connected.");
   const [made] = await ctx.tx
     .insert(slackOutbox)
     .values({
@@ -199,7 +199,7 @@ export function giveUpLooking(db: Db, teamId: string, now: Date): Promise<Outbox
     .update(slackOutbox)
     .set({
       state: "unknown",
-      error: "It waited a day: Jarvis's Slack bot couldn't look for it.",
+      error: "It waited a day: the Jarvis bot couldn't look for it.",
       finishedAt: now,
     })
     .where(

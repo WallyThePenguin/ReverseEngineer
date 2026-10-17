@@ -129,7 +129,10 @@ const chips = ViewPlugin.fromClass(
   },
 );
 
-const JARVIS: SearchHit = { id: JARVIS_ENTITY_ID, type: "agent", title: "Jarvis", updatedAt: "" };
+const JARVIS: SearchHit = { id: JARVIS_ENTITY_ID, type: "agent", title: "Pip", updatedAt: "" };
+/** What finds Pip after an @: its name, or the one it had before (D74). */
+const callsPip = (query: string) =>
+  ["pip", "jarvis"].some((name) => name.startsWith(query.toLowerCase()));
 
 /** @ suggestions, never the note itself. */
 async function mentions(ctx: CompletionContext, self: string) {
@@ -141,7 +144,7 @@ async function mentions(ctx: CompletionContext, self: string) {
     ? await action<SearchHit[]>("entity.search", { query, limit: 8 }).catch(() => [])
     : await action<SearchHit[]>("entity.recent", { limit: 8 }).catch(() => []);
   const hits = [
-    ...("jarvis".startsWith(query.toLowerCase()) ? [JARVIS] : []),
+    ...(callsPip(query) ? [JARVIS] : []),
     ...found.filter((h) => h.id !== JARVIS_ENTITY_ID && h.id !== self && h.type !== "comment"),
   ];
   return {
@@ -286,7 +289,7 @@ export default function DocEditor(props: { id: string; placeholder?: string }) {
           <div class="mb-2 flex flex-wrap items-center gap-3 rounded-md border border-line bg-sunk px-3 py-2 text-sm">
             <span>
               {g().unsent
-                ? "This was deleted before your last changes reached Hearth. They're kept here: restore it from the trash to save them, or copy the text."
+                ? "This was deleted before your last changes reached Nook. They're kept here: restore it from the trash to save them, or copy the text."
                 : "This was deleted. Restore it from the trash to edit it again; until then you can read it here."}
             </span>
             <button type="button" class="text-accent hover:underline" onClick={copy}>
@@ -300,16 +303,16 @@ export default function DocEditor(props: { id: string; placeholder?: string }) {
         {/* The note's pane header says it's in the trash, and offers Restore. */}
         <Show when={state() === "trashed"}>There's nothing to read here until it's restored.</Show>
         <Show when={state() === "failed"}>
-          <span class="text-bad">Couldn't open this note. Check that Hearth is running.</span>
+          <span class="text-bad">Couldn't open this note. Check that Nook is running.</span>
         </Show>
         <Show when={state() === "open" && status().kind === "offline"}>
-          Not saved yet: can't reach Hearth. It's kept here and goes when Hearth is back.
+          Not saved yet: can't reach Nook. It's kept here and goes when Nook is back.
         </Show>
         <Show when={state() === "open" && status().kind === "retrying"}>
-          Not saved yet: Hearth hit a problem saving it. It's kept here, and Hearth tries again.
+          Not saved yet: Nook hit a problem saving it. It's kept here, and Nook tries again.
         </Show>
         <Show when={state() === "open" && refused()}>
-          {(why) => <span class="text-bad">Hearth didn't save this: {why()}</span>}
+          {(why) => <span class="text-bad">Nook didn't save this: {why()}</span>}
         </Show>
         <Show when={editedBy()}>
           {(by) => <span class="text-jarvis">{who(by())} is editing…</span>}

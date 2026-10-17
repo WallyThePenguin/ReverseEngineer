@@ -104,7 +104,7 @@ describe("your DM with Jarvis in Slack", () => {
     expect(ask).toMatchObject({ status: "pending", origin: "untrusted" });
     await t.send();
     expect(said()).toEqual([
-      `Got it, it's in Hearth: http://localhost:4400/chat/${turn!.conversationId}`,
+      `Got it, it's in Nook: http://localhost:4400/chat/${turn!.conversationId}`,
       OWNER_REPLIES.ask,
     ]);
     expect(t.s.posts.every((p) => p.channel === YOUR_DM)).toBe(true);
@@ -144,7 +144,7 @@ describe("your DM with Jarvis in Slack", () => {
     await t.h.settle();
     await t.send();
     expect(said()).toEqual([
-      expect.stringMatching(/^Got it, it's in Hearth: /),
+      expect.stringMatching(/^Got it, it's in Nook: /),
       "You have two meetings today.",
     ]);
   });

@@ -16,12 +16,12 @@ export function googleRoutes() {
 
   r.get("/connect", async (c) => {
     const caller = c.get("caller");
-    if (caller?.kind !== "owner") return c.text("Sign in to Hearth first.", 401);
+    if (caller?.kind !== "owner") return c.text("Sign in to Nook first.", 401);
     const { kernel } = c.get("deps");
     const google = kernel.services[GOOGLE_SERVICE] as GoogleClient | undefined;
     if (!google?.configured)
       return c.text(
-        "Google isn't set up yet: add HEARTH_GOOGLE_CLIENT_ID and HEARTH_GOOGLE_CLIENT_SECRET to .env and restart Hearth.",
+        "Google isn't set up yet: add HEARTH_GOOGLE_CLIENT_ID and HEARTH_GOOGLE_CLIENT_SECRET to .env and restart Nook.",
         503,
       );
     const wanted = (c.req.query("for") ?? "calendar").split(",");

@@ -38,7 +38,7 @@ describe("the Jarvis watchdog", () => {
     expect(await check()).toBe("restarted");
     expect(restarts).toBe(1);
     expect(await alerts()).toMatchObject([
-      { title: "Jarvis stopped, so Hearth restarted it", urgency: "normal" },
+      { title: "Pip stopped, so Nook restarted it", urgency: "normal" },
     ]);
 
     // Not again straight away.
@@ -48,7 +48,7 @@ describe("the Jarvis watchdog", () => {
     t.clock.advance(15 * 60_000);
     expect(await check()).toBe("restarted");
     expect(restarts).toBe(2);
-    const stuck = (await alerts()).find((a) => a.title === "Jarvis won't stay running");
+    const stuck = (await alerts()).find((a) => a.title === "Pip won't stay running");
     expect(stuck).toMatchObject({ urgency: "interrupt" });
     expect(stuck?.deliveredAt).not.toBeNull();
 
@@ -57,7 +57,7 @@ describe("the Jarvis watchdog", () => {
     expect(await check()).toBe("ok");
     t.clock.advance(20 * 60_000);
     expect(await check()).toBe("restarted");
-    expect((await alerts()).filter((a) => a.title.startsWith("Jarvis stopped"))).toHaveLength(2);
+    expect((await alerts()).filter((a) => a.title.startsWith("Pip stopped"))).toHaveLength(2);
   });
 
   it("gives Jarvis its few minutes after a reboot before restarting it", async () => {
@@ -91,7 +91,7 @@ describe("the Jarvis watchdog", () => {
     await checkIn();
     t.clock.advance(4 * 60_000);
     expect(await check()).toBe("failed");
-    expect(await alerts()).toMatchObject([{ title: "Jarvis won't stay running" }]);
+    expect(await alerts()).toMatchObject([{ title: "Pip won't stay running" }]);
   });
 
   it("sends what was held overnight when Jarvis is still down in the morning", async () => {
@@ -99,7 +99,7 @@ describe("the Jarvis watchdog", () => {
     await checkIn();
     const held = await t.kernel.execute<{ id: string; delivered: boolean }>(
       "inbox.notify",
-      { kind: "system.alert", title: "Jarvis won't stay running", urgency: "interrupt" },
+      { kind: "system.alert", title: "Pip won't stay running", urgency: "interrupt" },
       systemCaller(),
     );
     expect(held).toMatchObject({ status: "ok", result: { delivered: false } });
@@ -151,7 +151,7 @@ describe("Jarvis's liveness in the health check", () => {
     t.clock.advance(10 * 60_000);
     await reportHealth(t.kernel, await checkHealth(t.kernel, { dataDir: process.cwd() }));
     const down = await alerts();
-    expect(down).toMatchObject([{ title: "Jarvis is down" }]);
+    expect(down).toMatchObject([{ title: "Pip is down" }]);
     expect(down[0]?.body).toContain("hasn't checked in since");
 
     // A second outage the same day is told too.

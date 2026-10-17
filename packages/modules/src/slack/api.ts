@@ -181,7 +181,7 @@ const SLACK_ERRORS: Record<string, string> = {
   account_inactive: "That Slack account is deactivated.",
   not_authed: "No Slack token was sent.",
   missing_scope: "The Slack app is missing a permission. Add the scopes listed in Settings.",
-  ratelimited: "Slack asked Hearth to slow down; it will carry on in a minute.",
+  ratelimited: "Slack asked Nook to slow down; it will carry on in a minute.",
 };
 
 export type Raw = Record<string, unknown>;

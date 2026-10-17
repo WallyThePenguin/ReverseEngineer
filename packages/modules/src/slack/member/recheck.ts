@@ -17,8 +17,8 @@ import { reaches } from "./people.ts";
 import { memberGate } from "./turn.ts";
 
 const STOPPED: Record<string, string> = {
-  members_off: "You've turned off Jarvis answering people in your Slack.",
-  paused: "Jarvis was paused before it went out.",
+  members_off: "You've turned off the Jarvis bot answering people in your Slack.",
+  paused: "Pip was paused before it went out.",
 };
 
 type Row = Pick<OutboxRow, "kind" | "turnId" | "channelId">;
@@ -55,9 +55,9 @@ export async function answerStopped(db: Db, row: Row, now: Date): Promise<string
   if (!gate.ok && gate.why === "blocked")
     return row.channelId.startsWith("D") || isUser(row.channelId)
       ? "You've blocked them since it was written."
-      : "Jarvis is off in that channel now, or you've blocked them.";
+      : "The Jarvis bot is off in that channel now, or you've blocked them.";
   if (!gate.ok && gate.why !== "paused")
-    return STOPPED[gate.why] ?? "Jarvis no longer answers them.";
+    return STOPPED[gate.why] ?? "The Jarvis bot no longer answers them.";
   if (await approved(db, row.turnId)) return null;
   if (!gate.ok) return STOPPED.paused!;
   // In plain words, without their name: the card's title has it, and what's kept has none (D58).
@@ -70,9 +70,9 @@ export async function answerStopped(db: Db, row: Row, now: Date): Promise<string
   const noted = turn.context.answeredAs;
   if (!reaches(tier, noted === "relay" ? "relay" : "schedule")) {
     if (noted !== "schedule")
-      return "They're at relay now, and Hearth can't tell whether this says more than that.";
+      return "They're at relay now, and Nook can't tell whether this says more than that.";
     return there
-      ? "You lowered what Jarvis may tell them in that channel while this waited."
+      ? "You lowered what the Jarvis bot may tell them in that channel while this waited."
       : `You lowered them to ${tier} while this waited.`;
   }
   return null;

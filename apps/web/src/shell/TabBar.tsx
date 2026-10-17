@@ -73,7 +73,7 @@ function JarvisTab() {
       class={`${tab(jarvis.open() || mic.state() !== "idle")} touch-manipulation select-none [-webkit-touch-callout:none]`}
       aria-current={jarvis.open() ? "page" : undefined}
       aria-label={listening() ? "Stop and send" : undefined}
-      title="Jarvis (hold to talk)"
+      title="Pip (hold to talk)"
       disabled={mic.state() === "working"}
       onPointerDown={press}
       onPointerUp={release}
@@ -99,7 +99,7 @@ function JarvisTab() {
           </Match>
         </Switch>
       </TabIcon>
-      {listening() ? "Stop" : "Jarvis"}
+      {listening() ? "Stop" : "Pip"}
     </button>
   );
 }

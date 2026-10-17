@@ -85,7 +85,7 @@ describe("revoked", () => {
         await reportHealth(k.t.kernel, await checkSyncs(k.t.kernel, new ErrorClock()));
         k.t.clock.advance(60_000);
       }
-      expect(await k.alerts()).toEqual([{ title: "Jarvis's Slack bot is failing" }]);
+      expect(await k.alerts()).toEqual([{ title: "The Jarvis bot in Slack is failing" }]);
 
       // New tokens start it again.
       k.t.clock.advance(60_000);
@@ -175,7 +175,7 @@ describe("telling you it's down", () => {
     expect(failing.length, "looks that said failing").toBeGreaterThan(0);
     expect(failing[0]).toBeGreaterThanOrEqual(30);
     expect(failing[0]).toBeLessThanOrEqual(34);
-    expect(await k.alerts()).toEqual([{ title: "Jarvis's Slack bot is failing" }]);
+    expect(await k.alerts()).toEqual([{ title: "The Jarvis bot in Slack is failing" }]);
     expect(await k.row()).toMatchObject({ syncState: "ok", failures: 0 });
   });
 });

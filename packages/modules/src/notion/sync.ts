@@ -20,7 +20,7 @@ type Known = typeof notionTask.$inferSelect & { title: string; deletedAt: Date |
 export const MAX_PAGES = 20;
 /** What a round that failed short of Notion says, in Settings and the inbox. */
 export const ROUND_FAILED =
-  "Hearth couldn't save what it read from Notion. It tries again in a few minutes.";
+  "Nook couldn't save what it read from Notion. It tries again in a few minutes.";
 
 /** Why a round failed short of Notion, for the log: Postgres's reason, never a query's values. */
 const reasonOf = (err: unknown) => {

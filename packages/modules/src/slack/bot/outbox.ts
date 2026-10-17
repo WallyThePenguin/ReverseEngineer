@@ -50,7 +50,7 @@ const CANT_SEE: ReadonlySet<string> = new Set([
   "is_archived",
   "missing_scope",
 ]);
-const OWN_TOKEN_BROKEN = "Your own Slack token isn't working, so Hearth couldn't look.";
+const OWN_TOKEN_BROKEN = "Your own Slack token isn't working, so Nook couldn't look.";
 
 export interface OutboxRound {
   sent: number;
@@ -95,7 +95,7 @@ export async function sendOutbox(kernel: Kernel, max = ROUND_MAX): Promise<Outbo
   if (!bot) return round;
   for (const row of await expireWaiting(kernel.db, bot.teamId, kernel.clock.now())) {
     round.expired++;
-    await tell(kernel, row, "didn't go out", "It waited a day: Jarvis's Slack bot couldn't post.");
+    await tell(kernel, row, "didn't go out", "It waited a day: the Jarvis bot couldn't post.");
   }
   // Held while Slack has the bot revoked: nothing goes until new tokens arrive (D62). Nothing can
   // be read back either, so a post that may have gone out is given up on a day on, and you're told.
@@ -240,7 +240,7 @@ async function failure(
     }
     if (!UNSURE.test(err.code)) {
       const why = `Slack said ${err.code}.`;
-      if (maybeOut) return gaveUp(kernel, row, done, `${why} Hearth couldn't look for it.`);
+      if (maybeOut) return gaveUp(kernel, row, done, `${why} Nook couldn't look for it.`);
       await tell(kernel, row, "didn't go out", why);
       return done({ state: "failed", error: why }, "failed");
     }
@@ -265,7 +265,7 @@ function couldntLook(
 ): Promise<Outcome> {
   const now = kernel.clock.now();
   if (now >= row.expiresAt || (!opts.held && row.attempts >= MAX_ATTEMPTS))
-    return gaveUp(kernel, row, done, `Hearth couldn't look for it: ${said}`);
+    return gaveUp(kernel, row, done, `Nook couldn't look for it: ${said}`);
   const notBefore = opts.notBefore ? { notBefore: opts.notBefore } : {};
   return done({ state: "sending", error: said, ...notBefore }, opts.held ? "held" : "unsure");
 }
@@ -320,9 +320,9 @@ async function readBack(
 
 /** Why your own token couldn't read a channel back, in words. */
 function ownTokenCant(err: SlackError): string {
-  if (CANT_SEE.has(err.code)) return "You aren't in that channel, so Hearth couldn't look.";
+  if (CANT_SEE.has(err.code)) return "You aren't in that channel, so Nook couldn't look.";
   if (err.revoked) return OWN_TOKEN_BROKEN;
-  return `Slack said ${err.code} to your own token, so Hearth couldn't look.`;
+  return `Slack said ${err.code} to your own token, so Nook couldn't look.`;
 }
 
 /** The links you wrote in your shared answers: the only ones a member's answer may carry. */

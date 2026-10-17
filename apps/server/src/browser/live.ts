@@ -248,7 +248,7 @@ export class LiveView {
           type: "error",
           message:
             e.params.reason === "released"
-              ? "Jarvis gave that tab back, so it isn't shared any more."
+              ? "Pip gave that tab back, so it isn't shared any more."
               : "Chrome stopped sharing that tab (the bar was closed).",
         });
         this.watching.delete(ws);

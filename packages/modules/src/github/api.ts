@@ -89,12 +89,12 @@ export function httpGithub(base = "https://api.github.com"): GithubApi {
       res.status === 429 ||
       (res.status === 403 &&
         (res.headers.get("x-ratelimit-remaining") === "0" || res.headers.has("retry-after")));
-    if (limited) throw new GithubError(429, "GitHub asked Hearth to slow down.");
+    if (limited) throw new GithubError(429, "GitHub asked Nook to slow down.");
     if (res.status === 403)
       throw new GithubError(403, `The token can't read ${repo}'s pull requests.`);
     if (!res.ok) throw new GithubError(res.status, `GitHub answered ${res.status}.`);
     const body = (await res.json().catch(() => {
-      throw new GithubError(502, "GitHub sent back something Hearth can't read.");
+      throw new GithubError(502, "GitHub sent back something Nook can't read.");
     })) as unknown;
     return {
       body,

@@ -86,7 +86,7 @@ export async function guardAgentCall(
       const site = typeof given.site === "string" ? given.site : new URL(pinned.url).hostname;
       given = { ...given, site, ...pinned.extra };
     } else if (state.origin === "untrusted") {
-      askFirst ??= "Hearth couldn't tell which site this would act on.";
+      askFirst ??= "Nook couldn't tell which site this would act on.";
     }
   }
   if (def.snapshot) {

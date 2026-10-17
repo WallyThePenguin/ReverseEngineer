@@ -46,8 +46,8 @@ export function JarvisStatusMark(props: { size?: number; glyph?: boolean }) {
   const wrong = () =>
     liveness().unwell
       ? liveness().downSince
-        ? "Jarvis isn't running"
-        : "Jarvis's turns are failing"
+        ? "Pip isn't running"
+        : "Pip's turns are failing"
       : undefined;
   const state = () => (wrong() ? "down" : status.data?.jarvisPaused ? "paused" : "idle");
   return (
@@ -155,7 +155,7 @@ export function JarvisPane() {
           size={18}
           state={liveness().unwell ? "down" : status.data?.jarvisPaused ? "paused" : "idle"}
         />
-        <span class="font-semibold text-jarvis">Jarvis</span>
+        <span class="font-semibold text-jarvis">Pip</span>
         <Show when={status.data?.jarvisPaused}>
           <Badge tone="warn">Paused</Badge>
         </Show>
@@ -228,8 +228,8 @@ export function JarvisPane() {
       >
         {(since) => (
           <p class="border-b border-line bg-accent-soft px-3 py-1.5 text-xs text-bad">
-            Jarvis hasn't been running since {when(since())} Hearth is trying to restart it;
-            anything you send waits until it's back.
+            Pip hasn't been running since {when(since())} Nook is trying to restart it; anything you
+            send waits until it's back.
           </p>
         )}
       </Show>

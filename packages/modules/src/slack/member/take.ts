@@ -367,7 +367,7 @@ export async function takeRound(ctx: ActionContext): Promise<TakeRound> {
 export const takeAction = defineAction({
   name: "slack.take",
   description:
-    "Take what people in your Slack wrote to Jarvis's bot: who wrote it, their conversation, and whether Jarvis answers or passes it on to you.",
+    "Take what people in your Slack wrote to the Jarvis bot: who wrote it, their conversation, and whether it answers or passes it on to you.",
   input: z.object({}),
   risk: "internal",
   // Only as the integration, from the worker (D62): what it writes is outside content.

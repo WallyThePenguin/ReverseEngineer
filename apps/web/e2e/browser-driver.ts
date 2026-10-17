@@ -181,7 +181,7 @@ export async function driverChecks(context: DriverContext) {
     a1 && a2 && b && a1.group === a2.group && a1.group !== b.group,
     "each turn's tabs share a tab group of their own",
   );
-  check(a1?.title.startsWith("Jarvis "), "named for when the turn started");
+  check(a1?.title.startsWith("Pip "), "named for when the turn started");
   for (const id of opened) await act("browser.close", { tabId: id });
 
   const ms = times.map((t) => t.ms).sort((x, y) => x - y);

@@ -46,18 +46,18 @@ export function JarvisDid(props: {
     <TodayCard
       product="jarvis"
       icon="mark"
-      title="What Jarvis did"
+      title="What Pip did"
       count={props.items.length}
       more={{ run: () => props.go({ view: "activity" }) }}
     >
       <Show
         when={props.query.data !== undefined}
-        fallback={<CardWaiting query={props.query} what="what Jarvis did" />}
+        fallback={<CardWaiting query={props.query} what="what Pip did" />}
       >
         <Show
           when={props.items.length > 0 || props.failed > 0}
           fallback={
-            <CardEmpty>Nothing since yesterday. What Jarvis makes for you shows up here.</CardEmpty>
+            <CardEmpty>Nothing since yesterday. What Pip makes for you shows up here.</CardEmpty>
           }
         >
           <ul>

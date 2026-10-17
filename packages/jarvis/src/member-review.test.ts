@@ -122,7 +122,7 @@ describe("what changes while it answers", () => {
     const [held] = await replies();
     expect(held).toMatchObject({ status: "pending" });
     expect((await cardOf(held!.id))!.body).toBe(
-      "Thursday works.\n\nJarvis was paused while it answered, so this waits for your yes.",
+      "Thursday works.\n\nPip was paused while it answered, so this waits for your yes.",
     );
     await t.send();
     expect(t.s.posts).toEqual([]);
@@ -183,7 +183,7 @@ describe("an answer waiting to go", () => {
       { kind: "answer", state: "failed", error: "You've blocked them since it was written." },
     ]);
     const [card] = await t.cards("slack.not_sent");
-    expect(card!.title).toBe("Jarvis's Slack message to Sam Lee didn't go out");
+    expect(card!.title).toBe("The Jarvis bot's Slack message to Sam Lee didn't go out");
   });
 
   it("doesn't go on its own once you've paused Jarvis", async () => {
@@ -192,7 +192,7 @@ describe("an answer waiting to go", () => {
     await t.send();
     expect(t.s.posts).toEqual([]);
     expect(await t.outbox()).toMatchObject([
-      { state: "failed", error: "Jarvis was paused before it went out." },
+      { state: "failed", error: "Pip was paused before it went out." },
     ]);
   });
 });

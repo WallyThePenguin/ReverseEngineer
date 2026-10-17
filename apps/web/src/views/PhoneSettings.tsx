@@ -20,7 +20,7 @@ export function PhoneSettings() {
       </Show>
       <Show when={!installed() && !push.desktopApp && !push.needsHomeScreen}>
         <p class="text-sm text-muted">
-          On your phone, open Hearth in Safari, tap Share, then Add to Home Screen. It opens like an
+          On your phone, open Nook in Safari, tap Share, then Add to Home Screen. It opens like an
           app, and on an iPhone that's also what lets it show notifications.
         </p>
       </Show>
@@ -34,7 +34,7 @@ export function PhoneSettings() {
                   {push.desktopApp
                     ? "here come from the Windows app"
                     : push.needsHomeScreen
-                      ? "here need Hearth on your Home Screen"
+                      ? "here need Nook on your Home Screen"
                       : push.supported
                         ? push.on()
                           ? "on here"
@@ -42,7 +42,7 @@ export function PhoneSettings() {
                         : "aren't available here"}
                 </p>
                 <p class="text-sm text-muted">
-                  Approvals, your morning brief, and the interruptions Jarvis is allowed to make.
+                  Approvals, your morning brief, and the interruptions Pip is allowed to make.
                 </p>
               </div>
               <Show when={push.supported && !push.on()}>

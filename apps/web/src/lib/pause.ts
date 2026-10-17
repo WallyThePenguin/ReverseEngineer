@@ -8,8 +8,8 @@ export async function setPaused(paused: boolean) {
   if (await act(paused ? "jarvis.pause" : "jarvis.resume")) {
     toast.show(
       paused
-        ? "Jarvis is paused. It still answers you, and alerts still come through."
-        : "Jarvis is back on.",
+        ? "Pip is paused. It still answers you, and alerts still come through."
+        : "Pip is back on.",
     );
   }
 }

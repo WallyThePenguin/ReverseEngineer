@@ -150,7 +150,7 @@ fn up_alongside(current: Option<&Url>) -> bool {
 /// when it keeps the one it has.
 fn ready(app: &AppHandle, which: Which, path: &str) -> Option<(WebviewWindow, Option<Url>)> {
     let Some(home) = home(app) else {
-        tell(app, "Set Hearth's address in voice settings first.");
+        tell(app, "Set Nook's address in voice settings first.");
         crate::show_main_window(app);
         return None;
     };
@@ -182,10 +182,7 @@ fn ready(app: &AppHandle, which: Which, path: &str) -> Option<(WebviewWindow, Op
             }
             Err(e) => {
                 log::error!("Couldn't open Hearth's window: {e}");
-                tell(
-                    app,
-                    "Couldn't open Hearth's window. Try again from the tray.",
-                );
+                tell(app, "Couldn't open Nook's window. Try again from the tray.");
                 return None;
             }
         },
@@ -267,7 +264,7 @@ fn build(app: &AppHandle, which: Which, home: &Url) -> tauri::Result<WebviewWind
                 _ => toast::show(
                     &dl_app,
                     "That download didn't finish",
-                    "Try it again from Hearth.",
+                    "Try it again from Nook.",
                     None,
                 ),
             }
@@ -282,7 +279,7 @@ fn build(app: &AppHandle, which: Which, home: &Url) -> tauri::Result<WebviewWind
 
     b = match which {
         Which::Main => b
-            .title("Hearth")
+            .title("Nook")
             .inner_size(1280.0, 860.0)
             .min_inner_size(480.0, 400.0)
             .center(),
@@ -295,7 +292,7 @@ fn build(app: &AppHandle, which: Which, home: &Url) -> tauri::Result<WebviewWind
             .skip_taskbar(true)
             .center(),
         Which::Ask => b
-            .title("Ask Jarvis")
+            .title("Ask Pip")
             .inner_size(480.0, 640.0)
             .min_inner_size(360.0, 320.0)
             .decorations(false)
@@ -381,7 +378,7 @@ mod tests {
         let on = |u: &str| up_alongside(Some(&u.parse::<Url>().unwrap()));
         // Just made, or saying Hearth isn't running: up within a moment of your click.
         assert!(on("about:blank"));
-        assert!(on("data:text/html,Hearth%20isn%27t%20running"));
+        assert!(on("data:text/html,Nook%20isn%27t%20running"));
         // On a Hearth page you could be typing into: once the new one's on its way.
         assert!(!on("http://localhost:4400/capture"));
         assert!(!on("https://hearth.example.test/inbox"));

@@ -25,7 +25,7 @@ export function greeting(now = new Date()): string {
  * or to move your things. Not "do" or "will", which start to-dos and names, nor a plain verb.
  */
 const FOR_JARVIS =
-  /^(?:(?:hey\s+)?jarvis\b|(?:please[,\s]+)?(?:(?:what|when|who|where|why|how|which|is|are|am|was|were|can|could|should|would|does|did)\b|remind me\b|(?:move|cancel|reschedule) my\b))/i;
+  /^(?:(?:hey\s+)?(?:pip|jarvis)\b|(?:please[,\s]+)?(?:(?:what|when|who|where|why|how|which|is|are|am|was|were|can|could|should|would|does|did)\b|remind me\b|(?:move|cancel|reschedule) my\b))/i;
 
 /**
  * What the Ask box offers to add as a task: a line that names a time ("dentist fri 3pm", "do taxes

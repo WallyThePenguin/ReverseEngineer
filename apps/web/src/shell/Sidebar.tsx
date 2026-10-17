@@ -198,7 +198,7 @@ export function Sidebar(props: {
       >
         {/* Jarvis's chat, at the side: the Jarvis row above is what it did and knows. */}
         <Icon name="panel-right" class="text-faint" />
-        <span class="flex-1">{jarvis.open() ? "Hide Jarvis" : "Ask Jarvis"}</span>
+        <span class="flex-1">{jarvis.open() ? "Hide Pip" : "Ask Pip"}</span>
         <span class="hidden text-xs text-faint md:inline">{MOD === "⌘" ? "⌘J" : "Ctrl J"}</span>
       </button>
     </nav>

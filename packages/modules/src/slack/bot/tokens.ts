@@ -30,7 +30,7 @@ export function openBotToken(ctx: Services, row: BotRow, kind: BotTokenKind): st
   } catch {
     throw new ActionError(
       "failed",
-      "Jarvis's Slack tokens can't be opened. Paste them again in Settings → Slack → Jarvis's bot.",
+      "The Jarvis bot's Slack tokens can't be opened. Paste them again in Settings → Slack.",
     );
   }
 }

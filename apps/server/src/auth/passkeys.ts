@@ -184,7 +184,7 @@ async function takeChallenge(
 export async function registrationOptions(db: Db, rp: RelyingParty) {
   const existing = await db.select().from(credential).where(madeAt(credential.rpId, rp));
   const options = await generateRegistrationOptions({
-    rpName: "Hearth",
+    rpName: "Nook",
     rpID: rp.rpID,
     userName: "owner",
     userDisplayName: "You",

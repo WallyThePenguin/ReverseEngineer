@@ -7,7 +7,7 @@ import type { MemberBrief, ThreadLine } from "@hearth/modules";
 
 /** What a member's tier lets them ask for, as the prompt says it. */
 function canDo(b: MemberBrief): string[] {
-  const relay = `pass a message on to ${b.owner} (member_leave_message), who reads it in Hearth`;
+  const relay = `pass a message on to ${b.owner} (member_leave_message), who reads it in Nook`;
   if (b.tier !== "schedule") return [relay];
   return [
     relay,

@@ -193,14 +193,14 @@ export function directLauncher(
       if (!chrome)
         throw new ActionError(
           "unavailable",
-          "Hearth can't find Chrome on this computer. Set HEARTH_CHROME_PATH to it.",
+          "Nook can't find Chrome on this computer. Set HEARTH_CHROME_PATH to it.",
         );
       try {
         await start(chrome, directArgs(config));
       } catch (err) {
         throw new ActionError(
           "unavailable",
-          `Hearth couldn't start Chrome at ${chrome}: ${(err as Error).message}`,
+          `Nook couldn't start Chrome at ${chrome}: ${(err as Error).message}`,
         );
       }
     },

@@ -172,7 +172,7 @@ export function friendlyError(kind: FailureKind, c: FriendlyContext): Friendly {
   };
   // "10:40 a.m." already ends the sentence.
   const at = c.retryAt ? when(c.retryAt) : "";
-  const later = at ? ` Jarvis will try again ${at}${at.endsWith(".") ? "" : "."}` : "";
+  const later = at ? ` Pip will try again ${at}${at.endsWith(".") ? "" : "."}` : "";
   switch (kind) {
     case "canceled":
       return { text: "Stopped.", retry: true };
@@ -186,32 +186,32 @@ export function friendlyError(kind: FailureKind, c: FriendlyContext): Friendly {
         : { text: "Claude is overloaded right now, even after a few tries.", retry: true };
     case "network":
       return c.retryAt
-        ? { text: `Jarvis couldn't reach Claude.${later}`, retry: false }
-        : { text: "Jarvis couldn't reach Claude, even after a few tries.", retry: true };
+        ? { text: `Pip couldn't reach Claude.${later}`, retry: false }
+        : { text: "Pip couldn't reach Claude, even after a few tries.", retry: true };
     case "crashed":
       return c.retryAt
-        ? { text: `Jarvis's model process stopped unexpectedly.${later}`, retry: false }
-        : { text: "Jarvis's model process kept stopping, so this didn't finish.", retry: true };
+        ? { text: `Pip's model process stopped unexpectedly.${later}`, retry: false }
+        : { text: "Pip's model process kept stopping, so this didn't finish.", retry: true };
     case "auth":
       return {
-        text: "Jarvis is signed out of Claude. Run claude on the PC to sign in again, then retry.",
+        text: "Pip is signed out of Claude. Run claude on the PC to sign in again, then retry.",
         retry: true,
       };
     case "timeout":
       return {
-        text: `This ran past Jarvis's ${c.limitMinutes ?? 10}-minute limit, so it stopped.`,
+        text: `This ran past Pip's ${c.limitMinutes ?? 10}-minute limit, so it stopped.`,
         retry: true,
       };
     case "interrupted":
-      return { text: "Jarvis restarted while working on this, so it didn't finish.", retry: true };
+      return { text: "Pip restarted while working on this, so it didn't finish.", retry: true };
     case "bad_tool":
       return {
-        text: `Part of Jarvis's setup${c.tool ? ` (the ${c.tool} tool)` : ""} was rejected, so this couldn't run. It's flagged in your inbox.`,
+        text: `Part of Pip's setup${c.tool ? ` (the ${c.tool} tool)` : ""} was rejected, so this couldn't run. It's flagged in your inbox.`,
         retry: true,
       };
     case "invalid_request":
       return {
-        text: "Claude turned down Jarvis's request, so this couldn't run. It's flagged in your inbox.",
+        text: "Claude turned down Pip's request, so this couldn't run. It's flagged in your inbox.",
         retry: true,
       };
     default:

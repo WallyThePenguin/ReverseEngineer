@@ -126,7 +126,7 @@ export interface BrowserClient {
 }
 
 export const OFFLINE_MESSAGE =
-  "Chrome isn't connected to Hearth. Open Chrome on the PC; the Hearth extension connects by itself.";
+  "Chrome isn't connected to Nook. Open Chrome on the PC; the Nook extension connects by itself.";
 
 /** Long enough for the server to open Chrome and wait for it (D28), then do what was asked. */
 export const REQUEST_TIMEOUT_MS = 150_000;
@@ -176,10 +176,10 @@ export class HttpBrowserClient implements BrowserClient {
         });
       } catch (err) {
         if ((err as Error).name === "TimeoutError")
-          throw new ActionError("failed", "Hearth's server took too long to answer about Chrome.");
+          throw new ActionError("failed", "Nook's server took too long to answer about Chrome.");
         throw new ActionError(
           "unavailable",
-          "Hearth's server isn't reachable, so neither is Chrome.",
+          "Nook's server isn't reachable, so neither is Chrome.",
         );
       }
       if (res.status === 401 && !fresh) continue;
@@ -191,7 +191,7 @@ export class HttpBrowserClient implements BrowserClient {
       if (res.ok) return body as T;
       throw bridgeError(body, res.status);
     }
-    throw new ActionError("failed", "The browser bridge refused Hearth's own token.");
+    throw new ActionError("failed", "The browser bridge refused Nook's own token.");
   }
 }
 

@@ -211,7 +211,7 @@ try {
     "a failed read says so and offers Try again; only a gone record is 'not found'",
     async (p) => {
       // Hearth answers, but its database is out of reach.
-      const down = "Hearth's database isn't reachable right now. Try again in a moment.";
+      const down = "Nook's database isn't reachable right now. Try again in a moment.";
       await p.route("**/api/actions/task.list", (r) =>
         r.fulfill({
           status: 503,
@@ -221,13 +221,13 @@ try {
       );
       await p.goto(`${base}/tasks`);
       await p.getByText(`Couldn't load your tasks: ${down}`).waitFor();
-      await p.getByText("Hearth can't get to your data right now").waitFor();
+      await p.getByText("Nook can't get to your data right now").waitFor();
       if (await p.getByText("No tasks here.").count()) throw new Error("a failed read looks empty");
       await p.unroute("**/api/actions/task.list");
       await p.getByRole("button", { name: "Try again" }).click();
       // The newest of the three: the first step completes the second row, never the last.
       await p.getByText(titles[2]!).waitFor();
-      await p.getByText("Hearth can't get to your data right now").waitFor({ state: "detached" });
+      await p.getByText("Nook can't get to your data right now").waitFor({ state: "detached" });
 
       // A record that isn't there is "not found" at once; one that failed to load isn't.
       await p.goto(`${base}/task/00000000-0000-4000-8000-000000000000`);

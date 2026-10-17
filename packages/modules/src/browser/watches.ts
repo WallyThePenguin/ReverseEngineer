@@ -36,7 +36,7 @@ const onChange = z
   .trim()
   .max(1000)
   .describe(
-    "What Jarvis should do when the page changes, e.g. 'tell me if the price drops under $30'. Without it, the owner just gets a notice.",
+    "What Pip should do when the page changes, e.g. 'tell me if the price drops under $30'. Without it, the owner just gets a notice.",
   );
 const selector = z
   .string()
@@ -305,7 +305,7 @@ export const watchActions = [
 /** When a watched page changes and you said what to do about it, Jarvis does it. */
 export const watchFollowUp: ReflexDef = {
   name: "page_watch.follow_up",
-  description: "When a watched page changes and the watch says what to do, Jarvis does it.",
+  description: "When a watched page changes and the watch says what to do, Pip does it.",
   mode: "reactive",
   on: ["page_watch.changed"],
   async run(event, ctx) {

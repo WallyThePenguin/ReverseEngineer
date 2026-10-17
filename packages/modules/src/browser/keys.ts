@@ -133,7 +133,7 @@ export function parseCombo(raw: string): Combo {
   if (named) key = named;
   else {
     const ch = charKey(last);
-    if (!ch) throw new ActionError("invalid_input", `"${last}" isn't a key Hearth knows.`);
+    if (!ch) throw new ActionError("invalid_input", `"${last}" isn't a key Nook knows.`);
     key = ch.key;
     if (ch.shift) combo.shift = true;
   }

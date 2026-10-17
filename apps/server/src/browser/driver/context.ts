@@ -72,7 +72,7 @@ export class DriverContext {
     if (this.policy.owner) return;
     const host = hostOf(url);
     if (host && onSiteList(host, this.policy.blocked))
-      throw fail("blocked", `${host} is on the owner's list of sites Jarvis never opens.`);
+      throw fail("blocked", `${host} is on the owner's list of sites Pip never opens.`);
   }
 
   /** How many times the tab had gone, or asked to go, to another page when this step began. */
@@ -99,7 +99,7 @@ export class DriverContext {
     if (marked === null)
       throw fail(
         "changed",
-        `Jarvis couldn't tell what page tab ${this.tab.tabId} is on, so it didn't go ahead. Try again once the page has loaded.`,
+        `Pip couldn't tell what page tab ${this.tab.tabId} is on, so it didn't go ahead. Try again once the page has loaded.`,
       );
     if (marked) throw fail("refused", HEARTH_PAGE);
     this.began = this.tab.navigations;
@@ -118,7 +118,7 @@ export class DriverContext {
     const pressed = done.length ? ` (Already pressed: ${done.join(", ")}.)` : "";
     throw fail(
       "changed",
-      `The tab started going to another page partway through, so Jarvis stopped there.${pressed}`,
+      `The tab started going to another page partway through, so Pip stopped there.${pressed}`,
     );
   }
 

@@ -33,7 +33,7 @@ export function LookingChip(props: { label: string; onTakeOff: () => void }) {
       tone="jarvis"
       icon="paperclip"
       class="max-w-full"
-      title="Jarvis is told you have this open, so “this” means it. Tap to leave it out."
+      title="Pip is told you have this open, so “this” means it. Tap to leave it out."
       onClick={() => props.onTakeOff()}
     >
       <span class="min-w-0 truncate">{props.label}</span>

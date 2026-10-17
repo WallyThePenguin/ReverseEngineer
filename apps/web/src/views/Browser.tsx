@@ -29,7 +29,7 @@ function ChromeClosed(props: { b: LiveBrowser }) {
         when={o().canOpen && o().paired}
         fallback={
           <p>
-            Open Chrome on your PC with the Hearth extension installed and paired. It connects by
+            Open Chrome on your PC with the Nook extension installed and paired. It connects by
             itself.
           </p>
         }
@@ -37,7 +37,7 @@ function ChromeClosed(props: { b: LiveBrowser }) {
         <p>
           {o().opening || asked()
             ? "Opening Chrome on your PC…"
-            : "Chrome is closed. Hearth opens it on your PC when Jarvis needs it."}
+            : "Chrome is closed. Nook opens it on your PC when Pip needs it."}
         </p>
         <Button kind="primary" onClick={() => void open()} disabled={asked()}>
           Open Chrome
@@ -88,7 +88,7 @@ export function Browser() {
         title="Chrome"
         sub={
           !b.online()
-            ? "Reconnecting to Hearth…"
+            ? "Reconnecting to Nook…"
             : b.connected()
               ? "Your Chrome, live. Click into the page to use it."
               : b.opener().opening
@@ -140,7 +140,7 @@ export function Browser() {
             onBlur={() => (editing = false)}
             onInput={(e) => setAddress(e.currentTarget.value)}
           />
-          <Button small onClick={() => go(true)} title="Open in a new tab in Jarvis's window">
+          <Button small onClick={() => go(true)} title="Open in a new tab in Pip's window">
             New tab
           </Button>
           <Show when={b.current()?.url.startsWith("http")}>
@@ -174,8 +174,8 @@ export function Browser() {
           when={b.tabId() !== null}
           fallback={
             <Empty>
-              Jarvis has no tabs open. Type an address above to open one, or hand Jarvis one of your
-              tabs with the Hearth button in Chrome.
+              Pip has no tabs open. Type an address above to open one, or hand Pip one of your tabs
+              with the Nook button in Chrome.
             </Empty>
           }
         >

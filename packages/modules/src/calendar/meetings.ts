@@ -20,10 +20,10 @@ import {
 import { loadEvent } from "./store.ts";
 
 const ASK_AGAIN =
-  "This was asked before Hearth showed which meeting it is and what its guests get, so it wasn't done. Ask for it again.";
+  "This was asked before Nook showed which meeting it is and what its guests get, so it wasn't done. Ask for it again.";
 const CHANGED = "The meeting changed since you were asked, so it wasn't done.";
 
-const filledIn = "Filled in by Hearth. Leave it out.";
+const filledIn = "Filled in by Nook. Leave it out.";
 const theMeeting = z.object({ event: z.string() }).optional().describe(filledIn);
 
 /** What guests of a new meeting get besides the time: where, and the description. */

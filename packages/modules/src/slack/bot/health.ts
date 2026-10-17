@@ -23,12 +23,12 @@ export const REVOKED_CODES: ReadonlySet<string> = new Set([
 ]);
 
 const MESSAGES: Record<string, string> = {
-  link_disabled: "Slack turned off Socket Mode for Jarvis's app.",
-  invalid_auth: "Slack doesn't accept Jarvis's tokens any more.",
-  token_revoked: "Jarvis's Slack token was revoked.",
-  account_inactive: "Jarvis's Slack app was deactivated.",
-  app_uninstalled: "Jarvis's app was uninstalled from the workspace.",
-  tokens_revoked: "Jarvis's Slack tokens were revoked.",
+  link_disabled: "Slack turned off Socket Mode for the Jarvis app.",
+  invalid_auth: "Slack doesn't accept the Jarvis bot's tokens any more.",
+  token_revoked: "The Jarvis bot's Slack token was revoked.",
+  account_inactive: "The Jarvis app in Slack was deactivated.",
+  app_uninstalled: "The Jarvis app was uninstalled from the workspace.",
+  tokens_revoked: "The Jarvis bot's Slack tokens were revoked.",
 };
 
 /** What a code from Slack means for the socket's health. */
@@ -36,9 +36,9 @@ export function botTrouble(code: string): Trouble {
   if (REVOKED_CODES.has(code))
     return {
       kind: "revoked",
-      message: `${MESSAGES[code]} Paste new tokens in Settings → Slack → Jarvis's bot.`,
+      message: `${MESSAGES[code]} Paste new tokens for the Jarvis bot in Settings → Slack.`,
     };
-  return { kind: "transient", message: `Jarvis's Slack socket is down: ${code}.` };
+  return { kind: "transient", message: `The Jarvis bot's Slack socket is down: ${code}.` };
 }
 
 /**

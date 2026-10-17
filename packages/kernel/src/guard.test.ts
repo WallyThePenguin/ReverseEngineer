@@ -142,7 +142,7 @@ describe("Jarvis's calls in the kernel (D58)", () => {
     });
     expect(await t.kernel.execute("probe.click", { tab: 9 }, outside)).toMatchObject({
       status: "pending_approval",
-      reason: "Hearth couldn't tell which site this would act on.",
+      reason: "Nook couldn't tell which site this would act on.",
     });
   });
 

@@ -9,7 +9,7 @@ const statusEl = /** @type {HTMLElement} */ (document.getElementById("status"));
 async function showStatus() {
   const s = await chrome.runtime.sendMessage({ type: "status" });
   statusEl.textContent = s.outdated
-    ? "Connected, but Hearth is newer than this extension. Reload it at chrome://extensions."
+    ? "Connected, but Nook is newer than this extension. Reload it at chrome://extensions."
     : s.connected
       ? "Connected."
       : s.error || "Not connected yet.";

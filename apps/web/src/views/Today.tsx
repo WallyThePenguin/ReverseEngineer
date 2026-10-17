@@ -250,7 +250,7 @@ export function Today(props: { pane: number }) {
                 <section aria-labelledby="today-drafts" class="space-y-3">
                   <SectionHeader id="today-drafts" title="Ready to send" />
                   <Card flush>
-                    <Failed error={drafts.error} retry={drafts.refetch} what="Jarvis's drafts" />
+                    <Failed error={drafts.error} retry={drafts.refetch} what="Pip's drafts" />
                   </Card>
                 </section>
               </Show>

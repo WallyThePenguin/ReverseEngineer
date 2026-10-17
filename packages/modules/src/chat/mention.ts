@@ -98,7 +98,7 @@ async function writtenFromOutside(db: ReadContext["db"], w: Waiting): Promise<bo
 
 export const answerMention: ReflexDef = {
   name: "chat.answer_mention",
-  description: "When you @mention Jarvis in a note, task, comment or doc, it answers right there.",
+  description: "When you @mention Pip in a note, task, comment or doc, it answers right there.",
   mode: "reactive",
   on: ["jarvis.mentioned"],
   run(event, ctx) {

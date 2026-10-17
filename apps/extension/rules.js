@@ -127,7 +127,7 @@ export function assertWebUrl(url) {
     throw new HearthError("not_allowed", `${url} isn't a web address.`);
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:")
-    throw new HearthError("not_allowed", "Jarvis only opens http and https pages.");
+    throw new HearthError("not_allowed", "Pip only opens http and https pages.");
 }
 
 /**
@@ -149,10 +149,7 @@ export function checkCommand(method, params, worlds) {
       (params.objectId !== undefined || !worlds?.has(params.executionContextId))) ||
     (method === "DOM.resolveNode" && !worlds?.has(params.executionContextId));
   if (outsideWorlds)
-    throw new HearthError(
-      "not_allowed",
-      "Scripts may only run in an isolated world Hearth created.",
-    );
+    throw new HearthError("not_allowed", "Scripts may only run in an isolated world Nook created.");
   if (
     method === "Target.setAutoAttach" &&
     (params.flatten !== true || params.waitForDebuggerOnStart === true)

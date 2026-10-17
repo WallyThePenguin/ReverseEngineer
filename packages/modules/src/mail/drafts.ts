@@ -120,7 +120,7 @@ export const snapshotSchema = z
     subject: z.string(),
     text: z.string(),
   })
-  .describe("Filled in by Hearth: what will be sent. Leave it out.");
+  .describe("Filled in by Nook: what will be sent. Leave it out.");
 
 /** The account a new message goes from: the one named, or your only (or first) one. */
 async function accountFor(ctx: ActionContext, wanted?: string) {

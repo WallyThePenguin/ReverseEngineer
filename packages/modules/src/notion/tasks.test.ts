@@ -186,7 +186,7 @@ describe("notion tasks", () => {
   it("stops at a revoked secret until you paste a new one, and lets a slowdown pass", async () => {
     await connected();
     ticket("a");
-    n.failWith = new NotionError(429, "Notion asked Hearth to slow down.");
+    n.failWith = new NotionError(429, "Notion asked Nook to slow down.");
     expect((await sync()).failed).toEqual([]);
     expect((await t.tdb.db.select().from(notionAccount))[0]).toMatchObject({
       syncState: "ok",

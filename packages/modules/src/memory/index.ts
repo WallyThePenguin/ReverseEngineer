@@ -30,7 +30,7 @@ const MEMORY_CALLERS: PrincipalKind[] = ["owner", "agent"];
 export const memoryModule = defineModule({
   name: "memory",
   description:
-    "What Jarvis remembers: notes about the owner, how they work, their preferences and projects.",
+    "What Pip remembers: notes about the owner, how they work, their preferences and projects.",
   entityTypes: ["memory_note"],
   events: [
     {

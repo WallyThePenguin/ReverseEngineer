@@ -86,7 +86,7 @@ export function pushRoutes(send: PushSend) {
     const sent = await pushToAll(
       c.get("deps").kernel,
       {
-        title: "Hearth",
+        title: "Nook",
         body: "Notifications work on this device.",
         url: "/settings",
         tag: "test",

@@ -142,7 +142,7 @@ export async function writableCalendar(ctx: ActionContext, calendarId?: string) 
     throw new ActionError(
       calendarId ? "not_found" : "unavailable",
       calendarId
-        ? "That calendar isn't connected, or Hearth can't write to it."
+        ? "That calendar isn't connected, or Nook can't write to it."
         : "No Google Calendar is connected. Connect one in Settings.",
     );
   return cal;
@@ -152,7 +152,7 @@ export const calendarSetupActions = [
   defineAction({
     name: "calendar.calendars",
     description:
-      "Connected Google accounts and their calendars: which ones Hearth syncs, and which one new events go to (writeDefault).",
+      "Connected Google accounts and their calendars: which ones Nook syncs, and which one new events go to (writeDefault).",
     input: z.object({}),
     risk: "read",
     async handler(_i, ctx) {
@@ -215,7 +215,7 @@ export const calendarSetupActions = [
   }),
   defineAction({
     name: "calendar.set_default",
-    description: "Choose the calendar Hearth puts new events and time blocks on.",
+    description: "Choose the calendar Nook puts new events and time blocks on.",
     input: z.object({ id: z.string().min(1) }),
     risk: "internal",
     callers: ["owner"],
@@ -224,7 +224,7 @@ export const calendarSetupActions = [
       if (!row?.canWrite)
         throw new ActionError(
           "not_found",
-          "That calendar isn't connected, or Hearth can't write to it.",
+          "That calendar isn't connected, or Nook can't write to it.",
         );
       await ctx.tx
         .update(calendar)

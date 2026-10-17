@@ -348,7 +348,7 @@ fn compute_desired(app: &AppHandle, icon_state: TrayIconState) -> TrayDesired {
             recording: crate::hearth::meeting::recording(),
             hearth_status: hearth
                 .map(|s| s.line())
-                .unwrap_or_else(|| "Checking Hearth…".to_string()),
+                .unwrap_or_else(|| "Checking Nook…".to_string()),
             hearth_installed: crate::hearth::services::hearth_folder().is_some(),
         },
     }
@@ -463,9 +463,9 @@ pub fn tray_tooltip(app: &AppHandle) -> String {
 fn version_label(app: &AppHandle) -> String {
     let version = app.package_info().version.to_string();
     if cfg!(debug_assertions) {
-        format!("Hearth v{version} (Dev)")
+        format!("Nook v{version} (Dev)")
     } else {
-        format!("Hearth v{version}")
+        format!("Nook v{version}")
     }
 }
 
@@ -536,7 +536,7 @@ fn build_menu(app: &AppHandle, inputs: &MenuInputs) -> tauri::Result<(Menu<tauri
         None::<&str>,
     )?;
     let quit_i = MenuItem::with_id(app, "quit", &strings.quit, true, quit_accelerator)?;
-    let hearth_i = MenuItem::with_id(app, "open_hearth", "Open Hearth", true, None::<&str>)?;
+    let hearth_i = MenuItem::with_id(app, "open_hearth", "Open Nook", true, None::<&str>)?;
     let meeting_label = if inputs.recording {
         "Stop recording the meeting"
     } else {
@@ -547,14 +547,14 @@ fn build_menu(app: &AppHandle, inputs: &MenuInputs) -> tauri::Result<(Menu<tauri
     let restart_i = MenuItem::with_id(
         app,
         "hearth_restart",
-        "Restart Hearth services",
+        "Restart Nook services",
         inputs.hearth_installed,
         None::<&str>,
     )?;
     let update_i = MenuItem::with_id(
         app,
         "hearth_update",
-        "Update Hearth…",
+        "Update Nook…",
         inputs.hearth_installed,
         None::<&str>,
     )?;
@@ -759,7 +759,7 @@ mod tests {
             locale: "en".to_string(),
             update_checks_enabled: true,
             recording: false,
-            hearth_status: "Server ✓  Worker ✓  Jarvis ✓".to_string(),
+            hearth_status: "Server ✓  Worker ✓  Pip ✓".to_string(),
             hearth_installed: true,
         }
     }

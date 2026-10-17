@@ -88,19 +88,19 @@ fn has_restart_command(folder: &Path) -> bool {
 /// Restarts Hearth's services, after asking.
 pub fn restart(app: &AppHandle) {
     let Some(folder) = hearth_folder() else {
-        return super::tell(app, "Hearth isn't installed as a service on this PC.");
+        return super::tell(app, "Nook isn't installed as a service on this PC.");
     };
     let app = app.clone();
     ask(
         &app.clone(),
-        "Restart Hearth?",
-        "This restarts Hearth's server, worker and Jarvis. Anything Jarvis is doing right now stops.",
+        "Restart Nook?",
+        "This restarts Nook's server, worker and Pip. Anything Pip is doing right now stops.",
         "Restart",
         move || {
             let script = restart_script(&folder, has_restart_command(&folder));
             if let Err(e) = powershell(&["-Command", &script]) {
                 log::error!("Couldn't start PowerShell: {e}");
-                return super::tell(&app, "Couldn't open PowerShell to restart Hearth.");
+                return super::tell(&app, "Couldn't open PowerShell to restart Nook.");
             }
             super::status::check_soon(&app, Duration::from_secs(20));
         },
@@ -113,20 +113,20 @@ pub fn update(app: &AppHandle) {
         .map(|f| f.join(r"ops\windows\update.ps1"))
         .filter(|p| p.is_file())
     else {
-        return super::tell(app, "Couldn't find Hearth's updater on this PC.");
+        return super::tell(app, "Couldn't find Nook's updater on this PC.");
     };
     let app = app.clone();
     ask(
         &app.clone(),
-        "Update Hearth?",
-        "Hearth stops for a minute or two while it updates, and goes back to this version if \
+        "Update Nook?",
+        "Nook stops for a minute or two while it updates, and goes back to this version if \
          anything goes wrong. A window shows how it's going.",
         "Update",
         move || {
             let path = script.display().to_string();
             if let Err(e) = powershell(&["-File", &path]) {
                 log::error!("Couldn't start PowerShell: {e}");
-                return super::tell(&app, "Couldn't open PowerShell to update Hearth.");
+                return super::tell(&app, "Couldn't open PowerShell to update Nook.");
             }
             super::status::check_soon(&app, Duration::from_secs(90));
         },

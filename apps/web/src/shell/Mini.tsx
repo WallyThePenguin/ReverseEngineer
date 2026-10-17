@@ -142,7 +142,7 @@ function Ask() {
   return (
     <div class="flex h-full flex-col bg-panel">
       <div class="flex items-center gap-2 border-b border-line px-3 py-2">
-        <p class="flex-1 text-sm font-medium text-jarvis">Ask Jarvis</p>
+        <p class="flex-1 text-sm font-medium text-jarvis">Ask Pip</p>
         <Show when={id()}>
           <Button small onClick={() => setId(null)}>
             New chat
@@ -181,11 +181,11 @@ export function MiniApp(props: { page: MiniPage }) {
     <QueryClientProvider client={queryClient}>
       <Switch fallback={<p class="p-4 text-muted">Loading…</p>}>
         <Match when={me.error}>
-          <p class="p-4 text-muted">Can't reach Hearth's server.</p>
+          <p class="p-4 text-muted">Can't reach Nook's server.</p>
         </Match>
         <Match when={me() && !me()!.signedIn}>
           <p class="p-4 text-muted">
-            Sign in to Hearth first: press Ctrl+Alt+H to open it, then come back.
+            Sign in to Nook first: press Ctrl+Alt+H to open it, then come back.
           </p>
         </Match>
         <Match when={me()?.signedIn}>

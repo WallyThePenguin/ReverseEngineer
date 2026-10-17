@@ -24,7 +24,7 @@ type Filter = "open" | "mine" | "jarvis" | "done";
 const FILTERS: { id: Filter; label: string }[] = [
   { id: "open", label: "Open" },
   { id: "mine", label: "Mine" },
-  { id: "jarvis", label: "Jarvis" },
+  { id: "jarvis", label: "Pip" },
   { id: "done", label: "Done" },
 ];
 
@@ -80,7 +80,7 @@ export function TaskRow(props: { task: Task; active: boolean; onOpen: (beside: b
         </Badge>
       </Show>
       <Show when={t().assignee === "jarvis"}>
-        <Badge tone="jarvis">Jarvis</Badge>
+        <Badge tone="jarvis">Pip</Badge>
       </Show>
       <Show when={d() && !closed()}>
         <span
@@ -143,7 +143,7 @@ export function Tasks(props: { pane: number }) {
         ...(jarvis ? { assignee: "jarvis" } : {}),
       }),
     );
-    if (made && jarvis) toast.show(`${made.key} is Jarvis's now. It'll start shortly.`);
+    if (made && jarvis) toast.show(`${made.key} is Pip's now. It'll start shortly.`);
   };
 
   useHotkeys([
@@ -178,7 +178,7 @@ export function Tasks(props: { pane: number }) {
           {(f) => (
             <button
               type="button"
-              class={`min-h-11 rounded-md px-2 py-1 text-sm md:min-h-0 ${filter() === f.id ? "bg-sunk font-medium" : "text-muted hover:text-ink"}`}
+              class={`min-h-11 min-w-11 rounded-md px-2 py-1 text-sm md:min-h-0 md:min-w-0 ${filter() === f.id ? "bg-sunk font-medium" : "text-muted hover:text-ink"}`}
               aria-pressed={filter() === f.id}
               onClick={() => {
                 setFilter(f.id);
@@ -208,14 +208,14 @@ export function Tasks(props: { pane: number }) {
         <WhenChip box={when} />
         <label
           class="flex min-h-11 items-center gap-1 text-xs text-muted md:min-h-0"
-          title="Jarvis works on tasks assigned to it"
+          title="Pip works on tasks assigned to it"
         >
           <input
             type="checkbox"
             checked={forJarvis()}
             onChange={(e) => setForJarvis(e.currentTarget.checked)}
           />
-          For Jarvis
+          For Pip
         </label>
         <span class="hidden md:inline">
           <Kbd>Enter</Kbd>

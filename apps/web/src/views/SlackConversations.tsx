@@ -18,7 +18,9 @@ export function SlackConversations() {
       </h3>
       <Show
         when={(list.data ?? []).length > 0}
-        fallback={<p class="text-sm text-muted">Nobody in your Slack has talked to Jarvis yet.</p>}
+        fallback={
+          <p class="text-sm text-muted">Nobody in your Slack has talked to the Jarvis bot yet.</p>
+        }
       >
         <ul class="divide-y divide-line">
           <For each={list.data}>

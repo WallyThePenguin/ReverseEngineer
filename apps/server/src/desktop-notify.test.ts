@@ -161,11 +161,7 @@ describe("the desktop notification feed", () => {
     });
     const now = t.kernel.clock.now().getTime();
     const titles = (await messagesFor(t.kernel.db, events, now)).map((m) => m.message.title);
-    expect(titles).toEqual([
-      "Your brief is ready",
-      "Jarvis isn't working",
-      "Jarvis: working again",
-    ]);
+    expect(titles).toEqual(["Your brief is ready", "Pip isn't working", "Pip: working again"]);
     expect(await messagesFor(t.kernel.db, events, now + 11 * 60_000)).toEqual([]);
     expect(
       healthMessage({ component: "disk", status: "degraded", previous: "ok" }, 1),

@@ -54,7 +54,7 @@ export function Activity() {
 
   return (
     <div class="flex h-full flex-col">
-      <PaneHeader title="What Jarvis did" sub="Everything Jarvis did, and why" />
+      <PaneHeader title="What Pip did" sub="Everything Pip did, and why" />
       <div class="flex-1 space-y-6 overflow-auto px-4 py-4">
         <div class="flex gap-1">
           <Button
@@ -117,10 +117,10 @@ export function Activity() {
           <Show
             when={shown().length > 0}
             fallback={
-              <NoRows query={turns} what="Jarvis's activity">
+              <NoRows query={turns} what="Pip's activity">
                 {slackOnly()
-                  ? "Nothing from Slack in Jarvis's recent turns."
-                  : "Jarvis hasn't done anything yet."}
+                  ? "Nothing from Slack in Pip's recent turns."
+                  : "Pip hasn't done anything yet."}
               </NoRows>
             }
           >

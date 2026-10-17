@@ -76,7 +76,7 @@ export async function tellNotSent(ctx: ActionContext, row: OutboxRow, what: stri
   const where = await placeName(ctx.tx, row);
   await createNotification(ctx, {
     kind: "slack.not_sent",
-    title: `Jarvis's Slack message to ${where} ${what}`,
+    title: `The Jarvis bot's Slack message to ${where} ${what}`,
     // All of it: the card shows what was stopped.
     body: `${why}\n\n${row.text}`,
     urgency: "normal",

@@ -314,7 +314,7 @@ export async function expireQueued(env: EndEnv): Promise<number> {
     for (const turn of stale) {
       n++;
       if (!turn.conversationId) continue;
-      const message = "Jarvis didn't get to this in time, so it let it go.";
+      const message = "Pip didn't get to this in time, so it let it go.";
       await writeLog(kernel, turn.conversationId, [
         { kind: "error", payload: { message, kind: "expired", retry: true }, turnId: turn.id },
       ]).catch((err) => env.log(`couldn't log the expiry of turn ${turn.id}`, err));
@@ -351,7 +351,7 @@ export async function recoverInterrupted(env: EndEnv): Promise<number> {
         await writeLog(kernel, turn.conversationId, [
           {
             kind: "notice",
-            payload: { text: "Jarvis restarted, so it's starting this again." },
+            payload: { text: "Pip restarted, so it's starting this again." },
             turnId: turn.id,
           },
           { kind: "turn_finished", payload: { status: "retrying" }, turnId: turn.id },

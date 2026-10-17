@@ -32,12 +32,12 @@ export function TestChrome(props: { onDone?: () => void }) {
     <div class="space-y-2">
       <div class="flex flex-wrap items-center gap-3">
         <Button onClick={() => void run()} disabled={running()}>
-          {running() ? "Testing…" : "Test Jarvis's Chrome"}
+          {running() ? "Testing…" : "Test Pip's Chrome"}
         </Button>
         <span class="text-sm text-muted">
           {running()
-            ? "A test page opens in Jarvis's window for a few seconds."
-            : "Opens a test page, reads it, clicks, types and takes a screenshot, as Jarvis would."}
+            ? "A test page opens in Pip's window for a few seconds."
+            : "Opens a test page, reads it, clicks, types and takes a screenshot, as Pip would."}
         </span>
       </div>
       <Show when={failed()}>
@@ -49,7 +49,7 @@ export function TestChrome(props: { onDone?: () => void }) {
             <p class="mb-1 font-medium">
               {r().ok
                 ? `Everything worked, in ${seconds(r().totalMs)}.`
-                : "Jarvis couldn't finish the test."}
+                : "Pip couldn't finish the test."}
             </p>
             <ul class="space-y-1">
               <For each={r().steps}>
@@ -108,8 +108,8 @@ export function LinkLog(props: { refresh: () => number }) {
           <div class="mt-2 space-y-2">
             <p class="text-muted">
               {l().stats.calls === 0
-                ? "No requests to Chrome since Hearth started."
-                : `${l().stats.calls} request(s) to Chrome since Hearth started, ${l().stats.failed} failed. Usually answered in ${seconds(Math.round(l().stats.averageMs ?? 0))}; the slowest took ${seconds(l().stats.slowestMs ?? 0)}.`}
+                ? "No requests to Chrome since Nook started."
+                : `${l().stats.calls} request(s) to Chrome since Nook started, ${l().stats.failed} failed. Usually answered in ${seconds(Math.round(l().stats.averageMs ?? 0))}; the slowest took ${seconds(l().stats.slowestMs ?? 0)}.`}
             </p>
             <Show
               when={l().entries.length > 0}

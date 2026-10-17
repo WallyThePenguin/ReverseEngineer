@@ -13,7 +13,7 @@ import type { ActionDef, Caller } from "./types.ts";
 export const NEVER_ALWAYS = ["mail.send"];
 
 export const NOT_ALWAYS =
-  "Always allow is only for what Jarvis asks in a conversation you started, so nothing was done.";
+  "Always allow is only for what Pip asks in a conversation you started, so nothing was done.";
 
 /** What an Always allow for this call would cover, if its action offers one (D70). */
 export const alwaysAllowOf = (def: ActionDef, input: unknown): AlwaysAllow | null =>

@@ -46,7 +46,7 @@ async function due(ctx: ActionContext, teamId: string, ownerIm: string) {
 export const checkMembersAction = defineAction({
   name: "slack.check_members",
   description:
-    "Look up, with your own Slack token, who has written to Jarvis's bot: whether each is a full member of your workspace.",
+    "Look up, with your own Slack token, who has written to the Jarvis bot: whether each is a full member of your workspace.",
   input: z.object({}),
   risk: "internal",
   // Only as the integration, from the worker's take loop (D62).

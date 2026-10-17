@@ -21,7 +21,7 @@ export function notFound(what: string): ActionError {
   return new ActionError("not_found", `${what} not found`);
 }
 
-export const DATABASE_DOWN = "Hearth's database isn't reachable right now. Try again in a moment.";
+export const DATABASE_DOWN = "Nook's database isn't reachable right now. Try again in a moment.";
 
 interface Failure {
   message?: unknown;

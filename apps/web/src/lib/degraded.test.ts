@@ -8,8 +8,10 @@ describe("the degraded banner", () => {
   it("is about Hearth's database, not any unavailable thing", () => {
     expect(meansDegraded(new ApiError(503, "failed", DB_DOWN))).toBe(true);
     expect(meansDegraded(new ApiError(400, "unavailable", DB_DOWN))).toBe(true);
+    const renamed = DB_DOWN.replace("Hearth's", "Nook's");
+    expect(meansDegraded(new ApiError(503, "failed", renamed))).toBe(true);
     expect(meansDegraded(new ApiError(400, "unavailable", "Chrome isn't connected."))).toBe(false);
-    expect(meansDegraded(new ApiError(0, "unreachable", "Can't reach Hearth right now."))).toBe(
+    expect(meansDegraded(new ApiError(0, "unreachable", "Can't reach Nook right now."))).toBe(
       false,
     );
     expect(meansDegraded(null)).toBe(false);

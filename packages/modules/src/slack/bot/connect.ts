@@ -86,13 +86,13 @@ async function verify(ctx: ActionContext, ws: WorkspaceRow, i: Tokens): Promise<
   const app = appOfToken(i.appToken);
   if (app !== JARVIS_APP_ID)
     refuse(
-      `That app token is for app ${app}, not Jarvis's (${JARVIS_APP_ID}). Make it in that app, under Basic Information → App-Level Tokens.`,
+      `That app token is for app ${app}, not the Jarvis app (${JARVIS_APP_ID}). Make it in that app, under Basic Information → App-Level Tokens.`,
     );
   const api = botApi(ctx);
   const bot = await ask("the bot token", () => api.whoami(i.botToken));
   if (bot.teamId !== ws.teamId)
     refuse(
-      `That bot is in another Slack workspace, not ${ws.teamName}. Copy the bot token from Jarvis's app in ${ws.teamName}.`,
+      `That bot is in another Slack workspace, not ${ws.teamName}. Copy the bot token from the Jarvis app in ${ws.teamName}.`,
     );
   if (!bot.botId) refuse("That token isn't a bot's. Copy the Bot User OAuth Token.");
   const botScopes = checkScopes(bot.scopes, BOT_SCOPES);
@@ -114,23 +114,23 @@ async function verify(ctx: ActionContext, ws: WorkspaceRow, i: Tokens): Promise<
   );
   if (botUser?.appId !== JARVIS_APP_ID || botUser.botId !== bot.botId)
     refuse(
-      `That bot token is for ${botUser?.appId ? `app ${botUser.appId}` : "another app"}, not Jarvis's (${JARVIS_APP_ID}). Copy the Bot User OAuth Token from Jarvis's app.`,
+      `That bot token is for ${botUser?.appId ? `app ${botUser.appId}` : "another app"}, not the Jarvis app (${JARVIS_APP_ID}). Copy the Bot User OAuth Token from the Jarvis app.`,
     );
   const socket = await ask("the app token", () => api.openSocket(i.appToken), {
     missing_scope: NEEDS_CONNECTIONS,
   });
   if (socket.scopes.length && !socket.scopes.includes(APP_TOKEN_SCOPE)) refuse(NEEDS_CONNECTIONS);
-  const hello = await ask("Jarvis's socket", () => api.hello(socket.url));
+  const hello = await ask("the Jarvis app's socket", () => api.hello(socket.url));
   if (hello.appId !== JARVIS_APP_ID)
     refuse(
-      `Slack says that socket is for app ${hello.appId || "(none)"}, not Jarvis's (${JARVIS_APP_ID}).`,
+      `Slack says that socket is for app ${hello.appId || "(none)"}, not the Jarvis app (${JARVIS_APP_ID}).`,
     );
   // The only place a message to Jarvis can be yours (D62).
   const ownerIm = await ask("the bot token", () => api.openDm(i.botToken, ws.userId));
   if (!ownerIm) refuse("Slack didn't open the bot's DM with you. Try again in a minute.");
   const warnings = botScopes.extra.length
     ? [
-        `The bot has scopes Hearth doesn't use: ${botScopes.extra.join(", ")}. Remove them from the app unless something else needs them; anyone holding the bot token could use them.`,
+        `The bot has scopes Nook doesn't use: ${botScopes.extra.join(", ")}. Remove them from the app unless something else needs them; anyone holding the bot token could use them.`,
       ]
     : [];
   return { botUserId: bot.userId, botId: bot.botId, ownerIm, warnings };
@@ -183,7 +183,7 @@ export const botActions = [
   defineAction({
     name: "slack.bot_connect",
     description:
-      "Connect Jarvis's own Slack bot with its Bot User OAuth Token (xoxb-…) and an App-Level Token (xapp-…).",
+      "Connect the Jarvis bot in Slack with its Bot User OAuth Token (xoxb-…) and an App-Level Token (xapp-…).",
     input: tokens,
     risk: "secret",
     callers: ["owner"],
@@ -200,21 +200,21 @@ export const botActions = [
   defineAction({
     name: "slack.bot_replace_tokens",
     description:
-      "Give Jarvis's Slack bot new tokens (after Slack revoked them), keeping its conversations.",
+      "Give the Jarvis bot in Slack new tokens (after Slack revoked them), keeping its conversations.",
     input: tokens,
     risk: "secret",
     callers: ["owner"],
     async handler(i, ctx) {
       const ws = await workspace(ctx);
       if (!(await current(ctx, ws.teamId)))
-        throw new ActionError("not_found", "Jarvis's bot isn't connected.");
+        throw new ActionError("not_found", "The Jarvis bot isn't connected.");
       return connect(ctx, ws, i);
     },
   }),
   defineAction({
     name: "slack.bot_disconnect",
     description:
-      "Forget Jarvis's Slack bot: its tokens leave Hearth and it stops listening. Its conversations stay.",
+      "Forget the Jarvis bot in Slack: its tokens leave Nook and it stops listening. Its conversations stay.",
     input: z.object({}),
     risk: "secret",
     callers: ["owner"],
@@ -224,8 +224,8 @@ export const botActions = [
       await ctx.tx.delete(slackBot).where(eq(slackBot.teamId, ws.teamId));
       // What it hadn't sent is settled now, and you're told about each (D62).
       const left = await settleUnsent(ctx, ws.teamId, {
-        unsent: "Jarvis's bot was disconnected.",
-        unsure: "Jarvis's bot was disconnected before Slack said whether it went out.",
+        unsent: "The Jarvis bot was disconnected.",
+        unsure: "The Jarvis bot was disconnected before Slack said whether it went out.",
       });
       return { disconnected: true, ...left };
     },
@@ -233,7 +233,7 @@ export const botActions = [
   defineAction({
     name: "slack.bot_status",
     description:
-      "Whether Jarvis's Slack bot is connected, how its socket is doing, and whether members can talk to it.",
+      "Whether the Jarvis bot in Slack is connected, how its socket is doing, and whether members can talk to it.",
     input: z.object({}),
     // A read: it shows no token, and your own reads of it skip the audit log (D56).
     risk: "read",

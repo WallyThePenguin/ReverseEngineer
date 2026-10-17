@@ -137,7 +137,7 @@ describe("connecting Jarvis's Slack bot", () => {
   it("refuses the wrong workspace, the wrong app, and your own token as the bot's", async () => {
     // The app token names its app: refused before anything is sent.
     expect(await refused({ ...tokens(), appToken: "xapp-1-A0OTHERAPP1-1111-apptest" })).toMatch(
-      /for app A0OTHERAPP1, not Jarvis's \(A0C0RPY4WKV\)/,
+      /for app A0OTHERAPP1, not the Jarvis app \(A0C0RPY4WKV\)/,
     );
     // Your own token where the bot's goes, by name, and nothing sent either.
     expect(await refused({ ...tokens(), botToken: s.token })).toMatch(
@@ -151,7 +151,7 @@ describe("connecting Jarvis's Slack bot", () => {
     s.bot.teamId = "T1";
     // Another app's bot in the same workspace, with Jarvis's app token beside it.
     s.bot.app = "A0OTHERAPP1";
-    expect(await refused()).toMatch(/bot token is for app A0OTHERAPP1, not Jarvis's/);
+    expect(await refused()).toMatch(/bot token is for app A0OTHERAPP1, not the Jarvis app/);
     s.bot.app = "A0C0RPY4WKV";
     // The token says it's Jarvis's app, but the socket's hello names another.
     s.bot.helloApp = "A0OTHERAPP1";
@@ -173,9 +173,7 @@ describe("connecting Jarvis's Slack bot", () => {
     s.bot.scopes = [...BOT_SCOPES, "channels:history", "users:read"];
     const { warnings } = await connect();
     expect(warnings).toEqual([
-      expect.stringMatching(
-        /^The bot has scopes Hearth doesn't use: channels:history, users:read\./,
-      ),
+      expect.stringMatching(/^The bot has scopes Nook doesn't use: channels:history, users:read\./),
     ]);
   });
 
@@ -203,7 +201,7 @@ describe("the bot afterwards", () => {
       syncState: "revoked",
       failures: 4,
       failingSince: t.clock.now(),
-      lastError: "Jarvis's Slack tokens were revoked.",
+      lastError: "The Jarvis bot's Slack tokens were revoked.",
       syncedAt: t.clock.now(),
     });
     s.bot.token = "xoxb-3333-4444-newbot";
@@ -270,8 +268,8 @@ describe("the bot afterwards", () => {
     });
     // You're told of both, each on its own card.
     expect((await notSent()).map((c) => c.title).sort()).toEqual([
-      "Jarvis's Slack message to a direct message didn't go out",
-      "Jarvis's Slack message to a direct message may not have gone out",
+      "The Jarvis bot's Slack message to a direct message didn't go out",
+      "The Jarvis bot's Slack message to a direct message may not have gone out",
     ]);
     expect(await ok("slack.bot_status")).toMatchObject({ connected: false });
 
@@ -292,7 +290,7 @@ describe("the bot afterwards", () => {
         { dedupeKey: newId(), teamId: "T1", channelId: "DUSAM", text: "Hi", kind: "send" },
       ),
     );
-    await expect(queued).rejects.toThrow("Jarvis's Slack bot isn't connected.");
+    await expect(queued).rejects.toThrow("The Jarvis bot in Slack isn't connected.");
   });
 
   it("goes with Slack, and what it hadn't sent is settled and told first", async () => {

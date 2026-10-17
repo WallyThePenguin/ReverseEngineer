@@ -2,12 +2,11 @@
 
 const $ = (/** @type {string} */ id) => /** @type {HTMLElement} */ (document.getElementById(id));
 
-const OUTDATED =
-  "Hearth is newer than this extension. Open chrome://extensions and press reload on Hearth.";
+const OUTDATED = "Nook is newer than this extension. Reload it at chrome://extensions.";
 
 /** @param {{ connected: boolean, error: string, outdated?: boolean, own: boolean, handed: boolean }} s @param {number | undefined} tabId */
 function render(s, tabId) {
-  $("status").textContent = s.connected ? "Connected to your Hearth" : "Not connected";
+  $("status").textContent = s.connected ? "Connected to Nook" : "Not connected";
   $("status").className = `status ${s.connected ? "on" : "off"}`;
   $("error").textContent = s.outdated ? OUTDATED : s.error;
   $("hand").hidden = tabId === undefined || s.own || s.handed;

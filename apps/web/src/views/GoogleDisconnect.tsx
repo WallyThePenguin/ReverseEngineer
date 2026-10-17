@@ -45,7 +45,7 @@ export function DisconnectGoogle(props: { email: string }) {
     >
       <div class="flex basis-full flex-wrap items-center gap-3 border-t border-line pt-2">
         <span class="flex-1 text-xs text-muted">
-          Disconnect {props.email}? Its calendars and mail leave Hearth.
+          Disconnect {props.email}? Its calendars and mail leave Nook.
         </span>
         <Show when={unsent() > 0}>
           <label class="flex items-center gap-1.5 text-xs">

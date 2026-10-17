@@ -78,7 +78,7 @@ export async function hereOf(client: BrowserClient, tabId: number): Promise<Here
 }
 
 const unknown = (tabId: number) =>
-  `Jarvis couldn't tell what page tab ${tabId} is on, so it didn't go ahead. Try again once the page has loaded.`;
+  `Pip couldn't tell what page tab ${tabId} is on, so it didn't go ahead. Try again once the page has loaded.`;
 
 /**
  * For anyone but the owner, as a step that presses, types or uses keys begins and again before
@@ -101,7 +101,7 @@ export async function assertHere(
   if (began && now.doc !== began.doc)
     throw new ActionError(
       "conflict",
-      `The tab went to another page partway through, so Jarvis stopped there.${tail}`,
+      `The tab went to another page partway through, so Pip stopped there.${tail}`,
     );
   return now;
 }

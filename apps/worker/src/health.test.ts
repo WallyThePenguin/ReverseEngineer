@@ -40,7 +40,7 @@ describe("health checks", () => {
       changed.filter((e) => e.payload.component === "jarvis").map((e) => e.payload.status),
     ).toEqual(["ok", "failing"]);
     const notes = await t.kernel.db.select().from(notification);
-    expect(notes.map((n) => n.title)).toEqual(["Jarvis is down"]);
+    expect(notes.map((n) => n.title)).toEqual(["Pip is down"]);
   });
 
   it("flags a backup that hasn't run in a day and a half", async () => {

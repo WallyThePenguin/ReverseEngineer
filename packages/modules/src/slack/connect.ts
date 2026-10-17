@@ -99,7 +99,7 @@ export const connectActions = [
   defineAction({
     name: "slack.replace_token",
     description:
-      "Give Hearth a new Slack token for the connected workspace (after the old one was revoked or expired), keeping everything read in so far.",
+      "Give Nook a new Slack token for the connected workspace (after the old one was revoked or expired), keeping everything read in so far.",
     input: z.object({ token }),
     risk: "secret",
     callers: ["owner"],
@@ -144,7 +144,7 @@ export const connectActions = [
   defineAction({
     name: "slack.disconnect",
     description:
-      "Forget the Slack workspace: its token, channels and messages leave Hearth, and so does Jarvis's bot. What you decided for each person stays for when you connect it again.",
+      "Forget the Slack workspace: its token, channels and messages leave Nook, and so does the Jarvis bot. What you decided for each person stays for when you connect it again.",
     input: z.object({}),
     risk: "internal",
     callers: ["owner"],

@@ -108,7 +108,7 @@ export function gist(body: string): string {
 
 export const meetingSoon: ReflexDef = {
   name: "calendar.meeting_soon",
-  description: `${HEADS_UP_MINUTES} minutes before a meeting, a heads-up with its prep and join link, even while Jarvis is paused.`,
+  description: `${HEADS_UP_MINUTES} minutes before a meeting, a heads-up with its prep and join link, even while Pip is paused.`,
   mode: "always",
   on: ["calendar.event_changed", "clock.fired"],
   // An event Jarvis put on your calendar is still yours to be reminded of.

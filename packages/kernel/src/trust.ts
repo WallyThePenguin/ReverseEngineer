@@ -57,12 +57,12 @@ export function readOutsideContent(state: TrustState, text: string, value?: unkn
 
 export function checkOpen(state: TrustState, raw: string, sites: SiteRules): OpenVerdict {
   const url = normalizeUrl(raw);
-  if (!url) return { kind: "blocked", reason: `${raw} isn't a web address Jarvis can open.` };
+  if (!url) return { kind: "blocked", reason: `${raw} isn't a web address Pip can open.` };
   const host = new URL(url).hostname;
   if (onSiteList(host, sites.blocked))
     return {
       kind: "blocked",
-      reason: `${host} is on the owner's list of sites Jarvis never opens.`,
+      reason: `${host} is on the owner's list of sites Pip never opens.`,
     };
   if (state.origin !== "untrusted") return { kind: "ok" };
   if (state.seenUrls.has(url) || onSiteList(host, sites.allowed)) return { kind: "ok" };

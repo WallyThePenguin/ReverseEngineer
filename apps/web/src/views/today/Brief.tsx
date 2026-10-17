@@ -109,7 +109,7 @@ export function Brief(props: { row: InboxRow; go: Go; class?: string }) {
                   <span class="font-medium text-accent">New</span>
                   <span aria-hidden="true">·</span>
                 </Show>
-                {`Jarvis · ${written(n().createdAt)}`}
+                {`Pip · ${written(n().createdAt)}`}
                 <Show when={outside()}>
                   <OutsideMark>Quotes outside content</OutsideMark>
                 </Show>
@@ -129,7 +129,7 @@ export function Brief(props: { row: InboxRow; go: Go; class?: string }) {
             <JarvisMark size={16} />
             <p class="min-w-0 flex-1 text-meta text-muted">
               {/* Its title ("Brief for 2026-10-05") says less than when it was written. */}
-              <span class="font-medium text-ink">Jarvis</span>
+              <span class="font-medium text-ink">Pip</span>
               {` · ${written(n().createdAt)}`}
             </p>
             <Show when={outside()}>

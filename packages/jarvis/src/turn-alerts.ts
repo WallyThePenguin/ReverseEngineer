@@ -49,16 +49,16 @@ export async function alertFailure(
   if (routine !== null || NEEDS_YOU.has(f.kind)) {
     const what = routine ? (ROUTINE_NAMES[routine] ?? `"${routine}"`) : null;
     const title = what
-      ? `Jarvis couldn't finish ${what}`
+      ? `Pip couldn't finish ${what}`
       : f.kind === "auth"
-        ? "Jarvis is signed out of Claude"
-        : "Jarvis's turns are failing";
-    const body = fellBack ? `${said} Hearth published the plain version instead.` : said;
+        ? "Pip is signed out of Claude"
+        : "Pip's turns are failing";
+    const body = fellBack ? `${said} Nook published the plain version instead.` : said;
     await notify(title, body, `jarvis_failed:${f.kind}:${localDate(now, timeZone)}:${start}`);
   }
   if (failed >= STREAK_ALERT)
     await notify(
-      `Jarvis has failed ${failed} turns in a row`,
+      `Pip has failed ${failed} turns in a row`,
       `The latest: ${said}`,
       `jarvis_streak:${start}`,
     );
@@ -70,8 +70,8 @@ export async function alertLeftOut(env: EndEnv, tool: string, since: Date): Prom
     "inbox.notify",
     {
       kind: "system.alert",
-      title: "Jarvis is working without one of its tools",
-      body: `Claude rejected the definition of ${tool}, so Jarvis left it out and carried on. Hearth needs a fix for it; the tool stays off until Jarvis restarts.`,
+      title: "Pip is working without one of its tools",
+      body: `Claude rejected the definition of ${tool}, so Pip left it out and carried on. Nook needs a fix for it; the tool stays off until Pip restarts.`,
       urgency: "interrupt",
       dedupeKey: `jarvis_left_out:${tool}:${since.toISOString()}`,
     },

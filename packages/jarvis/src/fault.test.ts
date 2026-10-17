@@ -68,7 +68,7 @@ describe("a tool Claude rejects", () => {
 
     const [alert] = await alerts();
     expect(alert).toMatchObject({
-      title: "Jarvis is working without one of its tools",
+      title: "Pip is working without one of its tools",
       urgency: "interrupt",
     });
     expect(alert?.body).toContain("sheet_save");
@@ -113,10 +113,10 @@ describe("Claude failing", () => {
     expect(brief?.body).toContain("Brief for 2026-10-02");
     const [alert] = await alerts();
     expect(alert).toMatchObject({
-      title: "Jarvis couldn't finish your morning brief",
+      title: "Pip couldn't finish your morning brief",
       urgency: "interrupt",
     });
-    expect(alert?.body).toContain("Hearth published the plain version instead.");
+    expect(alert?.body).toContain("Nook published the plain version instead.");
     expect(alert?.deliveredAt).not.toBeNull();
     expect(await health()).toMatchObject({ status: "failing" });
     expect(await lastOutcome("routine:assistant.brief")).toBe("failed");
@@ -139,7 +139,7 @@ describe("Claude failing", () => {
     expect(turn).toMatchObject({ status: "queued", errorKind: "rate_limit" });
     expect(turn?.notBefore).toEqual(new Date("2026-10-01T14:40:30Z"));
     expect(await said(conversationId)).toEqual([
-      "You've hit your Claude usage limit. Jarvis will try again at 10:40 a.m.",
+      "You've hit your Claude usage limit. Pip will try again at 10:40 a.m.",
     ]);
     expect(await health()).toMatchObject({ status: "degraded" });
 
@@ -158,7 +158,7 @@ describe("Claude failing", () => {
     expect(brain.requests).toHaveLength(1);
     expect((await turns())[0]).toMatchObject({ status: "failed", errorKind: "rate_limit" });
     expect(await briefs()).toHaveLength(1);
-    expect((await alerts())[0]?.title).toBe("Jarvis couldn't finish your morning brief");
+    expect((await alerts())[0]?.title).toBe("Pip couldn't finish your morning brief");
     expect(await health()).toMatchObject({ status: "failing" });
   });
 
@@ -183,7 +183,7 @@ describe("Claude failing", () => {
     const [turn] = await turns();
     expect(turn).toMatchObject({ status: "failed", errorKind: "timeout" });
     expect(await briefs()).toHaveLength(1);
-    expect((await alerts())[0]?.title).toBe("Jarvis couldn't finish your morning brief");
+    expect((await alerts())[0]?.title).toBe("Pip couldn't finish your morning brief");
     expect(await health()).toMatchObject({ status: "failing" });
     expect((await said(turn!.conversationId!)).at(-1)).toMatch(/limit, so it stopped/);
   });

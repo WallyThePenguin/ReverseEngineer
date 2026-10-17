@@ -75,7 +75,7 @@ const refuse = (why: string) => new ActionError("forbidden", why);
 async function boundTo(ctx: ActionContext, i: ReplyInput) {
   const { caller } = ctx;
   if (caller.kind !== "member" || !caller.turnId)
-    throw refuse("Only a Slack member's own Jarvis turn answers them.");
+    throw refuse("Only a Slack member's own turn answers them.");
   const [turn] = await ctx.tx.select().from(jarvisTurn).where(eq(jarvisTurn.id, caller.turnId));
   if (
     !turn?.conversationId ||
@@ -86,7 +86,7 @@ async function boundTo(ctx: ActionContext, i: ReplyInput) {
   const m = await memberNow(ctx.tx, { ...caller, conversationId: turn.conversationId });
   const thread = m?.thread;
   if (!m || !thread) throw refuse("This conversation isn't a Slack conversation.");
-  if (!reaches(m.tier, "relay")) throw refuse("Jarvis no longer answers this person.");
+  if (!reaches(m.tier, "relay")) throw refuse("The Jarvis bot no longer answers this person.");
   if (thread.channelId !== i.channelId) throw refuse("A reply goes only where it was asked.");
   if (m.user.id !== i.to) throw refuse("A reply goes only to who asked.");
   if (thread.audience === "member") {
@@ -109,7 +109,7 @@ async function boundTo(ctx: ActionContext, i: ReplyInput) {
 export const replyAction = defineAction({
   name: REPLY_ACTION,
   description:
-    "Jarvis's answer to someone in your Slack, in their DM with it or the thread they asked in. Only their own turn sends it, when it ends.",
+    "The Jarvis bot's answer to someone in your Slack, in their DM with it or the thread they asked in. Only their own turn sends it, when it ends.",
   input,
   risk: "outward",
   // Only a member's turn: nothing else answers as Jarvis's bot through here (D62).

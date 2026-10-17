@@ -28,7 +28,7 @@ const likeText = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
  * "You" would be someone else (D62).
  */
 function authorOf(kind: string, payload: Record<string, unknown>): string {
-  if (kind !== "user_message") return "Jarvis";
+  if (kind !== "user_message") return "Pip";
   if (!String(payload.by ?? "").startsWith("member:")) return "You";
   return typeof payload.name === "string" && payload.name ? payload.name : "Someone in Slack";
 }
@@ -39,12 +39,12 @@ const deviceMay = (via: string, startedVia: string | null | undefined) =>
 
 export const chatModule = defineModule({
   name: "chat",
-  description: "Conversations with Jarvis and comment threads on any record.",
+  description: "Conversations with Pip and comment threads on any record.",
   entityTypes: ["conversation", "comment"],
   events: [
     {
       kind: "chat.message_posted",
-      description: "You wrote to Jarvis. Payload: conversationId, text, lane, idx.",
+      description: "You wrote to Pip. Payload: conversationId, text, lane, idx.",
     },
     {
       kind: "conversation.appended",
@@ -83,7 +83,7 @@ export const chatModule = defineModule({
   actions: [
     defineAction({
       name: "conversation.create",
-      description: "Start a new conversation with Jarvis.",
+      description: "Start a new conversation with Pip.",
       input: z.object({ title: z.string().trim().max(200).optional(), subjectId: id.optional() }),
       risk: "internal",
       async handler(i, ctx) {
@@ -100,7 +100,7 @@ export const chatModule = defineModule({
     defineAction({
       name: "conversation.list",
       description:
-        "List conversations with Jarvis, most recent first, optionally those whose title has some words. Jarvis's own routine runs (the brief, prep, drafting) are left out unless routines is true.",
+        "List conversations with Pip, most recent first, optionally those whose title has some words. Pip's own routine runs (the brief, prep, drafting) are left out unless routines is true.",
       input: z.object({
         limit: z.number().int().min(1).max(100).default(30),
         query: z.string().trim().max(200).optional(),
@@ -136,7 +136,7 @@ export const chatModule = defineModule({
     }),
     defineAction({
       name: "conversation.rename",
-      description: "Rename a conversation with Jarvis.",
+      description: "Rename a conversation with Pip.",
       input: z.object({ id, title: z.string().trim().min(1).max(200) }),
       risk: "internal",
       async handler(i, ctx) {
@@ -178,8 +178,7 @@ export const chatModule = defineModule({
     }),
     defineAction({
       name: "chat.send",
-      description:
-        "Send Jarvis a message. Starts a new conversation when no conversationId is given.",
+      description: "Send Pip a message. Starts a new conversation when no conversationId is given.",
       input: z.object({
         conversationId: id.optional(),
         text: z.string().trim().min(1).max(20_000),
@@ -215,7 +214,7 @@ export const chatModule = defineModule({
           if (c?.startedVia === MEMBER_CONVERSATION)
             throw new ActionError(
               "forbidden",
-              "This is a Slack member's conversation with Jarvis. Ask about it in a new conversation.",
+              "This is a Slack member's conversation with the Jarvis bot. Ask about it in a new conversation.",
             );
         } else {
           const e = await createEntity(ctx, {
@@ -274,8 +273,7 @@ export const chatModule = defineModule({
     }),
     defineAction({
       name: "comment.create",
-      description:
-        "Comment on any record. @mention Jarvis in the comment to ask it something there.",
+      description: "Comment on any record. @mention Pip in the comment to ask it something there.",
       input: z.object({ parentId: id, body: body.min(1) }),
       risk: "internal",
       handler: (i, ctx) =>
@@ -313,7 +311,7 @@ export const chatModule = defineModule({
   reflexes: [
     {
       name: "chat.reply",
-      description: "Jarvis answers every message you send it.",
+      description: "Pip answers every message you send it.",
       mode: "reactive",
       on: ["chat.message_posted"],
       async run(event, ctx) {

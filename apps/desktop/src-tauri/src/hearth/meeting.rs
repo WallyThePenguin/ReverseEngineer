@@ -80,7 +80,7 @@ pub fn toggle(app: &AppHandle) {
     let Some(h) = link(app) else {
         tell(
             app,
-            "Pair the app with Hearth in Settings to record meetings.",
+            "Pair the app with Nook in Settings to record meetings.",
         );
         return;
     };
@@ -128,7 +128,7 @@ async fn start(h: &Hearth) -> Result<Recording, String> {
         .await?;
     let rec: Recording = serde_json::from_value(v).map_err(|e| e.to_string())?;
     if !is_id(&rec.id) {
-        return Err("Hearth answered with an odd meeting id.".into());
+        return Err("Nook answered with an odd meeting id.".into());
     }
     Ok(rec)
 }
@@ -263,7 +263,7 @@ fn record(app: &AppHandle, h: &Hearth, rec: &Recording, stop: &AtomicBool) -> Re
             unsent + dropped
         ));
     }
-    speak::say("Stopped recording. Jarvis is writing the summary.");
+    speak::say("Stopped recording. Pip is writing the summary.");
     Ok(())
 }
 

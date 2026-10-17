@@ -40,7 +40,7 @@ export function workerWatch(kernel: Kernel, everyMs = WATCH_EVERY_MS) {
       "inbox.notify",
       {
         kind: "system.alert",
-        title: "Hearth's worker has stopped",
+        title: "Nook's worker has stopped",
         body: `It hasn't checked in since ${formatDateTime(new Date(at), timeZone)}. Until it's back, schedules, reminders, syncs and health checks wait. Windows starts it again by itself; if this stays, run: hearth restart worker`,
         urgency: "interrupt",
         dedupeKey: `worker_down:${at}`,

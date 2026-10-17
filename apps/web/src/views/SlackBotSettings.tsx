@@ -97,7 +97,7 @@ function TokensForm(props: {
         autocomplete="off"
         class={field}
         placeholder="Bot token, xoxb-…"
-        aria-label="Jarvis's bot token"
+        aria-label="The Jarvis bot's token"
         value={bot()}
         onInput={(e) => setBot(e.currentTarget.value)}
       />
@@ -106,7 +106,7 @@ function TokensForm(props: {
         autocomplete="off"
         class={field}
         placeholder="App token, xapp-…"
-        aria-label="Jarvis's app token"
+        aria-label="The Jarvis bot's app token"
         value={app()}
         onInput={(e) => setApp(e.currentTarget.value)}
       />
@@ -118,12 +118,12 @@ function TokensForm(props: {
 }
 
 function state(s: BotStatus): string {
-  if (s.state === "revoked") return "Slack revoked Jarvis's tokens, so it isn't listening.";
+  if (s.state === "revoked") return "Slack revoked the Jarvis bot's tokens, so it isn't listening.";
   if (s.listensHere === false)
-    return "Another copy of Hearth connected the bot, and only that one listens. Paste the tokens here to move it.";
+    return "Another copy of Nook connected the bot, and only that one listens. Paste the tokens here to move it.";
   if (s.lastError) return s.lastError;
   if (s.syncedAt) return `Listening. Last connected ${ago(s.syncedAt)}.`;
-  return "Connected. Hearth listens once its socket is up.";
+  return "Connected. Nook listens once its socket is up.";
 }
 
 export function SlackBotSettings(props: { manifest: string }) {
@@ -137,18 +137,18 @@ export function SlackBotSettings(props: { manifest: string }) {
     toast.show(said);
   };
   const disconnect = async () => {
-    if (!confirm("Disconnect Jarvis's bot? Its tokens leave Hearth and it stops listening."))
+    if (!confirm("Disconnect the Jarvis bot? Its tokens leave Nook and it stops listening."))
       return;
     const r = await act<LeftBehind>("slack.bot_disconnect");
-    if (r) toast.show(`Jarvis's bot is disconnected.${leftBehind(r)}`);
+    if (r) toast.show(`The Jarvis bot is disconnected.${leftBehind(r)}`);
   };
 
   return (
     <div class="space-y-2 rounded-md border border-line px-3 py-3 text-sm">
-      <h3 class="font-medium">Jarvis's bot</h3>
+      <h3 class="font-medium">The Jarvis bot in Slack</h3>
       <p class="text-muted">
-        People in your workspace can DM Jarvis's own bot, and it answers as Jarvis, never as you. It
-        only ever shares what you've written down to share.
+        People in your workspace can DM Pip's own bot in Slack, called Jarvis, and it answers as
+        Jarvis, never as you. It only ever shares what you've written down to share.
       </p>
       <Show when={status.data}>
         {(s) => (
@@ -159,8 +159,8 @@ export function SlackBotSettings(props: { manifest: string }) {
                 <SlackManifest text={props.manifest} />
                 <ol class="list-decimal space-y-1 pl-5">
                   <li>
-                    Merge this manifest into Jarvis's app ({s().appId}). It turns on Socket Mode and
-                    the Messages tab and gives the bot its five scopes. Leave Interactivity and
+                    Merge this manifest into the Jarvis app ({s().appId}). It turns on Socket Mode
+                    and the Messages tab and gives the bot its five scopes. Leave Interactivity and
                     Token Rotation off.
                   </li>
                   <li>
@@ -176,7 +176,7 @@ export function SlackBotSettings(props: { manifest: string }) {
                 <TokensForm
                   action="slack.bot_connect"
                   label="Connect"
-                  onDone={done("Jarvis's bot is connected.")}
+                  onDone={done("The Jarvis bot is connected.")}
                 />
               </div>
             }
@@ -198,7 +198,7 @@ export function SlackBotSettings(props: { manifest: string }) {
               <TokensForm
                 action="slack.bot_replace_tokens"
                 label="Save"
-                onDone={done("Jarvis's bot has its new tokens.")}
+                onDone={done("The Jarvis bot has its new tokens.")}
               />
             </Show>
             <MemberSwitches membersOn={s().membersOn} answersOnOwn={s().answersOnOwn} />

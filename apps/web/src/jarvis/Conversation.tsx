@@ -214,15 +214,14 @@ export function Conversation(props: {
                 <JarvisMark size={12} state="thinking" /> Thinking…
               </Show>
               <span class="flex-1" />
-              <Button small disabled={stopping()} title="Stop Jarvis" onClick={() => void stop()}>
+              <Button small disabled={stopping()} title="Stop Pip" onClick={() => void stop()}>
                 {stopping() ? "Stopping…" : "Stop"}
               </Button>
             </div>
           </Show>
           <Show when={slow()}>
             <p class="text-xs text-muted">
-              Jarvis hasn't started on this yet. It may still be busy, or not running. Stop lets it
-              go.
+              Pip hasn't started on this yet. It may still be busy, or not running. Stop lets it go.
             </p>
           </Show>
         </Show>
@@ -241,7 +240,8 @@ export function Conversation(props: {
       </Show>
       <Show when={member()}>
         <p class="border-t border-line px-4 py-2 text-xs text-muted">
-          Only their own Jarvis turns write here. Reply as Jarvis, or ask Jarvis about it, above.
+          Only the Jarvis bot's turns for them write here. Reply as Jarvis, or ask Pip about it,
+          above.
         </p>
       </Show>
       <div class={`border-t border-line p-3 ${member() ? "hidden" : ""}`}>
@@ -259,8 +259,8 @@ export function Conversation(props: {
           autofocus={!props.compact}
           placeholder={
             narrow()
-              ? "Ask Jarvis anything, or @ a task or note"
-              : `Ask Jarvis anything, or @ a task or note (${MOD}+Enter to send)`
+              ? "Ask Pip anything, or @ a task or note"
+              : `Ask Pip anything, or @ a task or note (${MOD}+Enter to send)`
           }
         />
         <div class="mt-2 flex justify-end gap-2">
@@ -269,7 +269,7 @@ export function Conversation(props: {
             kind={mic.state() === "listening" ? "danger" : "plain"}
             icon={mic.state() === "listening" ? "square" : "mic"}
             disabled={mic.state() === "working"}
-            title="Talk to Jarvis: tap, speak, tap again. The answer is read aloud."
+            title="Talk to Pip: tap, speak, tap again. The answer is read aloud."
             onClick={() => void talk()}
           >
             {mic.state() === "listening" ? "Stop" : mic.state() === "working" ? "…" : "Talk"}
@@ -309,7 +309,7 @@ export function ChatView(props: { id: string }) {
             />
           </Show>
         }
-        sub={member() ? "Jarvis and someone in your Slack" : "With Jarvis"}
+        sub={member() ? "The Jarvis bot and someone in your Slack" : "With Pip"}
         menu={data.data ? [{ label: "Rename", run: () => setRenaming(true) }] : []}
         record={data.data ? { id: props.id, type: "conversation" } : undefined}
       />

@@ -150,7 +150,7 @@ describe("catching up", () => {
     await round();
     const mark = async () => (await t.tdb.db.select().from(slackThread))[0]!.mark;
     expect(await mark()).toBe(mine);
-    const reply = jarvisSays("DUME", "Got it, it's in Hearth.");
+    const reply = jarvisSays("DUME", "Got it, it's in Nook.");
     await round();
     expect(await mark()).toBe(reply);
     expect(await texts()).toEqual(["remind me at 5"]);

@@ -35,12 +35,12 @@ export const OPEN_TIMING: OpenTiming = {
   oldCodeMs: 5_000,
 };
 
-export const NOT_PAIRED = "Chrome isn't paired with Hearth yet. Pair it in Settings → Chrome.";
+export const NOT_PAIRED = "Chrome isn't paired with Nook yet. Pair it in Settings → Chrome.";
 export const OLD_CODE =
-  "Chrome opened, but the Hearth extension in it has an old pairing code. Pair it again in Settings → Chrome.";
+  "Chrome opened, but the Nook extension in it has an old pairing code. Pair it again in Settings → Chrome.";
 export const CLOSED_AT_ONCE =
-  "Chrome closed right after Hearth opened it, so Hearth won't open it again by itself for a few minutes. If you didn't close it, turn on \"Continue running background apps when Google Chrome is closed\" in Chrome's settings (chrome://settings/system).";
-const STOPPING = "Hearth is stopping.";
+  "Chrome closed right after Nook opened it, so Nook won't open it again by itself for a few minutes. If you didn't close it, turn on \"Continue running background apps when Google Chrome is closed\" in Chrome's settings (chrome://settings/system).";
+const STOPPING = "Nook is stopping.";
 
 export interface OpenerDeps {
   launcher: ChromeLauncher | null;
@@ -169,7 +169,7 @@ export class ChromeOpener {
     const seconds = Math.round(this.timing.connectMs / 1000);
     throw this.fail(
       [
-        `Hearth started Chrome, but the Hearth extension didn't connect within ${seconds} seconds.`,
+        `Nook started Chrome, but the Nook extension didn't connect within ${seconds} seconds.`,
         launcher.hint,
         'Check that the extension is installed and paired in that Chrome profile, and that Chrome\'s "Continue running background apps" setting is on.',
       ]

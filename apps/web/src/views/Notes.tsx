@@ -203,7 +203,7 @@ export function NoteView(props: { id: string; pane: number }) {
               fallback={
                 <DocEditor
                   id={n().id}
-                  placeholder="Start writing… type @ to link anything, or @Jarvis to ask for help."
+                  placeholder="Start writing… type @ to link anything, or @Pip to ask for help."
                 />
               }
             >

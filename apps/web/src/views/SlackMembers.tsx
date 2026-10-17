@@ -72,7 +72,7 @@ export function MemberSwitches(props: { membersOn: boolean; answersOnOwn: boolea
             )
           }
         />
-        People in your workspace can talk to Jarvis
+        People in your workspace can talk to the Jarvis bot
       </label>
       <label class="flex items-center gap-2">
         <input
@@ -87,8 +87,8 @@ export function MemberSwitches(props: { membersOn: boolean; answersOnOwn: boolea
             )
           }
         />
-        Jarvis answers members on its own (in DMs; channels and anyone on review still wait for your
-        yes)
+        The Jarvis bot answers members on its own (in DMs; channels and anyone on review still wait
+        for your yes)
       </label>
     </div>
   );
@@ -111,7 +111,7 @@ function MemberRow(props: { m: Member }) {
       </div>
       <select
         class={select}
-        aria-label={`What Jarvis does for ${props.m.name}`}
+        aria-label={`What the Jarvis bot does for ${props.m.name}`}
         value={props.m.tier}
         onChange={(e) =>
           void orBack(
@@ -234,7 +234,7 @@ function AnswerForm(props: { answer?: Answer; onDone: () => void }) {
         class={`${field} w-full`}
         rows={3}
         maxLength={4000}
-        placeholder="What Jarvis may tell people, word for word"
+        placeholder="What the Jarvis bot may tell people, word for word"
         aria-label="Answer text"
         value={body()}
         onInput={(e) => setBody(e.currentTarget.value)}
@@ -267,9 +267,9 @@ function SharedAnswers() {
   };
   return (
     <div class="space-y-2">
-      <h4 class="font-medium">What Jarvis may share</h4>
+      <h4 class="font-medium">What the Jarvis bot may share</h4>
       <p class="text-xs text-muted">
-        Office hours, your status, how to reach you. Jarvis shares nothing else, and only links you
+        Office hours, your status, how to reach you. It shares nothing else, and only links you
         write here.
       </p>
       <ul class="space-y-2">
@@ -325,7 +325,7 @@ export function SlackMembers() {
         <h4 class="font-medium">People</h4>
         <Show
           when={(members.data ?? []).length > 0}
-          fallback={<p class="text-xs text-faint">Nobody has written to Jarvis yet.</p>}
+          fallback={<p class="text-xs text-faint">Nobody has written to the Jarvis bot yet.</p>}
         >
           <ul>
             <For each={members.data}>{(m) => <MemberRow m={m} />}</For>

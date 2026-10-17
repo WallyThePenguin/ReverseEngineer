@@ -28,7 +28,7 @@ export async function assertAllowed(
   const sites = await getSetting(ctx.tx, "browser.sites");
   const host = new URL(url).hostname;
   if (onSiteList(host, sites.blocked))
-    throw new ActionError("forbidden", `${host} is on your list of sites Jarvis never opens.`);
+    throw new ActionError("forbidden", `${host} is on your list of sites Pip never opens.`);
   return url;
 }
 

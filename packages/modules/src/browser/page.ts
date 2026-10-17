@@ -74,8 +74,7 @@ export async function findTab(
   tabs?: TabInfo[],
 ): Promise<TabInfo> {
   const tab = (tabs ?? (await listTabs(client))).find((t) => t.tabId === tabId);
-  if (!tab)
-    throw new ActionError("not_found", `Tab ${tabId} is closed, or isn't one Jarvis may use.`);
+  if (!tab) throw new ActionError("not_found", `Tab ${tabId} is closed, or isn't one Pip may use.`);
   return tab;
 }
 

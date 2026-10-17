@@ -30,7 +30,7 @@ export function GoogleSettings() {
         when={setup.data?.configured}
         fallback={
           <p class="text-sm text-muted">
-            Google isn't set up on this PC yet. It needs a Google sign-in key in Hearth's settings
+            Google isn't set up on this PC yet. It needs a Google sign-in key in Nook's settings
             file (HEARTH_GOOGLE_CLIENT_ID and HEARTH_GOOGLE_CLIENT_SECRET).
           </p>
         }
@@ -57,8 +57,8 @@ export function GoogleSettings() {
         <div class="flex items-center gap-3">
           <p class="flex-1 text-sm text-muted">
             {onPc()
-              ? "Connect a Google account so Jarvis can see and plan your calendar."
-              : "Connecting finishes on this PC's own browser (Google sends you back to localhost), so open Hearth on the PC to connect."}
+              ? "Connect a Google account so Pip can see and plan your calendar."
+              : "Connecting finishes on this PC's own browser (Google sends you back to localhost), so open Nook on the PC to connect."}
           </p>
           <Button
             kind="primary"
@@ -104,7 +104,7 @@ export function GoogleSettings() {
 /** Puts an account's set-aside mail back for the next sync to try (it also tries once a day). */
 async function tryAgain(address: string) {
   const r = await act<{ released: number }>("mail.retry_set_aside", { account: address });
-  if (r) toast.show(`Hearth will try ${r.released === 1 ? "it" : "them"} again in a minute or so.`);
+  if (r) toast.show(`Nook will try ${r.released === 1 ? "it" : "them"} again in a minute or so.`);
 }
 
 type Cal = CalendarSetup["calendars"][number];

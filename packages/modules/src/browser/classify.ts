@@ -100,7 +100,7 @@ export function askWhy(what: string, v: Verdict, trusted: boolean, instead: stri
 
 /** Why Jarvis's hands stay off Hearth's own pages. */
 export const HEARTH_PAGE =
-  "That's Hearth's own page. Jarvis does what's there with its own actions (approvals, tasks, mail, chat, settings), never by working the page; reading, scrolling and closing a dialog are fine. Anything to press there is the owner's to press.";
+  "That's Nook's own page. Pip does what's there with its own actions (approvals, tasks, mail, chat, settings), never by working the page; reading, scrolling and closing a dialog are fine. Anything to press there is the owner's to press.";
 
 /** A host as compared: no brackets or trailing dot, and an IPv4 address written as IPv6
  * (::ffff:7f00:1) as itself. */

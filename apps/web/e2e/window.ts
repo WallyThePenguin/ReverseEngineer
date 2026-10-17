@@ -144,15 +144,15 @@ try {
       fetch("/api/devices/desktop/pair", { method: "POST" }).then((r) => r.ok),
     );
     if (!paired) throw new Error("the desktop app couldn't be connected");
-    await page.getByRole("button", { name: "Add a passkey for this PC's Hearth window" }).click();
+    await page.getByRole("button", { name: "Add a passkey for this PC's Nook window" }).click();
     await page.getByText("Windows Hello is set up").waitFor();
-    await page.getByText("Works in Hearth's window on this PC").first().waitFor();
+    await page.getByText("Works in Nook's window on this PC").first().waitFor();
   });
 
   await step("its sign-in page's link opens Desktop app and says why, nothing more", async () => {
     await page.goto(`${base}/settings?connect=desktop`);
-    await page.getByText("If Hearth's window on this PC asked you to sign in again").waitFor();
-    await page.getByRole("button", { name: "Connect Hearth on this PC" }).waitFor();
+    await page.getByText("If Nook's window on this PC asked you to sign in again").waitFor();
+    await page.getByRole("button", { name: "Connect Nook on this PC" }).waitFor();
     if (new URL(page.url()).search) throw new Error(`the address kept ${page.url()}`);
     await page.waitForTimeout(500);
     if (handoffs.length) throw new Error("the link connected the window by itself");
@@ -200,7 +200,7 @@ try {
     const other = await chrome.newPage();
     await other.route(`${OWN}/**`, (r) => r.fulfill({ body: "Hearth" }));
     await other.goto(base);
-    await other.getByText(`Hearth's address for browsers is ${OWN}`).waitFor();
+    await other.getByText(`Nook's address for browsers is ${OWN}`).waitFor();
     await noHello(other);
     await noDeadButton(other);
     // Nor does Hearth make or take the window's passkeys for it.
@@ -211,7 +211,7 @@ try {
     );
     if (rpId !== new URL(OWN).hostname) throw new Error(`Chrome here was given ${rpId}'s passkeys`);
     const sent = other.waitForRequest((r) => r.url() === `${OWN}/`);
-    await other.getByRole("button", { name: "Go to Hearth's address" }).click();
+    await other.getByRole("button", { name: "Go to Nook's address" }).click();
     await sent;
     await chrome.close();
   });
@@ -219,7 +219,7 @@ try {
   await step("disconnected, the window's passkey no longer signs it in", async () => {
     await page.goto(`${base}/settings?connect=desktop`);
     // The desktop app's row, by its Connect button: other places can have a Disconnect too.
-    const row = page.getByRole("button", { name: "Connect Hearth on this PC" }).locator("xpath=..");
+    const row = page.getByRole("button", { name: "Connect Nook on this PC" }).locator("xpath=..");
     // Still signed in when you click: nothing before this signed the window out.
     const disconnected = page.waitForResponse(
       (r) => r.url().endsWith("/api/devices/desktop") && r.request().method() === "DELETE",

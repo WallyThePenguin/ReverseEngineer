@@ -87,7 +87,7 @@ async function mayRegister(
   return !!setupCode && (await checkSetupCode(kernel.db, setupCode));
 }
 
-const NOT_CONNECTED = "This PC's Hearth window isn't connected. Connect it from your browser.";
+const NOT_CONNECTED = "This PC's Nook window isn't connected. Connect it from your browser.";
 
 const redeemBody = z.object({ nonce: z.string().min(16).max(128) });
 
@@ -95,8 +95,8 @@ const RUN_OUT_PAGE = `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>Connect again</title>
 <style>body{font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;line-height:1.5}</style>
 </head><body><h1>That sign-in link has run out</h1>
-<p>In Hearth in your browser, open Settings, then Desktop app, and choose
-<b>Connect Hearth on this PC</b> again.</p></body></html>`;
+<p>In Nook in your browser, open Settings, then Desktop app, and choose
+<b>Connect Nook on this PC</b> again.</p></body></html>`;
 
 export function authRoutes(handoffs: Handoffs = sharedHandoffs) {
   const app = new Hono<AppEnv>();
@@ -106,7 +106,7 @@ export function authRoutes(handoffs: Handoffs = sharedHandoffs) {
   app.post("/desktop/handoff", (c) => {
     const caller = c.get("caller");
     if (!c.get("viaCookie") || caller?.kind !== "owner" || caller.via !== "ui")
-      return c.json({ error: "Sign in to Hearth in your browser first." }, 403);
+      return c.json({ error: "Sign in to Nook in your browser first." }, 403);
     const nonce = handoffs.nonces.issue(caller.principal);
     c.header("Cache-Control", "no-store");
     return c.json({ nonce, link: `hearth://connect?nonce=${nonce}`, expiresInSeconds: 60 });
@@ -216,7 +216,7 @@ export function authRoutes(handoffs: Handoffs = sharedHandoffs) {
       return c.json(
         {
           error: rp.local
-            ? "This PC's Hearth window has no passkey yet. Connect it from your browser."
+            ? "This PC's Nook window has no passkey yet. Connect it from your browser."
             : "No passkey yet. Run `hearth setup`.",
         },
         409,

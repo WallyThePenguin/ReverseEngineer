@@ -104,7 +104,7 @@ describe("Stop", () => {
     expect(brain.requests).toHaveLength(0);
     const [t] = await turns();
     expect(t).toMatchObject({ status: "canceled" });
-    expect(await said(conversationId)).toEqual(["Stopped before Jarvis started."]);
+    expect(await said(conversationId)).toEqual(["Stopped before Pip started."]);
 
     const { turnId } = await ok<{ turnId: string }>("jarvis.retry_turn", { turnId: t!.id });
     expect(await ok("jarvis.retry_turn", { turnId: t!.id })).toEqual({ turnId });
@@ -137,11 +137,9 @@ describe("after a restart", () => {
     expect(await h.runner.recoverInterrupted()).toBe(2);
     expect(await turn(ta!.id)).toMatchObject({ status: "queued", errorKind: "interrupted" });
     expect(await turn(tb!.id)).toMatchObject({ status: "failed", errorKind: "interrupted" });
-    expect(await said(a.conversationId)).toEqual([
-      "Jarvis restarted, so it's starting this again.",
-    ]);
+    expect(await said(a.conversationId)).toEqual(["Pip restarted, so it's starting this again."]);
     expect(await said(b.conversationId)).toEqual([
-      "Jarvis restarted while working on this, so it didn't finish.",
+      "Pip restarted while working on this, so it didn't finish.",
     ]);
     expect(await alerts()).toHaveLength(0);
 
@@ -169,7 +167,7 @@ describe("a lost session", () => {
     const retry = brain.requests[2]!;
     expect(retry.sessionId).toBeNull();
     expect(retry.prompt).toContain("What's the capital of France?");
-    expect(retry.prompt).toContain("Jarvis");
+    expect(retry.prompt).toContain("Pip");
     expect(retry.prompt).toContain("Paris.");
     expect(retry.prompt.trim().endsWith("And how many people live there?")).toBe(true);
     expect(retry.prompt.match(/And how many people/g)).toHaveLength(1);
@@ -192,7 +190,7 @@ describe("waiting too long", () => {
     expect(brain.requests).toHaveLength(0);
     expect((await turns())[0]).toMatchObject({ status: "skipped", skipReason: "expired" });
     expect(await said(conversationId)).toEqual([
-      "Jarvis didn't get to this in time, so it let it go.",
+      "Pip didn't get to this in time, so it let it go.",
     ]);
   });
 
@@ -210,7 +208,7 @@ describe("waiting too long", () => {
     await h.settle();
     expect(await turn(turnId)).toMatchObject({ status: "done" });
     expect(await said(conversationId)).toEqual([
-      "Jarvis didn't get to this in time, so it let it go.",
+      "Pip didn't get to this in time, so it let it go.",
       "Trying again.",
       "OK.",
     ]);
@@ -226,7 +224,7 @@ describe("waiting too long", () => {
     await h.settle();
     expect(brain.requests).toHaveLength(0);
     expect(await turns()).toHaveLength(0);
-    expect(await said(conversationId)).toEqual(["Stopped before Jarvis started."]);
+    expect(await said(conversationId)).toEqual(["Stopped before Pip started."]);
     // What you send after that is answered as usual.
     await chat("are you back?", conversationId);
     await h.settle();
@@ -292,7 +290,7 @@ describe("routines", () => {
     expect((await turns())[0]).toMatchObject({ status: "failed", errorKind: "invalid_request" });
     const [item] = await h.tdb.db.select().from(heartbeatItem);
     expect(item?.takenAt).toBeNull();
-    expect((await alerts())[0]?.title).toBe("Jarvis couldn't finish a heartbeat check");
+    expect((await alerts())[0]?.title).toBe("Pip couldn't finish a heartbeat check");
   });
 });
 
@@ -305,7 +303,7 @@ describe("a run of failures", () => {
       await h.settle();
     }
     expect(new Set((await alerts()).map((a) => a.title))).toEqual(
-      new Set(["Jarvis's turns are failing", "Jarvis has failed 3 turns in a row"]),
+      new Set(["Pip's turns are failing", "Pip has failed 3 turns in a row"]),
     );
     expect(await alerts()).toHaveLength(2);
     expect(await health()).toMatchObject({ status: "failing" });
@@ -319,7 +317,7 @@ describe("a run of failures", () => {
     brain.fail(invalid);
     await chat("five");
     await h.settle();
-    const failing = (await alerts()).filter((a) => a.title === "Jarvis's turns are failing");
+    const failing = (await alerts()).filter((a) => a.title === "Pip's turns are failing");
     expect(failing).toHaveLength(2);
   });
 
@@ -332,8 +330,8 @@ describe("a run of failures", () => {
       h.clock.advance(60_000);
     }
     expect((await alerts()).map((a) => a.title).sort()).toEqual([
-      "Jarvis has failed 3 turns in a row",
-      "Jarvis's turns are failing",
+      "Pip has failed 3 turns in a row",
+      "Pip's turns are failing",
     ]);
     expect((await health())?.detail).toContain("That's 30 in a row.");
   }, 60_000);

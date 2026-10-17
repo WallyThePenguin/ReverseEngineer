@@ -178,7 +178,7 @@ describe("exactly-once approvals", () => {
     expect(res).toMatchObject({ status: "error", code: "conflict" });
     // You're told in plain words; the details are kept on the approval for Jarvis and the log.
     expect((res as { message: string }).message).toBe(
-      "This request no longer fits what Hearth can do, so it wasn't run. Ask for it again.",
+      "This request no longer fits what Nook can do, so it wasn't run. Ask for it again.",
     );
     expect(sent).toHaveLength(1);
     expect(await row(stale)).toMatchObject({ status: "failed" });
@@ -194,7 +194,7 @@ describe("exactly-once approvals", () => {
     expect(await decide(orphan, "approve")).toMatchObject({
       status: "error",
       code: "failed",
-      message: "Hearth couldn't start this, so nothing was run. Ask for it again.",
+      message: "Nook couldn't start this, so nothing was run. Ask for it again.",
     });
     lookup.mockRestore();
     expect(await row(orphan)).toMatchObject({ status: "failed" });
@@ -280,8 +280,8 @@ describe("approval cards", () => {
     ]);
     const a = await ask("probe.trash", { id: mine });
     const b = await ask("probe.trash", { id: theirs });
-    expect((await cards(a))[0]?.title).toBe('Jarvis asks: Move record "Renew passport" to trash');
-    expect((await cards(b))[0]?.title).toBe(`Jarvis asks: Move record ${theirs} to trash`);
+    expect((await cards(a))[0]?.title).toBe('Pip asks: Move record "Renew passport" to trash');
+    expect((await cards(b))[0]?.title).toBe(`Pip asks: Move record ${theirs} to trash`);
     // What Jarvis and the brief see keeps the id.
     expect((await row(a)).summary).toBe(`Move record ${mine} to trash`);
   });

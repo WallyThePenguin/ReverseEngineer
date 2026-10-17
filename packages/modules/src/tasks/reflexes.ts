@@ -14,7 +14,7 @@ import { loadTask } from "./view.ts";
 export const workAssigned: ReflexDef = {
   name: "tasks.work_assigned",
   description:
-    "When you assign a task to Jarvis, it starts working on it and reports in the task's thread.",
+    "When you assign a task to Pip, it starts working on it and reports in the task's thread.",
   mode: "reactive",
   on: ["task.assigned"],
   run(event) {
@@ -41,8 +41,7 @@ export const workAssigned: ReflexDef = {
 
 export const answerTaskThread: ReflexDef = {
   name: "tasks.answer_thread",
-  description:
-    "When you comment on a task Jarvis is working, Jarvis reads it and answers in the thread.",
+  description: "When you comment on a task Pip is working, Pip reads it and answers in the thread.",
   mode: "reactive",
   on: ["entity.created"],
   async run(event, ctx) {
@@ -68,7 +67,7 @@ export const answerTaskThread: ReflexDef = {
 
 export const dueSoon: ReflexDef = {
   name: "tasks.due_soon",
-  description: "Warns you before a task is due (24 hours by default), even when Jarvis is paused.",
+  description: "Warns you before a task is due (24 hours by default), even when Pip is paused.",
   mode: "always",
   on: ["entity.created", "task.due_changed", "task.status_changed"],
   includeJarvisEvents: true,

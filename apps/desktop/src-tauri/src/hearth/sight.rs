@@ -216,12 +216,13 @@ pub(super) fn backdrop() -> Color {
     background(dark())
 }
 
-/// Hearth's page background (--color-bg in apps/web/src/index.css).
+/// Nook's canvas in its Light and Dark themes (--color-canvas in apps/web/src/styles/nook.css
+/// and themes/dark.css), which the page shows until you pick another theme.
 fn background(dark: bool) -> Color {
     if dark {
-        Color(0x15, 0x13, 0x0f, 0xff)
+        Color(0x0d, 0x0d, 0x0f, 0xff)
     } else {
-        Color(0xfa, 0xf8, 0xf5, 0xff)
+        Color(0xe8, 0xe8, 0xed, 0xff)
     }
 }
 
@@ -289,18 +290,19 @@ mod tests {
     }
 
     #[test]
-    fn background_is_hearths_own() {
-        let css = std::fs::read_to_string(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../web/src/index.css"
-        ))
-        .expect("Hearth's web app beside the desktop app");
-        let set: Vec<&str> = css
-            .lines()
-            .filter_map(|l| l.trim().strip_prefix("--color-bg:"))
-            .map(|v| v.trim().trim_end_matches(';'))
-            .collect();
+    fn background_is_nooks_canvas() {
+        let canvas = |file: &str| {
+            let css = std::fs::read_to_string(format!(
+                "{}/../../web/src/styles/{file}",
+                env!("CARGO_MANIFEST_DIR")
+            ))
+            .expect("Nook's web app beside the desktop app");
+            css.lines()
+                .find_map(|l| l.trim().strip_prefix("--color-canvas:"))
+                .map(|v| v.trim().trim_end_matches(';').to_string())
+        };
         let hex = |c: Color| format!("#{:02x}{:02x}{:02x}", c.0, c.1, c.2);
-        assert_eq!(set, [hex(background(false)), hex(background(true))]);
+        assert_eq!(canvas("nook.css"), Some(hex(background(false))));
+        assert_eq!(canvas("themes/dark.css"), Some(hex(background(true))));
     }
 }

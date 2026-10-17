@@ -39,7 +39,7 @@ describe("requests that fail", () => {
     const body = await res.text();
     expect(body).not.toContain("hunter2");
     expect(JSON.parse(body)).toEqual({
-      error: "Something went wrong in Hearth. Try again in a moment.",
+      error: "Something went wrong in Nook. Try again in a moment.",
     });
     expect(logged.join("\n")).toContain("GET /boom/bug failed");
     // Where it broke, for fixing it.

@@ -71,7 +71,7 @@ describe("judgeSync", () => {
     };
     expect(judgeSync("sync.google", [paused], now, NY)).toMatchObject({
       status: "ok",
-      detail: "me@example.com mail: Google asked Hearth to slow down; resuming at 10:03 a.m.",
+      detail: "me@example.com mail: Google asked Nook to slow down; resuming at 10:03 a.m.",
     });
   });
 });
@@ -287,7 +287,7 @@ describe("Jarvis's Slack socket (D62)", () => {
     expect(bot(reports)).toMatchObject({
       status: "degraded",
       detail:
-        "Jarvis in Acme: the last sync failed: Jarvis's Slack socket is down: socket_unreachable.",
+        "Jarvis in Acme: the last sync failed: The Jarvis bot's Slack socket is down: socket_unreachable.",
     });
     await reportHealth(t.kernel, reports);
     expect(await alerts(t)).toEqual([]);
@@ -298,7 +298,7 @@ describe("Jarvis's Slack socket (D62)", () => {
     expect(bot(reports)).toMatchObject({ status: "failing" });
     await reportHealth(t.kernel, reports);
     expect(await alerts(t)).toMatchObject([
-      { title: "Jarvis's Slack bot is failing", urgency: "interrupt" },
+      { title: "The Jarvis bot in Slack is failing", urgency: "interrupt" },
     ]);
 
     // Back, then down for another half hour the same day: no second alert.
@@ -340,7 +340,7 @@ describe("Jarvis's Slack socket (D62)", () => {
     await socket(1, "link_disabled");
     const reports = await check();
     expect(bot(reports)).toMatchObject({ status: "failing" });
-    expect(bot(reports)?.detail).toMatch(/Slack turned off Socket Mode for Jarvis's app/);
+    expect(bot(reports)?.detail).toMatch(/Slack turned off Socket Mode for the Jarvis app/);
     await reportHealth(t.kernel, reports);
     expect(await alerts(t)).toHaveLength(1);
     // Nothing the socket says changes that; slack.bot_replace_tokens does.

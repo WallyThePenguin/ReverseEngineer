@@ -17,7 +17,7 @@ export const commandActions = [
   defineAction({
     name: "voice.command",
     description:
-      "Ask Jarvis to do something with the text selected in another app (a spoken command from the desktop app). Get the answer with voice.command_result.",
+      "Ask Pip to do something with the text selected in another app (a spoken command from the desktop app). Get the answer with voice.command_result.",
     input: z.object({
       instruction: z.string().trim().min(1).max(2_000),
       selection: z.string().max(20_000).default(""),
@@ -53,7 +53,7 @@ export const commandActions = [
   }),
   defineAction({
     name: "voice.command_result",
-    description: "What Jarvis made of a voice command: still working, its text, or why it failed.",
+    description: "What Pip made of a voice command: still working, its text, or why it failed.",
     input: z.object({ id }),
     // Deletes the command once it has its answer.
     risk: "internal",
@@ -75,8 +75,7 @@ export const commandActions = [
       return {
         status: "failed" as const,
         reason:
-          turn.error ??
-          (turn.status === "done" ? "Jarvis didn't answer." : "Jarvis couldn't do it."),
+          turn.error ?? (turn.status === "done" ? "Pip didn't answer." : "Pip couldn't do it."),
       };
     },
   }),
@@ -84,7 +83,7 @@ export const commandActions = [
 
 export const commandReflex: ReflexDef = {
   name: "voice.command",
-  description: "Jarvis does what you said with the text you selected, in its fast lane.",
+  description: "Pip does what you said with the text you selected, in its fast lane.",
   mode: "reactive",
   on: ["voice.commanded"],
   run(event) {

@@ -60,8 +60,8 @@ function Centered(props: { title: string; text: string; children: JSX.Element })
 export function Unreachable(props: { retry: () => void; trying: boolean }) {
   return (
     <Centered
-      title="Can't reach Hearth"
-      text="Your PC may be asleep, restarting or offline. Hearth will keep trying."
+      title="Can't reach Nook"
+      text="Your PC may be asleep, restarting or offline. Nook will keep trying."
     >
       <Button kind="primary" disabled={props.trying} onClick={props.retry}>
         {props.trying ? "Trying…" : "Try again"}
@@ -76,7 +76,7 @@ export function Crashed(props: { error: unknown; reset: () => void }) {
   return (
     <Centered
       title="Something went wrong"
-      text="This screen hit a problem. Try again, or reload Hearth if it keeps happening."
+      text="This screen hit a problem. Try again, or reload Nook if it keeps happening."
     >
       <Button kind="primary" onClick={props.reset}>
         Try again
@@ -101,7 +101,7 @@ export function PaneCrashed(props: { error: unknown; reset: () => void }) {
     >
       <p class="text-sm text-muted">
         {why() === "updated"
-          ? "Hearth was updated. Reload to open this."
+          ? "Nook was updated. Reload to open this."
           : why() === "offline"
             ? "Couldn't load this. Check your connection, then try again."
             : "This pane hit a problem."}
@@ -138,8 +138,8 @@ function Degraded() {
   return (
     <Show when={degraded.on() && !live.reconnecting()}>
       <Notice tone="warn">
-        Hearth can't get to your data right now, so what you see may be out of date. It catches up
-        by itself.
+        Nook can't get to your data right now, so what you see may be out of date. It catches up by
+        itself.
       </Notice>
     </Show>
   );

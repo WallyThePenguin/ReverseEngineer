@@ -19,9 +19,9 @@ const LABELS: Readonly<Record<string, string>> = {
   "sync.slack": "Slack sync",
   "sync.github": "GitHub sync",
   "sync.notion": "Notion sync",
-  "sync.slack_bot": "Jarvis's Slack bot",
-  worker: "Hearth's worker",
-  server: "Hearth's server",
+  "sync.slack_bot": "The Jarvis bot in Slack",
+  worker: "Nook's worker",
+  server: "Nook's server",
   disk: "Disk space",
   // The worker reports it failing when no backup has run for a day and a half.
   backup: "The nightly backup",

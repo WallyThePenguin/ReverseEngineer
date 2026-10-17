@@ -45,7 +45,7 @@ const segment = z.object({
 const summarize: ReflexDef = {
   name: "meetings.summarize",
   description:
-    "When a meeting you took notes in ends, Jarvis writes the summary and turns action items into tasks.",
+    "When a meeting you took notes in ends, Pip writes the summary and turns action items into tasks.",
   mode: "proactive",
   on: ["meeting.ended"],
   run(event) {
@@ -238,7 +238,7 @@ export const meetingsModule = defineModule({
     }),
     defineAction({
       name: "meeting.end",
-      description: "End a meeting. Jarvis then writes its summary.",
+      description: "End a meeting. Pip then writes its summary.",
       input: z.object({ id, endedAt: isoDateTime.optional() }),
       risk: "internal",
       callers: ["owner", "integration"],

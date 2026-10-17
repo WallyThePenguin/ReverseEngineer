@@ -44,9 +44,9 @@ export function Settings() {
     const s = status.data;
     if (!s) return null;
     if (s.jarvisAlive === null)
-      return "Jarvis hasn't checked in yet. On the PC, start it with: hearth restart jarvis";
+      return "Pip hasn't checked in yet. On the PC, start it with: hearth restart jarvis";
     return jarvisLiveness({ data: s, dataUpdatedAt: status.dataUpdatedAt }).downSince
-      ? "Jarvis isn't running. Hearth is trying to restart it; if it stays down, run on the PC: hearth restart jarvis"
+      ? "Pip isn't running. Nook is trying to restart it; if it stays down, run on the PC: hearth restart jarvis"
       : null;
   };
 
@@ -59,7 +59,7 @@ export function Settings() {
         <SettingsNav root={() => scroller} />
         <Anchor id="jarvis">
           <section class="space-y-2">
-            <h2 class="font-semibold">Jarvis</h2>
+            <h2 class="font-semibold">Pip</h2>
             <Show when={status.data}>
               {(s) => (
                 <div class="flex items-center gap-3 rounded-md bg-sunk px-3 py-3">
@@ -67,8 +67,8 @@ export function Settings() {
                     <p class="font-medium">{s().jarvisPaused ? "Paused" : "On"}</p>
                     <p class="text-sm text-muted">
                       {s().jarvisPaused
-                        ? "Jarvis only answers you. Its own initiative is off; deadline and failure alerts still arrive."
-                        : "Jarvis answers you and also acts on its own: briefs, reminders, follow-ups."}
+                        ? "Pip only answers you. Its own initiative is off; deadline and failure alerts still arrive."
+                        : "Pip answers you and also acts on its own: briefs, reminders, follow-ups."}
                     </p>
                   </div>
                   <Button
@@ -86,7 +86,7 @@ export function Settings() {
 
         <Anchor id="rules">
           <section class="space-y-2">
-            <h2 class="font-semibold">Jarvis may do without asking</h2>
+            <h2 class="font-semibold">Pip may do without asking</h2>
             <p class="text-sm text-muted">
               Things other people would see, or that are hard to undo, wait for your yes. Always
               allow on a card from a conversation you started adds it here, for that one channel or
@@ -95,7 +95,7 @@ export function Settings() {
             </p>
             <Show
               when={(rules.data ?? []).length > 0}
-              fallback={<p class="text-sm text-faint">No rules. Jarvis asks every time.</p>}
+              fallback={<p class="text-sm text-faint">No rules. Pip asks every time.</p>}
             >
               <ul class="space-y-1">
                 <For each={rules.data}>
