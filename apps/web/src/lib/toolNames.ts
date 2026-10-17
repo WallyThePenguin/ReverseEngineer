@@ -19,6 +19,7 @@ const SAID: Record<string, Said> = {
   "calendar.events": ["Checking your calendar", "Checked your calendar"],
   "calendar.get": ["Looking at an event", "Looked at an event"],
   "calendar.free_time": ["Finding free time", "Found free time"],
+  "calendar.find_time": ["Finding a time that suits everyone", "Found a time that suits everyone"],
   "calendar.conflicts": ["Checking for clashes", "Checked for clashes"],
   "calendar.create_event": ["Adding an event", "Added an event"],
   "calendar.update_event": ["Changing an event", "Changed an event"],

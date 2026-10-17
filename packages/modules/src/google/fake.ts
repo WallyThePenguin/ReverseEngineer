@@ -14,6 +14,12 @@ interface FakeCalendar extends GCalendar {
   gone: Set<string>;
 }
 
+interface FreeBusyAsk {
+  timeMin: string;
+  timeMax: string;
+  items: { id: string }[];
+}
+
 export interface FakeAccount {
   email: string;
   refreshToken: string;
@@ -47,6 +53,15 @@ export class FakeGoogle {
    * whose source was deleted, say. Until removed from here.
    */
   readonly brokenCalendars = new Map<string, 403 | 404 | 500>();
+  /**
+   * Other people's calendars Google shows through free/busy, by address: their busy times, and
+   * the accounts they're shared with (a colleague's, seen from your work account). Anyone else's
+   * calendar is one Google can't find.
+   */
+  readonly colleagues = new Map<
+    string,
+    { busy: { start: string; end: string }[]; seenBy: string[] }
+  >();
   /** The time clients and the fake Gmail see; set it to the test kernel's clock. */
   clock: { now(): Date } = { now: () => new Date() };
   /** What clients made by client() logged. */
@@ -226,8 +241,36 @@ export class FakeGoogle {
     return res;
   }
 
+  /** Busy times as free/busy gives them: no titles, only when. */
+  private freeBusy(account: FakeAccount, ask: FreeBusyAsk) {
+    const from = new Date(ask.timeMin).getTime();
+    const to = new Date(ask.timeMax).getTime();
+    const at = (t?: { dateTime?: string; date?: string }) =>
+      new Date(t?.dateTime ?? `${t?.date}T00:00:00Z`);
+    const calendars: Record<string, unknown> = {};
+    for (const { id } of ask.items) {
+      const colleague = this.colleagues.get(id);
+      const own = account.calendars.get(id);
+      if (colleague?.seenBy.includes(account.email)) {
+        calendars[id] = { busy: colleague.busy };
+      } else if (own) {
+        const busy = [...own.events.values()]
+          .filter((e) => e.status !== "cancelled" && e.transparency !== "transparent")
+          .map((e) => ({ start: at(e.start), end: at(e.end) }))
+          .filter((b) => b.start.getTime() < to && b.end.getTime() > from)
+          .map((b) => ({ start: b.start.toISOString(), end: b.end.toISOString() }));
+        calendars[id] = { busy };
+      } else {
+        calendars[id] = { busy: [], errors: [{ domain: "global", reason: "notFound" }] };
+      }
+    }
+    return { kind: "calendar#freeBusy", timeMin: ask.timeMin, timeMax: ask.timeMax, calendars };
+  }
+
   private calendarCall(account: FakeAccount, u: URL, method: string, body: GEvent | undefined) {
     const path = u.pathname.replace("/calendar/v3", "");
+    if (path === "/freeBusy" && method === "POST")
+      return json(200, this.freeBusy(account, body as unknown as FreeBusyAsk));
     if (path === "/users/me/calendarList") {
       return json(200, {
         items: [...account.calendars.values()].map(({ events: _e, gone: _g, ...c }) => c),

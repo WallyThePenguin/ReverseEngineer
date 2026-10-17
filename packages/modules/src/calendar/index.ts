@@ -19,6 +19,7 @@ import { calendarWriteActions } from "./actions.ts";
 import { blockAction, blockReflex, blockRoutine } from "./blocks.ts";
 import { calendarSetupActions, isOwnCalendar, ownAccount } from "./calendars.ts";
 import { conflicts, overlaps } from "./conflicts.ts";
+import { findTimeAction } from "./find-time.ts";
 import { freeSlots } from "./free.ts";
 import { newInvite } from "./invites.ts";
 import { meetingActions } from "./meetings.ts";
@@ -186,7 +187,7 @@ export const calendarModule = defineModule({
     defineAction({
       name: "calendar.free_time",
       description:
-        "Free slots in the owner's working hours (never evenings or weekends) of at least `minutes`, from now or `from`, over `days` days.",
+        "Free slots in the owner's working hours (never evenings or weekends) of at least `minutes`, from now or `from`, over `days` days. For a time that suits other people too, calendar.find_time.",
       input: z.object({
         minutes: z.number().int().min(15).max(600).default(30),
         from: isoDateTime.optional(),
@@ -206,6 +207,7 @@ export const calendarModule = defineModule({
         return slots.slice(0, 40);
       },
     }),
+    findTimeAction,
     ...calendarSetupActions,
     defineAction({
       name: "calendar.sync",

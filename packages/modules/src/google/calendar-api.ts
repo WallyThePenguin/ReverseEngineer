@@ -61,6 +61,12 @@ export interface GEvent {
 
 export type SendUpdates = "all" | "none";
 
+/** One calendar's answer to free/busy: when it's busy, or why Google couldn't tell. */
+export interface GFreeBusy {
+  busy?: { start: string; end: string }[];
+  errors?: { domain?: string; reason?: string }[];
+}
+
 const enc = encodeURIComponent;
 
 /** An event id from what the event is. Hex is within Google's allowed letters (a-v, 0-9). */
@@ -144,6 +150,26 @@ export class CalendarApi {
       page = res.nextPageToken;
     } while (page);
     return out;
+  }
+
+  /**
+   * When each of `ids` (people's addresses, calendar ids) is busy, as far as `account` may see:
+   * times only, no titles. One call for all of them (Google takes up to 50).
+   */
+  async freeBusy(
+    account: string,
+    ids: string[],
+    from: Date,
+    to: Date,
+  ): Promise<Record<string, GFreeBusy>> {
+    const res = await this.google.call<{ calendars?: Record<string, GFreeBusy> }>(
+      this.db,
+      account,
+      "POST",
+      `${BASE}/freeBusy`,
+      { timeMin: from.toISOString(), timeMax: to.toISOString(), items: ids.map((id) => ({ id })) },
+    );
+    return res.calendars ?? {};
   }
 
   /** A change you asked for: it may use the budget's headroom. */
