@@ -36,10 +36,10 @@ const PER_ROUND = 20;
 
 /** Everything Slack hears back from Hearth about your DM, unless you turned full answers on. */
 export const OWNER_REPLIES = {
-  got: (link: string) => `Got it, it's in Hearth: ${link}`,
+  got: (link: string) => `Got it, it's in Nook: ${link}`,
   done: "Done",
-  ask: "Needs your yes in Hearth",
-  failed: "That didn't work. It's in Hearth.",
+  ask: "Needs your yes in Nook",
+  failed: "That didn't work. It's in Nook.",
 } as const;
 
 type Ws = typeof slackWorkspace.$inferSelect;
@@ -115,7 +115,7 @@ async function keep(ctx: ActionContext, bot: Bot, conversationId: string) {
 export const takeOwnerAction = defineAction({
   name: "slack.take_owner",
   description:
-    "Take what you wrote to Jarvis's bot in your own Slack DM: each message goes to Jarvis as you, untrusted, in a conversation started via Slack.",
+    "Take what you wrote to the Jarvis bot in your own Slack DM: each message goes to Pip as you, untrusted, in a conversation started via Slack.",
   input: z.object({}),
   risk: "internal",
   callers: ["owner"],
@@ -179,7 +179,7 @@ export const takeOwnerAction = defineAction({
 export const ownerReplyAction = defineAction({
   name: "slack.owner_reply",
   description:
-    "Tell you in your Slack DM with Jarvis how a turn you started there ended: Done, or Needs your yes in Hearth.",
+    "Tell you in your Slack DM with the Jarvis bot how a turn you started there ended: Done, or Needs your yes in Nook.",
   input: z.object({
     turnId: z.string().uuid(),
     ended: z.enum(["done", "ask", "failed"]),

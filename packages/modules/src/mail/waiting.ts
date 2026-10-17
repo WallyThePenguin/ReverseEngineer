@@ -152,7 +152,7 @@ export const waitingActions = [
 
 export const followUpRoutine: RoutineDef = {
   name: "follow_ups",
-  description: `Weekday mornings at 9:30, Jarvis drafts follow-ups for questions you emailed that got no answer in ${QUIET_DAYS} days. You send them, or not.`,
+  description: `Weekday mornings at 9:30, Pip drafts follow-ups for questions you emailed that got no answer in ${QUIET_DAYS} days. You send them, or not.`,
   cron: "30 9 * * 1-5",
   staleAfterSeconds: 4 * 3600,
   async run(_firing, ctx) {
@@ -189,7 +189,7 @@ export const followUpRoutine: RoutineDef = {
 
 export const replyDraftRoutine: RoutineDef = {
   name: "reply_drafts",
-  description: `Every morning at 7:45, before the brief, Jarvis drafts replies in your voice to up to ${REPLY_DRAFTS} emails waiting on you. Nothing is sent: you send them, or not.`,
+  description: `Every morning at 7:45, before the brief, Pip drafts replies in your voice to up to ${REPLY_DRAFTS} emails waiting on you. Nothing is sent: you send them, or not.`,
   cron: "45 7 * * *",
   staleAfterSeconds: 4 * 3600,
   async run(firing, ctx) {

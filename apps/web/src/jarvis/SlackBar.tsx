@@ -64,14 +64,14 @@ export function SlackBar(props: {
               Reply as Jarvis
             </Button>
             <Button small kind="jarvis" onClick={() => void ask()}>
-              Ask Jarvis about this
+              Ask Pip about this
             </Button>
             <Show
               when={pausedNow(conv())}
               fallback={
                 <select
                   class={select}
-                  aria-label="Pause Jarvis here"
+                  aria-label="Pause the Jarvis bot here"
                   value=""
                   onChange={(e) => pause(Number(e.currentTarget.value))}
                 >
@@ -98,7 +98,7 @@ export function SlackBar(props: {
                 </span>
                 <select
                   class={select}
-                  aria-label={`What Jarvis does for ${p.name}`}
+                  aria-label={`What the Jarvis bot does for ${p.name}`}
                   value={p.tier}
                   onChange={(e) =>
                     void orBack(
@@ -117,7 +117,7 @@ export function SlackBar(props: {
                     small
                     kind="danger"
                     onClick={() =>
-                      confirm(`Block ${p.name}? Jarvis stops answering them.`) &&
+                      confirm(`Block ${p.name}? The Jarvis bot stops answering them.`) &&
                       void act("slack.member_set", { user: p.id, tier: "blocked" })
                     }
                   >

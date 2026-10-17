@@ -178,7 +178,7 @@ export const inboxModule = defineModule({
           .boolean()
           .optional()
           .describe(
-            "Its words came from outside content (an email, a message). Set by Hearth; it can only make it more careful.",
+            "Its words came from outside content (an email, a message). Set by Nook; it can only make it more careful.",
           ),
       }),
       risk: "internal",

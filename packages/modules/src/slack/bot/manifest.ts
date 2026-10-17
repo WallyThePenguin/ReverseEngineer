@@ -78,7 +78,7 @@ export function slackManifest(owner: string | null): string {
     ? `${owner}'s assistant. It runs on their PC; when it's off, replies wait.`
     : "A personal assistant. It runs on its owner's PC; when it's off, replies wait.";
   return [
-    `# Jarvis's Slack app (${JARVIS_APP_ID}). Merge this in under App Manifest (YAML), keeping`,
+    `# The Jarvis app in Slack (${JARVIS_APP_ID}). Merge this in under App Manifest (YAML), keeping`,
     "# your app id and redirect settings, then reinstall the app to the workspace.",
     "display_information:",
     "  name: Jarvis",
@@ -95,7 +95,7 @@ export function slackManifest(owner: string | null): string {
     "  scopes:",
     "    user:",
     ...list(USER_SCOPES, "      "),
-    "      # Kept for something else of yours. Hearth never writes with your token.",
+    "      # Kept for something else of yours. Nook never writes with your token.",
     ...list(KEPT_USER_SCOPES, "      "),
     "    bot:",
     ...list(BOT_SCOPES, "      "),

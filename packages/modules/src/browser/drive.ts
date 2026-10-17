@@ -218,7 +218,7 @@ export const driveLookActions = [
   defineAction({
     name: "browser.tab_select",
     description:
-      "Bring one of Jarvis's own tabs to the front of its window. Tabs the owner handed over stay where they put them.",
+      "Bring one of Pip's own tabs to the front of its window. Tabs the owner handed over stay where they put them.",
     input: z.object({ tabId }),
     risk: "internal",
     callers: CALLERS,

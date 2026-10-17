@@ -104,18 +104,18 @@ async fn reopen_if_up(app: &AppHandle) -> bool {
 fn offline_page(label: &str) -> Url {
     let small = label != MAIN;
     let html = format!(
-        r#"<!doctype html><html><head><meta charset="utf-8"><title>Hearth isn't running</title>
+        r#"<!doctype html><html><head><meta charset="utf-8"><title>Nook isn't running</title>
 <style>
-:root{{color-scheme:light dark;font-family:"Segoe UI",system-ui,sans-serif}}
-body{{margin:0;display:grid;place-items:center;min-height:100vh;background:#faf8f5;color:#1f1b16}}
-@media (prefers-color-scheme:dark){{body{{background:#15130f;color:#ece7df}}}}
+:root{{color-scheme:light dark;font-family:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif}}
+body{{margin:0;display:grid;place-items:center;min-height:100vh;background:#e8e8ed;color:#1d1d1f}}
 main{{max-width:30rem;padding:{pad};text-align:center}}
 h1{{font-size:{h}rem;font-weight:600;margin:0 0 .5rem}}
-p{{margin:.25rem 0 1rem;opacity:.8;line-height:1.4}}
-a{{display:inline-block;padding:.5rem 1.25rem;border-radius:.5rem;background:#c2410c;color:#fff;text-decoration:none;font-weight:600}}
+p{{margin:.25rem 0 1rem;color:#545459;line-height:1.4}}
+a{{display:inline-block;padding:.5rem 1.25rem;border-radius:6px;background:#0a60c8;color:#fff;text-decoration:none;font-weight:600}}
+@media (prefers-color-scheme:dark){{body{{background:#0d0d0f;color:#f5f5f7}}p{{color:#aeaeb5}}a{{background:#4da3ff;color:#04101f}}}}
 </style></head><body><main>
-<h1>Hearth isn't running</h1>
-<p>Hearth's server on this PC didn't answer. This page tries again every few seconds.</p>
+<h1>Nook isn't running</h1>
+<p>Nook's server on this PC didn't answer. This page tries again every few seconds.</p>
 {more}
 <a href="hearth://retry">Retry</a>
 </main></body></html>"#,
@@ -124,8 +124,8 @@ a{{display:inline-block;padding:.5rem 1.25rem;border-radius:.5rem;background:#c2
         more = if small {
             ""
         } else {
-            "<p>If it doesn't come back, right-click the Hearth icon by the clock and choose \
-             Restart Hearth services.</p>"
+            "<p>If it doesn't come back, right-click the Nook icon by the clock and choose \
+             Restart Nook services.</p>"
         },
     );
     format!("data:text/html;charset=utf-8,{}", percent_encode(&html))
@@ -158,11 +158,11 @@ mod tests {
         let home: Url = "http://localhost:4400".parse().unwrap();
         assert_eq!(links::navigation(&page, &home), Nav::Stay);
         let text = page.as_str();
-        assert!(text.contains("Hearth%20isn%27t%20running"));
+        assert!(text.contains("Nook%20isn%27t%20running"));
         assert!(text.contains("hearth%3A%2F%2Fretry"));
-        // Hearth's background, light and dark, as its window has before a page paints.
-        assert!(text.contains("%23faf8f5") && text.contains("%2315130f"));
-        assert!(!offline_page(CAPTURE).as_str().contains("Restart%20Hearth"));
+        // Nook's canvas, light and dark, as its window has before a page paints.
+        assert!(text.contains("%23e8e8ed") && text.contains("%230d0d0f"));
+        assert!(!offline_page(CAPTURE).as_str().contains("Restart%20Nook"));
     }
 
     #[test]

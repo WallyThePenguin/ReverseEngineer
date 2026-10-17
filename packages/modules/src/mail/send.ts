@@ -58,7 +58,7 @@ export const sendAction = defineAction({
     if (!i.snapshot && ctx.caller.kind !== "owner")
       throw new ActionError(
         "conflict",
-        "Hearth couldn't show the owner what this would send, so nothing was sent.",
+        "Nook couldn't show the owner what this would send, so nothing was sent.",
       );
     if (d.to.length + d.cc.length + d.bcc.length === 0)
       throw new ActionError("invalid_input", "The draft has no recipients.");
@@ -172,8 +172,8 @@ function whyNotSent(
     // "paced": Hearth held it back itself, to keep Gmail from turning it away.
     const why =
       err.kind === "paced"
-        ? "Hearth is spacing out its Gmail calls"
-        : "Gmail asked Hearth to slow down";
+        ? "Nook is spacing out its Gmail calls"
+        : "Gmail asked Nook to slow down";
     // "p.m." ends the sentence too.
     const end = when.endsWith(".") ? "" : ".";
     return new ActionError("unavailable", `${why}, so nothing was sent. Try again ${when}${end}`);
@@ -181,13 +181,13 @@ function whyNotSent(
   if (err.kind === "auth")
     return new ActionError(
       "unavailable",
-      `Google stopped accepting Hearth's access to ${from}, so nothing was sent. Connect it again in Settings.`,
+      `Google stopped accepting Nook's access to ${from}, so nothing was sent. Connect it again in Settings.`,
     );
   if (err.kind === "transient")
     return new ActionError(
       "unavailable",
       sending
-        ? "Gmail didn't answer, so Hearth can't tell yet whether it went out. Press Send again in a minute: Hearth looks in Sent first, so it won't go twice."
+        ? "Gmail didn't answer, so Nook can't tell yet whether it went out. Press Send again in a minute: Nook looks in Sent first, so it won't go twice."
         : "Gmail didn't answer, so nothing was sent. Try again in a minute.",
     );
   return err;

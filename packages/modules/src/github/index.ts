@@ -165,7 +165,7 @@ export const githubModule = defineModule({
     defineAction({
       name: "github.replace_token",
       description:
-        "Give Hearth a new GitHub token for the connected account (the old one expired or was revoked), keeping the repos and pull requests read in so far.",
+        "Give Nook a new GitHub token for the connected account (the old one expired or was revoked), keeping the repos and pull requests read in so far.",
       input: z.object({ token }),
       risk: "secret",
       callers: ["owner"],

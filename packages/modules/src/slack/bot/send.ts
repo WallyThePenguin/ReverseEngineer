@@ -68,7 +68,7 @@ function same(given: unknown, now: unknown, caller: Caller) {
   if (!given && caller.kind !== "owner")
     throw new ActionError(
       "conflict",
-      "Hearth couldn't show the owner who this would go to, so nothing was sent.",
+      "Nook couldn't show the owner who this would go to, so nothing was sent.",
     );
 }
 
@@ -124,7 +124,7 @@ async function send(
     ...(bot.syncState === "revoked"
       ? {
           waiting:
-            "Slack revoked Jarvis's bot. This goes out once you paste new tokens in Settings; after a day it expires and you're told.",
+            "Slack revoked the Jarvis bot. This goes out once you paste new tokens in Settings; after a day it expires and you're told.",
         }
       : {}),
   };
@@ -136,7 +136,7 @@ export const sendActions = [
   defineAction({
     name: "slack.find_member",
     description:
-      "Find someone in your Slack workspace by name, email or Slack id, to message them with slack.dm: their Slack id, full name, email, whether they're a guest, and the person they are in Hearth. If more than one fits, ask the owner which one.",
+      "Find someone in your Slack workspace by name, email or Slack id, to message them with slack.dm: their Slack id, full name, email, whether they're a guest, and the person they are in Nook. If more than one fits, ask the owner which one.",
     input: z.object({ query: z.string().trim().min(1).max(200) }),
     risk: "read",
     callers: ["owner", "agent"],
@@ -145,7 +145,7 @@ export const sendActions = [
   defineAction({
     name: "slack.dm",
     description:
-      "Message someone in your Slack workspace as Jarvis's own bot, in its DM with them. `to` is their Slack user id (from slack.find_member) or a person's id. The owner sees exactly who it goes to and what it says.",
+      "Message someone in your Slack workspace as the Jarvis bot, in its DM with them. `to` is their Slack user id (from slack.find_member) or a person's id. The owner sees exactly who it goes to and what it says.",
     input: z.object({
       to: z.union([userId, id]),
       text,
@@ -193,7 +193,7 @@ export const sendActions = [
   defineAction({
     name: "slack.post_in_channel",
     description:
-      "Post in a Slack channel as Jarvis's own bot, at the top or in a thread. Only channels Jarvis has been invited to. The owner sees where it goes, how many people are there, and what it says.",
+      "Post in a Slack channel as the Jarvis bot, at the top or in a thread. Only channels the Jarvis bot has been invited to. The owner sees where it goes, how many people are there, and what it says.",
     input: z.object({
       channelId,
       text,

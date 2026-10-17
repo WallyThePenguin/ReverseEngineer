@@ -18,7 +18,7 @@ export function JarvisWorking(props: { subjectId: string }) {
     <Show when={working()}>
       <p class="flex items-center gap-2 text-sm text-jarvis">
         <span class="inline-block size-2 animate-pulse rounded-full bg-jarvis" />
-        Jarvis is on it…
+        Pip is on it…
       </p>
     </Show>
   );
@@ -65,7 +65,7 @@ export function Comments(props: { parentId: string }) {
         onInput={setDraft}
         onSubmit={send}
         rows={2}
-        placeholder="Comment, or @Jarvis to ask for help (Ctrl+Enter to send)"
+        placeholder="Comment, or @Pip to ask for help (Ctrl+Enter to send)"
       />
       <div class="flex justify-end">
         <button

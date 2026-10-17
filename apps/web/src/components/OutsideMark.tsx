@@ -10,7 +10,7 @@ export function OutsideMark(props: { children: JSX.Element; class?: string }) {
     <Pill
       tone="warn"
       class={props.class}
-      title="Some of this comes from outside Hearth, such as an email or a web page: other people's words, not Jarvis's. Jarvis checks with you before acting on anything that read it."
+      title="Some of this comes from outside Nook, such as an email or a web page: other people's words, not Pip's. Pip checks with you before acting on anything that read it."
     >
       {props.children}
     </Pill>

@@ -40,7 +40,7 @@ export function SetupChecklist(props: { pane: number; class?: string }) {
       >
         <div class="flex items-center gap-3">
           <h2 id={title} class="flex-1 text-heading">
-            Set up Hearth
+            Set up Nook
           </h2>
           <span class="text-meta text-muted tabular-nums">
             {finished()} of {steps().length} done

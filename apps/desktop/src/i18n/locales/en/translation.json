@@ -181,24 +181,24 @@
             "description": "Optional: A dedicated hotkey that always applies AI post-processing to your transcription."
           },
           "hearth_command": {
-            "name": "Command Jarvis",
-            "description": "Select text, hold this and say what to do with it. Jarvis's answer replaces the selection."
+            "name": "Command Pip",
+            "description": "Select text, hold this and say what to do with it. Pip's answer replaces the selection."
           },
           "hearth_talk": {
-            "name": "Talk to Jarvis",
-            "description": "Hold this and ask Jarvis anything. It answers out loud."
+            "name": "Talk to Pip",
+            "description": "Hold this and ask Pip anything. It answers out loud."
           },
           "hearth_open": {
-            "name": "Open Hearth",
-            "description": "Brings up Hearth's window from anywhere."
+            "name": "Open Nook",
+            "description": "Brings up Nook's window from anywhere."
           },
           "hearth_capture": {
             "name": "Quick capture",
             "description": "A small box to jot something down. Enter adds it to your tasks."
           },
           "hearth_ask": {
-            "name": "Ask Jarvis",
-            "description": "A small window to ask Jarvis by typing."
+            "name": "Ask Pip",
+            "description": "A small window to ask Pip by typing."
           }
         },
         "errors": {
@@ -667,12 +667,12 @@
       }
     },
     "hearth": {
-      "title": "Hearth",
-      "address": "Hearth address",
-      "addressHelp": "Where your Hearth runs. On the same PC that's http://localhost:4400.",
+      "title": "Nook",
+      "address": "Nook address",
+      "addressHelp": "Where Nook runs. On the same PC that's http://localhost:4400.",
       "code": "Pairing code",
       "paired": "Paired",
-      "codeHelp": "Easiest: in Hearth's Settings, under Desktop app, press Connect Hearth on this PC. Or make a pairing code there and paste it here.",
+      "codeHelp": "Easiest: in Nook's Settings, under Desktop app, press Connect Nook on this PC. Or make a pairing code there and paste it here.",
       "pastePlaceholder": "Paste the code",
       "repairPlaceholder": "Paste a new code to re-pair",
       "save": "Save",

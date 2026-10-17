@@ -229,7 +229,7 @@ export class GoogleClient {
       } catch {
         throw new ActionError(
           "failed",
-          "Hearth couldn't lock this Google sign-in away: its vault key isn't available. Nothing was saved.",
+          "Nook couldn't lock this Google sign-in away: its vault key isn't available. Nothing was saved.",
         );
       }
     };
@@ -372,7 +372,7 @@ export class GoogleClient {
       .update(googleAccount)
       .set({
         status: "failing",
-        lastError: `Google stopped accepting Hearth's access to ${email}. Connect it again in Settings.`,
+        lastError: `Google stopped accepting Nook's access to ${email}. Connect it again in Settings.`,
       })
       .where(eq(googleAccount.email, email));
   }

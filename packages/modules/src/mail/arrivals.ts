@@ -18,7 +18,7 @@ const DAY_UNTIL = 18 * 60 + 50;
 
 export const newMailNeedsReply: ReflexDef = {
   name: "mail.needs_reply",
-  description: `During the day, an email that needs your reply gets a draft from Jarvis within about 25 minutes (up to ${DAYTIME_DRAFTS} a day). Nothing is sent.`,
+  description: `During the day, an email that needs your reply gets a draft from Pip within about 25 minutes (up to ${DAYTIME_DRAFTS} a day). Nothing is sent.`,
   mode: "proactive",
   on: ["mail.received"],
   async run(ev, ctx) {

@@ -65,7 +65,7 @@ export async function channelProblem(
     throw err;
   }
   if (facts.kind === "dm" || facts.kind === "group")
-    return "It's a direct message: Jarvis answers @mentions only in channels.";
+    return "It's a direct message: the Jarvis bot answers @mentions only in channels.";
   if (facts.archived) return "It's archived.";
   if (!facts.members.includes(ws.userId)) return "You aren't in it.";
   if (facts.shared) return "It's shared with another org (Slack Connect).";
@@ -73,7 +73,7 @@ export async function channelProblem(
   const n = facts.members.filter((m) => outside.has(m)).length;
   if (n) return `${n === 1 ? "A guest is" : `${n} guests are`} in it.`;
   if (!facts.members.includes(botUserId))
-    return "Jarvis hasn't been invited: invite @Jarvis there first.";
+    return "The Jarvis bot hasn't been invited: invite @Jarvis there first.";
   return null;
 }
 
@@ -82,7 +82,7 @@ async function botAndChannel(ctx: ActionContext, id: string) {
   const ws = await workspace(ctx);
   const [bot] = await ctx.tx.select().from(slackBot).where(eq(slackBot.teamId, ws.teamId));
   if (!bot)
-    throw new ActionError("unavailable", "Connect Jarvis's bot first, in Settings → Slack.");
+    throw new ActionError("unavailable", "Connect the Jarvis bot first, in Settings → Slack.");
   // Locked, so the hourly check turning it off meanwhile is waited for, and decided on after.
   const [ch] = await ctx.tx
     .select()
@@ -92,7 +92,7 @@ async function botAndChannel(ctx: ActionContext, id: string) {
   if (!ch)
     throw new ActionError(
       "not_found",
-      "Hearth hasn't seen that channel yet. It reads your channels every few minutes.",
+      "Nook hasn't seen that channel yet. It reads your channels every few minutes.",
     );
   return { ws, bot, ch };
 }
@@ -106,7 +106,7 @@ async function turnOff(ctx: ActionContext, ch: ChannelRow, why: string) {
   const { timeZone } = await getSetting(ctx.tx, "owner.dayRules");
   await createNotification(ctx, {
     kind: "slack.channel_off",
-    title: `Jarvis stopped answering in #${named(ch.name)}`,
+    title: `The Jarvis bot stopped answering in #${named(ch.name)}`,
     body: `${why} Turn it on again in Settings → Slack once that's fixed.`,
     lane: "signal",
     dedupeKey: `slack.channel_off:${ch.id}:${localDate(ctx.now, timeZone)}`,
@@ -137,7 +137,7 @@ export const channelActions = [
   defineAction({
     name: "slack.channel_set",
     description:
-      "Turn Jarvis on in a Slack channel, so it answers @Jarvis there, or off. relay passes messages on to you; schedule also shares your free time. Its replies there wait for your yes unless `replies` is auto.",
+      "Turn the Jarvis bot on in a Slack channel, so it answers @Jarvis there, or off. relay passes messages on to you; schedule also shares your free time. Its replies there wait for your yes unless `replies` is auto.",
     input: z.object({
       channel: z.string().regex(/^[CG][A-Z0-9]{2,40}$/, "A Slack channel id, like C012ABCDEF."),
       tier,
@@ -153,7 +153,7 @@ export const channelActions = [
       if (i.tier !== "off" && ch.kind !== "channel" && ch.kind !== "private")
         throw new ActionError(
           "invalid_input",
-          "Jarvis answers @mentions only in channels, never in a group DM or a DM.",
+          "The Jarvis bot answers @mentions only in channels, never in a group DM or a DM.",
         );
       // Only more (a higher tier, or replies going out on their own) waits on the check: making
       // a channel safer never does, whatever Slack says (D62).
@@ -175,7 +175,7 @@ export const channelActions = [
         if (why && ch.jarvisTier === "off")
           throw new ActionError(
             "invalid_input",
-            `Jarvis can't answer in #${named(ch.name)}: ${why}`,
+            `The Jarvis bot can't answer in #${named(ch.name)}: ${why}`,
           );
         // It's on, and shouldn't be: off it goes, as the hourly check would turn it.
         if (why) {
@@ -208,7 +208,7 @@ export const channelActions = [
   defineAction({
     name: "slack.check_channels",
     description:
-      "Check again, with your own Slack token, that each channel Jarvis answers in still has you in it, no guests, and no other org.",
+      "Check again, with your own Slack token, that each channel the Jarvis bot answers in still has you in it, no guests, and no other org.",
     input: z.object({}),
     risk: "internal",
     // Only as the integration, from the worker's take loop, hourly (D62).
@@ -237,7 +237,7 @@ export const channelActions = [
         try {
           why = isOn(ch)
             ? await channelProblem(api, token, ws, bot.botUserId, ch.id, lazy)
-            : "It's a group DM: Jarvis answers @mentions only in channels.";
+            : "It's a group DM: the Jarvis bot answers @mentions only in channels.";
         } catch (err) {
           // Slowed down or refused: the rest wait a round, and nothing is turned off on a guess.
           return { checked, off, stopped: err instanceof SlackError ? err.code : "unreachable" };

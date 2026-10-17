@@ -68,7 +68,7 @@ describe("your own token's poller, once Jarvis's bot is connected", () => {
     s.post("C1", "UJARVIS", "Sam is free at 3.", ask, jarvis);
     s.post("C1", "UJARVIS", "Heads up <@UME>: the build is fixed.", undefined, jarvis);
     s.post("DUME", "UME", "Remind me to call Ana.");
-    s.post("DUME", "UJARVIS", "Got it, it's in Hearth.", undefined, jarvis);
+    s.post("DUME", "UJARVIS", "Got it, it's in Nook.", undefined, jarvis);
     s.post("D1", "UANA", "Lunch?");
     expect((await sync()).error).toBeUndefined();
 

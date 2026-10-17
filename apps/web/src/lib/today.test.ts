@@ -266,6 +266,8 @@ describe("The Ask box", () => {
       "cancel my lunch tomorrow",
       "reschedule my dentist to fri 3pm",
       "please move my 3pm",
+      "Pip, remind me at 5pm",
+      "hey pip book lunch fri 1pm",
       "Jarvis, remind me at 5pm",
       "hey jarvis book lunch fri 1pm",
       "does Sam need the deck by friday",

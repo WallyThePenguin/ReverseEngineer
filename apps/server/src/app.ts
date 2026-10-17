@@ -151,7 +151,7 @@ export function createApp(opts: AppOptions) {
     }
     // A bug: where it happened is worth keeping.
     console.error(`${failed}${stackFrames(err)}`);
-    return c.json({ error: "Something went wrong in Hearth. Try again in a moment." }, 500);
+    return c.json({ error: "Something went wrong in Nook. Try again in a moment." }, 500);
   });
   app.get("/api/health", (c) => c.json({ ok: true }));
   app.use("/api/*", authenticate());
@@ -193,7 +193,7 @@ export function createApp(opts: AppOptions) {
     app.get("*", (c) => c.html(index));
   } else {
     app.get("/", (c) =>
-      c.text("Hearth's server is running. Build the web app (pnpm build:web) to use it here."),
+      c.text("Nook's server is running. Build the web app (pnpm build:web) to use it here."),
     );
   }
 

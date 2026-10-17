@@ -121,7 +121,7 @@ export function browserRoutes(bridge: BrowserBridge) {
   app.post("/self-test", requireCaller(["owner"]), async (c) => {
     const { kernel } = c.get("deps");
     const base = selfUrl(c.env);
-    if (!base) return c.json({ error: "Hearth couldn't tell its own address." }, 500);
+    if (!base) return c.json({ error: "Nook couldn't tell its own address." }, 500);
     const jarvis = internalBrowserClient(kernel.db, PRINCIPAL.jarvis, base);
     return c.json(await runSelfTest(kernel, base, jarvis));
   });

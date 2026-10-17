@@ -13,7 +13,7 @@ export function deviceRoutes() {
   // A new pairing code, shown once. Pairing again signs the old one out.
   app.post("/:name/pair", async (c) => {
     const name = c.req.param("name");
-    if (!DEVICE_SCOPES[name]) return c.json({ error: "Hearth doesn't know that device." }, 404);
+    if (!DEVICE_SCOPES[name]) return c.json({ error: "Nook doesn't know that device." }, 404);
     c.header("Cache-Control", "no-store");
     return c.json({ token: await pairDevice(c.get("deps").kernel.db, name) });
   });

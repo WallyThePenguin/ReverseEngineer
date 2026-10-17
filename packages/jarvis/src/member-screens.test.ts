@@ -95,7 +95,11 @@ describe("the Slack screens", () => {
     const sections = await t.h.engine.digest(since);
     const member = sections.find((s) => s.module === "member");
     expect(member?.items).toEqual([
-      { bucket: "handled", text: "Jarvis answered 2 Slack messages from 1 person.", outside: true },
+      {
+        bucket: "handled",
+        text: "The Jarvis bot answered 2 Slack messages from 1 person.",
+        outside: true,
+      },
     ]);
   });
 

@@ -171,7 +171,7 @@ describe("a reminder that rings late", () => {
       deadline: null,
       deliveredAt: null,
       deferredReason: "quiet_hours",
-      body: "For yesterday 3 p.m.; Hearth wasn't running then.",
+      body: "For yesterday 3 p.m.; Nook wasn't running then.",
     });
     await at("2026-10-02T12:00:30Z");
     expect((await rung("Call Sam"))?.deliveredAt).not.toBeNull();
@@ -184,7 +184,7 @@ describe("a reminder that rings late", () => {
     expect(await rung("Pay rent")).toMatchObject({
       urgency: "normal",
       deadline: null,
-      body: "For Thursday 11 a.m.; Hearth wasn't running then.",
+      body: "For Thursday 11 a.m.; Nook wasn't running then.",
     });
   });
 });
@@ -198,7 +198,7 @@ describe("a reminder, otherwise", () => {
     await at("2026-10-01T14:30:00Z");
     expect(await rung("Stretch")).toMatchObject({ body: null });
     expect((await rung("Stretch"))?.deliveredAt).not.toBeNull();
-    expect(await rung("Prep the review")).toMatchObject({ body: "Jarvis set this." });
+    expect(await rung("Prep the review")).toMatchObject({ body: "Pip set this." });
   });
 
   it("said a moment late, means now; on the night the clocks go back, the second 1:30", async () => {

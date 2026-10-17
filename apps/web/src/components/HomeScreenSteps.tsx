@@ -6,7 +6,7 @@ import { Icon } from "./icons.tsx";
 export function HomeScreenSteps(props: { class?: string }) {
   return (
     <div class={`rounded-md bg-sunk px-3 py-3 text-sm ${props.class ?? ""}`}>
-      <p class="font-medium">To get notifications here, put Hearth on your Home Screen</p>
+      <p class="font-medium">To get notifications here, put Nook on your Home Screen</p>
       <ol class="mt-1 list-decimal space-y-0.5 pl-5 text-muted">
         <li>
           In Safari, tap Share{" "}
@@ -19,7 +19,7 @@ export function HomeScreenSteps(props: { class?: string }) {
           .
         </li>
         <li>Choose Add to Home Screen, then Add.</li>
-        <li>Open Hearth from its new icon, and tap Turn on notifications there.</li>
+        <li>Open Nook from its new icon, and tap Turn on notifications there.</li>
       </ol>
     </div>
   );

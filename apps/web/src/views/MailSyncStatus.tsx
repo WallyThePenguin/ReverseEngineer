@@ -25,10 +25,10 @@ export function syncLine(a: MailAccount): SyncLine {
       badge: "mail failing",
       tone: "bad",
       text: a.reconnect
-        ? `Google stopped accepting Hearth's access to ${a.address}. Connect it again in Settings.`
+        ? `Google stopped accepting Nook's access to ${a.address}. Connect it again in Settings.`
         : a.syncedAt
-          ? `Mail for ${a.address} last synced ${ago(a.syncedAt)}. Hearth keeps trying.`
-          : `Mail for ${a.address} hasn't synced yet. Hearth keeps trying.`,
+          ? `Mail for ${a.address} last synced ${ago(a.syncedAt)}. Nook keeps trying.`
+          : `Mail for ${a.address} hasn't synced yet. Nook keeps trying.`,
     };
   if (a.state === "paused" && a.pausedUntil) {
     const quiet = a.syncedAt ? timeNow().getTime() - new Date(a.syncedAt).getTime() : 0;
@@ -40,8 +40,8 @@ export function syncLine(a: MailAccount): SyncLine {
       tone: quiet >= PAUSED_BAD_MS ? "bad" : "muted",
       text:
         a.syncedAt && quiet >= PAUSED_LONG_MS
-          ? `Gmail keeps asking Hearth to slow down; last synced ${ago(a.syncedAt)}. Trying again at ${resuming}`
-          : `Gmail asked Hearth to slow down; resuming at ${resuming}`,
+          ? `Gmail keeps asking Nook to slow down; last synced ${ago(a.syncedAt)}. Trying again at ${resuming}`
+          : `Gmail asked Nook to slow down; resuming at ${resuming}`,
     };
   }
   if (a.state === "catching_up" || !a.firstSyncDone)

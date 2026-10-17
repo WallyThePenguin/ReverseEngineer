@@ -2,7 +2,7 @@
 // here, and runs as the original requester once you approve it. Each runs at most once (D58):
 // the same request waits once, a yes claims the approval before the action runs, and what's
 // approved is checked again against the action before it runs.
-import { isUuid } from "@hearth/core";
+import { isUuid, PRINCIPAL } from "@hearth/core";
 import { type ApprovalStatus, approval, notification, principal, type Tx } from "@hearth/db";
 import { and, eq, gt, isNull, ne, or } from "drizzle-orm";
 import { z } from "zod";
@@ -31,6 +31,9 @@ export interface Deferred {
   events: EmitEvent[];
   stamp: EventStamp;
 }
+
+/** What you see an agent called (D74). Its principal keeps the name it was seeded with. */
+const SHOWN_AS: Record<string, string> = { [PRINCIPAL.jarvis]: "Pip" };
 
 /** A value as JSON stores it, so the hash is of exactly what's kept (a Date becomes its text). */
 const asStored = (value: unknown): unknown => JSON.parse(JSON.stringify(value ?? {}));
@@ -144,7 +147,7 @@ async function announce(
     { tx, now, caller, emit },
     {
       kind: "approval",
-      title: `${who?.displayName ?? caller.principal} asks: ${named}`,
+      title: `${SHOWN_AS[caller.principal] ?? who?.displayName ?? caller.principal} asks: ${named}`,
       body: [rest.join("\n\n"), row.reason].filter(Boolean).join("\n\n"),
       approvalId: row.id,
       dedupeKey: `approval:${row.id}`,
@@ -177,8 +180,8 @@ const TAKEN: Record<ApprovalStatus, string> = {
   failed: "This was already approved, and it failed.",
   expired: "This approval ran out before anyone decided. Ask again if you still want it.",
 };
-const GONE = "Hearth can no longer do what this asked, so nothing was run.";
-const NOT_RUN = "Hearth couldn't start this, so nothing was run. Ask for it again.";
+const GONE = "Nook can no longer do what this asked, so nothing was run.";
+const NOT_RUN = "Nook couldn't start this, so nothing was run. Ask for it again.";
 
 export async function resolveApproval(
   kernel: Kernel,
@@ -328,7 +331,7 @@ export async function resolveApproval(
   const parsed = def.input.safeParse(claimed.input);
   if (!parsed.success)
     return fail(
-      "This request no longer fits what Hearth can do, so it wasn't run. Ask for it again.",
+      "This request no longer fits what Nook can do, so it wasn't run. Ask for it again.",
       `This request no longer fits ${def.name}, so it wasn't run: ${z.prettifyError(parsed.error)}`,
     );
 

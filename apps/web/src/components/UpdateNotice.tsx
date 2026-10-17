@@ -132,7 +132,7 @@ export function UpdateNotice() {
                 </Button>
               }
             >
-              Hearth on your PC didn't finish its last update, so some things may not work. Updating
+              Nook on your PC didn't finish its last update, so some things may not work. Updating
               it again usually fixes this.
             </Notice>
           }
@@ -145,7 +145,7 @@ export function UpdateNotice() {
               </Button>
             }
           >
-            Hearth was updated.
+            Nook was updated.
           </Notice>
         </Show>
       )}

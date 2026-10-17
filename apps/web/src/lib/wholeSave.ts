@@ -116,7 +116,7 @@ export function createSaver<T>(o: SaverOptions<T>) {
           ? `This ${o.noun} was deleted. Restore it from the trash to save changes here.`
           : `This ${o.noun} is in the trash. Restore it to open it here.`,
       );
-    } else setProblem(`Hearth didn't save this: ${reason(err)}`);
+    } else setProblem(`Nook didn't save this: ${reason(err)}`);
   };
 
   const later = (err: unknown) => {
@@ -207,8 +207,8 @@ export function createSaver<T>(o: SaverOptions<T>) {
     if (!r && !copies.length) {
       setProblem(
         isOffline(why)
-          ? `Can't open this ${o.noun} right now: can't reach Hearth. Trying again…`
-          : `Can't open this ${o.noun} right now: Hearth hit a problem. Trying again…`,
+          ? `Can't open this ${o.noun} right now: can't reach Nook. Trying again…`
+          : `Can't open this ${o.noun} right now: Nook hit a problem. Trying again…`,
       );
       window.clearTimeout(retry);
       if (!closed) retry = window.setTimeout(() => void load(), backoff(attempt++));
@@ -281,9 +281,7 @@ export function createSaver<T>(o: SaverOptions<T>) {
       else if (!loaded() && isTransient(err)) await open(null, err);
       // Turned down: that's why it takes no change.
       else if (!loaded())
-        setProblem(
-          `Hearth didn't open this ${o.noun}, so it can't be changed here: ${reason(err)}`,
-        );
+        setProblem(`Nook didn't open this ${o.noun}, so it can't be changed here: ${reason(err)}`);
       // Open already: a newer version it couldn't read is read again soon, not at the next one.
       else if (isTransient(err)) {
         window.clearTimeout(rereading);

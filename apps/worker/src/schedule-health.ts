@@ -31,7 +31,7 @@ export async function checkSchedules(kernel: Kernel, upSince: Date): Promise<Hea
     return {
       component: "schedules",
       status: "failing",
-      detail: `${named}. Hearth tries again every hour.`,
+      detail: `${named}. Nook tries again every hour.`,
     };
   }
   if (now.getTime() - upSince.getTime() < OVERDUE_MS)

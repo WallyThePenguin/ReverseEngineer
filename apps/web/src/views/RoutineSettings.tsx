@@ -55,15 +55,15 @@ export function RoutineSettings() {
 
   async function runNow(r: Routine) {
     if (await act("routine.run_now", { id: r.id }))
-      toast.show(`Queued "${r.title}". Jarvis will start on it in a moment.`);
+      toast.show(`Queued "${r.title}". Pip will start on it in a moment.`);
   }
 
   return (
     <section class="space-y-2">
       <h2 class="font-semibold">Routines</h2>
       <p class="text-sm text-muted">
-        Things Jarvis does for you on a schedule, browser and all. Anything that would send
-        something still waits for your yes.
+        Things Pip does for you on a schedule, browser and all. Anything that would send something
+        still waits for your yes.
       </p>
       <ul class="space-y-1">
         <For each={routines.data ?? []}>
@@ -116,7 +116,7 @@ export function RoutineSettings() {
         <textarea
           class={`${field} w-full`}
           rows={3}
-          placeholder="What Jarvis should do, in your words"
+          placeholder="What Pip should do, in your words"
           aria-label="What to do"
           value={instructions()}
           onInput={(e) => setInstructions(e.currentTarget.value)}

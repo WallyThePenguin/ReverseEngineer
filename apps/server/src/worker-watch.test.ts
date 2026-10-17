@@ -38,7 +38,7 @@ describe("the server watching the worker", () => {
     expect(await minutes(check, 1)).toBe("already told");
     const told = await t.tdb.db.select().from(notification);
     expect(told).toMatchObject([
-      { kind: "system.alert", title: "Hearth's worker has stopped", urgency: "interrupt" },
+      { kind: "system.alert", title: "Nook's worker has stopped", urgency: "interrupt" },
     ]);
     expect(told[0]?.body).toContain("since 2026-10-01 10 a.m.");
 

@@ -113,7 +113,7 @@ describe("opening Chrome when it's closed", () => {
     const first = await rpc("tabs.open", { url: "https://a.example/" });
     expect(first.status).toBe(503);
     expect(first.body.error).toBe(
-      `Hearth started Chrome, but the Hearth extension didn't connect within 2 seconds. Windows only opens it while you're signed in on the PC. Check that the extension is installed and paired in that Chrome profile, and that Chrome's "Continue running background apps" setting is on.`,
+      `Nook started Chrome, but the Nook extension didn't connect within 2 seconds. Windows only opens it while you're signed in on the PC. Check that the extension is installed and paired in that Chrome profile, and that Chrome's "Continue running background apps" setting is on.`,
     );
     // The worker's next page check fails at once instead of starting Chrome again.
     expect((await rpc("tabs.open", { url: "https://a.example/" })).body.error).toBe(
@@ -214,16 +214,16 @@ describe("opening Chrome when it's closed", () => {
     t.server.bridge.close();
     expect(await waiting).toEqual({
       status: 503,
-      body: { error: "Hearth is stopping.", code: "unavailable" },
+      body: { error: "Nook is stopping.", code: "unavailable" },
     });
   });
 
   it("passes on why Chrome couldn't be started", async () => {
-    await start(fakeLauncher({ error: "Hearth can't find Chrome on this computer." }));
+    await start(fakeLauncher({ error: "Nook can't find Chrome on this computer." }));
     const res = await rpc("tabs.open", { url: "https://a.example/" });
     expect(res).toEqual({
       status: 503,
-      body: { error: "Hearth can't find Chrome on this computer.", code: "unavailable" },
+      body: { error: "Nook can't find Chrome on this computer.", code: "unavailable" },
     });
   });
 

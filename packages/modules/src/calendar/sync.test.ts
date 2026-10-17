@@ -294,6 +294,6 @@ describe("calendar sync", () => {
       ownerCaller(),
     );
     expect(res).toMatchObject({ status: "error", code: "unavailable" });
-    expect(JSON.stringify(res)).toContain("asked Hearth to slow down");
+    expect(JSON.stringify(res)).toContain("asked Nook to slow down");
   });
 });

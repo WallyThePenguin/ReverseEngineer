@@ -103,7 +103,7 @@ async function endSilence() {
   silent = null;
 }
 
-const unreachable = { name: "Can't reach Hearth" } as const;
+const unreachable = { name: "Can't reach Nook" } as const;
 type Doc = { document: { querySelector(q: string): { content: string } | null } };
 const buildShown = `document.querySelector('meta[name="hearth-build"]').content`;
 /** Waits for the open page to be `build`'s. */
@@ -213,7 +213,7 @@ try {
         await shows(running);
       });
       if (loads !== 2) throw new Error(`the page loaded ${loads} times`);
-      if (await page.getByText("Hearth was updated.").isVisible())
+      if (await page.getByText("Nook was updated.").isVisible())
         throw new Error("it said so instead of reloading");
     },
   );
@@ -253,7 +253,7 @@ try {
     await page.evaluate(`document.dispatchEvent(new Event("visibilitychange"))`);
     await shows("newer");
     await home(page).waitFor();
-    if (await page.getByText("Hearth was updated.").isVisible())
+    if (await page.getByText("Nook was updated.").isVisible())
       throw new Error("it said so instead of moving on");
   });
 
@@ -337,8 +337,8 @@ try {
       // The check it made on opening went unanswered; it's made again when Hearth answers.
       await start();
       await shows(running, 40_000);
-      await page.getByText("If Hearth's window on this PC asked you").waitFor({ timeout: 10_000 });
-      if (await page.getByText("Hearth was updated.").isVisible())
+      await page.getByText("If Nook's window on this PC asked you").waitFor({ timeout: 10_000 });
+      if (await page.getByText("Nook was updated.").isVisible())
         throw new Error("it said so instead of moving on");
     },
   );

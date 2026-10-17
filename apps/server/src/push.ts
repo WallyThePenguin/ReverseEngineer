@@ -77,7 +77,7 @@ export function worthPushing(p: Record<string, unknown>): boolean {
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
 const HEADINGS: Record<string, string> = {
-  approval: "Jarvis needs a yes",
+  approval: "Pip needs a yes",
   brief: "Your brief is ready",
 };
 

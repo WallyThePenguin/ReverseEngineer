@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { checkScopes, slackManifest } from "./manifest.ts";
 
-const MANIFEST = `# Jarvis's Slack app (A0C0RPY4WKV). Merge this in under App Manifest (YAML), keeping
+const MANIFEST = `# The Jarvis app in Slack (A0C0RPY4WKV). Merge this in under App Manifest (YAML), keeping
 # your app id and redirect settings, then reinstall the app to the workspace.
 display_information:
   name: Jarvis
@@ -30,7 +30,7 @@ oauth_config:
       - users:read
       - users:read.email
       - search:read
-      # Kept for something else of yours. Hearth never writes with your token.
+      # Kept for something else of yours. Nook never writes with your token.
       - chat:write
       - im:write
       - reactions:write

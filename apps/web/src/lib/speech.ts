@@ -27,7 +27,7 @@ function createMic() {
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       } catch {
-        toast.show("Hearth couldn't use the microphone. Allow it and try again.");
+        toast.show("Nook couldn't use the microphone. Allow it and try again.");
         return null;
       }
       const r = new MediaRecorder(stream);

@@ -203,7 +203,7 @@ describe("Jarvis stopping (an update or a restart)", () => {
 
     await h.runner.recoverInterrupted();
     expect((await turns())[0]).toMatchObject({ status: "queued", errorKind: "interrupted" });
-    expect(await told()).toEqual(["Jarvis restarted, so it's starting this again."]);
+    expect(await told()).toEqual(["Pip restarted, so it's starting this again."]);
   });
 
   it("never starts the brain for a turn claimed just as Jarvis stops", async () => {

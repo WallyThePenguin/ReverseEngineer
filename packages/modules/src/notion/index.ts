@@ -72,7 +72,7 @@ export type Uploads = Map<string, ImportFile[]>;
 export const notionModule = defineModule({
   name: "notion",
   description:
-    "Notion: an export becomes notes, and the tickets assigned to you on your task board come in for Jarvis to make tasks from.",
+    "Notion: an export becomes notes, and the tickets assigned to you on your task board come in for Pip to make tasks from.",
   entityTypes: ["notion_task"],
   outsideTypes: ["notion_task"],
   events: [

@@ -51,7 +51,7 @@ export function Login(props: {
         e.name === "NotAllowedError"
           ? "The passkey prompt was closed. Try again."
           : e.name === "SecurityError"
-            ? "Your passkey only works at Hearth's own address, not this one."
+            ? "Your passkey only works at Nook's own address, not this one."
             : e.message,
       );
     } finally {
@@ -101,9 +101,9 @@ export function Login(props: {
       onClick={toBrowser}
     >
       {!app
-        ? "Go to Hearth's address"
+        ? "Go to Nook's address"
         : props.needsSetup
-          ? "Set up Hearth in your browser"
+          ? "Set up Nook in your browser"
           : "Connect in your browser"}
     </button>
   );
@@ -112,11 +112,11 @@ export function Login(props: {
     <div class="flex h-full items-center justify-center p-6">
       <div class="w-full max-w-sm space-y-5 rounded-xl border border-line bg-panel p-6 shadow-sm">
         <div>
-          <h1 class="text-xl font-semibold">Hearth</h1>
+          <h1 class="text-xl font-semibold">Nook</h1>
           <p class="text-sm text-muted">
             {props.needsSetup
               ? "Welcome. Add a passkey to get started."
-              : "Your workspace, with Jarvis."}
+              : "Your workspace, with Pip."}
           </p>
         </div>
         <Switch>
@@ -163,11 +163,11 @@ export function Login(props: {
               <p class="text-sm text-muted">
                 {props.needsSetup
                   ? app
-                    ? `Set up Hearth in your browser first, at ${props.origin}, with the code \`hearth setup\` printed. Then connect this window from there: Settings, Desktop app.`
-                    : `Hearth's address for browsers is ${props.origin}. Set it up there, with the code \`hearth setup\` printed.`
+                    ? `Set up Nook in your browser first, at ${props.origin}, with the code \`hearth setup\` printed. Then connect this window from there: Settings, Desktop app.`
+                    : `Nook's address for browsers is ${props.origin}. Set it up there, with the code \`hearth setup\` printed.`
                   : app
-                    ? "This window was signed out. Your passkeys work at Hearth's own address, so sign it in from your browser: Settings, Desktop app, Connect Hearth on this PC. After that you can add Windows Hello here, in Settings, Passkeys."
-                    : `Hearth's address for browsers is ${props.origin}. Your passkeys work there, not here.`}
+                    ? "This window was signed out. Your passkeys work at Nook's own address, so sign it in from your browser: Settings, Desktop app, Connect Nook on this PC. After that you can add Windows Hello here, in Settings, Passkeys."
+                    : `Nook's address for browsers is ${props.origin}. Your passkeys work there, not here.`}
               </p>
               {browserButton(true)}
             </div>
@@ -178,7 +178,7 @@ export function Login(props: {
         </Show>
         <Show when={sent() && app && !props.needsSetup}>
           <p class="text-sm text-muted">
-            Your browser opens Hearth's Settings. Choose Connect Hearth on this PC there.
+            Your browser opens Nook's Settings. Choose Connect Nook on this PC there.
           </p>
         </Show>
       </div>

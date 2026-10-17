@@ -93,7 +93,7 @@ function greet(ws: WebSocket, req: IncomingMessage, deps: SocketDeps): void {
     clearTimeout(timer);
     hear(ws, req, deps, String(data)).catch(() => {
       // The database didn't answer: the extension tries again shortly.
-      ws.close(1011, "Hearth couldn't check the pairing code");
+      ws.close(1011, "Nook couldn't check the pairing code");
     });
   });
 }
@@ -119,7 +119,7 @@ async function hear(ws: WebSocket, req: IncomingMessage, deps: SocketDeps, data:
     ws.send(
       JSON.stringify({
         type: "rejected",
-        reason: "Hearth didn't accept that pairing code. Make a new one in Settings.",
+        reason: "Nook didn't accept that pairing code. Make a new one in Settings.",
       }),
     );
     return ws.close(4001, "Not paired");

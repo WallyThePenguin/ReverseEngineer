@@ -77,12 +77,12 @@ export function judgeSync(
       if (quiet >= SYNC_FAILING_AFTER_MS)
         notes.push({
           status: quiet >= PAUSED_FAILING_AFTER_MS ? "failing" : "degraded",
-          text: `${s.name}: nothing synced for ${roughly(quiet)}, as Google keeps asking Hearth to slow down${why}; trying again at ${resuming}`,
+          text: `${s.name}: nothing synced for ${roughly(quiet)}, as Google keeps asking Nook to slow down${why}; trying again at ${resuming}`,
         });
       else
         notes.push({
           status: "ok",
-          text: `${s.name}: Google asked Hearth to slow down${why}; resuming at ${resuming}`,
+          text: `${s.name}: Google asked Nook to slow down${why}; resuming at ${resuming}`,
         });
     } else if (s.lastGood && now.getTime() - s.lastGood.getTime() >= SYNC_FAILING_AFTER_MS)
       notes.push({

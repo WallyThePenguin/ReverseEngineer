@@ -99,7 +99,7 @@ describe("grouping what needs your yes", () => {
       summary: 'Send email from me@x.example to dana@x.example: "Lease"\n\nHi Dana,\n\nYes.',
     });
     expect(approvalCard(a, undefined)).toEqual({
-      what: 'Jarvis asks: Send email from me@x.example to dana@x.example: "Lease"',
+      what: 'Pip asks: Send email from me@x.example to dana@x.example: "Lease"',
       why: "It reaches someone outside Hearth.",
       text: "Hi Dana,\n\nYes.",
     });
@@ -194,7 +194,7 @@ describe("what Approve all says", () => {
       ok: false,
       missed: [
         { id: "b", label: "“Re: b”", why: changed, draftId: "d2" },
-        { id: "c", label: "Do c", why: "Hearth couldn't do it.", draftId: null },
+        { id: "c", label: "Do c", why: "Nook couldn't do it.", draftId: null },
       ],
     });
     expect(approveAllResult([{ approval: a, outcome: "changed", message: null }])).toMatchObject({
@@ -250,6 +250,7 @@ describe("each as a row", () => {
     expect(
       askRow(invite, { what: 'Jarvis asks: Invite pri@x.example to "Prep"', text: null }, null),
     ).toEqual({ title: 'Invite pri@x.example to "Prep"', sub: null, whole: true });
+    expect(askRow(invite, { what: "Pip asks: Post it", text: null }, null).title).toBe("Post it");
     expect(askRow(invite, { what: "Jarvis asks: Post it", text: "The post" }, null).whole).toBe(
       false,
     );

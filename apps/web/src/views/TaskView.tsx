@@ -73,12 +73,12 @@ export function TaskView(props: { id: string; pane: number }) {
               <Button
                 kind="jarvis"
                 small
-                title="Jarvis will work on this and report back in the thread"
+                title="Pip will work on this and report back in the thread"
                 onClick={async () => {
-                  if (await update({ assignee: "jarvis" })) toast.show("Jarvis has it.");
+                  if (await update({ assignee: "jarvis" })) toast.show("Pip has it.");
                 }}
               >
-                Give to Jarvis
+                Give to Pip
               </Button>
             </Show>
           </PaneHeader>
@@ -136,7 +136,7 @@ export function TaskView(props: { id: string; pane: number }) {
               >
                 <option value="">Nobody</option>
                 <option value="owner">Me</option>
-                <option value="jarvis">Jarvis</option>
+                <option value="jarvis">Pip</option>
               </select>
               <label class="flex items-center gap-1 text-sm text-muted">
                 Due

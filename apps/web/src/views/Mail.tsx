@@ -329,7 +329,7 @@ export function Mail(props: { pane: number }) {
                               icon="reply"
                               class="self-center"
                             >
-                              {by() === "jarvis" ? "Jarvis drafted" : "Draft"}
+                              {by() === "jarvis" ? "Pip drafted" : "Draft"}
                             </Pill>
                           )}
                         </Show>

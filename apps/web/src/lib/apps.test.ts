@@ -121,7 +121,7 @@ describe("places", () => {
       "Memory",
       "Dictation",
       "Chrome",
-      "What Jarvis did",
+      "What Pip did",
       "Settings",
       "Trash",
     ]);
@@ -138,13 +138,13 @@ describe("places", () => {
       "Go to Memory",
       "Go to Dictation",
       "Go to Chrome",
-      "Go to what Jarvis did",
+      "Go to what Pip did",
       "Go to Settings",
       "Go to the trash",
     ]);
     expect(PLACES.map(paletteLabel)).toEqual([
       "Go to Today (your morning on one screen)",
-      "Go to Updates (everything Jarvis told you)",
+      "Go to Updates (everything Pip told you)",
       "Go to Mail",
       "Go to Tasks",
       "Go to Notes",
@@ -152,14 +152,14 @@ describe("places", () => {
       "Go to Boards (canvas boards)",
       "Go to Sheets (spreadsheets)",
       "Go to People",
-      "Go to Memory (what Jarvis remembers)",
+      "Go to Memory (what Pip remembers)",
       "Go to Dictation (dictation history, dictionary, snippets)",
       "Go to Chrome (your Chrome, live)",
-      "Go to what Jarvis did",
+      "Go to what Pip did",
       "Go to Settings",
       "Go to the trash (restore what you deleted)",
     ]);
-    expect(goLabel(placeOf("activity"))).toBe("Go to what Jarvis did");
+    expect(goLabel(placeOf("activity"))).toBe("Go to what Pip did");
   });
 
   it("still open from every view name a link may carry", () => {

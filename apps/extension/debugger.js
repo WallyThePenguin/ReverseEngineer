@@ -141,7 +141,7 @@ export async function cdp(tabId, method, params = {}, sessionId = undefined) {
   const key = worldKey(tabId, session);
   checkCommand(method, params, worlds.get(key));
   if (!(await mayUse(tabId)))
-    throw new HearthError("not_yours", "That tab isn't Jarvis's and wasn't handed to it.");
+    throw new HearthError("not_yours", "That tab isn't Pip's and wasn't handed to it.");
   await attach(tabId);
   touch(tabId);
   const nav = NAVIGATIONS.has(method);

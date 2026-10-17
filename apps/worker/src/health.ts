@@ -136,7 +136,7 @@ export async function checkHealth(kernel: Kernel, opts: HealthOptions): Promise<
     reports.push({
       component: "jarvis",
       status: "failing",
-      detail: `Jarvis hasn't checked in since ${formatDateTime(seen, rules.timeZone)}. Its service may have stopped.`,
+      detail: `Pip hasn't checked in since ${formatDateTime(seen, rules.timeZone)}. Its service may have stopped.`,
       key: `jarvis_down:${seen.toISOString()}`,
     });
   }
@@ -153,7 +153,7 @@ export async function reportHealth(kernel: Kernel, reports: HealthReport[]): Pro
         "inbox.notify",
         {
           kind: "system.alert",
-          title: "Jarvis is down",
+          title: "Pip is down",
           body: r.detail,
           urgency: "normal",
           dedupeKey: key ?? `jarvis_down:${kernel.clock.now().toISOString().slice(0, 10)}`,

@@ -4,7 +4,7 @@
 
 import { assertWebUrl, HearthError } from "./rules.js";
 
-const GROUP_TITLE = "Jarvis";
+const GROUP_TITLE = "Pip";
 /** Each piece of work's group gets one of these, so groups side by side tell apart. */
 const COLORS = /** @type {const} */ (["blue", "cyan", "green", "orange", "pink", "yellow", "red"]);
 /** How many pieces of work's groups are remembered. */
@@ -235,7 +235,7 @@ export function openTab(url, show = true, work = null) {
 /** @param {number} tabId */
 export async function closeTab(tabId) {
   if (!(await isOwn(tabId)))
-    throw new HearthError("not_yours", "Jarvis can only close tabs it opened.");
+    throw new HearthError("not_yours", "Pip can only close tabs it opened.");
   await chrome.tabs.remove(tabId).catch(() => {});
   await forget(tabId);
 }
@@ -243,7 +243,7 @@ export async function closeTab(tabId) {
 /** Brings one of Jarvis's tabs to the front of Jarvis's window, so it draws. */
 export async function showTab(/** @type {number} */ tabId) {
   if (!(await isOwn(tabId)))
-    throw new HearthError("not_yours", "Only Jarvis's own tabs can be switched to.");
+    throw new HearthError("not_yours", "Only Pip's own tabs can be switched to.");
   await chrome.tabs.update(tabId, { active: true });
 }
 

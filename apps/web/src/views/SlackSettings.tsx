@@ -63,7 +63,7 @@ export function SlackSettings() {
   };
 
   const disconnect = async () => {
-    if (!confirm("Disconnect Slack? Its messages leave Hearth.")) return;
+    if (!confirm("Disconnect Slack? Its messages leave Nook.")) return;
     const r = await act<LeftBehind>("slack.disconnect");
     if (r) toast.show(`Slack is disconnected.${leftBehind(r)}`);
   };
@@ -73,7 +73,7 @@ export function SlackSettings() {
       <h2 class="font-semibold">Slack</h2>
       <p class="text-sm text-muted">
         Your team's Slack, read in with your own token: @mentions and direct messages land in the
-        inbox, and Jarvis can look things up. Hearth never posts as you. What people write there is
+        inbox, and Pip can look things up. Nook never posts as you. What people write there is
         treated as outside content.
       </p>
       <Show when={status.data}>
@@ -113,7 +113,7 @@ export function SlackSettings() {
                 <p class="font-medium">{s().team}</p>
                 <p class="text-sm text-muted">
                   {s().state === "revoked"
-                    ? "Slack stopped accepting Hearth's token, so nothing new comes in."
+                    ? "Slack stopped accepting Nook's token, so nothing new comes in."
                     : s().lastError
                       ? s().lastError
                       : s().syncedAt

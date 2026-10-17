@@ -286,7 +286,7 @@ export async function hasUnsynced(): Promise<boolean> {
 export async function okToSignOut(): Promise<boolean> {
   if (!(await hasUnsynced().catch(() => false))) return true;
   return window.confirm(
-    "Some of your edits haven't reached Hearth yet. Signing out now deletes them from this device. Sign out anyway?",
+    "Some of your edits haven't reached Nook yet. Signing out now deletes them from this device. Sign out anyway?",
   );
 }
 

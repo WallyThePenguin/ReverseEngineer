@@ -203,7 +203,7 @@ self.addEventListener("fetch", (e) => {
 });
 
 self.addEventListener("push", (e) => {
-  let m = { title: "Hearth", body: "", url: "/today", tag: undefined };
+  let m = { title: "Nook", body: "", url: "/today", tag: undefined };
   try {
     m = { ...m, ...e.data.json() };
   } catch {}

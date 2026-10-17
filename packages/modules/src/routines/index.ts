@@ -103,7 +103,7 @@ const describeRoutine: Describe = async (entityId, ctx) => {
 
 const due: ReflexDef = {
   name: REFLEX,
-  description: "When one of your routines is due, Jarvis does what it says.",
+  description: "When one of your routines is due, Pip does what it says.",
   // You asked for these, like a watch's follow-up, so they run while Jarvis is paused too.
   mode: "reactive",
   on: [],
@@ -139,7 +139,7 @@ const instructions = z.string().trim().min(1).max(4000);
 
 export const routinesModule = defineModule({
   name: "routine",
-  description: "Your own routines: what Jarvis does for you on a schedule, in your words.",
+  description: "Your own routines: what Pip does for you on a schedule, in your words.",
   entityTypes: ["routine"],
   kernelEvents: ["entity.created", "entity.updated", "entity.deleted"],
   events: [],

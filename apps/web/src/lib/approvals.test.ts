@@ -198,7 +198,7 @@ describe("deciding an approval", () => {
     expect(await alwaysAllow("c5")).toBe("failed");
     expect(isDecided("c5")).toBe(false);
     expect(shown).toEqual([
-      { text: "Can't reach Hearth right now. Try again in a moment.", tone: "error" },
+      { text: "Can't reach Nook right now. Try again in a moment.", tone: "error" },
     ]);
   });
 

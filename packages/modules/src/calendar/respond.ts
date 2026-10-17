@@ -57,7 +57,7 @@ export const respondAction = defineAction({
     snapshot: z
       .object({ event: z.string() })
       .optional()
-      .describe("Filled in by Hearth: the event. Leave it out."),
+      .describe("Filled in by Nook: the event. Leave it out."),
   }),
   risk: "outward",
   // So the approval names the meeting as the calendar has it, and the answer goes only to that

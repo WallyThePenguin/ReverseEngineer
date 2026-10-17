@@ -139,7 +139,7 @@ export async function alwaysAllow(approvalId: string): Promise<Decided> {
       "ok",
     );
   else if (d.outcome === "done") toast.show("Approved and done, but no rule was saved.", "error");
-  else if (d.unanswered) toast.show(d.message ?? "Hearth didn't answer.", "error");
+  else if (d.unanswered) toast.show(d.message ?? "Nook didn't answer.", "error");
   else
     toast.show(
       `${d.message ?? "It didn't go through."} No rule was saved.`,

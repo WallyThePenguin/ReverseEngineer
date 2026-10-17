@@ -34,7 +34,7 @@ export function SignInSettings() {
     if (saved) {
       setSite("");
       setUsername("");
-      toast.show(`Jarvis can sign in to ${saved.site} now.`);
+      toast.show(`Pip can sign in to ${saved.site} now.`);
     }
   }
 
@@ -42,9 +42,9 @@ export function SignInSettings() {
     <section class="space-y-2">
       <h2 class="font-semibold">Sign-ins</h2>
       <p class="text-sm text-muted">
-        Jarvis signs in to these sites by itself. It never sees the passwords: Hearth types them
-        into the matching site only, and two-step codes come to you. Leave out your bank, your email
-        recovery and your password manager.
+        Pip signs in to these sites by itself. It never sees the passwords: Nook types them into the
+        matching site only, and two-step codes come to you. Leave out your bank, your email recovery
+        and your password manager.
       </p>
       <ul class="space-y-1">
         <For each={logins.data ?? []}>

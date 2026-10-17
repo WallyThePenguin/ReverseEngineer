@@ -18,8 +18,8 @@ const REPLAY_MS = 10 * 60_000;
 const KINDS = [...PUSH_KINDS, "system.health_changed"];
 
 const NAMES: Record<string, string> = {
-  worker: "Hearth's worker",
-  jarvis: "Jarvis",
+  worker: "Nook's worker",
+  jarvis: "Pip",
   backup: "Backups",
   disk: "Disk space",
 };
@@ -35,7 +35,7 @@ export function healthMessage(p: Record<string, unknown>, seq: number): PushMess
   }
   return {
     title: p.status === "failing" ? `${name} isn't working` : `${name} needs a look`,
-    body: "Open Hearth's Settings to see what's wrong.",
+    body: "Open Nook's Settings to see what's wrong.",
     url: "/settings",
     tag,
   };

@@ -33,7 +33,7 @@ async function dueOf(db: DbOrTx, p: Record<string, unknown>) {
 export const notionToTasks: ReflexDef = {
   name: "notion.to_tasks",
   description:
-    "Tickets assigned to you on your Notion board become Hearth tasks, closed when the ticket is done or goes to someone else, and kept in step with its title and due date.",
+    "Tickets assigned to you on your Notion board become Nook tasks, closed when the ticket is done or goes to someone else, and kept in step with its title and due date.",
   mode: "proactive",
   on: ["notion.task_assigned", "notion.task_done", "notion.task_changed", "notion.task_unassigned"],
   async run(ev, ctx) {

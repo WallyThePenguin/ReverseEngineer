@@ -158,14 +158,14 @@ const SENDS = z
     url: z.string().max(2000),
     fields: z.array(z.object({ label: z.string().max(200), value: z.string().max(400) })).max(20),
   })
-  .describe("Filled in by Hearth: what the press sends. Leave it out.");
+  .describe("Filled in by Nook: what the press sends. Leave it out.");
 type Sends = z.output<typeof SENDS>;
 
 /** What pressing an element would send: the page and the fields of its form. */
 const probeForm = (client: BrowserClient, tab: number, ref: string) =>
   evaluate<Sends>(client, tab, pageCall(PROBE, { op: "form", ref }));
 
-const NO_CARDS = "Card and bank details are never Jarvis's to type; the owner types those.";
+const NO_CARDS = "Card and bank details are never Pip's to type; the owner types those.";
 
 export const actActions = [
   defineAction({

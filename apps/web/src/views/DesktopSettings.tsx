@@ -20,7 +20,7 @@ interface Device {
 
 /** Asks Hearth for a one-minute connect link, and opens it: Windows hands it to the app. */
 async function connectThisPc(): Promise<boolean> {
-  const unreachable = "Couldn't reach Hearth. Try again in a moment.";
+  const unreachable = "Couldn't reach Nook. Try again in a moment.";
   const res = await fetch("/api/auth/desktop/handoff", {
     method: "POST",
     credentials: "same-origin",
@@ -80,15 +80,14 @@ export function DesktopSettings() {
     <section class="space-y-3">
       <h2 class="font-semibold">Desktop app</h2>
       <p class="text-sm text-muted">
-        Hearth for Windows: Hearth in its own window, notifications, dictation into any app, and
-        Jarvis a hotkey away. Install it on your PC, then connect it here.
+        Nook for Windows: Nook in its own window, notifications, dictation into any app, and Pip a
+        hotkey away. Install it on your PC, then connect it here.
       </p>
       {/* Its sign-in page sends you here (D69), but so could any page: it's an if, and connecting is
           still your click. */}
       <Show when={windowAsked.get()}>
         <p class="rounded-md bg-accent-soft px-3 py-2 text-sm">
-          If Hearth's window on this PC asked you to sign in again, choose Connect Hearth on this
-          PC.
+          If Nook's window on this PC asked you to sign in again, choose Connect Nook on this PC.
         </p>
       </Show>
       <QueryView query={devices} what="the desktop app's connection">
@@ -112,7 +111,7 @@ export function DesktopSettings() {
                 </Button>
               </Show>
               <Button kind="primary" onClick={() => void connect()}>
-                Connect Hearth on this PC
+                Connect Nook on this PC
               </Button>
             </div>
           );
@@ -122,7 +121,7 @@ export function DesktopSettings() {
         <p class="text-sm text-muted">
           {inDesktopApp()
             ? "Choose Connect in the box that opens."
-            : "If your browser asks to open Hearth, allow it, then choose Connect in Hearth's box. Nothing happening? Make sure the app is installed and running, and try again: the link lasts a minute."}
+            : "If your browser asks to open the desktop app, allow it, then choose Connect in the box it shows. Nothing happening? Make sure the app is installed and running, and try again: the link lasts a minute."}
         </p>
       </Show>
 
@@ -134,8 +133,8 @@ export function DesktopSettings() {
             {(c) => (
               <div class="space-y-2 rounded-md border border-line px-3 py-3">
                 <p>
-                  In the desktop app's voice settings, under Hearth, enter this address and code.
-                  The code is shown only once.
+                  In the desktop app's voice settings, under Nook, enter this address and code. The
+                  code is shown only once.
                 </p>
                 <p>
                   Address: <code class="font-mono">{location.origin}</code>

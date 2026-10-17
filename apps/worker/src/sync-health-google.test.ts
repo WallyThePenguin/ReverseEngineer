@@ -79,7 +79,7 @@ describe("checkSyncs, for Google", () => {
     await t.tdb.db.update(mailAccount).set({ pausedUntil: soon() });
     expect(await check()).toMatchObject({
       status: "degraded",
-      detail: `me@example.com mail: nothing synced for 40 min, as Google keeps asking Hearth to slow down (${reason}); trying again at 10:41 a.m.`,
+      detail: `me@example.com mail: nothing synced for 40 min, as Google keeps asking Nook to slow down (${reason}); trying again at 10:41 a.m.`,
     });
 
     t.clock.advance(90 * 60_000);
@@ -121,7 +121,7 @@ describe("checkSyncs, for Google", () => {
       .values({ account: "me@example.com", service: "calendar", pausedUntil: until });
     const [paused] = await checkSyncs(t.kernel, new ErrorClock());
     expect(paused).toMatchObject({ status: "ok" });
-    expect(paused?.detail).toMatch(/me@example.com calendar: Google asked Hearth to slow down/);
+    expect(paused?.detail).toMatch(/me@example.com calendar: Google asked Nook to slow down/);
   });
 });
 

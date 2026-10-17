@@ -298,7 +298,7 @@ export function Clear() {
   return (
     <Card>
       <EmptyState icon="ok" title="You're all caught up" class="py-8">
-        Nothing needs your yes right now. When Jarvis needs one, it'll be here, with exactly what it
+        Nothing needs your yes right now. When Pip needs one, it'll be here, with exactly what it
         would do.
       </EmptyState>
     </Card>

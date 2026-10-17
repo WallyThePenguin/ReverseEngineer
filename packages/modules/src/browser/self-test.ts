@@ -12,12 +12,12 @@ export const TEST_PAGE = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hearth's Chrome test</title>
+<title>Nook's Chrome test</title>
 <style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:3rem auto;padding:0 1rem}</style>
 </head>
 <body>
-<h1>Hearth's Chrome test</h1>
-<p>Jarvis is checking that it can use Chrome. This tab closes by itself in a moment.</p>
+<h1>Nook's Chrome test</h1>
+<p>Pip is checking that it can use Chrome. This tab closes by itself in a moment.</p>
 <p><button type="button" onclick="document.getElementById('pressed').textContent = 'Button pressed'">Press me</button></p>
 <p id="pressed">Not pressed yet</p>
 <p><label>Your name <input name="name" autocomplete="off" oninput="document.getElementById('echo').textContent = 'Typed: ' + this.value"></label></p>
@@ -117,10 +117,10 @@ export async function runSelfTest(
     const field = /textbox "Your name" \[(ref_\d+)\]/.exec(page.text)?.[1];
     if (!button || !field) return wrong("The test page didn't read as expected.");
     if (!(await step("click", { tabId, ref: button }, "browser.click"))) return;
-    if (!(await step("type", { tabId, ref: field, text: "Hearth" }, "browser.type"))) return;
+    if (!(await step("type", { tabId, ref: field, text: "Nook" }, "browser.type"))) return;
     const after = await step<{ text: string }>("check", { tabId }, "browser.get_text");
     if (!after) return;
-    if (!after.text.includes("Button pressed") || !after.text.includes("Typed: Hearth"))
+    if (!after.text.includes("Button pressed") || !after.text.includes("Typed: Nook"))
       return wrong("The click or the typing didn't reach the page.");
     await step("screenshot", { tabId }, "browser.screenshot");
   };

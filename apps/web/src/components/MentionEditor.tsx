@@ -20,7 +20,10 @@ interface Props {
   class?: string;
 }
 
-const JARVIS: SearchHit = { id: JARVIS_ENTITY_ID, type: "agent", title: "Jarvis", updatedAt: "" };
+const JARVIS: SearchHit = { id: JARVIS_ENTITY_ID, type: "agent", title: "Pip", updatedAt: "" };
+/** What finds Pip after an @: its name, or the one it had before (D74). */
+const callsPip = (query: string) =>
+  ["pip", "jarvis"].some((name) => name.startsWith(query.toLowerCase()));
 
 export function MentionEditor(props: Props) {
   let el!: HTMLTextAreaElement;
@@ -37,7 +40,7 @@ export function MentionEditor(props: Props) {
     on(query, async (q) => {
       if (!q) return setHits([]);
       const mine = ++seq;
-      const jarvis = "jarvis".startsWith(q.query.toLowerCase()) ? [JARVIS] : [];
+      const jarvis = callsPip(q.query) ? [JARVIS] : [];
       const found = q.query.trim()
         ? await action<SearchHit[]>("entity.search", { query: q.query, limit: 6 }).catch(() => [])
         : await action<SearchHit[]>("entity.recent", { limit: 6 }).catch(() => []);

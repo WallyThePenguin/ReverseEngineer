@@ -86,8 +86,8 @@ function plain(err: unknown): never {
     // "paced": Hearth held it back itself, to keep Google from turning it away.
     const why =
       err.kind === "paced"
-        ? "Hearth is spacing out its Google Calendar calls"
-        : "Google Calendar asked Hearth to slow down";
+        ? "Nook is spacing out its Google Calendar calls"
+        : "Google Calendar asked Nook to slow down";
     throw new ActionError(
       "unavailable",
       `${why}, so nothing changed. Try again in about ${secs} seconds.`,

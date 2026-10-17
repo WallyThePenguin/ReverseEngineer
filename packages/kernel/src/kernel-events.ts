@@ -14,7 +14,7 @@ export const KERNEL_EVENTS: EventDef[] = [
   {
     kind: "jarvis.mentioned",
     description:
-      "Someone @mentioned Jarvis. Payload: anchor, context (the paragraph it sits in), type.",
+      "Someone @mentioned Pip. Payload: anchor, context (the paragraph it sits in), type.",
   },
   {
     kind: "approval.requested",

@@ -263,8 +263,7 @@ export class TestChrome implements BrowserClient, CdpTransport {
 
   private tab(tabId: unknown): Tab {
     const tab = this.tabs.find((t) => t.id === tabId);
-    if (!tab)
-      throw new HearthError("not_yours", "That tab isn't Jarvis's and wasn't handed to it.");
+    if (!tab) throw new HearthError("not_yours", "That tab isn't Pip's and wasn't handed to it.");
     return tab;
   }
 

@@ -106,7 +106,7 @@ export async function blockTask(ctx: ActionContext, taskId: string): Promise<Blo
         title: `Focus: ${t.title}`,
         start: s.toISOString(),
         end: end.toISOString(),
-        description: `Time for ${t.key}, put here by Hearth. Move or delete it freely.`,
+        description: `Time for ${t.key}, put here by Nook. Move or delete it freely.`,
         taskId,
       });
       result.created++;

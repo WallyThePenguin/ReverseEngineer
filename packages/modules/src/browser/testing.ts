@@ -92,7 +92,7 @@ export class FakeBrowser implements BrowserClient {
 
   private tab(tabId: unknown): TabInfo {
     const tab = this.tabs.find((t) => t.tabId === tabId);
-    if (!tab) throw new Error("That tab isn't Jarvis's and wasn't handed to it.");
+    if (!tab) throw new Error("That tab isn't Pip's and wasn't handed to it.");
     return tab;
   }
 

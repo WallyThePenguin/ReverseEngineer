@@ -47,7 +47,7 @@ export const rejectTool =
     );
     const index = order.indexOf(`mcp__hearth__${name}`);
     const detail = `API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"tools.${index}.custom.input_schema: JSON schema is invalid"}}`;
-    return new BrainError("bad_tool", `Jarvis's model turn failed: ${detail}`, {
+    return new BrainError("bad_tool", `Pip's model turn failed: ${detail}`, {
       toolIndex: index,
       tool: toolAt(order, index),
     });

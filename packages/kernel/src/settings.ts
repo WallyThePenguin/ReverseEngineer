@@ -97,7 +97,7 @@ export function checkSetting<K extends keyof Settings>(key: K, value: Settings[K
     if (!isValidTimeZone(timeZone))
       throw new ActionError(
         "invalid_input",
-        `"${timeZone}" isn't a time zone Hearth knows. Use a name like America/New_York.`,
+        `"${timeZone}" isn't a time zone Nook knows. Use a name like America/New_York.`,
       );
   }
 }

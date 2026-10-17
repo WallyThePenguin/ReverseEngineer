@@ -132,6 +132,6 @@ export function assertFree(d: DriverContext): void {
   if (!d.policy.owner && Date.now() - d.tab.ownerAt < OWNER_MS)
     throw fail(
       "owner_in_control",
-      "The owner is using this tab right now in Hearth's live view. Wait a moment, or ask them.",
+      "The owner is using this tab right now in Nook's live view. Wait a moment, or ask them.",
     );
 }

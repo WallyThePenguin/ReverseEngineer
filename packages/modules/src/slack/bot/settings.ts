@@ -66,7 +66,7 @@ export async function setAnswersOnOwn(
       id: newId(),
       action: REPLY_ACTION,
       principal: memberPrincipal(teamId, "*"),
-      note: "Jarvis answers Slack members on its own, unless they or their channel are on review.",
+      note: "The Jarvis bot answers Slack members on its own, unless they or their channel are on review.",
       createdAt: ctx.now,
     })
     .onConflictDoNothing();
@@ -75,7 +75,7 @@ export async function setAnswersOnOwn(
 export const botSettingsAction = defineAction({
   name: "slack.bot_settings",
   description:
-    "Whether people in your Slack workspace can talk to Jarvis's bot, and whether its replies to them go out without your yes.",
+    "Whether people in your Slack workspace can talk to the Jarvis bot, and whether its replies to them go out without your yes.",
   input: z.object({
     membersOn: z.boolean().optional(),
     answersOnOwn: z.boolean().optional(),

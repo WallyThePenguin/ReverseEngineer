@@ -88,7 +88,7 @@ export class FakeNotion {
     };
     const board = (id: string) => {
       const b = this.boards.get(id);
-      if (!b) throw new NotionError(404, "Notion won't show Hearth that database.");
+      if (!b) throw new NotionError(404, "Notion won't show Nook that database.");
       return b;
     };
     return {

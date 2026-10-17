@@ -51,7 +51,7 @@ describe("schedule health", () => {
     expect(await checkSchedules(t.kernel, t.kernel.clock.now())).toEqual({
       component: "schedules",
       status: "failing",
-      detail: "routine:typo can't run: Invalid time zone. Hearth tries again every hour.",
+      detail: "routine:typo can't run: Invalid time zone. Nook tries again every hour.",
     });
   });
 

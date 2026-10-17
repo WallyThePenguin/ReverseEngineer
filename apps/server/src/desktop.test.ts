@@ -103,7 +103,7 @@ describe("connecting the desktop app", () => {
     expect((await fromApp(`/api/auth/desktop/window?code=${code}`)).status).toBe(302);
     const again = await fromApp(`/api/auth/desktop/window?code=${code}`);
     expect(again.status).toBe(410);
-    expect(await again.text()).toContain("Connect Hearth on this PC");
+    expect(await again.text()).toContain("Connect Nook on this PC");
     expect(sessionCookie(again)).toBeUndefined();
   });
 

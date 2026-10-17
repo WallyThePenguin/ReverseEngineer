@@ -115,7 +115,7 @@ describe("kernel", () => {
     expect(n).toMatchObject({
       kind: "approval",
       state: "unseen",
-      title: "Jarvis asks: Send to ana@example.com",
+      title: "Pip asks: Send to ana@example.com",
     });
 
     expect(

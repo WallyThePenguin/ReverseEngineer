@@ -69,13 +69,13 @@ function Pairing() {
                 </p>
                 <p class="text-sm text-muted">
                   {s().connected
-                    ? `Since ${ago(s().since ?? "")}. Jarvis has ${s().tabs.length} tab(s) it may use.`
+                    ? `Since ${ago(s().since ?? "")}. Pip has ${s().tabs.length} tab(s) it may use.`
                     : !s().paired
-                      ? "Install the Hearth extension in Chrome, then pair it here."
+                      ? "Install the Nook extension in Chrome, then pair it here."
                       : s().opening
                         ? "Opening Chrome on the PC…"
                         : s().canOpen
-                          ? "Chrome is closed. Hearth opens it when Jarvis needs it."
+                          ? "Chrome is closed. Nook opens it when Pip needs it."
                           : "Open Chrome on the PC; the extension connects by itself."}
                 </p>
                 <Show when={!s().connected && !s().opening && s().openError}>
@@ -100,7 +100,7 @@ function Pairing() {
               await unpairBrowser();
               setCode(null);
               void refetch();
-              toast.show("Chrome is unpaired. Jarvis can't use it until you pair again.");
+              toast.show("Chrome is unpaired. Pip can't use it until you pair again.");
             }}
           >
             Unpair
@@ -114,8 +114,8 @@ function Pairing() {
         {(c) => (
           <div class="space-y-2 rounded-md border border-line px-3 py-3 text-sm">
             <p>
-              In Chrome, open the Hearth extension's options. Enter this address and code, then
-              save. The code is shown only once.
+              In Chrome, open the Nook extension's options. Enter this address and code, then save.
+              The code is shown only once.
             </p>
             <p>
               Address: <code class="font-mono">{location.origin}</code>
@@ -161,9 +161,9 @@ function Sites() {
   return (
     <div class="grid gap-3 sm:grid-cols-2">
       <label class="space-y-1 text-sm">
-        <span class="font-medium">Trusted sites: Jarvis can act here without asking</span>
+        <span class="font-medium">Trusted sites: Pip can act here without asking</span>
         <span class="block text-muted">
-          Jarvis opens these and clicks, types and sends on them without asking first, even after
+          Pip opens these and clicks, types and sends on them without asking first, even after
           reading an email or a web page. Payments, passwords and security settings, sending money
           and deleting your account still always need your yes. Subdomains are included.
         </span>
@@ -177,7 +177,7 @@ function Sites() {
       <label class="space-y-1 text-sm">
         <span class="font-medium">Never open</span>
         <span class="block text-muted">
-          Jarvis never opens or reads these. Add your bank. Subdomains are included.
+          Pip never opens or reads these. Add your bank. Subdomains are included.
         </span>
         <textarea
           class="h-28 w-full rounded-md border border-line bg-panel px-2 py-1 font-mono text-xs"
@@ -201,8 +201,8 @@ export function ChromeSettings() {
     <section class="space-y-3">
       <h2 class="font-semibold">Chrome</h2>
       <p class="text-sm text-muted">
-        Jarvis uses your own Chrome, signed in as you, in its own window and in tabs you hand it.
-        Watch it, or take over, in the Browser pane.
+        Pip uses your own Chrome, signed in as you, in its own window and in tabs you hand it. Watch
+        it, or take over, in the Browser pane.
       </p>
       <Pairing />
       <TestChrome onDone={() => setRefresh((n) => n + 1)} />

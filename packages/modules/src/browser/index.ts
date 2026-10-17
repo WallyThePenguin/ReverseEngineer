@@ -40,7 +40,7 @@ const OpenInput = z.object({
     .number()
     .int()
     .optional()
-    .describe("Open it in this tab. Without one, a new tab opens in Jarvis's window."),
+    .describe("Open it in this tab. Without one, a new tab opens in Pip's window."),
   newTab: z.boolean().default(false).describe("Open it in a new tab instead of tabId."),
 });
 type OpenInput = z.output<typeof OpenInput>;
@@ -53,15 +53,15 @@ function target(i: OpenInput): string | null {
 export const browserModule = defineModule({
   name: "browser",
   description:
-    "Your own Chrome, through the Hearth extension: Jarvis's window and the tabs you hand it.",
+    "Your own Chrome, through the Nook extension: Pip's window and the tabs you hand it.",
   entityTypes: ["page_watch"],
   // A watch keeps the page's text, which came from the web.
   outsideTypes: ["page_watch"],
   events: [
-    { kind: "browser.opened", description: "Jarvis opened a page. Payload: tabId, url." },
+    { kind: "browser.opened", description: "Pip opened a page. Payload: tabId, url." },
     {
       kind: "browser.closed",
-      description: "Jarvis closed its tab, or gave yours back. Payload: tabId, handedBack.",
+      description: "Pip closed its tab, or gave yours back. Payload: tabId, handedBack.",
     },
     {
       kind: "page_watch.changed",
@@ -75,12 +75,12 @@ export const browserModule = defineModule({
     {
       kind: "browser.sites_changed",
       description:
-        "You changed the sites you trust Jarvis to act on, or that it never opens. Payload: sites.",
+        "You changed the sites you trust Pip to act on, or that it never opens. Payload: sites.",
     },
     {
       kind: "browser.signed_in",
       description:
-        "Jarvis signed in to a site from the vault, or tried to. Payload: site, username, status.",
+        "Pip signed in to a site from the vault, or tried to. Payload: site, username, status.",
     },
     {
       kind: "vault.changed",
@@ -102,7 +102,7 @@ export const browserModule = defineModule({
     defineAction({
       name: "browser.tabs",
       description:
-        "List the Chrome tabs Jarvis may use (its own window, tabs the owner handed it, and pop-ups those opened), whether Chrome is connected, and any dialog waiting for an answer.",
+        "List the Chrome tabs Pip may use (its own window, tabs the owner handed it, and pop-ups those opened), whether Chrome is connected, and any dialog waiting for an answer.",
       input: z.object({}),
       risk: "read",
       callers: CALLERS,
@@ -198,7 +198,7 @@ export const browserModule = defineModule({
     defineAction({
       name: "browser.sites",
       description:
-        "The owner's site lists: trusted sites (allowed), where Jarvis may open, click, type and send without asking, even after reading outside content, except for payments, passwords and security settings, moving money and deleting an account; and sites it never opens (blocked).",
+        "The owner's site lists: trusted sites (allowed), where Pip may open, click, type and send without asking, even after reading outside content, except for payments, passwords and security settings, moving money and deleting an account; and sites it never opens (blocked).",
       input: z.object({}),
       risk: "read",
       callers: CALLERS,
@@ -207,7 +207,7 @@ export const browserModule = defineModule({
     defineAction({
       name: "browser.set_sites",
       description:
-        "Change which sites the owner trusts Jarvis to act on without asking (allowed), and which it never opens (blocked).",
+        "Change which sites the owner trusts Pip to act on without asking (allowed), and which it never opens (blocked).",
       input: z.object({
         allowed: z.array(SITE).max(200),
         blocked: z.array(SITE).max(200),
@@ -226,7 +226,7 @@ export const browserModule = defineModule({
     defineAction({
       name: "browser.set_pace",
       description:
-        "Change how long Jarvis waits between steps on a site, so it doesn't look like a bot: a default, and any sites that need longer.",
+        "Change how long Pip waits between steps on a site, so it doesn't look like a bot: a default, and any sites that need longer.",
       input: z.object({
         seconds: z.number().min(0).max(60),
         sites: z.record(SITE, z.number().min(0).max(300)).default({}),
@@ -243,7 +243,7 @@ export const browserModule = defineModule({
     }),
     defineAction({
       name: "browser.pace",
-      description: "How long Jarvis waits between steps on a site.",
+      description: "How long Pip waits between steps on a site.",
       input: z.object({}),
       risk: "read",
       callers: CALLERS,
@@ -252,7 +252,7 @@ export const browserModule = defineModule({
     defineAction({
       name: "browser.close",
       description:
-        "Close one of Jarvis's tabs, or give a tab the owner handed over back to them (it stays open).",
+        "Close one of Pip's tabs, or give a tab the owner handed over back to them (it stays open).",
       input: z.object({ tabId: z.number().int() }),
       risk: "internal",
       callers: CALLERS,

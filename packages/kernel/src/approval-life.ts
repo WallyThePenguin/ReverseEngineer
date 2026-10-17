@@ -24,7 +24,7 @@ export function approvalTtlMs(risk: Risk): number {
 /** An approval still "executing" this long after its yes was cut short (Hearth stopped). */
 export const STUCK_MS = 15 * 60_000;
 const CUT_SHORT =
-  "Hearth stopped while doing this, so it may or may not have happened. Check before asking again.";
+  "Nook stopped while doing this, so it may or may not have happened. Check before asking again.";
 
 /**
  * What Jarvis hears about a decision carries the request's trust (the turn it resumes is no more

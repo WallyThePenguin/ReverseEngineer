@@ -138,7 +138,7 @@ async function holdAll(ctx: ActionContext) {
 export const disconnectAction = defineAction({
   name: "google.disconnect",
   description:
-    "Forget a Google account: its tokens, calendars and mail leave Hearth. keepDrafts keeps its unsent drafts, to send from another account.",
+    "Forget a Google account: its tokens, calendars and mail leave Nook. keepDrafts keeps its unsent drafts, to send from another account.",
   input: z.object({ email: z.string().email(), keepDrafts: z.boolean().default(false) }),
   risk: "internal",
   callers: ["owner"],

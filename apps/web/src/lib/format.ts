@@ -219,8 +219,8 @@ export const TYPE_LABEL: Record<string, string> = {
 
 export function who(principal: string): string {
   if (principal === "owner") return "You";
-  if (principal === "jarvis") return "Jarvis";
-  if (principal === "system") return "Hearth";
+  if (principal === "jarvis") return "Pip";
+  if (principal === "system") return "Nook";
   return principal.replace(/^mcp:/, "");
 }
 

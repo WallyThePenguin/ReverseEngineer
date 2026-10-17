@@ -127,7 +127,7 @@ async function onMessage(msg, ws) {
   }
   if (msg.type === "update") return checkProtocol(msg.protocol);
   if (msg.type === "rejected") {
-    lastError = msg.reason ?? "Hearth refused the pairing code.";
+    lastError = msg.reason ?? "Nook refused the pairing code.";
     return socket?.close();
   }
   if (msg.type !== "call") return;
@@ -151,7 +151,7 @@ async function connect() {
   // Chrome starting runs this twice at once; the first one to get here makes the link.
   if (socket && socket.readyState <= WebSocket.OPEN) return;
   if (!token) {
-    lastError = "Not paired yet. Open the extension's options and paste the code from Hearth.";
+    lastError = "Not paired yet. Open the extension's options and paste the code from Nook.";
     return badge();
   }
   const url = `${hearthUrl.replace(/\/$/, "").replace(/^http/, "ws")}/api/browser/bridge`;
@@ -181,7 +181,7 @@ async function connect() {
     retryMs = Math.min(retryMs * 2, 15_000);
   };
   ws.onerror = () => {
-    lastError = lastError || `Can't reach Hearth at ${hearthUrl}.`;
+    lastError = lastError || `Can't reach Nook at ${hearthUrl}.`;
   };
 }
 

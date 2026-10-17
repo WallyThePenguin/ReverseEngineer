@@ -14,7 +14,7 @@ import { home } from "./home.ts";
 
 const base = process.env.HEARTH_E2E_URL ?? "http://localhost:4400";
 const tag = Date.now().toString(36).slice(-4);
-const UNREACHABLE = "Can't reach Hearth right now. Try again in a moment.";
+const UNREACHABLE = "Can't reach Nook right now. Try again in a moment.";
 
 const browser = await chromium.launch(
   process.env.HEARTH_E2E_CHROME ? { executablePath: process.env.HEARTH_E2E_CHROME } : {},
@@ -76,7 +76,7 @@ try {
   await step("start-up: a proxy's 502, then Hearth comes back", async (p) => {
     await p.route("**/api/auth/me", badGateway);
     await boot(p);
-    await p.getByRole("heading", { name: "Can't reach Hearth" }).waitFor();
+    await p.getByRole("heading", { name: "Can't reach Nook" }).waitFor();
     await p.unroute("**/api/auth/me");
     // Tries again by itself, after about a second.
     await home(p).waitFor({ timeout: 10_000 });
@@ -88,12 +88,12 @@ try {
       r.fulfill({ status: 500, contentType: "application/json", body: '{"error":"boom"}' }),
     );
     await boot(p);
-    await p.getByRole("heading", { name: "Can't reach Hearth" }).waitFor();
+    await p.getByRole("heading", { name: "Can't reach Nook" }).waitFor();
     if (await p.getByText("boom").count()) throw new Error("the server's error text was shown");
     await p.unroute("**/api/auth/me");
     await p.getByRole("button", { name: "Try again" }).click();
     // Signed in here before, so Hearth is drawn under the notice: it's back once that's gone.
-    await p.getByRole("heading", { name: "Can't reach Hearth" }).waitFor({ state: "detached" });
+    await p.getByRole("heading", { name: "Can't reach Nook" }).waitFor({ state: "detached" });
     await home(p).waitFor({ timeout: 5_000 });
     await sameLoad(p);
   });
@@ -118,7 +118,7 @@ try {
     // Signed in here before, so Hearth is drawn at once while the server is still being asked.
     await home(p).waitFor({ timeout: 5_000 });
     const drawn = await p.locator("main").elementHandle();
-    const notice = p.getByRole("heading", { name: "Can't reach Hearth" });
+    const notice = p.getByRole("heading", { name: "Can't reach Nook" });
     await notice.waitFor({ timeout: 15_000 });
     // Keys don't reach what's covered: this would go to Tasks.
     await p.keyboard.press("g");
@@ -227,7 +227,7 @@ try {
       p.on("request", count);
       await boot(p);
       await home(p).waitFor();
-      const ask = p.getByRole("textbox", { name: "Ask Jarvis or add a task" });
+      const ask = p.getByRole("textbox", { name: "Ask Pip or add a task" });
       const plan = p.getByRole("button", { name: "Plan my day" });
       await plan.waitFor();
       // Asking Jarvis to do something isn't offered as a task of yours.
@@ -309,7 +309,7 @@ try {
     await p.route("**/api/events**", badGateway);
     await boot(p);
     const banner = p.getByRole("status").filter({ hasText: "Reconnecting…" });
-    const updated = p.getByText("Hearth was updated.");
+    const updated = p.getByText("Nook was updated.");
     const reload = p.getByRole("button", { name: "Reload" });
     await updated.waitFor({ timeout: 10_000 });
     await banner.waitFor({ timeout: 10_000 });
@@ -330,11 +330,11 @@ try {
       }),
     );
     await p.goto(`${base}/chat?compact=1`);
-    await p.getByText("Sign in to Hearth first", { exact: false }).waitFor();
+    await p.getByText("Sign in to Nook first", { exact: false }).waitFor();
     await p.unroute("**/api/auth/me");
     // The app shows its kept window again.
     await p.evaluate("window.dispatchEvent(new Event('focus'))");
-    await p.getByText("Ask Jarvis", { exact: true }).waitFor({ timeout: 5_000 });
+    await p.getByText("Ask Pip", { exact: true }).waitFor({ timeout: 5_000 });
   });
 
   await step("live feed: refused because the session ended goes to sign-in", async (p) => {

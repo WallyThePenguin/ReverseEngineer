@@ -142,11 +142,11 @@ export function httpNotion(
       throw new NotionError(0, "Notion couldn't be reached.");
     }
     if (res.status === 401) throw new NotionError(401, "Notion doesn't accept this token.");
-    if (res.status === 429) throw new NotionError(429, "Notion asked Hearth to slow down.");
+    if (res.status === 429) throw new NotionError(429, "Notion asked Nook to slow down.");
     if (res.status === 403 || res.status === 404)
       throw new NotionError(
         res.status,
-        "Notion won't show Hearth that database. Add the Hearth integration to it in Notion (••• → Connections).",
+        "Notion won't show Nook that database. Add the Nook integration to it in Notion (••• → Connections).",
       );
     const json = (await res.json().catch(() => null)) as Raw | null;
     // Notion's own message can quote the board's column names, which anyone who can edit it
@@ -160,7 +160,7 @@ export function httpNotion(
       log(words ? `${said}: ${words}` : said);
       throw new NotionError(res.status, `${said}.`);
     }
-    if (!json) throw new NotionError(502, "Notion sent back something Hearth can't read.");
+    if (!json) throw new NotionError(502, "Notion sent back something Nook can't read.");
     return json;
   }
   /** Every page of a list Notion pages through, up to `max` pages. */

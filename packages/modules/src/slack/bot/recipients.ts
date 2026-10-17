@@ -61,12 +61,12 @@ export async function postingBot(db: DbOrTx) {
   if (!bot)
     throw new ActionError(
       "unavailable",
-      "Jarvis's Slack bot isn't connected. Connect it in Settings → Slack → Jarvis's bot.",
+      "The Jarvis bot in Slack isn't connected. Connect it in Settings → Slack.",
     );
   if (!(await getSetting(db, "slack.bot.membersOn")))
     throw new ActionError(
       "unavailable",
-      "Jarvis's Slack bot is switched off. Turn it on in Settings → Slack → Jarvis's bot.",
+      "The Jarvis bot in Slack is switched off. Turn it on in Settings → Slack.",
     );
   return { ws, bot };
 }
@@ -92,12 +92,15 @@ type Workspace = Awaited<ReturnType<typeof yourWorkspace>>;
 function asRecipient(u: SlackUser, ws: Workspace): DmSnapshot {
   const name = shown(u.realName || u.name);
   if (u.bot || u.id === "USLACKBOT")
-    throw new ActionError("invalid_input", `${name} is a bot or an app: Jarvis messages people.`);
+    throw new ActionError(
+      "invalid_input",
+      `${name} is a bot or an app: the Jarvis bot messages people.`,
+    );
   if (u.deleted) throw new ActionError("invalid_input", `${name} is deactivated in Slack.`);
   if (u.teamId && u.teamId !== ws.teamId)
     throw new ActionError(
       "invalid_input",
-      `${name} is in another org (Slack Connect). Jarvis only messages people in ${ws.teamName}.`,
+      `${name} is in another org (Slack Connect). The Jarvis bot only messages people in ${ws.teamName}.`,
     );
   return { user: u.id, name, email: u.email?.toLowerCase() ?? null, guest: Boolean(u.guest) };
 }
@@ -132,7 +135,7 @@ export async function dmRecipient(r: Reader, to: string): Promise<DmSnapshot> {
   if (!u)
     throw new ActionError(
       "not_found",
-      "Hearth can't find that person in Slack by their email. Look them up with slack.find_member.",
+      "Nook can't find that person in Slack by their email. Look them up with slack.find_member.",
     );
   return asRecipient(u, ws);
 }
@@ -146,7 +149,7 @@ export async function channelPlace(r: Reader, channelId: string): Promise<Channe
   const token = openToken(r, ws);
   const api = slackApi(r);
   const facts = await ask(() => api.channel(token, channelId), {
-    channel_not_found: "Hearth can't see that channel with your Slack token.",
+    channel_not_found: "Nook can't see that channel with your Slack token.",
   });
   const name = shown(facts.name);
   if (facts.kind === "dm" || facts.kind === "group")
@@ -158,7 +161,7 @@ export async function channelPlace(r: Reader, channelId: string): Promise<Channe
   if (!facts.members.includes(bot.botUserId))
     throw new ActionError(
       "invalid_input",
-      `Jarvis isn't in #${name}. Invite @Jarvis there first: it posts only where it's been invited.`,
+      `The Jarvis bot isn't in #${name}. Invite @Jarvis there first: it posts only where it's been invited.`,
     );
   const guests = new Set(
     (await ask(() => api.users(token))).filter((u) => u.guest).map((u) => u.id),

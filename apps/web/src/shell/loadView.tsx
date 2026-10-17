@@ -20,7 +20,7 @@ import {
 /** Why a screen's code couldn't be loaded: Hearth was updated, or the PC didn't answer. */
 export class ViewLoadError extends Error {
   constructor(readonly why: "updated" | "offline") {
-    super(why === "updated" ? "Hearth was updated" : "Couldn't load this screen");
+    super(why === "updated" ? "Nook was updated" : "Couldn't load this screen");
   }
 }
 

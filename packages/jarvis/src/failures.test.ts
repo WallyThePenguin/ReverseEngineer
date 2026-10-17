@@ -52,7 +52,7 @@ describe("friendlyError", () => {
   it("says when Jarvis will try again, and offers Retry only when it won't", () => {
     const later = friendlyError("overloaded", { ...c, retryAt: new Date("2026-10-01T14:05:00Z") });
     expect(later).toEqual({
-      text: "Claude is overloaded right now. Jarvis will try again at 10:05 a.m.",
+      text: "Claude is overloaded right now. Pip will try again at 10:05 a.m.",
       retry: false,
     });
     expect(friendlyError("overloaded", c).retry).toBe(true);
@@ -61,7 +61,7 @@ describe("friendlyError", () => {
       retryAt: new Date("2026-10-02T13:00:00Z"),
     });
     expect(tomorrow.text).toBe(
-      "You've hit your Claude usage limit. Jarvis will try again tomorrow at 9 a.m.",
+      "You've hit your Claude usage limit. Pip will try again tomorrow at 9 a.m.",
     );
   });
 

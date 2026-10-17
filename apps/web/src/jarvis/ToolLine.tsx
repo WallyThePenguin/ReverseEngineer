@@ -16,10 +16,10 @@ export function OutsideNote(props: { source: string | null | undefined }) {
   return (
     <p
       class="flex items-center gap-2 text-xs text-muted"
-      title="Text from outside Hearth could try to steer Jarvis, so for the rest of this conversation it checks with you before acting outside it. A new conversation starts fresh."
+      title="Text from outside Nook could try to steer Pip, so for the rest of this conversation it checks with you before acting outside it. A new conversation starts fresh."
     >
       <Badge tone="warn">Read {props.source || "outside content"}</Badge>
-      <span>Jarvis checks with you before acting here. A new conversation starts fresh.</span>
+      <span>Pip checks with you before acting here. A new conversation starts fresh.</span>
     </p>
   );
 }
@@ -45,7 +45,7 @@ function Asked(props: { approvalId: string; summary: string | null }) {
   return (
     <ApprovalCard
       approvalId={props.approvalId}
-      what={`Jarvis asks: ${parts().what ?? "something that needs your yes (see the inbox)"}`}
+      what={`Pip asks: ${parts().what ?? "something that needs your yes (see the inbox)"}`}
       text={isWaiting(props.approvalId, status()) ? parts().text : null}
       status={status()}
       always={alwaysAllowWords(pending.data?.find((a) => a.id === props.approvalId))}

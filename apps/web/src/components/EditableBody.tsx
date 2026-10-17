@@ -58,7 +58,7 @@ export function EditableBody(props: {
         onBlur={() => void finish()}
         rows={props.rows ?? 10}
         autofocus
-        placeholder="Write… type @ to link a task, note or person, or @Jarvis to ask for help."
+        placeholder="Write… type @ to link a task, note or person, or @Pip to ask for help."
       />
       <p class="mt-1 text-xs text-faint">Saves when you click away or press Ctrl+Enter.</p>
     </Show>

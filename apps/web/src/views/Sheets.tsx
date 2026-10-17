@@ -57,7 +57,7 @@ export function Sheets(props: { pane: number }) {
           when={list().length > 0}
           fallback={
             <NoRows query={sheets} what="your spreadsheets">
-              No spreadsheets yet. A spreadsheet works out Excel-style formulas, and Jarvis can read
+              No spreadsheets yet. A spreadsheet works out Excel-style formulas, and Pip can read
               and fill it in.
             </NoRows>
           }

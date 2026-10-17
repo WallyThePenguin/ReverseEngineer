@@ -37,7 +37,7 @@ export const turnActions = [
   defineAction({
     name: "jarvis.cancel_turn",
     description:
-      "Stop Jarvis: the turn running in a conversation (or one turn), and any waiting to start.",
+      "Stop Pip: the turn running in a conversation (or one turn), and any waiting to start.",
     input: z
       .object({ turnId: id.optional(), conversationId: id.optional() })
       .refine((i) => i.turnId || i.conversationId, "Say which turn or conversation to stop."),
@@ -69,7 +69,7 @@ export const turnActions = [
       // "stopped" also tells chat.reply not to answer a message Jarvis hasn't even seen yet
       // (it was down): stopping a conversation lets go of everything sent before.
       const stopped = async (conversationId: string, turnId: string | null) => {
-        const payload = { text: "Stopped before Jarvis started.", stopped: true };
+        const payload = { text: "Stopped before Pip started.", stopped: true };
         const [idx] = await appendLog(
           ctx.tx,
           conversationId,
@@ -92,7 +92,7 @@ export const turnActions = [
   }),
   defineAction({
     name: "jarvis.retry_turn",
-    description: "Run a Jarvis turn that failed or was stopped again, as it was first asked.",
+    description: "Run a Pip turn that failed or was stopped again, as it was first asked.",
     input: z.object({ turnId: id }),
     risk: "internal",
     callers: ["owner"],

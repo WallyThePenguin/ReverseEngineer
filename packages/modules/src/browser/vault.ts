@@ -117,7 +117,7 @@ export const vaultActions = [
   defineAction({
     name: "vault.logins",
     description:
-      "The sites Jarvis can sign in to by itself (browser_sign_in), with their usernames. Passwords are never shown.",
+      "The sites Pip can sign in to by itself (browser_sign_in), with their usernames. Passwords are never shown.",
     input: z.object({}),
     risk: "read",
     callers: CALLERS,
@@ -133,7 +133,7 @@ export const vaultActions = [
   }),
   defineAction({
     name: "vault.save",
-    description: "Save a sign-in Jarvis may use on one site, or change its password.",
+    description: "Save a sign-in Pip may use on one site, or change its password.",
     input: z.object({
       site,
       username: z.string().trim().min(1).max(300),

@@ -185,11 +185,9 @@ export function askRow(
       whole: false,
     };
   }
-  const asks = `${who(a.requestedBy)} asks: `;
-  const title =
-    a.requestedBy === "jarvis" && parts.what.startsWith(asks)
-      ? parts.what.slice(asks.length)
-      : parts.what;
+  // The inbox's card may still name it by its stored name, Jarvis (D74).
+  const asks = a.requestedBy === "jarvis" ? /^(?:Pip|Jarvis) asks: / : null;
+  const title = asks ? parts.what.replace(asks, "") : parts.what;
   return { title, sub: null, whole: parts.text === null };
 }
 
@@ -233,7 +231,7 @@ export function approveAllResult(items: readonly ApprovedItem[]): ApproveAllResu
         i.message ??
         (i.outcome === "changed"
           ? "It changed before your yes reached it."
-          : "Hearth couldn't do it."),
+          : "Nook couldn't do it."),
       draftId: sendDraftId(i.approval),
     }));
   if (!missed.length) return { text: `${done} approved.`, ok: true, missed };

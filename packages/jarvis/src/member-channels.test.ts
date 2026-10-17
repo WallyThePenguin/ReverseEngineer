@@ -93,7 +93,7 @@ describe("turning a channel on", () => {
     const [ch] = await t.h.tdb.db.select().from(slackChannel).where(eq(slackChannel.id, "CLAUNCH"));
     expect(ch!.jarvisTier).toBe("off");
     const [card] = await t.cards("slack.channel_off");
-    expect(card).toMatchObject({ title: "Jarvis stopped answering in #launch" });
+    expect(card).toMatchObject({ title: "The Jarvis bot stopped answering in #launch" });
     expect(card!.body).toContain("A guest is in it.");
     // From then on, an @mention there gets the note, not a turn.
     await mention(SAM, "CLAUNCH", "are we shipping?");
@@ -120,7 +120,7 @@ describe("turning a channel on", () => {
     const [ch] = await t.h.tdb.db.select().from(slackChannel).where(eq(slackChannel.id, "CLAUNCH"));
     expect(ch!.jarvisTier).toBe("off");
     expect((await t.cards("slack.channel_off")).map((c) => c.title)).toEqual([
-      "Jarvis stopped answering in #launch",
+      "The Jarvis bot stopped answering in #launch",
     ]);
     // Off already, it's refused as before, with nothing turned.
     expect((await turnOn("CLAUNCH")).status).toBe("error");

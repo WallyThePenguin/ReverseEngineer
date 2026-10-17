@@ -54,8 +54,8 @@ const syncFailed: ReflexDef = {
       if (a?.since?.toISOString() !== p.since) return [];
     }
     const what = p.reconnect
-      ? `Google stopped accepting Hearth's access to ${String(p.account)}. Connect it again in Settings; your changes wait until then.`
-      : `Hearth hasn't been able to sync ${String(p.account ?? "your mail")} for a while. It keeps trying every minute.`;
+      ? `Google stopped accepting Nook's access to ${String(p.account)}. Connect it again in Settings; your changes wait until then.`
+      : `Nook hasn't been able to sync ${String(p.account ?? "your mail")} for a while. It keeps trying every minute.`;
     // One notice per run of failures, so a second outage on the same day still tells you.
     const dedupeKey =
       typeof p.accountId === "string" && typeof p.since === "string"
@@ -89,7 +89,7 @@ const changeFailed: ReflexDef = {
         notification: {
           kind: "system.alert",
           title: "A mail change didn't stick",
-          body: `Gmail refused it, so Hearth put the conversation back as it was: ${String(event.payload.error ?? "")}`,
+          body: `Gmail refused it, so Nook put the conversation back as it was: ${String(event.payload.error ?? "")}`,
           entityId: event.entityId,
           urgency: "quiet",
           dedupeKey: `mail.change_failed:${event.id}`,

@@ -20,7 +20,7 @@ const STALLED_DAYS = 5;
 export const tasksModule = defineModule({
   name: "tasks",
   description:
-    "Tasks with status, priority, due dates and an assignee. Jarvis works tasks assigned to it.",
+    "Tasks with status, priority, due dates and an assignee. Pip works tasks assigned to it (assignee jarvis).",
   entityTypes: ["task"],
   events: [
     { kind: "task.status_changed", description: "A task moved. Payload: number, title, from, to." },

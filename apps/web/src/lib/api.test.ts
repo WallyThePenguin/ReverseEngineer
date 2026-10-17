@@ -11,8 +11,8 @@ const reply = (status: number, body: string, type = "application/json") =>
 
 afterEach(() => vi.unstubAllGlobals());
 
-const DOWN = "Hearth's database isn't reachable right now. Try again in a moment.";
-const UNREACHABLE = "Can't reach Hearth right now. Try again in a moment.";
+const DOWN = "Nook's database isn't reachable right now. Try again in a moment.";
+const UNREACHABLE = "Can't reach Nook right now. Try again in a moment.";
 
 describe("replies that aren't a result", () => {
   it("show Hearth's own reason, for an action or an approval", async () => {

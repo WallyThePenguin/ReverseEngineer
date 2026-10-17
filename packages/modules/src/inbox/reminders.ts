@@ -307,7 +307,7 @@ export const reminderActions = [
       if (!vouchesForDeadline(ctx.caller) && !outsideHere)
         throw new ActionError(
           "forbidden",
-          "After reading outside content, Jarvis can cancel only a reminder it set from this conversation after reading it. The owner can cancel any in Settings, under Coming up.",
+          "After reading outside content, Pip can cancel only a reminder it set from this conversation after reading it. The owner can cancel any in Settings, under Coming up.",
         );
       await cancelSchedule(ctx.tx, `reminder:${i.id}`);
       return { canceled: true };
@@ -318,7 +318,7 @@ export const reminderActions = [
 export const ringReminder: ReflexDef = {
   name: "reminder.ring",
   description:
-    "When a reminder's minute comes, it rings: an interrupt in the inbox, even while Jarvis is paused.",
+    "When a reminder's minute comes, it rings: an interrupt in the inbox, even while Pip is paused.",
   mode: "always",
   on: ["clock.fired"],
   async run(event, ctx) {
@@ -331,18 +331,18 @@ export const ringReminder: ReflexDef = {
     const { timeZone } = await getSetting(ctx.db, "owner.dayRules");
     const said = [
       ...(lateBy > LATE_MS
-        ? [`For ${whenFor(due, ctx.now, timeZone)}; Hearth wasn't running then.`]
+        ? [`For ${whenFor(due, ctx.now, timeZone)}; Nook wasn't running then.`]
         : []),
       ...(p.vouched !== true
         ? [
             p.asked !== true
-              ? "Jarvis set this after reading an email or a message, so it can't wake you."
+              ? "Pip set this after reading an email or a message, so it can't wake you."
               : p.heard === true
                 ? "You asked for this aloud rather than typed it, so it can't wake you."
                 : "You asked for this in a conversation that had read an email or a message, so it can't wake you.",
           ]
         : p.by === PRINCIPAL.jarvis && p.origin !== "owner"
-          ? ["Jarvis set this."]
+          ? ["Pip set this."]
           : []),
     ];
     return [

@@ -9,7 +9,7 @@ import { centerOf, checkName, entryOf, hitAt, reaches, type Target } from "./loc
 import { aimRef, assertMayPress, type Inspect, inspect } from "./pointer.ts";
 
 const NO_PASSWORDS = "Passwords are typed only by browser_sign_in, from the owner's vault.";
-const NO_CARDS = "Card and bank details are never Jarvis's to type; the owner types those.";
+const NO_CARDS = "Card and bank details are never Pip's to type; the owner types those.";
 
 /** What has the keyboard's focus, followed into frames (from other sites too). */
 export async function focused(d: DriverContext): Promise<Target | null> {

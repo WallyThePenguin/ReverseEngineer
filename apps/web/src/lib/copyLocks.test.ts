@@ -318,7 +318,7 @@ describe("the first read", () => {
   it("is tried again as soon as the browser is back online", async () => {
     down = true;
     const p = await board();
-    expect(p.saver.problem()).toMatch(/can't reach Hearth/);
+    expect(p.saver.problem()).toMatch(/can't reach Nook/);
     down = false;
     window.dispatchEvent(new Event("online"));
     await vi.advanceTimersByTimeAsync(0);
@@ -331,12 +331,12 @@ describe("the first read", () => {
     forbid = "Not yours.";
     const b = await board();
     expect(b.saver.problem()).toBe(
-      "Hearth didn't open this board, so it can't be changed here: Not yours.",
+      "Nook didn't open this board, so it can't be changed here: Not yours.",
     );
     // Meeting notes too: the box stays read-only, and this says why under it.
     const m = await notes();
     expect(m.saver.problem()).toBe(
-      "Hearth didn't open this meeting, so it can't be changed here: Not yours.",
+      "Nook didn't open this meeting, so it can't be changed here: Not yours.",
     );
   });
 
@@ -365,7 +365,7 @@ describe("the first read", () => {
     down = true;
     const m = await notes("Agenda\nOwner: TBD");
     expect(m.saver.problem()).toBe(
-      "Can't open this meeting right now: can't reach Hearth. Trying again…",
+      "Can't open this meeting right now: can't reach Nook. Trying again…",
     );
     m.edit((t) => t.replace("TBD", "Sam"));
     await vi.advanceTimersByTimeAsync(5_000);

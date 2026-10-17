@@ -208,8 +208,7 @@ const companyActions = [
 
 export const peopleModule = defineModule({
   name: "people",
-  description:
-    "People and companies you know, built from mail and meetings, and agents like Jarvis.",
+  description: "People and companies you know, built from mail and meetings, and agents like Pip.",
   entityTypes: ["person", "company", "agent"],
   events: [],
   knowledge: {

@@ -112,7 +112,7 @@ export function MeetingPanel(props: { id: string }) {
             when={v().summary}
             fallback={
               <Show when={v().endedAt}>
-                <p class="text-sm text-muted">Jarvis is writing the summary…</p>
+                <p class="text-sm text-muted">Pip is writing the summary…</p>
               </Show>
             }
           >

@@ -303,7 +303,7 @@ function pageElements(rules) {
       return {
         sends: true,
         floor: isCard(el) ? "payment" : null,
-        why: "press something inside an embedded frame Hearth can't see into",
+        why: "press something inside an embedded frame Nook can't see into",
       };
     const kind = kindOf(el);
     const form = formOf(el);

@@ -39,7 +39,7 @@ function allows(s: Source) {
   if (s.mode !== "approve_writes")
     throw new ActionError(
       "forbidden",
-      `${s.label} is read-only. You can let Jarvis ask to make changes there in Settings, Data sources.`,
+      `${s.label} is read-only. You can let Pip ask to make changes there in Settings, Data sources.`,
     );
 }
 
@@ -53,7 +53,7 @@ function same(given: Where | undefined, now: Where, caller: Caller) {
   if (!given && caller.kind !== "owner")
     throw new ActionError(
       "conflict",
-      "Hearth couldn't show the owner where this would change, so nothing was changed.",
+      "Nook couldn't show the owner where this would change, so nothing was changed.",
     );
 }
 
@@ -62,7 +62,7 @@ const unsure = (err: unknown): never => {
   if (err instanceof ConvexError && err.kind === "unreachable")
     throw new ActionError(
       "unavailable",
-      `${err.message} Hearth can't tell whether the change was made, so look before asking again.`,
+      `${err.message} Nook can't tell whether the change was made, so look before asking again.`,
     );
   return said(err);
 };
@@ -79,7 +79,7 @@ export const changeActions = [
   defineAction({
     name: "data.set_mode",
     description:
-      "Whether Jarvis only reads a data source (read) or may also ask to change it (approve_writes), each change on your yes.",
+      "Whether Pip only reads a data source (read) or may also ask to change it (approve_writes), each change on your yes.",
     input: z.object({ source: sourceId, mode: z.enum(["read", "approve_writes"]) }),
     risk: "internal",
     callers: ["owner"],

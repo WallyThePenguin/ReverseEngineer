@@ -72,7 +72,7 @@ export function usePush() {
     setBusy(true);
     try {
       if ((await Notification.requestPermission()) !== "granted") {
-        toast.show("Notifications are blocked for Hearth. Allow them in this device's settings.");
+        toast.show("Notifications are blocked for Nook. Allow them in this device's settings.");
         return;
       }
       const reg = await navigator.serviceWorker.ready;

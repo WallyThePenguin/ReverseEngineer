@@ -16,7 +16,7 @@ const TRIGGER_NOTES: Record<TurnTrigger, string> = {
   approval:
     "The owner just decided something you asked for. Continue the work if anything is left.",
   watch: "Something you were asked to watch for happened. Decide whether it needs anything.",
-  reflex: "An event in Hearth needs a look. Decide on the lightest outcome that does the job.",
+  reflex: "An event in Nook needs a look. Decide on the lightest outcome that does the job.",
   routine:
     "This is one of your scheduled routines. Nobody is waiting on a reply; use your tools to publish results.",
   voice_command:

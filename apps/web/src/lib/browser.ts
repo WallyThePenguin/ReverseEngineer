@@ -107,7 +107,7 @@ export async function testChrome(): Promise<SelfTestResult> {
     credentials: "same-origin",
   }).catch(() => null);
   if (!res)
-    throw new Error("Couldn't reach Hearth to run the test. Check it's running, then try again.");
+    throw new Error("Couldn't reach Nook to run the test. Check it's running, then try again.");
   const body = (await res.json().catch(() => ({}))) as Partial<SelfTestResult> & { error?: string };
   if (!res.ok || !body.steps) throw new Error(body.error ?? "Couldn't run the test.");
   return body as SelfTestResult;

@@ -9,7 +9,7 @@ import { id, writtenOutside } from "../shared.ts";
 
 export const approvalsModule = defineModule({
   name: "approvals",
-  description: "Things waiting for your yes, and the standing rules that let Jarvis skip asking.",
+  description: "Things waiting for your yes, and the standing rules that let Pip skip asking.",
   entityTypes: [],
   events: [],
   kernelEvents: ["approval.requested", "approval.resolved"],
@@ -36,7 +36,7 @@ export const approvalsModule = defineModule({
     }),
     defineAction({
       name: "standing_rule.list",
-      description: "List the actions Jarvis may take without asking.",
+      description: "List the actions Pip may take without asking.",
       input: z.object({}),
       risk: "read",
       handler: (_i, ctx) => ctx.tx.select().from(standingRule).orderBy(asc(standingRule.action)),
@@ -44,7 +44,7 @@ export const approvalsModule = defineModule({
     defineAction({
       name: "standing_rule.create",
       description:
-        "Let Jarvis take an action without asking. Never applies to work triggered by outside content.",
+        "Let Pip take an action without asking. Never applies to work triggered by outside content.",
       input: z.object({ action: z.string().min(3), note: z.string().max(500).default("") }),
       risk: "internal",
       callers: ["owner"],
@@ -53,7 +53,7 @@ export const approvalsModule = defineModule({
     }),
     defineAction({
       name: "standing_rule.delete",
-      description: "Remove a standing rule, so Jarvis asks again.",
+      description: "Remove a standing rule, so Pip asks again.",
       input: z.object({ id }),
       risk: "internal",
       callers: ["owner"],
@@ -70,7 +70,7 @@ export const approvalsModule = defineModule({
     {
       name: "approvals.resume_jarvis",
       description:
-        "After you approve or deny something Jarvis asked for, it picks up where it left off.",
+        "After you approve or deny something Pip asked for, it picks up where it left off.",
       mode: "reactive",
       on: ["approval.resolved"],
       run(event) {

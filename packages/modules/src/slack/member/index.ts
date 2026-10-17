@@ -43,7 +43,7 @@ const theirWords = (text: string) => plainText(text, new Map()).trim();
 export const memberModule = defineModule({
   name: "member",
   description:
-    "What someone in your Slack workspace can ask Jarvis for: your free time, a message passed on to you, or a meeting request. Only their own Jarvis turns call these.",
+    "What someone in your Slack workspace can ask the Jarvis bot for: your free time, a message passed on to you, or a meeting request. Only their own turns call these.",
   entityTypes: [RELAY_TYPE],
   // Members write these: reading one makes the rest of a turn untrusted (D58, D62).
   outsideTypes: [RELAY_TYPE],
@@ -89,7 +89,7 @@ export const memberModule = defineModule({
     defineAction({
       name: "member.leave_message",
       description:
-        "Pass a message on to the owner, who reads it in Hearth. Use it when they want the owner to know something, or you can't help them.",
+        "Pass a message on to the owner, who reads it in Nook. Use it when they want the owner to know something, or you can't help them.",
       input: z.object({
         text: z.string().trim().min(1).max(2000),
         urgent: z.boolean().default(false),
@@ -106,7 +106,7 @@ export const memberModule = defineModule({
           urgent: i.urgent,
           vip: m.user.vip,
         });
-        return { passedOn: true, note: "The owner will see it in Hearth." };
+        return { passedOn: true, note: "The owner will see it in Nook." };
       },
     }),
     defineAction({

@@ -28,7 +28,7 @@ export function buildMcpServer(kernel: Kernel, caller: Caller): Server {
     {
       capabilities: { tools: {} },
       instructions:
-        "Hearth is the owner's personal workspace (tasks, notes, people, inbox). Read freely. Writes are recorded under your name; risky ones wait for the owner's approval.",
+        "Nook is the owner's personal workspace (tasks, notes, people, inbox). Read freely. Writes are recorded under your name; risky ones wait for the owner's approval.",
     },
   );
   const actions = kernel.registry.allActions().filter((a) => isVisibleTo(a, caller.kind));
@@ -43,7 +43,7 @@ export function buildMcpServer(kernel: Kernel, caller: Caller): Server {
       })),
       {
         name: "record_read",
-        description: "Read any record in Hearth by id: its contents and what links to it.",
+        description: "Read any record in Nook by id: its contents and what links to it.",
         inputSchema: {
           type: "object" as const,
           properties: { id: { type: "string", format: "uuid" } },
@@ -71,7 +71,7 @@ export function buildMcpServer(kernel: Kernel, caller: Caller): Server {
         return text(JSON.stringify(result.result ?? null));
       case "pending_approval":
         return text(
-          `Waiting for the owner's approval in Hearth: ${result.summary} (approval ${result.approvalId}).`,
+          `Waiting for the owner's approval in Nook: ${result.summary} (approval ${result.approvalId}).`,
         );
       case "denied":
         return text(`Not allowed: ${result.reason}`, true);
@@ -106,7 +106,7 @@ export function mcpRoutes() {
   app.use("*", async (c, next) => {
     if (!(await mcpEnabled(c.get("deps").kernel.db)))
       return c.json(
-        { error: "Hearth's MCP server is off. Run `hearth token create <name>` to turn it on." },
+        { error: "Nook's MCP server is off. Run `hearth token create <name>` to turn it on." },
         404,
       );
     await next();

@@ -106,7 +106,7 @@ export function Samples() {
       rec.start();
       setRecording(rec);
     } catch {
-      toast.show("Hearth couldn't use the microphone. Allow it for this page and try again.");
+      toast.show("Nook couldn't use the microphone. Allow it for this page and try again.");
     }
   };
   const stop = () => {
@@ -117,7 +117,7 @@ export function Samples() {
   return (
     <div class="space-y-4 px-4 py-4">
       <p class="text-sm text-muted">
-        Read each line aloud the way you'd dictate it. Hearth keeps the recordings on this PC so the
+        Read each line aloud the way you'd dictate it. Nook keeps the recordings on this PC so the
         speech engines can be compared on your voice. About {lines().length} lines; any number
         helps.
       </p>

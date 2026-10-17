@@ -78,14 +78,14 @@ export const docActions = [
       try {
         from = i.version ? VersionVector.decode(decode(i.version)) : undefined;
       } catch {
-        throw new ActionError("invalid_input", "That version isn't one Hearth can read.");
+        throw new ActionError("invalid_input", "That version isn't one Nook can read.");
       }
       let added = 0;
       if (i.update) {
         try {
           if (await applyUpdate(ctx, row.id, doc, decode(i.update))) added = 1;
         } catch {
-          throw new ActionError("invalid_input", "That update isn't one Hearth can read.");
+          throw new ActionError("invalid_input", "That update isn't one Nook can read.");
         }
       }
       let revision = row.revision;

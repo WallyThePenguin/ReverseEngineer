@@ -32,7 +32,7 @@ export interface Did {
 export const didAction = defineAction({
   name: "jarvis.did",
   description:
-    "What Jarvis did since a time, one line per thing (drafts, tasks, events, prep, the brief, the journal), newest first.",
+    "What Pip did since a time, one line per thing (drafts, tasks, events, prep, the brief, the journal), newest first.",
   input: z.object({ since: isoDateTime, limit: z.number().int().min(1).max(200).default(50) }),
   risk: "read",
   async handler(i, ctx): Promise<Did[]> {

@@ -114,7 +114,7 @@ export class ChromiumBrowser implements BrowserClient {
         return (await this.open(String(params.url), false)) as T;
       case "tabs.close": {
         const tab = this.tab(params.tabId);
-        if (tab.handed) throw new HearthError("not_yours", "Jarvis can only close tabs it opened.");
+        if (tab.handed) throw new HearthError("not_yours", "Pip can only close tabs it opened.");
         this.forget(tab);
         await tab.page.close();
         return {} as T;
@@ -125,7 +125,7 @@ export class ChromiumBrowser implements BrowserClient {
         return {} as T;
       case "tabs.show":
         if (this.tab(params.tabId).handed)
-          throw new HearthError("not_yours", "Only Jarvis's own tabs can be switched to.");
+          throw new HearthError("not_yours", "Only Pip's own tabs can be switched to.");
         return {} as T;
       case "cdp":
         return (await this.cdp(params)) as T;
@@ -166,8 +166,7 @@ export class ChromiumBrowser implements BrowserClient {
 
   private tab(tabId: unknown): Tab {
     const tab = this.tabs.find((t) => t.id === tabId);
-    if (!tab)
-      throw new HearthError("not_yours", "That tab isn't Jarvis's and wasn't handed to it.");
+    if (!tab) throw new HearthError("not_yours", "That tab isn't Pip's and wasn't handed to it.");
     return tab;
   }
 

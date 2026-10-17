@@ -80,7 +80,7 @@ async function setupState(tx: DbOrTx) {
 
 export const systemModule = defineModule({
   name: "system",
-  description: "Hearth's own health: services, syncs and backups, and pausing Jarvis.",
+  description: "Nook's own health: services, syncs and backups, and pausing Pip.",
   entityTypes: [],
   events: [
     {
@@ -93,7 +93,7 @@ export const systemModule = defineModule({
     },
     {
       kind: "jarvis.paused_changed",
-      description: "You paused or resumed Jarvis's proactive work. Payload: paused.",
+      description: "You paused or resumed Pip's proactive work. Payload: paused.",
     },
   ],
   knowledge: {},
@@ -101,7 +101,7 @@ export const systemModule = defineModule({
     defineAction({
       name: "system.status",
       description:
-        "Report Hearth's health: each component, the next scheduled routines, and whether Jarvis is paused.",
+        "Report Nook's health: each component, the next scheduled routines, and whether Pip is paused.",
       input: z.object({}),
       risk: "read",
       async handler(_i, ctx) {
@@ -136,7 +136,7 @@ export const systemModule = defineModule({
     }),
     defineAction({
       name: "system.report",
-      description: "Record a component's health (used by Hearth's services).",
+      description: "Record a component's health (used by Nook's services).",
       input: z.object({
         component: z.string().regex(/^[a-z0-9_.-]+$/),
         status: STATUS,
@@ -192,7 +192,7 @@ export const systemModule = defineModule({
     }),
     defineAction({
       name: "jarvis.pause",
-      description: "Pause Jarvis's proactive work. It still answers when you talk to it.",
+      description: "Pause Pip's proactive work. It still answers when you talk to it.",
       input: z.object({}),
       risk: "internal",
       callers: ["owner"],
@@ -204,7 +204,7 @@ export const systemModule = defineModule({
     }),
     defineAction({
       name: "jarvis.resume",
-      description: "Resume Jarvis's proactive work.",
+      description: "Resume Pip's proactive work.",
       input: z.object({}),
       risk: "internal",
       callers: ["owner"],
@@ -232,7 +232,7 @@ export const systemModule = defineModule({
     if (await getSetting(ctx.db, "jarvis.paused"))
       items.push({
         bucket: "fyi",
-        text: "Jarvis is paused: no proactive work until you resume it",
+        text: "Pip is paused: no proactive work until you resume it",
       });
     return items;
   },

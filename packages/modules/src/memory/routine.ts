@@ -50,7 +50,7 @@ async function ownerWords(db: Db, since: Date): Promise<string[]> {
 export const consolidateRoutine: RoutineDef = {
   name: "memory",
   description:
-    "The nightly memory update at 1:45 a.m.: Jarvis keeps its notes about you current from the day.",
+    "The nightly memory update at 1:45 a.m.: Pip keeps its notes about you current from the day.",
   cron: "45 1 * * *",
   staleAfterSeconds: 5 * 3600,
   async run(firing, ctx) {

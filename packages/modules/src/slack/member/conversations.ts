@@ -106,7 +106,7 @@ export const conversationActions = [
   defineAction({
     name: "slack.conversations",
     description:
-      "Jarvis's conversations with people in your Slack, most recent first: each member's DM and each channel thread it answered in.",
+      "The Jarvis bot's conversations with people in your Slack, most recent first: each member's DM and each channel thread it answered in.",
     input: z.object({ limit: z.number().int().min(1).max(200).default(50) }),
     risk: "read",
     // Their names and words: the screens are the only reader.
@@ -127,7 +127,8 @@ export const conversationActions = [
   }),
   defineAction({
     name: "slack.conversation",
-    description: "Who a conversation of Jarvis's in Slack is with, where, and whether it's paused.",
+    description:
+      "Who one of the Jarvis bot's Slack conversations is with, where, and whether it's paused.",
     input: z.object({ id }),
     risk: "read",
     callers: ["owner"],
@@ -139,7 +140,7 @@ export const conversationActions = [
   defineAction({
     name: "slack.conversation_pause",
     description:
-      "Pause Jarvis in one of its Slack conversations for some hours, so what's written there is passed on to you instead, or resume it (0 hours).",
+      "Pause the Jarvis bot in one of its Slack conversations for some hours, so what's written there is passed on to you instead, or resume it (0 hours).",
     input: z.object({ id, hours: z.number().int().min(0).max(PAUSE_MAX_HOURS) }),
     risk: "internal",
     // Only you: a pause is how you take a conversation over (D62).
@@ -175,6 +176,6 @@ export async function memberDigest(ctx: ReadContext & { since: Date }): Promise<
   const n = row?.messages ?? 0;
   if (!n) return [];
   const p = row?.people ?? 0;
-  const text = `Jarvis answered ${n} Slack message${n === 1 ? "" : "s"} from ${p} ${p === 1 ? "person" : "people"}.`;
+  const text = `The Jarvis bot answered ${n} Slack message${n === 1 ? "" : "s"} from ${p} ${p === 1 ? "person" : "people"}.`;
   return [{ bucket: "handled", text, outside: true }];
 }

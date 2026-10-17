@@ -147,7 +147,7 @@ export function Inbox(props: { pane: number }) {
                 </Show>
                 <Empty>
                   {view() === "live"
-                    ? "Nothing needs you. Jarvis will put things here."
+                    ? "Nothing needs you. Pip will put things here."
                     : "Nothing here."}
                 </Empty>
               </>

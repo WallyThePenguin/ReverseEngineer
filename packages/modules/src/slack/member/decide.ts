@@ -54,7 +54,7 @@ async function looping(ctx: ActionContext, c: Conversation): Promise<boolean> {
   c.thread = { ...c.thread, pausedUntil: until };
   await createNotification(ctx, {
     kind: "slack.loop",
-    title: `Jarvis paused its Slack conversation with ${c.who.name} for an hour`,
+    title: `The Jarvis bot paused its Slack conversation with ${c.who.name} for an hour`,
     body: `It posted there ${LOOP_POSTS} times in ten minutes, which looks like a loop. Their messages are passed on to you meanwhile.`,
     entityId: c.thread.conversationId,
     lane: "signal",

@@ -25,13 +25,13 @@ export function setupSteps(s: SystemStatus | undefined, asOf = Date.now()): Setu
   return [
     {
       id: "jarvis",
-      label: "Jarvis is running",
+      label: "Pip is running",
       done: s.jarvisAlive !== null && !jarvis.unwell,
       detail:
         s.jarvisAlive === null
-          ? "Jarvis hasn't started yet. Start the Jarvis service on the PC."
+          ? "Pip hasn't started yet. On the PC, start it with: hearth restart jarvis"
           : jarvis.downSince
-            ? "Jarvis stopped. Hearth is trying to restart it."
+            ? "Pip stopped. Nook is trying to restart it."
             : (jarvis.detail ?? ""),
       section: "jarvis",
     },
@@ -39,28 +39,28 @@ export function setupSteps(s: SystemStatus | undefined, asOf = Date.now()): Setu
       id: "google",
       label: "Connect Google for mail and calendar",
       done: s.setup.google,
-      detail: "Jarvis reads and sorts your mail and keeps your calendar.",
+      detail: "Pip reads and sorts your mail and keeps your calendar.",
       section: "google",
     },
     {
       id: "chrome",
-      label: "Pair Chrome so Jarvis can use the web as you",
+      label: "Pair Chrome so Pip can use the web as you",
       done: s.setup.chrome,
-      detail: "Install Hearth's extension in Chrome and pair it with a code.",
+      detail: "Install Nook's extension in Chrome and pair it with a code.",
       section: "chrome",
     },
     {
       id: "phone",
       label: "Get alerts on your phone",
       done: s.setup.phone,
-      detail: "Open Hearth on your phone, add it to the home screen, and turn on notifications.",
+      detail: "Open Nook on your phone, add it to the home screen, and turn on notifications.",
       section: "phone",
     },
     {
       id: "desktop",
       label: "Pair the desktop app for dictation and Talk",
       done: s.setup.desktop,
-      detail: "Install Hearth's desktop app on the PC and pair it with a code.",
+      detail: "Install Nook's desktop app on the PC and pair it with a code.",
       section: "desktop",
     },
     {

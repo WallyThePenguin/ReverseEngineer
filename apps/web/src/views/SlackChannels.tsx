@@ -42,9 +42,9 @@ export function OwnerDmSwitch(props: { ownerDmAnswers: "fixed" | "full" }) {
         }
       />
       <span>
-        Answer my own DMs to Jarvis in full
+        Answer my own DMs to the Jarvis bot in full
         <span class="block text-xs text-muted">
-          Off, Slack only hears "Got it, it's in Hearth", then "Done" or "Needs your yes in Hearth":
+          Off, Slack only hears "Got it, it's in Nook", then "Done" or "Needs your yes in Nook":
           Slack keeps and exports what's posted there.
         </span>
       </span>
@@ -63,7 +63,7 @@ function ChannelRow(props: { c: Channel }) {
       ...(patch.replies ? { replies: patch.replies } : {}),
     });
     // Asking for more failed the check: the channel is off now, and this says why.
-    if (r?.off) toast.show(`Jarvis stopped answering in #${props.c.name}: ${r.off}`);
+    if (r?.off) toast.show(`The Jarvis bot stopped answering in #${props.c.name}: ${r.off}`);
     return r;
   };
   return (
@@ -76,7 +76,7 @@ function ChannelRow(props: { c: Channel }) {
       </div>
       <select
         class={select}
-        aria-label={`Jarvis in #${props.c.name}`}
+        aria-label={`The Jarvis bot in #${props.c.name}`}
         value={props.c.jarvisTier}
         onChange={(e) =>
           void orBack(
@@ -128,8 +128,8 @@ export function SlackChannels() {
     <div class="space-y-1">
       <h4 class="font-medium">Channels</h4>
       <p class="text-xs text-muted">
-        Jarvis answers @Jarvis only in channels you turn on here: ones you're in, with no guests and
-        not shared with another org. Invite @Jarvis there too. Group DMs are never on.
+        The Jarvis bot answers @Jarvis only in channels you turn on here: ones you're in, with no
+        guests and not shared with another org. Invite @Jarvis there too. Group DMs are never on.
       </p>
       <ul>
         <For each={on()}>{(c) => <ChannelRow c={c} />}</For>

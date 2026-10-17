@@ -54,10 +54,10 @@ impl Status {
     /// The tray's first line.
     pub fn line(&self) -> String {
         if !self.address_set {
-            return "Set Hearth's address in voice settings".into();
+            return "Set Nook's address in voice settings".into();
         }
         match self.server {
-            Mark::Down => return "Server ✗  Hearth isn't running".into(),
+            Mark::Down => return "Server ✗  Nook isn't running".into(),
             Mark::Ok if self.worker == Mark::Unknown && self.jarvis == Mark::Unknown => {
                 return "Server ✓  Connect this PC to see more".into()
             }
@@ -70,9 +70,9 @@ impl Status {
             Mark::Unknown => "?",
         };
         let jarvis = if self.jarvis_paused && self.jarvis == Mark::Ok {
-            "Jarvis paused".to_string()
+            "Pip paused".to_string()
         } else {
-            format!("Jarvis {}", sign(self.jarvis))
+            format!("Pip {}", sign(self.jarvis))
         };
         format!(
             "Server {}  Worker {}  {jarvis}",
@@ -203,14 +203,14 @@ async fn check(app: &AppHandle, fresh: bool) {
     if tell_down {
         toast::show(
             app,
-            "Hearth isn't running",
-            "Its server stopped answering. Right-click the Hearth icon by the clock and choose \
-             Restart Hearth services.",
+            "Nook isn't running",
+            "Its server stopped answering. Right-click the Nook icon by the clock and choose \
+             Restart Nook services.",
             Some("hearth://open/"),
         );
     }
     if tell_back {
-        toast::show(app, "Hearth is running again", "", None);
+        toast::show(app, "Nook is running again", "", None);
     }
     if changed {
         crate::tray::update_tray_menu(app);
@@ -278,7 +278,7 @@ mod tests {
             }}),
             now(),
         );
-        assert_eq!(s.line(), "Server ✓  Worker ✓  Jarvis ✓");
+        assert_eq!(s.line(), "Server ✓  Worker ✓  Pip ✓");
         assert!(!s.trouble());
     }
 
@@ -293,7 +293,7 @@ mod tests {
             }}),
             now(),
         );
-        assert_eq!(s.line(), "Server ✓  Worker ✗  Jarvis !");
+        assert_eq!(s.line(), "Server ✓  Worker ✗  Pip !");
         assert!(s.trouble() && s.other_failing);
     }
 
@@ -305,7 +305,7 @@ mod tests {
             }}),
             now(),
         );
-        assert_eq!(s.line(), "Server ✓  Worker ?  Jarvis paused");
+        assert_eq!(s.line(), "Server ✓  Worker ?  Pip paused");
         assert!(!s.trouble());
     }
 
@@ -313,7 +313,7 @@ mod tests {
     fn server_lines() {
         assert_eq!(
             Status::unknown(Mark::Down).line(),
-            "Server ✗  Hearth isn't running"
+            "Server ✗  Nook isn't running"
         );
         assert!(Status::unknown(Mark::Down).trouble());
         assert_eq!(

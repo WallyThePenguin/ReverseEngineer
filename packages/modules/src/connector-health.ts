@@ -145,7 +145,7 @@ export function syncFailedReflex(
 ): ReflexDef {
   const reconnect =
     opts.reconnect ??
-    `${label} stopped accepting Hearth's token. Paste a new one in Settings; reading waits until then.`;
+    `${label} stopped accepting Nook's token. Paste a new one in Settings; reading waits until then.`;
   return {
     name: `${module}.sync_failed`,
     description: `When ${label} stops syncing (a token to replace, or failing for half an hour), you get one notice, closed again once it syncs.`,
@@ -158,7 +158,7 @@ export function syncFailedReflex(
       if (since && (await failingSince(ctx, p))?.toISOString() !== since) return [];
       const what = p.reconnect
         ? reconnect
-        : `Hearth hasn't been able to read ${label} for a while. It keeps trying every few minutes.`;
+        : `Nook hasn't been able to read ${label} for a while. It keeps trying every few minutes.`;
       const dedupeKey = since
         ? alertKey(
             module,

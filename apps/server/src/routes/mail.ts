@@ -29,7 +29,7 @@ export function mailRoutes() {
 
   r.get("/frame/:id", async (c) => {
     const caller = c.get("caller");
-    if (caller?.kind !== "owner") return c.text("Sign in to Hearth first.", 401);
+    if (caller?.kind !== "owner") return c.text("Sign in to Nook first.", 401);
     const { kernel } = c.get("deps");
     const id = c.req.param("id");
     if (!/^[0-9a-f-]{36}$/i.test(id)) return c.text("Not found.", 404);
@@ -64,7 +64,7 @@ export function mailRoutes() {
 
   r.get("/attachment/:id/:index", async (c) => {
     const caller = c.get("caller");
-    if (caller?.kind !== "owner") return c.text("Sign in to Hearth first.", 401);
+    if (caller?.kind !== "owner") return c.text("Sign in to Nook first.", 401);
     const { kernel } = c.get("deps");
     const id = c.req.param("id");
     const index = Number(c.req.param("index"));

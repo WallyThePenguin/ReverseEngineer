@@ -41,7 +41,7 @@ export function openGoogleToken(
   } catch {
     throw new ActionError(
       "failed",
-      `Hearth can't unlock its Google sign-in for ${email}. Connect it again in Settings.`,
+      `Nook can't unlock its Google sign-in for ${email}. Connect it again in Settings.`,
     );
   }
 }

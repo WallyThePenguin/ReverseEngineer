@@ -43,7 +43,7 @@ const SAID: Record<string, Said> = {
   "memory.remember": ["Remembering something", "Remembered something"],
   "memory.recall": ["Checking what it remembers", "Checked what it remembers"],
   "memory.update": ["Updating what it remembers", "Updated what it remembers"],
-  "entity.search": ["Searching Hearth", "Searched Hearth"],
+  "entity.search": ["Searching Nook", "Searched Nook"],
   "entity.get": ["Reading a record", "Read a record"],
   "record.read": ["Reading a record", "Read a record"],
   "entity.trash": ["Moving something to the trash", "Moved something to the trash"],

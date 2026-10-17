@@ -30,10 +30,10 @@ export const isOffline = (err: unknown) =>
 
 /** Why a save that will be tried again hasn't happened yet, in plain words. */
 export function notYet(err: unknown): string {
-  if (isOffline(err)) return "Not saved yet: can't reach Hearth. Trying again…";
+  if (isOffline(err)) return "Not saved yet: can't reach Nook. Trying again…";
   if (err instanceof ApiError && err.code === "conflict")
     return "Not saved yet: it keeps changing elsewhere. Trying again…";
-  return "Not saved yet: Hearth hit a problem saving it. Trying again…";
+  return "Not saved yet: Nook hit a problem saving it. Trying again…";
 }
 
 /** Set by the app so a 401 anywhere sends you back to the sign-in screen. */
@@ -46,7 +46,7 @@ export function signedOut() {
   onSignedOut();
 }
 
-const UNREACHABLE = "Can't reach Hearth right now. Try again in a moment.";
+const UNREACHABLE = "Can't reach Nook right now. Try again in a moment.";
 
 export interface SendOptions {
   /** Gives up after this long, as if Hearth were out of reach. */
@@ -171,7 +171,7 @@ export async function getMe(): Promise<Me> {
   });
   const body = res.ok ? ((await res.json().catch(() => null)) as Me | null) : null;
   if (!body || typeof body.signedIn !== "boolean") {
-    throw new ApiError(res.status, "unreachable", "Can't reach Hearth.");
+    throw new ApiError(res.status, "unreachable", "Can't reach Nook.");
   }
   return body;
 }

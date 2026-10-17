@@ -60,7 +60,7 @@ export function keyRefusal(c: Combo, a: Active, trusted: boolean): string | null
   if (types(c) && a.password)
     return "Passwords are typed only by browser_sign_in, from the owner's vault.";
   if (types(c) && a.card)
-    return "Card and bank details are never Jarvis's to type; the owner types those.";
+    return "Card and bank details are never Pip's to type; the owner types those.";
   let v: Verdict | undefined;
   if (c.key.key === "Enter") {
     // Shift+Enter in a text box is a new line.
@@ -245,7 +245,7 @@ export const stepActions = [
       if (!found?.banner)
         throw new ActionError(
           "not_found",
-          "There's no cookie banner Hearth can see on this page. (One inside another site's frame can't be reached; read the page or take a screenshot.)",
+          "There's no cookie banner Nook can see on this page. (One inside another site's frame can't be reached; read the page or take a screenshot.)",
         );
       if (!found.found)
         throw new ActionError(

@@ -99,7 +99,7 @@ async function conversationOf(db: DbOrTx, messageId: string) {
 
 export const slackForYou: ReflexDef = {
   name: "slack.for_you",
-  description: `When someone @mentions you or messages you on Slack, Jarvis makes a task of it at its next heartbeat if it asks you to do something (up to ${SLACK_ASKS} conversations a day). Nothing is posted.`,
+  description: `When someone @mentions you or messages you on Slack, Pip makes a task of it at its next heartbeat if it asks you to do something (up to ${SLACK_ASKS} conversations a day). Nothing is posted.`,
   mode: "proactive",
   on: ["slack.mentioned"],
   async run(ev, ctx) {
@@ -133,7 +133,7 @@ export const slackForYou: ReflexDef = {
           kind: "tell",
           notification: {
             kind: "slack.busy",
-            title: `Slack's busy today: Jarvis stopped making tasks from it after ${SLACK_ASKS} conversations`,
+            title: `Slack's busy today: Pip stopped making tasks from it after ${SLACK_ASKS} conversations`,
             body: "New mentions and messages are still in the inbox. It starts again tomorrow.",
             urgency: "normal",
             dedupeKey: `slack_busy:${localDate(ctx.now, timeZone)}`,

@@ -117,7 +117,7 @@ export class GoogleTokens {
         );
       const revoked = body.error === "invalid_grant";
       const message = revoked
-        ? `Google signed Hearth out of ${email}. Connect it again in Settings.`
+        ? `Google signed Nook out of ${email}. Connect it again in Settings.`
         : `Couldn't refresh Google access for ${email}: ${body.error_description ?? res.status}`;
       await store
         .update(googleAccount)

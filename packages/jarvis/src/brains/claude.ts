@@ -186,7 +186,7 @@ export class ClaudeBrain implements Brain {
     );
     const failed = (detail: string): BrainError => {
       const f = classifyFailure(new Error(detail), sdkKind);
-      return new BrainError(f.kind, `Jarvis's model turn failed: ${detail}`, {
+      return new BrainError(f.kind, `Pip's model turn failed: ${detail}`, {
         resetsAt: f.kind === "rate_limit" ? (resetsAt ?? f.resetsAt) : null,
         toolIndex: f.toolIndex,
         tool: toolAt(order, f.toolIndex),

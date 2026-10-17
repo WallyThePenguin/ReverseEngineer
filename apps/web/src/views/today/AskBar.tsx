@@ -128,8 +128,8 @@ export function AskBar(props: { go: Go; now: Date; class?: string }) {
         <input
           ref={input}
           class="min-h-9 min-w-0 flex-1 bg-transparent outline-none placeholder:text-faint"
-          aria-label="Ask Jarvis or add a task"
-          placeholder="Ask Jarvis or add a task…"
+          aria-label="Ask Pip or add a task"
+          placeholder="Ask Pip or add a task…"
           enterkeyhint="send"
           // The box around it shows where you're typing; a second ring inside it would be noise.
           style={{ outline: "none" }}
@@ -140,8 +140,8 @@ export function AskBar(props: { go: Go; now: Date; class?: string }) {
           <button
             type="submit"
             class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-accent text-on-fill"
-            aria-label="Ask Jarvis"
-            title="Ask Jarvis (Enter)"
+            aria-label="Ask Pip"
+            title="Ask Pip (Enter)"
           >
             <Icon name="send" size={16} />
           </button>

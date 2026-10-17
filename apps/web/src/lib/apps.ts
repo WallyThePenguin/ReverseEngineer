@@ -96,7 +96,7 @@ export const APPS: readonly App[] = [
   },
   {
     id: "jarvis",
-    label: "Jarvis",
+    label: "Pip",
     icon: "mark",
     hue: "--color-jarvis",
     views: ["activity", "memory", "browser"],
@@ -144,7 +144,7 @@ export const PLACES: readonly Place[] = [
     label: "Updates",
     icon: "inbox",
     keys: "g i",
-    about: "everything Jarvis told you",
+    about: "everything Pip told you",
   },
   { view: "mail", label: "Mail", icon: "mail", keys: "g e" },
   { view: "tasks", label: "Tasks", icon: "tasks", keys: "g t", lists: ["task"] },
@@ -178,7 +178,7 @@ export const PLACES: readonly Place[] = [
     label: "Memory",
     icon: "memory",
     keys: "g m",
-    about: "what Jarvis remembers",
+    about: "what Pip remembers",
     lists: ["memory_note"],
   },
   {
@@ -197,10 +197,10 @@ export const PLACES: readonly Place[] = [
   },
   {
     view: "activity",
-    label: "What Jarvis did",
+    label: "What Pip did",
     icon: "activity",
     keys: "g a",
-    go: "what Jarvis did",
+    go: "what Pip did",
   },
   { view: "settings", label: "Settings", icon: "settings", keys: "g s" },
   {

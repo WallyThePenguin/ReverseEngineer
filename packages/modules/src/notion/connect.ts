@@ -74,7 +74,7 @@ export const connectActions = [
   defineAction({
     name: "notion.replace_token",
     description:
-      "Give Hearth a new secret for the connected Notion integration (the old one was refreshed or revoked), keeping the board and tickets read in.",
+      "Give Nook a new secret for the connected Notion integration (the old one was refreshed or revoked), keeping the board and tickets read in.",
     input: z.object({ token }),
     risk: "secret",
     callers: ["owner"],
@@ -97,7 +97,7 @@ export const connectActions = [
   defineAction({
     name: "notion.choices",
     description:
-      "The Notion databases the integration can see, and the people in the workspace, with the one Hearth thinks is you.",
+      "The Notion databases the integration can see, and the people in the workspace, with the one Nook thinks is you.",
     input: z.object({}),
     risk: "read",
     callers: ["owner"],

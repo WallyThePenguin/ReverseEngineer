@@ -134,7 +134,7 @@ async function digest(
 export const slackModule = defineModule({
   name: "slack",
   description:
-    "Slack: your team's channels and direct messages, read in with your own token, which never posts. Jarvis's own Slack bot is connected here too.",
+    "Slack: your team's channels and direct messages, read in with your own token, which never posts. The Jarvis bot in Slack is connected here too.",
   entityTypes: ["slack_message"],
   // Other people write Slack: reading it makes the rest of Jarvis's turn untrusted (D25).
   outsideTypes: ["slack_message"],
@@ -228,7 +228,7 @@ export const slackModule = defineModule({
         if (im && i.ingest)
           throw new ActionError(
             "invalid_input",
-            "Your DM with Jarvis isn't read in: Jarvis hears it.",
+            "Your DM with the Jarvis bot isn't read in: Pip hears it.",
           );
         const [row] = await ctx.tx
           .update(slackChannel)

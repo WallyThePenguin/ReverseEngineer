@@ -45,7 +45,7 @@ function top(): Item[] {
         if (await act("mail.draft", { text: "" })) layout.open({ view: "mail" }, { beside });
       },
     },
-    { id: "jarvis:ask", label: "Ask Jarvis", hint: "Jarvis", run: () => jarvis.toggle(true) },
+    { id: "jarvis:ask", label: "Ask Pip", hint: "Pip", run: () => jarvis.toggle(true) },
   ];
 }
 
@@ -64,7 +64,7 @@ const make = (what: string, get: () => Promise<(pane: number) => unknown>) => as
         `Couldn't make a new ${what}. Check your connection, then try again.`,
         "error",
       );
-    return toast.show(`Hearth was updated. Reload to make a new ${what}.`, "error", {
+    return toast.show(`Nook was updated. Reload to make a new ${what}.`, "error", {
       label: "Reload",
       run: () => reloadPage(),
     });
@@ -85,14 +85,14 @@ function commands(paused: boolean | undefined): Item[] {
     { id: "new:sheet", label: "New spreadsheet", hint: "Create", run: docs.sheet },
     {
       id: "new:chat",
-      label: "New conversation with Jarvis",
-      hint: "Jarvis",
+      label: "New conversation with Pip",
+      hint: "Pip",
       run: () => jarvis.newChat(),
     },
     // Only the one that applies.
     paused
-      ? { id: "jarvis:resume", label: "Resume Jarvis", hint: "Jarvis", run: () => setPaused(false) }
-      : { id: "jarvis:pause", label: "Pause Jarvis", hint: "Jarvis", run: () => setPaused(true) },
+      ? { id: "jarvis:resume", label: "Resume Pip", hint: "Pip", run: () => setPaused(false) }
+      : { id: "jarvis:pause", label: "Pause Pip", hint: "Pip", run: () => setPaused(true) },
     { id: "pane:split", label: "Split pane", hint: "Layout", run: () => layout.split() },
     { id: "pane:close", label: "Close pane", hint: "Layout", run: () => layout.close() },
     {
@@ -162,7 +162,7 @@ export function CommandPalette(props: { onClose: () => void }) {
   const ask: PaletteItem = {
     id: "ask",
     label: "",
-    hint: "Jarvis",
+    hint: "Pip",
     run: async () => {
       const r = await act<{ conversationId: string }>("chat.send", { text: text().trim() });
       if (r) {
@@ -209,7 +209,7 @@ export function CommandPalette(props: { onClose: () => void }) {
           run: (beside) => layout.open(routeFor(h.type, h.id), { beside }),
         })),
       },
-      extra: q ? [{ ...ask, label: `Ask Jarvis: “${q}”` }, ...newTask(q)] : [],
+      extra: q ? [{ ...ask, label: `Ask Pip: “${q}”` }, ...newTask(q)] : [],
     });
   };
   const active = () =>
@@ -237,7 +237,7 @@ export function CommandPalette(props: { onClose: () => void }) {
         ref={dialog}
         role="dialog"
         aria-modal="true"
-        aria-label="Search, commands and Jarvis"
+        aria-label="Search, commands and Pip"
         class="w-[min(640px,92vw)] overflow-hidden rounded-xl border border-line bg-panel shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
@@ -247,7 +247,7 @@ export function CommandPalette(props: { onClose: () => void }) {
             queueMicrotask(() => input.focus());
           }}
           class="w-full border-b border-line bg-transparent px-4 py-3 text-base outline-none"
-          placeholder="Search, run a command, or ask Jarvis…"
+          placeholder="Search, run a command, or ask Pip…"
           role="combobox"
           aria-expanded="true"
           aria-controls="palette-list"
@@ -307,7 +307,7 @@ export function CommandPalette(props: { onClose: () => void }) {
             <Kbd>Shift+Enter</Kbd> open beside
           </span>
           <span>
-            <Kbd>{MOD}+Enter</Kbd> ask Jarvis
+            <Kbd>{MOD}+Enter</Kbd> ask Pip
           </span>
           <span>
             <Kbd>Esc</Kbd> close
