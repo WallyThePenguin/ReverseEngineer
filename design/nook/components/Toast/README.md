@@ -1,0 +1,1 @@
+Toasts report something that already happened. They appear top right under the bar on `glass-strong`, 340px wide, for 5 seconds (paused on hover). Title is bold `callout`; body is `ink-muted`. If a decision is required use an ApprovalCard. The consumer provides a title, one line and an optional action.

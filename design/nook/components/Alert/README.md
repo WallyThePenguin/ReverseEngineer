@@ -1,0 +1,1 @@
+Alerts block the window to confirm a risky action: `glass-strong`, `radius-sheet`, 300px wide, centred over a `blur-scrim` backdrop. Title states the action in a question; one sentence explains the consequence; buttons stack, the safe default is the primary. The consumer provides the title, message and actions.

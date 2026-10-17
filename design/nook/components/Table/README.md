@@ -1,0 +1,1 @@
+Tables use `callout` text, a `surface-2` header in 11px semibold `ink-muted`, zebra stripes on `surface-2`, and right-aligned tabular numerals. Status columns use Badge. Sorting is shown with a chevron beside the header; the sorted column header becomes `ink`.

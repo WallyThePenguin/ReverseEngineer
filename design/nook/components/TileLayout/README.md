@@ -1,0 +1,1 @@
+Tiling arranges windows without overlap, with `tile-gap` between windows and to the screen edge. Layouts: columns, main-and-stack, grid and float. Every tile keeps `radius-win`; only the focused tile gets the 2px `focus` border and a full `ink` label. Resize by dragging a gap; the drag shows a `accent` line. The consumer provides the layout name per workspace and the window list.

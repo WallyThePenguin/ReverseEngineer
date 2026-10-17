@@ -1,0 +1,1 @@
+`nook-mark.svg` is the app icon and dock tile (an `accent` rounded square with two windows and Pip's face); `nook-wordmark.svg` is the mark plus the word Nook for the About window, installer and website. Both are baked to the Light theme accent; on dark surfaces the mark stays blue. Clear space is a quarter of the mark's width; never outline, recolour or rotate.

@@ -2211,3 +2211,18 @@ and SQL checks (parked when the owner chose Convex).
 
 **Why:** The owner asked on 2026-10-07 for "connectors to data as read-only or controlled AI
 connector", then: "data stuff like convex mongodb, remotehosted data stuff, start with convex."
+
+## D74. Nook: the look, the names and the license (2026-10-17)
+
+**Decision:** Hearth is shown as Nook, and Jarvis as Pip. Only what you see changes: code, the
+database, services, the CLI and `D:\Hearth` keep the names hearth and jarvis. Nook's look is the
+design system in `design/nook/` (six themes, 31 components, Pip): the web app's tokens are
+generated from its `tokens.json` (`scripts/nook-themes.ts`), and the views move onto its
+components. Hearth is MIT-licensed; supersedes D19.
+
+**Alternatives:** Renaming the code too (a large, risky change for nothing you see). Keeping the
+warm, Macro-like look (the owner: it "was ugly"). Keeping AGPLv3 (D19 assumed copied Macro code;
+none was copied, NOTICE.md lists what was).
+
+**Why:** The owner, 2026-10-17, after another agent's rework broke the live install: rebuild the
+look from the ground up on the Nook design system, call it Nook with Pip, and keep MIT.

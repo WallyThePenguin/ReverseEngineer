@@ -1,0 +1,1 @@
+The dock is an optional launcher: a floating `glass` pill of `radius-xl` with `dock-icon` tiles for the views, an open-indicator dot under running views, and Pip after a divider. Hovered icons scale to 1.25 and lift 6px. Tiles use the chart colours with white glyphs; replace letters with real icons. The consumer provides the view list and which are open.

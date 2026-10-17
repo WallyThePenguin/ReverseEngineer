@@ -1,0 +1,1 @@
+Donuts show parts of a whole with five segments at most, 18px thick, 3px gaps, using `chart-1`, `chart-3`, `chart-2`, then `chart-8` for Other. The centre shows the total in 22px bold with a `caption` below. A side legend lists names and percentages. Prefer a bar chart for more than five parts.

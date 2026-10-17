@@ -1,0 +1,1 @@
+Heatmaps map magnitude to the five-step blue sequential ramp `seq-1` to `seq-5` (light-to-dark in light theme, dark-to-light in dark). Cells are 24x20 with 5px radius, weekday labels at left, a Fewer/More legend at right. Each cell has a `title` with its exact value. The consumer provides a grid of values and labels.

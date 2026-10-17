@@ -4,7 +4,7 @@
 
 import { createRoot, createSignal, For, type JSX, Show } from "solid-js";
 import { Icon } from "../components/icons.tsx";
-import { Flame } from "../components/Mark.tsx";
+import { NookMark } from "../components/Mark.tsx";
 import { Overflow } from "../components/Menu.tsx";
 import { JarvisStatusMark, jarvis } from "../jarvis/JarvisPane.tsx";
 import { authPost } from "../lib/api.ts";
@@ -137,7 +137,7 @@ export function Sidebar(props: {
     >
       <div class="mb-3 flex min-h-7 items-center gap-1 pl-0.5">
         <Overflow
-          label="Hearth menu"
+          label="Nook menu"
           start
           class="flex min-h-11 min-w-0 items-center gap-2 rounded-md px-1.5 hover:bg-panel md:min-h-7"
           items={[
@@ -153,8 +153,8 @@ export function Sidebar(props: {
             { label: "Sign out", icon: "log-out", run: () => void signOut() },
           ]}
         >
-          <Flame size={20} />
-          <span class="font-semibold">Hearth</span>
+          <NookMark size={20} />
+          <span class="font-semibold">Nook</span>
           <span
             class={`size-1.5 rounded-full ${live.connected() ? "bg-ok" : "bg-faint"}`}
             title={live.connected() ? "Live" : "Reconnecting…"}

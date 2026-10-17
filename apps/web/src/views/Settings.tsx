@@ -1,5 +1,5 @@
-// Settings: pause Jarvis's initiative, see Hearth's health, and manage what Jarvis may do
-// without asking.
+// Settings: pause Jarvis's initiative, see Hearth's health, manage what Jarvis may do without
+// asking, and pick this device's theme.
 
 import { For, Show } from "solid-js";
 import { Badge, Button, PaneHeader } from "../components/ui.tsx";
@@ -9,6 +9,7 @@ import { jarvisLiveness } from "../lib/jarvis-health.ts";
 import { setPaused } from "../lib/pause.ts";
 import { act, useAction } from "../lib/query.ts";
 import type { StandingRule, SystemStatus } from "../lib/types.ts";
+import { AppearanceSettings } from "./AppearanceSettings.tsx";
 import { ChromeSettings } from "./ChromeSettings.tsx";
 import { DataSettings } from "./DataSettings.tsx";
 import { DesktopSettings } from "./DesktopSettings.tsx";
@@ -119,6 +120,9 @@ export function Settings() {
           </section>
         </Anchor>
 
+        <Anchor id="appearance">
+          <AppearanceSettings />
+        </Anchor>
         <Anchor id="chrome">
           <ChromeSettings />
         </Anchor>

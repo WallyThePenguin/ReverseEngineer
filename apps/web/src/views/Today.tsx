@@ -162,7 +162,7 @@ export function Today(props: { pane: number }) {
                   day: "numeric",
                 })}
               </p>
-              <h2 class="mt-1 font-serif text-hero">{greeting(now())}</h2>
+              <h2 class="mt-1 text-hero">{greeting(now())}</h2>
               {/* Each part counts what its section shows, and takes you to it. Kept by its words:
                   the minute moving on doesn't draw it again, and the focus stays on it. */}
               <p class="mt-1 flex flex-wrap gap-x-1.5 text-sm text-muted">

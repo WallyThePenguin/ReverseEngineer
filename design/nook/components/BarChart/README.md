@@ -1,0 +1,1 @@
+Bar charts compare categories. Bars are 12px wide with 3px top radius, series in `chart-1` and `chart-2`, a baseline in `chart-grid`, and axis labels in `ink-muted`. Show values in a tooltip on hover, not on every bar. The consumer provides categories, series and an `aria-label`.

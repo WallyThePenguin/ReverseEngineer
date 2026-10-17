@@ -1,0 +1,1 @@
+Key caps show shortcuts in menus, the palette and tooltips, in `kbd` (mono 11px), one cap per key. Name keys as the platform does (Ctrl, Alt, Win on Windows; ⌘ ⌥ on macOS). The consumer provides the key names.

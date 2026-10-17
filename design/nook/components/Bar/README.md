@@ -1,0 +1,1 @@
+The bar is a menu bar of `bar-height` on `glass`. Left to right: workspaces, the focused view's name in bold and its menus, a spacer, services status, Pip, and the clock. On `glass` use `ink` only; put muted text inside a `glass-strong` popover. The consumer provides workspaces, menus and status items.

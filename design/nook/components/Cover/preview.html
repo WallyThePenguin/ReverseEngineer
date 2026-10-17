@@ -1,0 +1,26 @@
+<!-- @dsCard height=320 -->
+<!doctype html><html><head><meta charset="utf-8"><style>
+html,body{margin:0;background:var(--canvas)}
+.cv{width:960px;height:320px;position:relative}
+svg{display:block}
+.t{rx:var(--radius-win);ry:var(--radius-win)}
+.acc{fill:var(--accent)}.c2{fill:var(--chart-2)}.c3{fill:var(--chart-3)}.c4{fill:var(--chart-4)}.c5{fill:var(--chart-5)}.soft{fill:var(--accent-soft);stroke:var(--focus);stroke-width:2}
+.name{font:700 120px/1 var(--font-sans);letter-spacing:-.035em;fill:var(--ink)}
+.tag{font:400 14px/20px var(--font-sans);fill:var(--ink-muted)}
+</style></head><body><div class="cv">
+<!--
+blocks: accent 288x96, chart-2 200x96, chart-3 and chart-5 136x44, chart-4 88x96, accent-soft 168x96 with focus stroke; all at radius-win
+arrangement: one top band of unequal tiles on an 8px tile-gap grid, like a tiled desktop, the last tile carrying the focus border
+pattern: modular tiles cut by the radius tokens (dense UI row): the product is a window manager, so the cover is a tiling layout
+steps/radii: tile-gap 8, space-6 inset 24, radius-win 14
+-->
+<svg width="960" height="320" viewBox="0 0 960 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Nook">
+<rect class="t acc" x="24" y="24" width="288" height="96"/>
+<rect class="t c2" x="320" y="24" width="200" height="96"/>
+<rect class="t c3" x="528" y="24" width="136" height="44"/>
+<rect class="t c5" x="528" y="76" width="136" height="44"/>
+<rect class="t c4" x="672" y="24" width="88" height="96"/>
+<rect class="t soft" x="769" y="25" width="166" height="94"/>
+<text class="name" x="24" y="258">Nook</text>
+<text class="tag" x="24" y="292">Your desk, in order. Pip keeps watch.</text>
+</svg></div></body></html>

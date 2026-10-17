@@ -1,0 +1,1 @@
+An approval card interrupts only when Pip wants an action with side effects. Header: orb and a plain question; body: the exact action in `code`; footer: Edit, a safe alternative and one primary action. The consumer provides the question, action text and handlers. Never pre-focus a destructive primary.
