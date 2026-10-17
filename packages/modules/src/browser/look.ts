@@ -5,7 +5,7 @@
 import { defineAction } from "@hearth/kernel";
 import { z } from "zod";
 import { assertAllowed, browser, CALLERS } from "./access.ts";
-import { findTab, type PageSnapshot, readPage, rememberLinks } from "./page.ts";
+import { findTab, type PageSnapshot, readPage, rememberDoc, rememberLinks } from "./page.ts";
 
 /** The most of a page read at once; longer pages are cut off there. */
 const MAX_READ = 300_000;
@@ -72,6 +72,7 @@ export const lookActions = [
       // The page may have moved on since the tab list was read.
       await assertAllowed(ctx, page.url);
       rememberLinks(i.tabId, page.url, page.links, page.elements);
+      rememberDoc(i.tabId, page.doc);
       return readResult(i.tabId, page, i.offset, i.maxChars);
     },
   }),

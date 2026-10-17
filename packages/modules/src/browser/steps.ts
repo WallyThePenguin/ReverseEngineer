@@ -4,7 +4,15 @@
 import { type ActionContext, ActionError, defineAction } from "@hearth/kernel";
 import { z } from "zod";
 import { assertAllowed, assertNotHearth, browser, CALLERS } from "./access.ts";
-import { askWhy, dialogVerdict, isTrusted, judge, REJECT, type Verdict } from "./classify.ts";
+import {
+  askWhy,
+  dialogVerdict,
+  HEARTH_PAGE,
+  isTrusted,
+  judge,
+  REJECT,
+  type Verdict,
+} from "./classify.ts";
 import { clickAt, pressCombo } from "./input.ts";
 import { type Combo, isPaste, parseKeys, types } from "./keys.ts";
 import { pace } from "./pace.ts";
@@ -15,6 +23,7 @@ import {
   assertSite,
   beforeStep,
   handsPin,
+  lookedHearth,
   SITE_CHECK,
   tabId,
   tabPin,
@@ -185,8 +194,11 @@ export const stepActions = [
       const { tab, known } = await beforeStep(client, i.tabId);
       assertSite(tab, i.site);
       await assertAllowed(ctx, tab.url);
-      // Cancel or Stay is fine on Hearth's own page; OK or Leave there is the owner's.
+      // Cancel or Stay is fine on Hearth's own page; OK or Leave there is the owner's, at its
+      // address or where its mark was last seen.
       if (i.accept) assertNotHearth(ctx, tab.url);
+      if (i.accept && ctx.caller.kind !== "owner" && lookedHearth(tab))
+        throw new ActionError("forbidden", HEARTH_PAGE);
       const dialog = tab.dialog;
       if (!dialog) throw new ActionError("not_found", `There's no dialog open in tab ${i.tabId}.`);
       if (i.accept) {

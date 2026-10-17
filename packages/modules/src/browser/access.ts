@@ -1,7 +1,7 @@
 // Who may use your Chrome, and where: shared by the browser's actions and page watches.
 import { normalizeUrl, onSiteList, type PrincipalKind } from "@hearth/core";
 import { type ActionContext, ActionError, getSetting } from "@hearth/kernel";
-import { HEARTH_PAGE, isHearthPage } from "./classify.ts";
+import { HEARTH_PAGE, isHearthApi, isHearthPage } from "./classify.ts";
 import { BROWSER_SERVICE, type BrowserClient } from "./client.ts";
 
 /** Your Chrome is yours: outside agents and integrations never get it. */
@@ -25,6 +25,11 @@ export async function assertAllowed(
     throw new ActionError("invalid_input", `${raw} isn't an http or https address.`);
   const url = new URL(raw.trim()).href;
   if (ctx.caller.kind === "owner" && !everyone) return url;
+  if (isHearthApi(url))
+    throw new ActionError(
+      "forbidden",
+      "That's one of Hearth's own requests, not a page. Jarvis does Hearth's things with its own actions, never by opening them in Chrome, where they'd go with the owner's sign-in.",
+    );
   const sites = await getSetting(ctx.tx, "browser.sites");
   const host = new URL(url).hostname;
   if (onSiteList(host, sites.blocked))

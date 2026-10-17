@@ -19,6 +19,15 @@ const MARKED = "https://mirror.example/";
 const COUNT = "https://count.example/";
 // A page with somewhere to type, which a test sends elsewhere while Jarvis waits its turn there.
 const LATER = `<!doctype html><title>Later</title><input aria-label="Search" autofocus>`;
+// A page Jarvis reads, and what takes its place while it waits its turn: the same references
+// (as a page back from the cache keeps them), on Hearth's own page or another on the same site.
+const START = "https://start.example/";
+const STAGED = (mark: string) => `<!doctype html><head>${mark}<title>Staged</title></head>
+  <button data-hearth="E1" onclick="document.title = 'Pressed'">Approve</button>
+  <select data-hearth="E2" aria-label="Size" onchange="document.title = 'Changed'">
+    <option>Small</option><option>Large</option></select>`;
+const STAGED_HEARTH = "https://staged.example/";
+const STAGED_AWAY = "https://start.example/staged";
 const PAGES: Record<string, string> = {
   [SHOP]: `<!doctype html><title>Shop</title>
     <form role="search" action="/search" method="get">
@@ -56,6 +65,10 @@ const PAGES: Record<string, string> = {
   // Another site, counting the keys that reach it.
   [COUNT]: `<!doctype html><title>Count</title>
     <script>let keys = 0; addEventListener("keydown", () => { document.title = "keys " + ++keys; });</script>`,
+  [START]: `<!doctype html><title>Start</title><button>Go</button>
+    <select aria-label="Size"><option>Small</option><option>Large</option></select>`,
+  [STAGED_HEARTH]: STAGED('<meta name="hearth-build" content="test">'),
+  [STAGED_AWAY]: STAGED(""),
   "https://later.example/": LATER,
   "https://soon.example/": LATER,
   "https://anon.example/": LATER,
@@ -251,6 +264,46 @@ describe.skipIf(!hasChromium)("Jarvis's hands in Chrome", () => {
       release();
       expect(await res).toMatchObject({ status: "error", ...error });
       expect(await chrome.page(tabId).title()).toBe(there === HEARTH ? "Hearth" : "Count");
+    }
+  }, 120_000);
+
+  it("presses and picks nothing on a page that took the place of the one it read", async () => {
+    const cases = [
+      ["browser.click", { ref: "E1" }, STAGED_HEARTH, { code: "forbidden", message: HEARTH_PAGE }],
+      ["browser.choose", { ref: "E2", value: "Large" }, STAGED_HEARTH, { code: "forbidden" }],
+      ["browser.click", { ref: "E1" }, STAGED_AWAY, { code: "conflict" }],
+      ["browser.choose", { ref: "E2", value: "Large" }, STAGED_AWAY, { code: "conflict" }],
+    ] as const;
+    for (const [step, refs, there, error] of cases) {
+      const { tabId } = await ok<{ tabId: number }>("browser.open", { url: START });
+      const page = await ok<{ text: string }>("browser.read", { tabId });
+      expect(page.text).toContain("[button E1: Go] [select E2: Size = Small]");
+      let release = () => {};
+      turn.held = new Promise<void>((r) => {
+        release = r;
+      });
+      const waits = turn.waits;
+      const res = t.kernel.execute(step, { tabId, ...refs }, jarvis);
+      await expect.poll(() => turn.waits - waits, { timeout: 30_000 }).toBe(1);
+      await chrome
+        .page(tabId)
+        .evaluate(`location.href = ${JSON.stringify(there)}`)
+        .catch(() => {});
+      await expect.poll(() => chrome.page(tabId).url(), { timeout: 30_000 }).toBe(there);
+      turn.held = null;
+      release();
+      expect(await res).toMatchObject({ status: "error", ...error });
+      expect(await chrome.page(tabId).title()).toBe("Staged");
+    }
+    // Nor a reference from a page gone since, whether it went by itself (yours) or Jarvis sent it.
+    for (const caller of [ownerCaller(), jarvis]) {
+      const { tabId } = await ok<{ tabId: number }>("browser.open", { url: START });
+      await ok("browser.read", { tabId });
+      if (caller === jarvis) await ok("browser.navigate", { tabId, url: STAGED_AWAY });
+      else await chrome.page(tabId).goto(STAGED_AWAY);
+      const res = await t.kernel.execute("browser.click", { tabId, ref: "E1" }, caller);
+      expect(res).toMatchObject({ status: "error", code: "conflict" });
+      expect(await chrome.page(tabId).title()).toBe("Staged");
     }
   }, 120_000);
 

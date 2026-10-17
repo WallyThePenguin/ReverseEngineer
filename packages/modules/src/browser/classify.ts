@@ -122,9 +122,27 @@ function hostOf(raw: string | undefined) {
     let u = new URL(raw ?? "");
     if (u.protocol === "blob:") u = new URL(u.pathname);
     const port = u.port || (u.protocol === "https:" ? "443" : "80");
-    return { host: bare(u.hostname), port, path: u.pathname };
+    return { host: bare(u.hostname), port, path: routed(u.pathname) };
   } catch {
     return null;
+  }
+}
+
+/**
+ * A path as Hearth's server routes it: it decodes %-escapes, so /%61pi/... is /api/.... One that
+ * won't decode whole is decoded a run at a time.
+ */
+function routed(path: string): string {
+  try {
+    return decodeURI(path);
+  } catch {
+    return path.replace(/(?:%[0-9A-Fa-f]{2})+/g, (run) => {
+      try {
+        return decodeURI(run);
+      } catch {
+        return run;
+      }
+    });
   }
 }
 
@@ -161,6 +179,16 @@ export function isHearthPage(url: string, env: NodeJS.ProcessEnv = process.env):
   if (!at?.host || at.path === TEST_PAGE_PATH) return false;
   if (thisPc(at.host, env)) return hearthPorts(env).includes(at.port);
   return [env.HEARTH_ORIGIN, env.HEARTH_LOCAL_ORIGIN].some((o) => o && hostOf(o)?.host === at.host);
+}
+
+/**
+ * Whether an address is one of Hearth's own requests rather than a page (/api/...): one opened in
+ * your Chrome goes with your sign-in, so it could start something only you should, such as
+ * connecting a Google account. Chrome's test page is the exception, as above.
+ */
+export function isHearthApi(url: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  const at = hostOf(url);
+  return Boolean(at?.path.startsWith("/api/")) && isHearthPage(url, env);
 }
 
 /** Hearth's own page says so in its head, whatever address reached it (a proxy, an alias). */

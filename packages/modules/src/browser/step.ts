@@ -51,7 +51,25 @@ export interface Here {
   hearth: boolean;
 }
 
-const HERE = `({ href: location.href, doc: performance.timeOrigin, mark: document.querySelector(${JSON.stringify(HEARTH_MARK)}) !== null })`;
+// A page whose head is still coming in can't say yet whether it's Hearth's.
+const HERE = `(document.readyState === "loading" && !document.body ? null : { href: location.href, doc: performance.timeOrigin, mark: document.querySelector(${JSON.stringify(HEARTH_MARK)}) !== null })`;
+
+// What each tab's page last said it was. A page waiting on a dialog can't be asked, so OK there
+// goes by this: Hearth's own known only by its mark (its dev server, a proxy) stays the owner's.
+const looks = new Map<number, { origin: string; hearth: boolean }>();
+const originOf = (url: string) => {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return "";
+  }
+};
+
+/** The tab's page, at the address it's at now, was Hearth's own when Jarvis last looked. */
+export function lookedHearth(tab: TabInfo): boolean {
+  const last = looks.get(tab.tabId);
+  return Boolean(last?.hearth && last.origin === originOf(tab.url));
+}
 
 /** How long a page may take to say where it is: one that doesn't can't be told from Hearth's. */
 export const HERE_MS = 5_000;
@@ -74,7 +92,11 @@ export async function hereOf(client: BrowserClient, tabId: number): Promise<Here
   );
   const said = await Promise.race([asked, late]).finally(() => clearTimeout(timer));
   if (typeof said?.href !== "string") return null;
-  return { href: said.href, doc: said.doc, hearth: said.mark || isHearthPage(said.href) };
+  const here = { href: said.href, doc: said.doc, hearth: said.mark || isHearthPage(said.href) };
+  looks.delete(tabId);
+  looks.set(tabId, { origin: originOf(here.href), hearth: here.hearth });
+  if (looks.size > 50) looks.delete(looks.keys().next().value!);
+  return here;
 }
 
 const unknown = (tabId: number) =>
@@ -107,19 +129,22 @@ export async function assertHere(
 }
 
 /** tabPin, for a step that presses, types or uses keys: on Hearth's own page it's refused before
- * a card asks you, since it would be refused after your yes anyway. */
+ * a card asks you, since it would be refused after your yes anyway. It never fails: a pin that
+ * did would be taken for none, and skip D30's ask. */
 export async function handsPin(
   i: { tabId: number },
   services: Services,
 ): Promise<{ url: string; refused?: string } | null> {
   const client = services.service<BrowserClient>("browser");
-  const tab = (await listTabs(client)).find((t) => t.tabId === i.tabId);
+  const tab = (await listTabs(client).catch(() => [])).find((t) => t.tabId === i.tabId);
   if (!tab?.url) return null;
   const pinned = { url: tab.url };
   if (isHearthPage(tab.url)) return { ...pinned, refused: HEARTH_PAGE };
   // A page waiting on a dialog can't be asked anything until it's answered.
-  if (tab.dialog) return pinned;
-  const here = await hereOf(client, i.tabId);
+  if (tab.dialog) return lookedHearth(tab) ? { ...pinned, refused: HEARTH_PAGE } : pinned;
+  // A dialog that opened just now: the step itself looks again.
+  const here = await hereOf(client, i.tabId).catch(() => undefined);
+  if (here === undefined) return pinned;
   if (!here) return { ...pinned, refused: unknown(i.tabId) };
   return here.hearth ? { ...pinned, refused: HEARTH_PAGE } : pinned;
 }

@@ -93,10 +93,11 @@ export class DriverContext {
       .evaluate<boolean>(
         undefined,
         this.tab.mainFrame ?? "",
-        `document.querySelector(${JSON.stringify(HEARTH_MARK)}) !== null`,
+        // A page whose head is still coming in can't say yet whether it's Hearth's.
+        `document.readyState === "loading" && !document.body ? null : document.querySelector(${JSON.stringify(HEARTH_MARK)}) !== null`,
       )
       .catch(() => null);
-    if (marked === null)
+    if (marked === null || marked === undefined)
       throw fail(
         "changed",
         `Jarvis couldn't tell what page tab ${this.tab.tabId} is on, so it didn't go ahead. Try again once the page has loaded.`,

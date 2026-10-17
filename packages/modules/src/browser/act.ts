@@ -8,13 +8,21 @@
 import { type ActionContext, ActionError, defineAction } from "@hearth/kernel";
 import { z } from "zod";
 import { assertAllowed, assertNotHearth, browser, CALLERS } from "./access.ts";
-import { askWhy, isTrusted, judge, type Verdict } from "./classify.ts";
+import { askWhy, HEARTH_MARK, HEARTH_PAGE, isTrusted, judge, type Verdict } from "./classify.ts";
 import type { BrowserClient, TabInfo } from "./client.ts";
 import { DRIVER_REF, point } from "./drive.ts";
 import { driverClick, driverPress, driverProbe, driverType } from "./drive-act.ts";
-import { clickAt, insertText, pressKey } from "./input.ts";
+import { clickAt, insertText, movedOn, pressKey, type RefPage } from "./input.ts";
 import { pace } from "./pace.ts";
-import { elementSeen, evaluate, pageCall, pageFunction } from "./page.ts";
+import {
+  readDocField as doc,
+  elementSeen,
+  evaluate,
+  pageCall,
+  pageFunction,
+  readDoc,
+  withReadDoc,
+} from "./page.ts";
 import {
   afterStep,
   assertHere,
@@ -52,6 +60,10 @@ const PROBE = pageFunction("./page-probe.js", "pageProbe");
 
 export interface ElementState {
   missing: boolean;
+  /** Where the page is as it answers: a step judges its site and trust by this. */
+  href: string;
+  hearth?: boolean;
+  moved?: boolean;
   kind: string;
   label: string;
   submits: boolean;
@@ -72,16 +84,35 @@ export interface ElementState {
 
 const TYPEABLE = new Set(["field", "text area"]);
 
-/** Finds an element on the tab's page and gets it ready. */
+/**
+ * Finds an element on the tab's page and gets it ready, on the page it was read from and, for
+ * anyone but you, not Hearth's own: the page checks both before it's touched, so one that changes
+ * while Jarvis waits its turn (or comes back from the cache) gets nothing. `tab.url` is where the
+ * page said it was.
+ */
 export async function locate(
   ctx: ActionContext,
-  i: { tabId: number; ref: string },
+  i: { tabId: number; ref: string; doc?: number },
   op: "inspect" | "focus" | "choose",
   extra: Record<string, unknown> = {},
   paced = true,
-): Promise<{ client: BrowserClient; tab: TabInfo; known: Set<number>; el: ElementState }> {
+): Promise<{
+  client: BrowserClient;
+  tab: TabInfo;
+  known: Set<number>;
+  el: ElementState;
+  page: RefPage;
+}> {
   const client = browser(ctx);
   const { tab, known } = await beforeStep(client, i.tabId);
+  // Read here, or carried in the input from where it was read (a step approved in the server).
+  const read = i.doc ?? readDoc(i.tabId);
+  const guarded = ctx.caller.kind !== "owner";
+  if (guarded && read === undefined) throw new ActionError("conflict", movedOn(i.tabId));
+  const page: RefPage = {
+    ...(read === undefined ? {} : { doc: read }),
+    ...(guarded ? { mark: HEARTH_MARK } : {}),
+  };
   const url = await assertAllowed(ctx, tab.url);
   // Hearth's own page is refused before any wait, by its address or the mark in its head. A page
   // that goes elsewhere while Jarvis waits takes its references with it.
@@ -93,14 +124,16 @@ export async function locate(
   const el = await evaluate<ElementState>(
     client,
     i.tabId,
-    pageCall(ACT, { ref: i.ref, op, ...extra }),
+    pageCall(ACT, { ref: i.ref, op, ...extra, ...page }),
   );
+  if (el?.hearth) throw new ActionError("forbidden", HEARTH_PAGE);
+  if (el?.moved) throw new ActionError("conflict", movedOn(i.tabId));
   if (!el || el.missing)
     throw new ActionError(
       "not_found",
       `${i.ref} isn't on the page any more. Read the page again (browser_read) for fresh references.`,
     );
-  return { client, tab, known, el };
+  return { client, tab: { ...tab, url: el.href || tab.url }, known, el, page };
 }
 
 function assertPressable(el: ElementState, ref: string): void {
@@ -181,6 +214,7 @@ export const actActions = [
       modifiers: z.string().max(40).optional(),
       screenshot: z.boolean().default(false),
       site: SITE_CHECK.optional(),
+      doc,
     }),
     risk: "internal",
     callers: CALLERS,
@@ -188,13 +222,15 @@ export const actActions = [
     // Results carry the page's own words (a button's name), so they're outside content.
     external: true,
     pin: handsPin,
+    snapshot: withReadDoc,
     summarize: (i) => `Click ${described(i)}`,
     async handler(i, ctx) {
       if (toDriver(i.ref)) return driverClick(ctx, i);
       if (i.coordinate || i.button !== "left" || i.clickCount > 1 || i.modifiers || i.screenshot)
         legacyOnly("Clicking with a coordinate, button, clickCount, modifiers or screenshot");
       const ref = i.ref as string;
-      const { client, tab, known, el } = await locate(ctx, { tabId: i.tabId, ref }, "inspect");
+      const at = { tabId: i.tabId, ref, doc: i.doc };
+      const { client, tab, known, el, page } = await locate(ctx, at, "inspect");
       assertSite(tab, i.site);
       assertNotHearth(ctx, tab.url);
       if (el.isLink)
@@ -206,7 +242,7 @@ export const actActions = [
         throw new ActionError("invalid_input", `${ref} is a ${el.kind}; use browser_type.`);
       await assertMayPress(ctx, tab, el, `Pressing "${el.label}"`);
       assertPressable(el, ref);
-      await clickAt(client, i.tabId, ref, el.x, el.y);
+      await clickAt(client, i.tabId, ref, el.x, el.y, page);
       return { tabId: i.tabId, pressed: el.label, ...(await afterStep(ctx, client, tab, known)) };
     },
   }),
@@ -220,20 +256,19 @@ export const actActions = [
       text: z.string().max(10_000),
       clear: z.boolean().default(true),
       site: SITE_CHECK.optional(),
+      doc,
     }),
     risk: "internal",
     callers: CALLERS,
     io: true,
     external: true,
     pin: handsPin,
+    snapshot: withReadDoc,
     summarize: (i) => `Type into ${described(i)}: "${i.text.slice(0, 120)}"`,
     async handler(i, ctx) {
       if (toDriver(i.ref)) return driverType(ctx, i);
-      const { client, tab, el } = await locate(
-        ctx,
-        { tabId: i.tabId, ref: i.ref as string },
-        "inspect",
-      );
+      const at = { tabId: i.tabId, ref: i.ref as string, doc: i.doc };
+      const { client, tab, el } = await locate(ctx, at, "inspect");
       assertSite(tab, i.site);
       assertNotHearth(ctx, tab.url);
       if (el.kind === "password field")
@@ -245,18 +280,10 @@ export const actActions = [
       if (!TYPEABLE.has(el.kind))
         throw new ActionError("invalid_input", `${i.ref} is a ${el.kind}, not a field.`);
       if (el.disabled) throw new ActionError("failed", `"${el.label}" is disabled right now.`);
-      const ready = await locate(
-        ctx,
-        { tabId: i.tabId, ref: i.ref as string },
-        "focus",
-        { clear: i.clear },
-        false,
-      );
+      const ready = await locate(ctx, at, "focus", { clear: i.clear }, false);
+      // Still the page it read (focusing checks), so one sent to Hearth's own gets nothing.
       if (!ready.el.focused)
         throw new ActionError("failed", `Couldn't put the cursor in "${el.label}".`);
-      // Still the page it checked: one that sent itself to Hearth's own meanwhile gets nothing.
-      if (ready.tab.url !== tab.url)
-        throw new ActionError("conflict", "The tab went to another page, so nothing was typed.");
       if (i.text) await insertText(client, i.tabId, i.text);
       return { tabId: i.tabId, typedInto: el.label, characters: i.text.length };
     },
@@ -265,23 +292,24 @@ export const actActions = [
     name: "browser.choose",
     description:
       'Pick an option in a list (by its text), or set a checkbox to "on" or "off", by a reference from browser_read ("E3"). With refs from browser_read_page, use browser_form_input.',
-    input: z.object({ tabId, ref, value: z.string().max(300), site: SITE_CHECK.optional() }),
+    input: z.object({ tabId, ref, value: z.string().max(300), site: SITE_CHECK.optional(), doc }),
     risk: "internal",
     callers: CALLERS,
     io: true,
     external: true,
     pin: handsPin,
+    snapshot: withReadDoc,
     summarize: (i) => `Set ${described(i)} to "${i.value}"`,
     async handler(i, ctx) {
       const peek = await locate(ctx, i, "inspect");
       assertSite(peek.tab, i.site);
       assertNotHearth(ctx, peek.tab.url);
       await assertMayPress(ctx, peek.tab, peek.el, `Changing "${peek.el.label}"`);
-      const { client, tab, el } = await locate(ctx, i, "choose", { value: i.value }, false);
+      const { client, tab, el, page } = await locate(ctx, i, "choose", { value: i.value }, false);
       if (el.error) throw new ActionError("invalid_input", el.error);
       if (el.toggle) {
         assertPressable(el, i.ref);
-        await clickAt(client, i.tabId, i.ref, el.x, el.y);
+        await clickAt(client, i.tabId, i.ref, el.x, el.y, page);
       }
       const now = await locate(ctx, i, "inspect", {}, false).catch(() => null);
       const step = await afterStep(ctx, client, tab, peek.known);
@@ -301,11 +329,13 @@ export const actActions = [
         .describe("Its name as browser_read_page showed it, e.g. 'Place order'."),
       site: SITE_CHECK.describe("The site the page is on, e.g. shop.example."),
       sends: SENDS.optional(),
+      doc,
     }),
     risk: "outward",
     callers: CALLERS,
     io: true,
     external: true,
+    snapshot: withReadDoc,
     // Pinned to what the press would send, so the card can show it and the press is refused if
     // the page or the form changed by the time it's approved.
     async pin(i, services) {
@@ -332,7 +362,7 @@ export const actActions = [
     },
     async handler(i, ctx) {
       if (DRIVER_REF.test(i.ref)) return driverPress(ctx, i);
-      const { client, tab, known, el } = await locate(ctx, i, "inspect");
+      const { client, tab, known, el, page } = await locate(ctx, i, "inspect");
       assertSite(tab, i.site);
       assertNotHearth(ctx, tab.url);
       if (!same(el.label, i.label))
@@ -354,7 +384,7 @@ export const actActions = [
         await pressKey(client, i.tabId, "Enter");
       } else {
         assertPressable(el, i.ref);
-        await clickAt(client, i.tabId, i.ref, el.x, el.y);
+        await clickAt(client, i.tabId, i.ref, el.x, el.y, page);
       }
       return { tabId: i.tabId, pressed: el.label, ...(await afterStep(ctx, client, tab, known)) };
     },

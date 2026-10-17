@@ -2,6 +2,7 @@
 // and remember its links so Jarvis can follow one by reference ("L4") instead of retyping it.
 import { readFileSync } from "node:fs";
 import { ActionError } from "@hearth/kernel";
+import { z } from "zod";
 import { PAGE_RULES } from "./classify.ts";
 import type { BrowserClient, TabInfo } from "./client.ts";
 
@@ -27,6 +28,8 @@ export interface PageElement {
 
 export interface PageSnapshot {
   url: string;
+  /** Which page it is (performance.timeOrigin): its E-references are good on it alone. */
+  doc?: number;
   title: string;
   text: string;
   /** Link addresses; "L1" is links[0]. */
@@ -157,6 +160,34 @@ export function rememberLinks(
   if (pageLinks.size > MAX_PAGES && oldest !== undefined) pageLinks.delete(oldest);
 }
 
+// The page each tab's E-references were numbered on, by browser_read. Kept apart from the links,
+// which browser_read_page also keeps; going to another page forgets both.
+const readDocs = new Map<number, number>();
+
+export function rememberDoc(tabId: number, doc: number | undefined): void {
+  readDocs.delete(tabId);
+  if (doc !== undefined) readDocs.set(tabId, doc);
+  const oldest = readDocs.keys().next().value;
+  if (readDocs.size > MAX_PAGES && oldest !== undefined) readDocs.delete(oldest);
+}
+
+/** The page a tab's E-references belong to, if this process read it. */
+export const readDoc = (tabId: number): number | undefined => readDocs.get(tabId);
+
+/**
+ * The page a step's E-reference was read from, in the step's input: a step that waits for your
+ * yes runs in Hearth's server, which didn't read the page. Hearth fills it in as the step is asked
+ * (withReadDoc, an action's snapshot), always, so one the model gives is replaced.
+ */
+export const readDocField = z
+  .number()
+  .optional()
+  .describe("Filled in by Hearth: the page browser_read read. Leave it out.");
+
+export const withReadDoc = async (i: { tabId: number; ref?: string }) => ({
+  doc: i.ref && /^E\d+$/.test(i.ref) ? readDoc(i.tabId) : undefined,
+});
+
 /** The address behind "L4" on the page last read in a tab, or null. */
 export function linkUrl(tabId: number, ref: string): string | null {
   const n = /^L(\d+)$/i.exec(ref.trim());
@@ -176,4 +207,5 @@ export function elementSeen(
 
 export function forgetLinks(tabId: number): void {
   pageLinks.delete(tabId);
+  readDocs.delete(tabId);
 }

@@ -168,7 +168,7 @@ export class FakeBrowser implements BrowserClient {
       case "Runtime.evaluate": {
         const page = this.pages[tab.url] ?? { title: "", text: "" };
         // Where the page is, asked before Jarvis's hands do anything there.
-        if (String(params.expression).includes("performance.timeOrigin")) {
+        if (String(params.expression).includes("mark: document.querySelector")) {
           const here = { href: tab.url, doc: this.docs.get(tab.tabId), mark: Boolean(page.mark) };
           return { result: { type: "object", value: here } };
         }
@@ -181,6 +181,7 @@ export class FakeBrowser implements BrowserClient {
           truncated: page.text.length > max,
           missing: false,
           elements: [],
+          doc: this.docs.get(tab.tabId),
         };
         return { result: { type: "object", value } };
       }

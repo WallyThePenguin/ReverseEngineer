@@ -6,6 +6,12 @@ import "./lib/theme.ts";
 import { App } from "./shell/App.tsx";
 import { MiniApp } from "./shell/Mini.tsx";
 
+// A page back from the browser's back/forward cache would come back live, with what Jarvis read
+// on it still marked: Hearth always loads afresh instead.
+addEventListener("pageshow", (e) => {
+  if (e.persisted) location.reload();
+});
+
 // The Windows app's small windows (/capture, /chat?compact=1) get just their page, not the shell.
 const mini = miniPage(location);
 render(() => (mini ? <MiniApp page={mini} /> : <App />), document.getElementById("root")!);

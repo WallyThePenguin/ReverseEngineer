@@ -88,6 +88,8 @@ export default defineConfig(({ command }) => ({
   },
   server: {
     port: 5173,
+    // Like Hearth itself (app.ts): no other page may frame it, so a frame can't be worked.
+    headers: { "Content-Security-Policy": "frame-ancestors 'none'" },
     proxy: {
       // ws: the live browser view is a WebSocket.
       "/api": { target: "http://127.0.0.1:4400", changeOrigin: false, ws: true },

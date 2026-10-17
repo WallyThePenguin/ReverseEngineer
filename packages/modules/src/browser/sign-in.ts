@@ -12,7 +12,7 @@ import type { BrowserClient } from "./client.ts";
 import { insertText, pressKey } from "./input.ts";
 import { pace } from "./pace.ts";
 import { evaluate, findTab, loadTiming, pageCall, pageFunction } from "./page.ts";
-import { afterStep } from "./step.ts";
+import { afterStep, assertHere } from "./step.ts";
 import { loginsFor, VAULT_SERVICE, type Vault, type VaultRow } from "./vault.ts";
 
 const LOGIN = pageFunction("./page-login.js", "pageLogin");
@@ -39,6 +39,8 @@ async function siteLogin(
   const tab = await findTab(client, tabId);
   const url = new URL(await assertAllowed(ctx, tab.url));
   assertNotHearth(ctx, url.href);
+  // Hearth's own sign-in, known by the mark in its head at any address, is the owner's.
+  await assertHere(ctx, client, tabId);
   if (url.protocol !== "https:")
     throw new ActionError("forbidden", `${url.host} isn't using HTTPS, so Hearth won't sign in.`);
   const [row] = await loginsFor(ctx.tx, url.hostname, username);

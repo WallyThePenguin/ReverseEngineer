@@ -6,11 +6,17 @@
 // `h` is page-elements.js.
 
 /**
- * @param {{ ref: string, op: "inspect" | "focus" | "choose", clear?: boolean, value?: string }} opts
+ * @param {{ ref: string, op: "inspect" | "focus" | "choose", clear?: boolean, value?: string,
+ *   doc?: number, mark?: string }} opts
  * @param {PageElements} h
  */
 // biome-ignore lint/correctness/noUnusedVariables: sent to the page as source text.
 function pageAct(opts, h) {
+  // Only on Jarvis's side of things: never on Hearth's own page (one back from the cache keeps
+  // its references), and only on the page the reference was read from (`doc`, when it began).
+  // Both before anything here is touched.
+  if (opts.mark && document.querySelector(opts.mark)) return { hearth: true };
+  if (opts.doc !== undefined && opts.doc !== performance.timeOrigin) return { moved: true };
   if (!/^E\d+$/.test(opts.ref)) return { missing: true };
   const [el] = h.findAll(`[data-hearth="${opts.ref}"]`);
   if (!el?.isConnected) return { missing: true };
@@ -35,6 +41,8 @@ function pageAct(opts, h) {
 
   const info = {
     missing: false,
+    /** Where the page is now, which a step judges its site and trust by. */
+    href: location.href,
     kind: kind ?? "element",
     label: h.labelOf(el),
     /** Pressing it (Enter, for a field) would send something; floor and why say more. */
