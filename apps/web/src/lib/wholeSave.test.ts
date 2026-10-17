@@ -39,19 +39,17 @@ vi.mock("./live.ts", async (original) => ({
 const hear = (kind: string) => {
   for (const fn of feed) fn({ seq: 1, kind, entityId: "b1", actor: "owner", payload: {} });
 };
-/** The Web Locks this browser holds: a screen's copy is taken over only once its lock goes. */
-const locked = new Set<string>();
+/** The Web Locks held here, each till let go: a screen's copy is taken only once its lock goes. */
+const locked = new Map<string, Promise<unknown>>();
 type Granted = (lock: { name: string } | null) => Promise<unknown>;
 const locks = {
   async request(name: string, ...args: [Granted] | [{ ifAvailable?: boolean }, Granted]) {
     const fn = args.length === 2 ? args[1] : args[0];
     if (args.length === 2 && args[0].ifAvailable && locked.has(name)) return fn(null);
-    locked.add(name);
-    try {
-      return await fn({ name });
-    } finally {
-      locked.delete(name);
-    }
+    while (locked.has(name)) await locked.get(name);
+    const run = fn({ name }).finally(() => locked.delete(name));
+    locked.set(name, Promise.allSettled([run]));
+    return run;
   },
 };
 
@@ -179,10 +177,12 @@ describe("saving a board whole", () => {
     edit((b) => b.nodes.push(card("b", "two")));
     await vi.advanceTimersByTimeAsync(700);
     expect(saver.problem()).toMatch(/can't reach Hearth/);
+    expect(await saver.flush()).toBeNull();
     down = false;
     await vi.advanceTimersByTimeAsync(2_000);
     expect(texts(server.board)).toEqual(["one", "two"]);
     expect(saver.problem()).toBeNull();
+    expect(await saver.flush()).toBe(2);
   });
 
   it("reads a newer version it couldn't read again soon, rather than at the next one", async () => {

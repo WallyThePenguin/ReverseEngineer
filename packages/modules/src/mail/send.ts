@@ -15,6 +15,7 @@ import {
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { id } from "../shared.ts";
+import { notAnAddress } from "./addresses.ts";
 import { loadDraft, oneLine, type Snapshot, snapshotOf, snapshotSchema } from "./drafts.ts";
 import { buildMessage } from "./mime.ts";
 import { MailProviderError, type RawMail } from "./provider.ts";
@@ -27,7 +28,16 @@ const NO_ACCOUNT = "Pick which account this draft goes from first.";
 export const sendAction = defineAction({
   name: "mail.send",
   description: "Send a draft by its id. Get it right first: the owner sees exactly what goes out.",
-  input: z.object({ id, snapshot: snapshotSchema.optional() }),
+  input: z.object({
+    id,
+    snapshot: snapshotSchema.optional(),
+    version: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe("Filled in by Hearth's composer: the version on screen. Leave it out."),
+  }),
   risk: "outward",
   async snapshot(i: { id: string }, ctx: ReadContext) {
     const d = await loadDraft(ctx.db, i.id);
@@ -60,8 +70,20 @@ export const sendAction = defineAction({
         "conflict",
         "Hearth couldn't show the owner what this would send, so nothing was sent.",
       );
+    if (i.version !== undefined && i.version !== d.version)
+      throw new ActionError(
+        "conflict",
+        "The draft changed after the version on your screen, so nothing was sent. Check it and send again.",
+      );
     if (d.to.length + d.cc.length + d.bcc.length === 0)
       throw new ActionError("invalid_input", "The draft has no recipients.");
+    // Kept as you typed them until now (drafts.ts parseAll).
+    const typo = notAnAddress(d);
+    if (typo !== null)
+      throw new ActionError(
+        "invalid_input",
+        `"${typo}" isn't an email address, so nothing was sent.`,
+      );
     const [row] = await ctx.tx
       .select({ draft: mailDraft, written: entity.createdAt })
       .from(mailDraft)

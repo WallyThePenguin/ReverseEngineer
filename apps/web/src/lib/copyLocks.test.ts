@@ -43,8 +43,8 @@ const restore: LiveEvent = {
   payload: {},
 };
 
-/** The Web Locks this browser holds, by name, in the order they were taken. */
-const held = new Set<string>();
+/** The Web Locks this browser holds, by name, in the order they were taken, each till let go. */
+const held = new Map<string, Promise<unknown>>();
 /** While set, a look at whether a lock is free waits for it first. */
 let slow: Promise<void> | null = null;
 type Granted = (lock: { name: string } | null) => Promise<unknown>;
@@ -56,12 +56,10 @@ const locks = {
       if (slow) await slow;
       if (held.has(name)) return fn(null);
     }
-    held.add(name);
-    try {
-      return await fn({ name });
-    } finally {
-      held.delete(name);
-    }
+    while (held.has(name)) await held.get(name);
+    const run = fn({ name }).finally(() => held.delete(name));
+    held.set(name, Promise.allSettled([run]));
+    return run;
   },
 };
 
@@ -78,6 +76,8 @@ let trashed = false;
 let forbid: string | null = null;
 /** While set, Hearth's answers to reads wait for it. */
 let late: Promise<void> | null = null;
+/** The page is closing: a request without keepalive (over 64 KB, say) is dropped, then the tab. */
+let closing = false;
 const reply = (body: unknown, status = 200) => Response.json(body, { status });
 
 beforeEach(() => {
@@ -88,6 +88,7 @@ beforeEach(() => {
   forbid = null;
   late = null;
   slow = null;
+  closing = false;
   feed.clear();
   kept.clear();
   held.clear();
@@ -100,6 +101,7 @@ beforeEach(() => {
   vi.stubGlobal("navigator", { locks });
   vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
     if (url.endsWith(".get") && late) await late;
+    if (closing && !init.keepalive) return new Promise<Response>(() => {});
     if (down) throw new TypeError("Failed to fetch");
     if (trashed) return reply({ status: "error", code: "not_found", message: "No such" }, 404);
     const input = JSON.parse(String(init.body));
@@ -211,11 +213,27 @@ describe("copies kept by other screens", () => {
     await vi.advanceTimersByTimeAsync(700);
     // P's tab crashes: it hears nothing more, and its lock goes with it.
     feed.delete(fromP!);
-    held.delete([...held][0]!);
+    held.delete([...held.keys()][0]!);
     trashed = false;
     for (const fn of feed) fn(restore);
     await vi.advanceTimersByTimeAsync(0);
     expect(texts(server.data)).toEqual(["one", "P card"]);
+    expect(kept.size).toBe(0);
+  });
+
+  it("keeps what's too long to send as the page closes, and sends it at the next open", async () => {
+    const p = await board();
+    const long = "x".repeat(70_000);
+    p.edit(add(card("p", long)));
+    await vi.advanceTimersByTimeAsync(0);
+    closing = true;
+    window.dispatchEvent(new Event("pagehide"));
+    await vi.advanceTimersByTimeAsync(0);
+    held.clear();
+    closing = false;
+    await board();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(texts(server.data)).toEqual(["one", long]);
     expect(kept.size).toBe(0);
   });
 
@@ -245,7 +263,7 @@ describe("copies kept by other screens", () => {
     expect(texts(b.shown())).toEqual(["one"]);
     b.edit(add(card("n", "Now")));
     await vi.advanceTimersByTimeAsync(0);
-    expect([...kept.keys()]).toEqual([...held]);
+    expect([...kept.keys()]).toEqual([...held.keys()]);
   });
 
   it.each([

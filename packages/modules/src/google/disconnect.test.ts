@@ -104,7 +104,7 @@ describe("which account an email goes from", () => {
       { id: d.id, account: "x@y.example" },
       ownerCaller(),
     );
-    expect(res).toMatchObject({ status: "error", code: "not_found" });
+    expect(res).toMatchObject({ status: "error", code: "invalid_input" });
     await ok("mail.send", { id: d.id });
     expect(g.gmail.sent).toHaveLength(0);
     expect(g.accounts.get(WORK)!.gmail.sent).toHaveLength(1);

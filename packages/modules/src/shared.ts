@@ -11,6 +11,10 @@ export const body = z.string().max(200_000);
 /** An ISO date-time string. */
 export const isoDateTime = z.string().datetime({ offset: true });
 
+/** Jarvis and outside agents change a whole record only over the version they read. */
+export const mustSayBase = (caller: Caller) =>
+  caller.kind === "agent" || caller.kind === "mcp_client";
+
 /** Record types a caller can't read; "all" for one that reads no records at all. */
 export type HiddenTypes = string[] | "all";
 

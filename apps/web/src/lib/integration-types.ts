@@ -120,6 +120,8 @@ export interface MailDraft {
   subject: string;
   text: string;
   updatedAt: string;
+  /** Raised by every change: a save names the one it was made on, and a Send the one it saw. */
+  version: number;
   /** Who started it: Jarvis, or you. */
   by: "jarvis" | "owner";
 }

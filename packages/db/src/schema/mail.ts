@@ -186,4 +186,6 @@ export const mailDraft = pgTable("mail_draft", {
   refs: text("refs").array().notNull().default(sql`'{}'`),
   /** Chosen when the draft is written, so a send can be looked for in Sent (0032). */
   messageId: text("message_id").notNull(),
+  /** Raised by every change: a save on an older one is merged, not written over (0037). */
+  version: integer("version").notNull().default(0),
 });

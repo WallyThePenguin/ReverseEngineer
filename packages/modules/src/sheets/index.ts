@@ -22,7 +22,7 @@ import {
 } from "@hearth/kernel";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
-import { describeRow, id, liveEntity, title } from "../shared.ts";
+import { describeRow, id, liveEntity, mustSayBase, title } from "../shared.ts";
 import { results, resultsAt } from "./engine.ts";
 
 type Db = Parameters<typeof liveEntity>[0];
@@ -65,9 +65,6 @@ async function store(
   );
   return { version: saved!.version, results: res };
 }
-
-/** Jarvis and outside agents save a whole workbook only over the version they read. */
-const mustSayBase = (ctx: Ctx) => ctx.caller.kind === "agent" || ctx.caller.kind === "mcp_client";
 
 /** "Budget!B3" or "B3" (on the first sheet). */
 function target(book: Workbook, ref: string) {
@@ -151,7 +148,7 @@ export const sheetsModule = defineModule({
       }),
       risk: "internal",
       async handler(i, ctx) {
-        if (i.baseVersion === undefined && mustSayBase(ctx))
+        if (i.baseVersion === undefined && mustSayBase(ctx.caller))
           throw new ActionError("invalid_input", "Pass baseVersion: the version from sheet.get.");
         const b = await load(ctx.tx, i.id, true);
         if (i.baseVersion !== undefined && i.baseVersion !== b.version)

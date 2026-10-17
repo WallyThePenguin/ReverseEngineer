@@ -4,7 +4,8 @@
 // Hearth refuses a draft that changed since (mail/send.ts), and one that changes while it's shown
 // here says so and keeps Send off a moment, so what goes is what you read. Anyone it would reach
 // who isn't in the conversation yet is marked in red (on a new email, everyone), on its line as
-// well, and Send waits until the draft and its conversation have just been read.
+// well, and Send waits until the draft and its conversation have just been read. Nor does Send go
+// while this device has changes to the draft that Hearth doesn't have yet (lib/keptDrafts.ts).
 
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { Icon } from "../../components/icons.tsx";
@@ -13,6 +14,7 @@ import { Card } from "../../components/kit/Card.tsx";
 import { SectionHeader } from "../../components/kit/SectionHeader.tsx";
 import { Button } from "../../components/ui.tsx";
 import { ago } from "../../lib/format.ts";
+import { createKept, KEPT_HERE, keptHere } from "../../lib/keptDrafts.ts";
 import { toast } from "../../lib/live.ts";
 import { mailTitle, namesOf, participantsOf, strangers } from "../../lib/needsYou.ts";
 import { act, useAction } from "../../lib/query.ts";
@@ -85,8 +87,14 @@ function DraftRow(props: { draft: MailDraft; fresh: boolean; go: Go }) {
   const shown = createSettled(() => JSON.stringify(draftSnapshot(d())), {
     same: (a, b) => a === b,
   });
+  // Looked at as it opens and as the draft changes, and again as Send is pressed.
+  const kept = createKept(
+    () => (open() ? d().id : null),
+    () => d().version,
+  );
   // Why Send can't go yet, if it can't.
   const wait = () => {
+    if (kept()) return KEPT_HERE;
     if (!d().account) return "Pick which account it goes from first: Edit.";
     if (recipients() === 0) return "Add who it goes to first: Edit.";
     if (shown.settling()) return "It just changed: read it again before you send it.";
@@ -98,6 +106,7 @@ function DraftRow(props: { draft: MailDraft; fresh: boolean; go: Go }) {
   const send = async () => {
     setBusy(true);
     try {
+      if (await keptHere(d().id)) return void toast.show(KEPT_HERE, "error");
       // What's shown is what's sent: Hearth refuses it if the draft changed since.
       const sent = await act<{ alreadySent?: boolean }>("mail.send", {
         id: d().id,
@@ -119,7 +128,13 @@ function DraftRow(props: { draft: MailDraft; fresh: boolean; go: Go }) {
   const discard = async () => {
     setBusy(true);
     try {
-      if (await act("mail.discard", { id: d().id })) toast.show("Draft thrown away.");
+      const id = d().id;
+      // It goes to the trash, so Undo brings it back.
+      if (await act("mail.discard", { id }))
+        toast.show("Draft thrown away.", "info", {
+          label: "Undo",
+          run: () => void act("entity.restore", { id }),
+        });
     } finally {
       setBusy(false);
     }

@@ -5,6 +5,7 @@
 import { createSignal } from "solid-js";
 import { decideApproval } from "./api.ts";
 import { affectedByChange } from "./invalidate.ts";
+import { KEPT_HERE, sendsKept } from "./keptDrafts.ts";
 import { live, type Toast, toast } from "./live.ts";
 import type { Approval, StandingRule } from "./types.ts";
 
@@ -176,6 +177,9 @@ export async function decideQuietly(
     return { outcome: "changed", message: "It was decided a moment ago." };
   setInFlight((s) => add(s, approvalId));
   try {
+    // A send of a draft with changes on this device that Hearth doesn't have yet waits for them.
+    if (decision === "approve" && (await sendsKept(approvalId)))
+      return { outcome: "failed", message: KEPT_HERE };
     const r = await decideApproval(approvalId, decision, alwaysAllow).catch((err: Error) => err);
     // It may still have gone through; asking again is safe, since it runs at most once.
     if (r instanceof Error) return { outcome: "failed", message: r.message, unanswered: true };

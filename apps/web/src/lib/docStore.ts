@@ -245,6 +245,13 @@ export async function unsavedCopies<T>(key: string): Promise<Unsaved<T>[]> {
   return [...(old?.result ? [old.result] : []), ...(screens?.result ?? [])];
 }
 
+/** The records with a copy kept here under `prefix` ("draft:"), by id. */
+export async function keptIds(prefix: string): Promise<string[]> {
+  const range = IDBKeyRange.bound(prefix, `${prefix}\uffff`);
+  const keys = await run<IDBValidKey[]>(UNSAVED, "readonly", (s) => s.getAllKeys(range));
+  return [...new Set((keys ?? []).map((k) => String(k).slice(prefix.length).split("#")[0]!))];
+}
+
 export async function saveUnsaved<T>(rec: Unsaved<T>): Promise<void> {
   await run(UNSAVED, "readwrite", (s) => s.put(rec));
 }

@@ -23,6 +23,7 @@ import { getMe, setSignedOutHandler } from "../lib/api.ts";
 import { goLabel, PLACES } from "../lib/apps.ts";
 import { forgetAllDocs, sendKeptNotes } from "../lib/docStore.ts";
 import { pauseHotkeys, useHotkeys } from "../lib/hotkeys.ts";
+import { keepSendingDrafts } from "../lib/keptDrafts.ts";
 import { live, queryClient, toast } from "../lib/live.ts";
 import { narrow } from "../lib/narrow.ts";
 import { type ListView, layout, type Pane, type PaneRoute } from "../lib/panes.ts";
@@ -140,9 +141,11 @@ function Shell(props: { onSignOut: () => void; covered: boolean }) {
   const waiting = useWaiting();
   onMount(() => {
     live.start();
-    // Note edits a closed tab never sent, and a deleted note's once it's restored (D59).
+    // Note edits a closed tab never sent, and a deleted note's once it's restored (D59); drafts'
+    // too, and again whenever the connection comes back.
     void sendKeptNotes();
     onCleanup(sendKeptOnRestore());
+    onCleanup(keepSendingDrafts());
     const query = new URLSearchParams(location.search);
     // The home screen's "Talk to Jarvis" shortcut.
     if (query.has("jarvis")) jarvis.toggle(true);

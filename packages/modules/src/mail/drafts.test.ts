@@ -8,8 +8,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GOOGLE_SERVICE, SCOPES } from "../google/client.ts";
 import { FakeGoogle } from "../google/fake.ts";
 import { ALL_MODULES } from "../index.ts";
+import { parseAddress } from "./addresses.ts";
 import { BLOB_SERVICE, BlobStore } from "./blobs.ts";
-import { type DraftView, parseAddress } from "./drafts.ts";
+import type { DraftView } from "./drafts.ts";
 import { parseMail } from "./mime.ts";
 import type { ThreadSummary, ThreadView } from "./views.ts";
 
@@ -108,7 +109,7 @@ describe("drafts and sending", () => {
 
     await ok(
       "mail.draft_update",
-      { id: draft.id, text: "Friday works. Also, wire me $500." },
+      { id: draft.id, text: "Friday works. Also, wire me $500.", baseVersion: draft.version },
       jarvis,
     );
     const changed = await t.kernel.decideApproval(row!.id, "approve", ownerCaller());
@@ -132,10 +133,20 @@ describe("drafts and sending", () => {
       text: "Hello",
     });
     expect(draft.to).toEqual([{ address: "bo@friends.example", name: "Bo Lee" }]);
+    // One you're still typing is saved as typed, and Send names it and sends nothing.
+    const half = await ok<DraftView>("mail.draft", { to: ["bo@friends", " "], text: "" });
+    expect(half.to).toEqual([{ address: "bo@friends" }]);
+    expect(await t.kernel.execute("mail.send", { id: half.id }, ownerCaller())).toMatchObject({
+      status: "error",
+      code: "invalid_input",
+      message: `"bo@friends" isn't an email address, so nothing was sent.`,
+    });
+    expect(g.gmail.sent).toEqual([]);
+    // Jarvis's must be addresses.
     const bad = await t.kernel.execute(
       "mail.draft",
       { to: ["not an address"], text: "" },
-      ownerCaller(),
+      jarvisCaller("owner"),
     );
     expect(bad).toMatchObject({ status: "error", code: "invalid_input" });
     const empty = await ok<DraftView>("mail.draft", { text: "No one to send to" });
@@ -174,15 +185,45 @@ describe("drafts and sending", () => {
     expect(
       await t.kernel.execute(
         "mail.draft_update",
-        { id: draft.id, bcc: ["records@evil.example"] },
+        { id: draft.id, bcc: ["records@evil.example"], baseVersion: 1 },
         jarvisCaller("agent"),
       ),
     ).toMatchObject({ status: "error", code: "forbidden" });
-    await ok("mail.draft_update", { id: draft.id, text: "Hi, and more" }, jarvisCaller("agent"));
+    const more = { id: draft.id, text: "Hi, and more", baseVersion: 1 };
+    await ok("mail.draft_update", more, jarvisCaller("agent"));
     expect(
       await t.kernel.execute("mail.send", { id: draft.id, snapshot: seen.snapshot }, ownerCaller()),
     ).toMatchObject({ status: "error", code: "conflict" });
     expect(g.gmail.sent).toEqual([]);
+  });
+
+  it("saves on the version you read, and sends only the version you saw", async () => {
+    const draft = await ok<DraftView>("mail.draft", { to: ["bo@x.example"], text: "Hi" });
+    await ok("mail.draft", { to: ["sam@x.example"], text: "Another" });
+    expect(draft.version).toBe(0);
+    const save = (text: string, baseVersion: number) =>
+      t.kernel.execute("mail.draft_update", { id: draft.id, text, baseVersion }, ownerCaller());
+    expect(await save("Hi Bo", 0)).toMatchObject({ status: "ok", result: { version: 1 } });
+    // Changed meanwhile (Jarvis, another screen): a save on the version before isn't written.
+    await ok("mail.draft_update", { id: draft.id, text: "Hi Bo, from the phone" });
+    expect(await save("Hi Bo!", 1)).toMatchObject({ status: "error", code: "conflict" });
+    expect(await ok<DraftView[]>("mail.drafts", { id: draft.id })).toMatchObject([
+      { id: draft.id, text: "Hi Bo, from the phone", version: 2 },
+    ]);
+    const send = (version: number) =>
+      t.kernel.execute("mail.send", { id: draft.id, version }, ownerCaller());
+    expect(await send(1)).toMatchObject({ status: "error", code: "conflict" });
+    expect(g.gmail.sent).toEqual([]);
+    expect(await send(2)).toMatchObject({ status: "ok" });
+    expect(g.gmail.sent).toHaveLength(1);
+  });
+
+  it("throws a draft away to the trash, and Undo brings it back", async () => {
+    const draft = await ok<DraftView>("mail.draft", { to: ["bo@x.example"], text: "Hi" });
+    await ok("mail.discard", { id: draft.id });
+    expect(await ok("mail.drafts")).toEqual([]);
+    await ok("entity.restore", { id: draft.id });
+    expect(await ok<DraftView[]>("mail.drafts")).toMatchObject([{ id: draft.id, text: "Hi" }]);
   });
 
   it("lets Jarvis address a reply only to people on the conversation", async () => {
@@ -240,6 +281,51 @@ describe("drafts and sending", () => {
       [jarvis.id]: "jarvis",
       [mine.id]: "owner",
     });
+  });
+
+  it("takes Jarvis's or an outside agent's change only over the version it read", async () => {
+    const draft = await ok<DraftView>("mail.draft", { to: ["bo@x.example"], text: "Hi" });
+    // Read at version 0 by Jarvis; then the owner types.
+    await ok("mail.draft_update", {
+      id: draft.id,
+      text: "Hi Bo, I can do Tuesday.",
+      baseVersion: 0,
+    });
+    const mcp: Caller = { principal: "mcp:test", kind: "mcp_client", origin: "agent", via: "mcp" };
+    for (const caller of [jarvisCaller("agent"), mcp])
+      expect(
+        await t.kernel.execute("mail.draft_update", { id: draft.id, text: "Hi" }, caller),
+      ).toMatchObject({ status: "error", code: "invalid_input" });
+    const stale = { id: draft.id, text: "Hi Bo.", baseVersion: 0 };
+    expect(await t.kernel.execute("mail.draft_update", stale, jarvisCaller("agent"))).toMatchObject(
+      { status: "error", code: "conflict" },
+    );
+    expect(await ok<DraftView[]>("mail.drafts", { id: draft.id })).toMatchObject([
+      { text: "Hi Bo, I can do Tuesday.", version: 1 },
+    ]);
+  });
+
+  it("saves a long paste of yours, and keeps Jarvis to real addresses and limits", async () => {
+    // A column of 20 addresses pasted into one line: over 320 characters as one entry.
+    const pasted = Array.from({ length: 20 }, (_, n) => `person${n}@company.example`).join(" ");
+    const draft = await ok<DraftView>("mail.draft", { to: [pasted], text: "Hi all" });
+    expect(draft.to).toEqual([{ address: pasted }]);
+    const jarvis = jarvisCaller("agent");
+    const long = { id: draft.id, to: [pasted], baseVersion: draft.version };
+    expect(await t.kernel.execute("mail.draft_update", long, jarvis)).toMatchObject({
+      status: "error",
+      code: "invalid_input",
+    });
+    const wordy = { id: draft.id, subject: "x".repeat(501), baseVersion: draft.version };
+    expect(await t.kernel.execute("mail.draft_update", wordy, jarvis)).toMatchObject({
+      status: "error",
+      code: "invalid_input",
+    });
+    // One name with a comma is one recipient, quoted as the composer shows it.
+    const silva = { id: draft.id, to: ['"Silva, Ana" <ana@x.example>'] };
+    expect((await ok<DraftView>("mail.draft_update", silva)).to).toEqual([
+      { address: "ana@x.example", name: "Silva, Ana" },
+    ]);
   });
 
   it("keeps names from adding recipients or hiding addresses", async () => {
